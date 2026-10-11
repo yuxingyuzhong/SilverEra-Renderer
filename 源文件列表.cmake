@@ -32,6 +32,10 @@ target_sources(RendererCore PRIVATE
     "src/render/Memory/core/分配器创建.cpp"
     "src/render/Memory/core/图像创建.cpp"
     "src/render/Memory/core/缓冲创建.cpp"
+    "src/render/Platform/core/事件泵.cpp"
+    "src/render/Platform/core/平台上下文.cpp"
+    "src/render/Platform/core/窗口创建.cpp"
+    "src/render/Platform/core/表面创建.cpp"
     "src/render/Renderer/core/渲染器.cpp"
 )
 
@@ -44,6 +48,8 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/设备上下文.h"
     "src/render/Memory/内存上下文.h"
     "src/render/Memory/局部命名空间使用.h"
+    "src/render/Platform/局部命名空间使用.h"
+    "src/render/Platform/平台上下文.h"
     "src/render/Renderer/core/结果检查.h"
     "src/render/Renderer/局部命名空间使用.h"
     "src/render/Renderer/渲染器.h"
