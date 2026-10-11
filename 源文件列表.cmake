@@ -27,7 +27,11 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/core/物理设备选择.cpp"
     "src/render/Device/core/设备上下文.cpp"
     "src/render/Device/core/逻辑设备创建.cpp"
-    "src/render/Renderer/core/VMA实现.cpp"
+    "src/render/Memory/core/VMA实现.cpp"
+    "src/render/Memory/core/上传批次.cpp"
+    "src/render/Memory/core/分配器创建.cpp"
+    "src/render/Memory/core/图像创建.cpp"
+    "src/render/Memory/core/缓冲创建.cpp"
     "src/render/Renderer/core/渲染器.cpp"
 )
 
@@ -38,6 +42,8 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/core/校验层配置.h"
     "src/render/Device/局部命名空间使用.h"
     "src/render/Device/设备上下文.h"
+    "src/render/Memory/内存上下文.h"
+    "src/render/Memory/局部命名空间使用.h"
     "src/render/Renderer/core/结果检查.h"
     "src/render/Renderer/局部命名空间使用.h"
     "src/render/Renderer/渲染器.h"
