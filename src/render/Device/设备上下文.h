@@ -13,9 +13,11 @@ namespace engine
 {
 	/*
 	设备上下文
-	持有一整套 Vulkan 设备侧对象：实例、调试信使、物理设备、逻辑设备与图形队列。
-	生命周期：build → 使用 → destroy；destroy 幂等，析构兜底。
-	创建顺序：实例 → 物理设备 → 逻辑设备；任一步失败即逆序回退，不留下半初始化状态。
+	持有一整套 Vulkan 设备侧对象：实例、调试信使、物理设备、逻辑设备与图形 / 呈现队列。
+	生命周期：build_instance →（表面就绪后）build_device → 使用 → destroy；destroy 幂等，析构兜底。
+	Phase 5 因呈现队列族查询需求而两段化：呈现队列族必须用 vkGetPhysicalDeviceSurfaceSupportKHR
+	查询，而该调用要求表面已存在，故实例先行、设备待表面就绪后再建。
+	创建顺序：实例 →（表面就绪后）物理设备 → 逻辑设备；任一步失败即由调用方逆序回退。
 	*/
 	class Device_Context
 	{
@@ -29,15 +31,20 @@ namespace engine
 		Device_Context& operator=(const Device_Context&) = delete;
 
 		/*
-		构建
-		instance_extensions：实例所需扩展清单。Phase 2 尚无平台模块，由调用方按需给出；
-		                     自 Phase 4 起由平台模块提供表面相关扩展（如 VK_KHR_surface）。
+		构建实例（第一段）
+		instance_extensions：实例所需扩展清单（自 Phase 4 起由平台模块提供表面扩展）。
 		enable_validation：是否请求校验层。仅 Debug 有效；Release 由调用方强制传假。
 		*/
-		bool build(const std::vector<const char*>& instance_extensions, bool enable_validation);
+		bool build_instance(const std::vector<const char*>& instance_extensions, bool enable_validation);
+		/*
+		构建设备（第二段）
+		surface：已创建的窗口表面。用于查询呈现队列族、判定设备能否呈现到该表面。
+		内部先选取满足「图形队列族 + 呈现队列族 + VK_KHR_swapchain」的物理设备，再创建逻辑设备。
+		*/
+		bool build_device(VkSurfaceKHR surface);
 		//销毁（幂等；严格按创建逆序释放）
 		void destroy(void);
-		//是否已构建完成（实例、物理设备、逻辑设备三者齐备）
+		//是否已构建完成（实例与逻辑设备均已建立）
 		bool valid(void) const;
 
 		//获取实例句柄
@@ -50,15 +57,15 @@ namespace engine
 		uint32_t graphics_family_get(void) const;
 		//获取图形队列
 		VkQueue graphics_queue_get(void) const;
+		//获取呈现队列族索引
+		uint32_t present_family_get(void) const;
+		//获取呈现队列
+		VkQueue present_queue_get(void) const;
 		//获取校验层是否已启用
 		bool validation_get(void) const;
 	private:
-		//创建实例（含校验层与调试信使；实现见 core/实例创建.cpp）
-		bool build_instance(const std::vector<const char*>& instance_extensions, bool enable_validation);
-		//选取物理设备并确定图形队列族（实现见 core/物理设备选择.cpp）
-		bool build_physical_device(void);
-		//创建逻辑设备与图形队列（实现见 core/逻辑设备创建.cpp）
-		bool build_device(void);
+		//选取物理设备并确定图形族与呈现族（实现见 core/物理设备选择.cpp）
+		bool build_physical_device(VkSurfaceKHR surface);
 	private:
 		//实例
 		VkInstance instance = VK_NULL_HANDLE;
@@ -72,6 +79,10 @@ namespace engine
 		uint32_t graphics_family = 0;
 		//图形队列
 		VkQueue graphics_queue = VK_NULL_HANDLE;
+		//呈现队列族索引
+		uint32_t present_family = 0;
+		//呈现队列
+		VkQueue present_queue = VK_NULL_HANDLE;
 		//校验层是否已启用
 		bool validation_enabled = false;
 	};

@@ -27,6 +27,10 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/core/物理设备选择.cpp"
     "src/render/Device/core/设备上下文.cpp"
     "src/render/Device/core/逻辑设备创建.cpp"
+    "src/render/Frame/core/命令录制.cpp"
+    "src/render/Frame/core/帧槽创建.cpp"
+    "src/render/Frame/core/延迟销毁.cpp"
+    "src/render/Frame/core/提交呈现.cpp"
     "src/render/Memory/core/VMA实现.cpp"
     "src/render/Memory/core/上传批次.cpp"
     "src/render/Memory/core/分配器创建.cpp"
@@ -37,6 +41,9 @@ target_sources(RendererCore PRIVATE
     "src/render/Platform/core/窗口创建.cpp"
     "src/render/Platform/core/表面创建.cpp"
     "src/render/Renderer/core/渲染器.cpp"
+    "src/render/Swapchain/core/交换链.cpp"
+    "src/render/Swapchain/core/交换链查询.cpp"
+    "src/render/Swapchain/core/交换链重建.cpp"
 )
 
 # 头文件不参与编译，只为让 IDE 建立文件索引；同样经 target_sources 列出，
@@ -46,11 +53,16 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/core/校验层配置.h"
     "src/render/Device/局部命名空间使用.h"
     "src/render/Device/设备上下文.h"
+    "src/render/Frame/局部命名空间使用.h"
+    "src/render/Frame/帧上下文.h"
     "src/render/Memory/内存上下文.h"
     "src/render/Memory/局部命名空间使用.h"
     "src/render/Platform/局部命名空间使用.h"
     "src/render/Platform/平台上下文.h"
+    "src/render/Renderer/core/渲染器实现.h"
     "src/render/Renderer/core/结果检查.h"
     "src/render/Renderer/局部命名空间使用.h"
     "src/render/Renderer/渲染器.h"
+    "src/render/Swapchain/交换链.h"
+    "src/render/Swapchain/局部命名空间使用.h"
 )

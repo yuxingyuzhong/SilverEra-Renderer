@@ -22,13 +22,10 @@ namespace engine
 
 		/*
 		目标 Vulkan 版本
-		优先取运行时支持的版本；取不到则按 1.0 处理（此时该调用失败属预期，不作为硬错误）。
+		Phase 5 起启用 1.3 的动态渲染（dynamicRendering）特性，实例与设备统一按 1.3 请求；
+		运行时不支持 1.3 时 vkCreateInstance 会失败并给出明确日志，不做静默降级（设计 §11）。
 		*/
-		uint32_t api_version = VK_API_VERSION_1_0;
-		VkResult version_result = vkEnumerateInstanceVersion(&api_version);
-		//若版本查询失败
-		if (version_result != VK_SUCCESS)
-			api_version = VK_API_VERSION_1_0;
+		uint32_t api_version = VK_API_VERSION_1_3;
 
 		//应用信息
 		VkApplicationInfo app_info{};
