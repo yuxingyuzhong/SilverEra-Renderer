@@ -229,6 +229,25 @@ string(REGEX REPLACE "([.+*?^$()])" "\\\\\\1" SAFE_BINARY_REGEX "${SAFE_BINARY_D
 list(FILTER RENDERER_SOURCES EXCLUDE REGEX "^${SAFE_BINARY_REGEX}/")
 list(FILTER RENDERER_HEADERS EXCLUDE REGEX "^${SAFE_BINARY_REGEX}/")
 
+# 任务<2>：把本层 GLOB 扫描结果（RENDERER_SOURCES / RENDERER_HEADERS）同步进显式
+# 清单 源文件列表.cmake（仅在路径集合有差异时写回），清单随后以 target_sources
+# 提供全部本层源与头。
+# 动机：GLOB 工程里构建脚本不含任何「具体文件名」，VS 的文件视图改名 / 迁移操作
+#       找不到可改写的引用，于是既不触发 CMake 重新配置，VS 的模型与错误列表也
+#       停在旧版次。清单把扫描结果显式化，为该操作提供可改写的引用。
+# 范围：只覆盖本层自有源码；SDL3 编译集合是手写清单、非 GLOB，保持原机制不变。
+# 说明：清单被 include，因此它本身也是配置依赖 —— 被改写即触发重新配置。
+#       脚本与 EngineCore 共用同一份（构建工具，非层间契约），避免多份副本漂移。
+include("${BYJY_PROJECT_ROOT}/Engine/EngineCore/cmake/生成源文件列表.cmake")
+byjy_source_list_sync(
+    "${PROJECT_ROOT_DIR}/源文件列表.cmake"
+    "${PROJECT_ROOT_DIR}"
+    RendererCore
+    RENDERER_SOURCES
+    RENDERER_HEADERS
+    "Application/Renderer"
+)
+
 message(STATUS "Renderer 本层源文件: ${RENDERER_SOURCES}")
 list(LENGTH SDL3_SOURCES SDL3_SOURCE_COUNT)
 message(STATUS "Renderer 就地编入 SDL3 源文件数量: ${SDL3_SOURCE_COUNT}")
@@ -240,11 +259,12 @@ message(STATUS "Renderer 就地编入 SDL3 源文件数量: ${SDL3_SOURCE_COUNT}
 # 编译定义 / 链接库漏写或写错都会在构建期立刻暴露，不会与声明悄悄漂移。
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/对外接口.cmake")
 
-add_library(RendererCore STATIC
-    ${RENDERER_SOURCES}
-    ${RENDERER_HEADERS}
-    ${SDL3_SOURCES}
-)
+# 本层自有源与头不在此处传参：由 源文件列表.cmake 的 target_sources 提供，
+# 理由见清单头部说明（只有 target_sources 里的字面文件名，其 File API backtrace 才
+# 落在清单文件上，VS 的改名 / 迁移操作才改写得到引用）。
+# SDL3 编译集合是手写清单、非 GLOB，且不属「文件视图改名」的对象，仍以变量形式加入。
+add_library(RendererCore STATIC ${SDL3_SOURCES})
+include("${PROJECT_ROOT_DIR}/源文件列表.cmake")
 
 # 包含根分两级：
 #   PUBLIC  —— 上层使用本层公共头所需的路径（下层快照 ＋ 项目根 ＋ 对外面声明）
