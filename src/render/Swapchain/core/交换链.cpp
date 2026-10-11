@@ -1,6 +1,8 @@
 #include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+//内存上下文完整定义（深度图像创建 / 销毁）
+#include "Application/Renderer/src/render/Memory/内存上下文.h"
 
 namespace engine
 {
@@ -12,7 +14,7 @@ namespace engine
 	}
 
 	//构建
-	bool Swapchain_Context::build(VkPhysicalDevice physical_device, VkDevice device, VkSurfaceKHR surface,
+	bool Swapchain_Context::build(VkPhysicalDevice physical_device, Memory_Context& memory, VkDevice device, VkSurfaceKHR surface,
 		uint32_t graphics_family, uint32_t present_family,
 		uint32_t width, uint32_t height, bool vsync)
 	{
@@ -22,6 +24,12 @@ namespace engine
 			logger.error("交换链:: 构建设备句柄或表面不完整");
 			return false;
 		}
+		//前置：内存上下文必须已构建（深度图像依赖它）
+		if (!memory.valid())
+		{
+			logger.error("交换链:: 内存上下文尚未构建，无法建立交换链（深度图像依赖）");
+			return false;
+		}
 		//若窗口尺寸为零
 		if (width == 0 || height == 0)
 		{
@@ -29,15 +37,16 @@ namespace engine
 			return false;
 		}
 
-		//记录设备与表面
+		//记录设备、表面与内存模块
 		this->physical_device = physical_device;
+		this->memory = &memory;
 		this->device = device;
 		this->surface = surface;
 		this->graphics_family = graphics_family;
 		this->present_family = present_family;
 		this->vsync = vsync;
 
-		//创建交换链与图像视图、图像可用信号量
+		//创建交换链与图像视图、图像可用信号量、深度图像
 		if (!swapchain_create(width, height))
 		{
 			logger.error("交换链:: 创建失败，回退");
@@ -65,12 +74,15 @@ namespace engine
 
 		//复位记录
 		physical_device = VK_NULL_HANDLE;
+		memory = nullptr;
 		device = VK_NULL_HANDLE;
 		surface = VK_NULL_HANDLE;
 		graphics_family = 0;
 		present_family = 0;
 		vsync = true;
 		format = VK_FORMAT_UNDEFINED;
+		depth_format = VK_FORMAT_UNDEFINED;
+		depth_initialized = false;
 		extent = { 0, 0 };
 	}
 
@@ -127,6 +139,8 @@ namespace engine
 			//若句柄有效
 			if (semaphore != VK_NULL_HANDLE)
 				vkDestroySemaphore(device, semaphore, nullptr);
+		//销毁深度图像与视图（随交换链一并重建，U5）
+		depth_resources_destroy();
 		//销毁图像视图
 		for (VkImageView view : image_views)
 			//若句柄有效
@@ -198,5 +212,29 @@ namespace engine
 	uint32_t Swapchain_Context::image_available_count_get(void) const
 	{
 		return static_cast<uint32_t>(image_available_semaphores.size());
+	}
+
+	//获取指定索引的深度图像
+	VkImage Swapchain_Context::depth_image_get(uint32_t index) const
+	{
+		//越界则返回空句柄
+		if (index >= depth_images.size())
+			return VK_NULL_HANDLE;
+		return depth_images[index];
+	}
+
+	//获取指定索引的深度图像视图
+	VkImageView Swapchain_Context::depth_view_get(uint32_t index) const
+	{
+		//越界则返回空句柄
+		if (index >= depth_views.size())
+			return VK_NULL_HANDLE;
+		return depth_views[index];
+	}
+
+	//获取深度格式
+	VkFormat Swapchain_Context::depth_format_get(void) const
+	{
+		return depth_format;
 	}
 }

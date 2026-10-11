@@ -118,8 +118,8 @@ namespace engine
 			swapchain_width = effective.width;
 			swapchain_height = effective.height;
 		}
-		//⑦ 交换链
-		if (!impl->swapchain.build(impl->device.physical_device_get(), impl->device.device_get(),
+		//⑦ 交换链（深度图像依赖内存模块，故传入 memory）
+		if (!impl->swapchain.build(impl->device.physical_device_get(), impl->memory, impl->device.device_get(),
 			impl->platform.surface_get(), impl->device.graphics_family_get(), impl->device.present_family_get(),
 			swapchain_width, swapchain_height, effective.vsync))
 		{
@@ -137,6 +137,136 @@ namespace engine
 			shutdown();
 			return false;
 		}
+		//⑨ 着色器：记录逻辑设备与着色器目录
+		if (!impl->shader.build(impl->device.device_get()))
+		{
+			logger.error("渲染器:: 着色器模块初始化失败");
+			shutdown();
+			return false;
+		}
+		impl->shader.directory_set(effective.shader_dir);
+		//⑩ 加载顶点 / 片元着色器模块
+		if (!impl->shader.module_load(impl->vert_module, "场景.vert.spv"))
+		{
+			logger.error("渲染器:: 顶点着色器加载失败");
+			shutdown();
+			return false;
+		}
+		if (!impl->shader.module_load(impl->frag_module, "场景.frag.spv"))
+		{
+			logger.error("渲染器:: 片元着色器加载失败");
+			shutdown();
+			return false;
+		}
+		//⑪ 管线：描述符布局 / 管线布局 / 描述符池与每帧槽描述符集
+		{
+			Pipeline_Config pipeline_config{};
+			pipeline_config.color_format = impl->swapchain.format_get();
+			pipeline_config.depth_format = impl->swapchain.depth_format_get();
+			pipeline_config.frame_overlap = effective.frame_overlap;
+			if (!impl->pipeline.build(impl->device.device_get(), pipeline_config))
+			{
+				logger.error("渲染器:: 管线基础设施创建失败");
+				shutdown();
+				return false;
+			}
+		}
+		//⑫ 管线：图形管线
+		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module))
+		{
+			logger.error("渲染器:: 图形管线创建失败");
+			shutdown();
+			return false;
+		}
+		/*
+		⑬ 场景 UBO：每帧槽一个主机可见缓冲（64 字节 mat4），
+		写入相机视图 × 投影并把该帧槽 set0 绑定到对应 UBO。
+		*/
+		impl->scene_ubos.resize(effective.frame_overlap);
+		impl->scene_ubo_allocs.resize(effective.frame_overlap);
+		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
+		{
+			//创建场景 UBO（主机可见、统一缓冲用途）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 64,
+				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
+			{
+				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始视图 × 投影矩阵（列主序 16 浮点）
+			float view_proj[16] = {};
+			impl->camera.view_proj_get(view_proj);
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
+			{
+				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//把该帧槽 set0 绑定到对应 UBO
+			if (!impl->pipeline.scene_bind(slot, impl->scene_ubos[slot]))
+			{
+				logger.error("渲染器:: 场景 UBO 绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+		}
+		/*
+		⑭ 纹理：记录内存与设备，生成内置默认白纹理（2×2 全白）并绑定到所有帧槽 set1，
+		保证 descriptor_set_count = 2 时不存在未写入的描述符集。
+		*/
+		if (!impl->texture.build(impl->memory, impl->device.device_get()))
+		{
+			logger.error("渲染器:: 纹理模块初始化失败");
+			shutdown();
+			return false;
+		}
+		//2×2 全白像素（RGBA8 紧排）
+		const uint8_t white_pixels[16] = {
+			255, 255, 255, 255, 255, 255, 255, 255,
+			255, 255, 255, 255, 255, 255, 255, 255,
+		};
+		if (!impl->texture.texture_create_from_memory(impl->default_texture, white_pixels, 2, 2))
+		{
+			logger.error("渲染器:: 默认白纹理创建失败");
+			shutdown();
+			return false;
+		}
+		//取默认纹理的视图与采样器
+		VkImageView default_view = VK_NULL_HANDLE;
+		VkSampler default_sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler))
+		{
+			logger.error("渲染器:: 默认白纹理视图获取失败");
+			shutdown();
+			return false;
+		}
+		//把默认纹理写入所有帧槽 set1（长命资源，一次写满）
+		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
+		{
+			if (!impl->pipeline.texture_bind(slot, default_sampler, default_view))
+			{
+				logger.error("渲染器:: 默认纹理绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+		}
+		//当前绘制纹理指向默认白纹理
+		impl->current_texture = impl->default_texture;
+		//⑮ 网格：记录内存模块
+		if (!impl->mesh.build(impl->memory))
+		{
+			logger.error("渲染器:: 网格模块初始化失败");
+			shutdown();
+			return false;
+		}
+		//⑯ 相机：设置宽高比（取当前交换链尺寸）
+		{
+			VkExtent2D extent = impl->swapchain.extent_get();
+			//尺寸有效时刷新宽高比
+			if (extent.width != 0 && extent.height != 0)
+				impl->camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+		}
 
 		//记录配置并标记初始化完成
 		impl->config = effective;
@@ -151,12 +281,43 @@ namespace engine
 		//若实现体未分配
 		if (impl == nullptr)
 			return;
-		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4）
+		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		impl->frame.destroy();
+		//网格缓冲依赖内存模块，须先于 memory 销毁
+		impl->mesh.destroy();
+		//纹理依赖设备与内存，须先于两者销毁
+		impl->texture.destroy();
+		//场景 UBO 依赖内存模块，须先于 memory 销毁
+		if (impl->memory.valid())
+			for (size_t slot = 0; slot < impl->scene_ubos.size(); ++slot)
+				//归还场景 UBO 与其内存
+				impl->memory.buffer_destroy(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot]);
+		impl->scene_ubos.clear();
+		impl->scene_ubo_allocs.clear();
+		//纹理句柄复位
+		impl->current_texture = 0;
+		impl->default_texture = 0;
+		//管线依赖设备与内存，须先于两者销毁
+		impl->pipeline.destroy();
+		//着色器模块须先于着色器上下文复位
+		if (impl->vert_module != VK_NULL_HANDLE)
+		{
+			impl->shader.module_destroy(impl->vert_module);
+			impl->vert_module = VK_NULL_HANDLE;
+		}
+		if (impl->frag_module != VK_NULL_HANDLE)
+		{
+			impl->shader.module_destroy(impl->frag_module);
+			impl->frag_module = VK_NULL_HANDLE;
+		}
+		impl->shader.destroy();
+		//交换链销毁连带销毁深度图像，须排在管线之后
 		impl->swapchain.destroy();
 		impl->memory.destroy();
 		impl->device.destroy();
 		impl->platform.destroy();
+		//清空待绘制项
+		impl->pending_items.clear();
 		//复位状态
 		impl->frame_count = 0;
 		impl->initialized = false;
@@ -204,15 +365,65 @@ namespace engine
 			}
 		}
 
-		//⑤ 交给帧模块走取图像 / 录制 / 提交 / 呈现
-		//本阶段清屏色为固定常量，Phase 6 起由管线决定
+		//交换链尺寸可能已变化，刷新相机宽高比
+		{
+			VkExtent2D extent = impl->swapchain.extent_get();
+			//尺寸有效时刷新宽高比
+			if (extent.width != 0 && extent.height != 0)
+				impl->camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+		}
+
+		/*
+		⑤ 取本帧帧槽序号（与帧模块内部一致），把相机视图 × 投影写入该槽 UBO 并绑定 set0；
+		再为待绘制项填装 set0 / set1 描述符集（descriptor_set_count = 2）。
+		推送常量恒为列主序 16 浮点模型矩阵（mesh_draw 已写入 pending_transform）。
+		*/
+		uint32_t slot = impl->frame.slot_index_get();
+		/*
+		等待本帧槽前一次提交完成
+		必须在写本帧槽 UBO 之前等待，否则可能覆盖 GPU 仍在读取的上一轮 UBO（真实竞态）；
+		帧模块内部还会再等一次，届时栅栏已发出，vkWaitForFences 立即返回，无副作用。
+		*/
+		if (!impl->frame.slot_wait())
+		{
+			logger.error("渲染器:: 等待本帧帧槽失败");
+			return false;
+		}
+		float view_proj[16] = {};
+		impl->camera.view_proj_get(view_proj);
+		//写入该帧槽 UBO
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
+		{
+			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//把该帧槽 set0 绑定到对应 UBO
+		if (!impl->pipeline.scene_bind(slot, impl->scene_ubos[slot]))
+		{
+			logger.error("渲染器:: 场景 UBO 绑定失败（帧槽 {}）", slot);
+			return false;
+		}
+		//为本帧待绘制项填装描述符集
+		for (auto& item : impl->pending_items)
+		{
+			//本帧槽的场景 UBO 描述符集（set0）
+			item.scene_set = impl->pipeline.scene_set_get(slot);
+			//本帧槽的采样器描述符集（set1）
+			item.sampler_set = impl->pipeline.sampler_set_get(slot);
+			item.descriptor_set_count = 2;
+		}
+
+		//交给帧模块走取图像 / 录制 / 提交 / 呈现
 		const float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		bool rebuild_needed = false;
-		if (!impl->frame.render(impl->swapchain, rebuild_needed, clear_color))
+		if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
+			static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color))
 		{
 			logger.error("渲染器:: 帧渲染失败");
 			return false;
 		}
+		//消费完毕，清空待绘制项（下一帧由 mesh_draw 重新登记）
+		impl->pending_items.clear();
 		//若帧链路要求重建且本帧尚未重建
 		if (rebuild_needed && !rebuilt)
 		{
@@ -260,5 +471,189 @@ namespace engine
 		if (impl == nullptr)
 			return 0;
 		return impl->swapchain.extent_get().height;
+	}
+
+	//加载网格
+	bool Renderer::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 网格加载失败：尚未初始化");
+			return false;
+		}
+		//转交网格模块创建顶点 / 索引缓冲
+		return impl->mesh.mesh_create(handle_out, data);
+	}
+
+	//卸载网格
+	void Renderer::mesh_unload(Mesh_Handle handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//转交网格模块销毁
+		impl->mesh.mesh_destroy(handle);
+	}
+
+	//绘制网格
+	bool Renderer::mesh_draw(Mesh_Handle handle, const float* transform)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 网格绘制失败：尚未初始化");
+			return false;
+		}
+
+		//取网格缓冲与索引数
+		VkBuffer vertex_buffer = VK_NULL_HANDLE;
+		VkBuffer index_buffer = VK_NULL_HANDLE;
+		uint32_t index_count = 0;
+		if (!impl->mesh.mesh_record_get(handle, vertex_buffer, index_buffer, index_count))
+		{
+			logger.error("渲染器:: 网格绘制失败：网格句柄 {} 无效", handle);
+			return false;
+		}
+
+		/*
+		推送常量：列主序 16 浮点模型矩阵
+		transform 为空则用单位矩阵；写入 Impl::pending_transform（地址稳定，
+		供 pending_items 中的指针指向，直至下一帧 frame_render 消费完毕）。
+		*/
+		if (transform == nullptr)
+		{
+			//单位矩阵（列主序）
+			const float identity[16] = {
+				1.0f, 0.0f, 0.0f, 0.0f,
+				0.0f, 1.0f, 0.0f, 0.0f,
+				0.0f, 0.0f, 1.0f, 0.0f,
+				0.0f, 0.0f, 0.0f, 1.0f
+			};
+			for (uint32_t index = 0; index < 16; ++index)
+				impl->pending_transform[index] = identity[index];
+		}
+		else
+		{
+			//拷贝外部模型矩阵
+			for (uint32_t index = 0; index < 16; ++index)
+				impl->pending_transform[index] = transform[index];
+		}
+
+		/*
+		组装待绘制项（本阶段长度 0 或 1）
+		描述符集（set0 场景 UBO / set1 采样器）延迟到 frame_render 时按「本帧帧槽」填装，
+		故此处先置空、数量为 0。
+		*/
+		Frame_Render_Item item{};
+		item.pipeline = impl->pipeline.pipeline_get();
+		item.layout = impl->pipeline.layout_get();
+		item.scene_set = VK_NULL_HANDLE;
+		item.sampler_set = VK_NULL_HANDLE;
+		item.descriptor_set_count = 0;
+		item.vertex_buffer = vertex_buffer;
+		item.index_buffer = index_buffer;
+		item.index_count = index_count;
+		item.push_constants = impl->pending_transform;
+		item.push_constant_size = 64;
+
+		//登记待绘制项（先清空，保证长度 0 或 1）
+		impl->pending_items.clear();
+		impl->pending_items.push_back(item);
+		return true;
+	}
+
+	//纹理加载
+	bool Renderer::texture_load(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 纹理加载失败：尚未初始化");
+			return false;
+		}
+		//转交纹理模块创建
+		return impl->texture.texture_create_from_memory(handle_out, pixels, width, height);
+	}
+
+	//程序生成棋盘格纹理
+	bool Renderer::texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 棋盘格纹理加载失败：尚未初始化");
+			return false;
+		}
+		//转交纹理模块生成
+		return impl->texture.texture_create_checkerboard(handle_out, width, height, cell_size);
+	}
+
+	//设置当前绘制所用纹理
+	void Renderer::texture_bind_set(uint64_t texture_handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄为零时回落内置默认白纹理
+		uint64_t target = texture_handle == 0 ? impl->default_texture : texture_handle;
+		//取目标纹理的视图与采样器
+		VkImageView view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(target, view, sampler))
+		{
+			//目标无效则回落默认白纹理
+			target = impl->default_texture;
+			if (!impl->texture.texture_bind_get(target, view, sampler))
+			{
+				logger.error("渲染器:: 纹理绑定失败：默认白纹理不可用");
+				return;
+			}
+		}
+		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
+		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			impl->pipeline.texture_bind(slot, sampler, view);
+		//记录当前纹理
+		impl->current_texture = target;
+	}
+
+	//相机：设置位置
+	void Renderer::camera_position_set(float x, float y, float z)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.position_set(x, y, z);
+	}
+
+	//相机：设置注视点
+	void Renderer::camera_target_set(float x, float y, float z)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.target_set(x, y, z);
+	}
+
+	//相机：设置视场角（弧度）
+	void Renderer::camera_fov_set(float radians)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.fov_set(radians);
+	}
+
+	//相机：设置近远平面
+	void Renderer::camera_near_far_set(float near_plane, float far_plane)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.near_far_set(near_plane, far_plane);
 	}
 }

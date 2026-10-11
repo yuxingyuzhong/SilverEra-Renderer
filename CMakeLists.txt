@@ -290,6 +290,7 @@ target_include_directories(RendererCore
         "${BYJY_SDL3_DIR}/src"
         "${BYJY_VMA_DIR}/include"
         "${BYJY_VULKAN_INCLUDE_DIR}"
+        "${PROJECT_ROOT_DIR}/external"
 )
 
 if(BYJY_RENDERER_OUT_DEF)
@@ -311,6 +312,15 @@ else()
     target_compile_options(RendererCore PRIVATE -Wall -Wextra -pedantic)
     target_compile_definitions(RendererCore PRIVATE _GNU_SOURCE)
 endif()
+
+# glm 适配宏（设计 §2.5 第 4 点）：本层私有，绝不进公共头，否则污染上层
+#   GLM_FORCE_DEPTH_ZERO_TO_ONE —— Vulkan 深度范围 [0,1]（K1）
+#   GLM_FORCE_RADIANS           —— 角度一律用弧度
+# 注：glm 的包含根是 external/（代码写 #include <glm/glm.hpp>），已在上面 PRIVATE 里
+target_compile_definitions(RendererCore PRIVATE
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_RADIANS
+)
 
 # 静态库输出到构建目录 lib/（与下层一致）
 set_target_properties(RendererCore PROPERTIES
@@ -340,7 +350,69 @@ add_custom_target(RendererIncludeSnapshot ALL
 )
 
 # =============================================================================
-# 4. 可执行文件：本层不产出
+# 4. 着色器编译（glslc 离线编译 GLSL → SPIR-V）
+# =============================================================================
+# 源着色器：assets/shaders/*.vert / *.frag（文件名可为中文；glslc 已实测支持 UTF-8 路径）
+# 产物   ：<构建树>/shaders/*.spv —— 位于 out/ 下，随 .gitignore 天然不入库
+# glslc  ：优先 <Vulkan SDK>/Bin/glslc.exe，其次 PATH；**找不到只告警**，本层静态库
+#          仍可构建（与设计 §2.4「找不到 glslc 不硬失败」口径一致）
+# 说明   ：本层不产出可执行文件，着色器不属库产物；此处编译意在让「构建本层」这一步
+#          就能验证着色器语法，并让 Test 层按既有「已知构建树相对路径」口径取用
+#          （设计 §8.2 第 4 点：Test 把本目录拷到自身输出目录）。
+# =============================================================================
+set(BYJY_RENDERER_SHADER_SRC_DIR "${PROJECT_ROOT_DIR}/assets/shaders")
+set(BYJY_RENDERER_SHADER_OUT_DIR "${CMAKE_BINARY_DIR}/shaders")
+
+# glslc 定位（留空则自动探测）
+set(BYJY_GLSLC_EXECUTABLE "" CACHE FILEPATH "glslc 可执行文件路径；留空则自动探测")
+if("${BYJY_GLSLC_EXECUTABLE}" STREQUAL "")
+    if(EXISTS "${BYJY_VULKAN_SDK_ROOT}/Bin/glslc.exe")
+        set(BYJY_GLSLC_EXECUTABLE "${BYJY_VULKAN_SDK_ROOT}/Bin/glslc.exe")
+    else()
+        find_program(BYJY_GLSLC_EXECUTABLE NAMES glslc glslc.exe)
+    endif()
+endif()
+
+if(BYJY_GLSLC_EXECUTABLE)
+    file(GLOB BYJY_SHADER_SOURCES CONFIGURE_DEPENDS
+        "${BYJY_RENDERER_SHADER_SRC_DIR}/*.vert"
+        "${BYJY_RENDERER_SHADER_SRC_DIR}/*.frag"
+        "${BYJY_RENDERER_SHADER_SRC_DIR}/*.comp"
+    )
+    # 着色器目录内容变化时自动重跑配置并重扫 GLOB
+    if(EXISTS "${BYJY_RENDERER_SHADER_SRC_DIR}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${BYJY_RENDERER_SHADER_SRC_DIR}")
+    endif()
+
+    # 逐源文件生成「源 → 同名 .spv」的编译命令，产物名带原扩展名（如 场景.vert.spv）
+    set(BYJY_SHADER_OUTPUTS "")
+    foreach(_byjy_shader IN LISTS BYJY_SHADER_SOURCES)
+        get_filename_component(_byjy_shader_name "${_byjy_shader}" NAME)
+        set(_byjy_shader_out "${BYJY_RENDERER_SHADER_OUT_DIR}/${_byjy_shader_name}.spv")
+        add_custom_command(
+            OUTPUT "${_byjy_shader_out}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${BYJY_RENDERER_SHADER_OUT_DIR}"
+            COMMAND "${BYJY_GLSLC_EXECUTABLE}" --target-env=vulkan1.3 -o "${_byjy_shader_out}" "${_byjy_shader}"
+            DEPENDS "${_byjy_shader}"
+            COMMENT "编译着色器 ${_byjy_shader_name} → ${_byjy_shader_name}.spv"
+            VERBATIM
+        )
+        list(APPEND BYJY_SHADER_OUTPUTS "${_byjy_shader_out}")
+    endforeach()
+
+    add_custom_target(RendererShaders ALL DEPENDS ${BYJY_SHADER_OUTPUTS})
+    add_dependencies(RendererCore RendererShaders)
+    message(STATUS "Renderer：glslc = ${BYJY_GLSLC_EXECUTABLE}")
+    message(STATUS "Renderer：源着色器 ${BYJY_RENDERER_SHADER_SRC_DIR} → ${BYJY_RENDERER_SHADER_OUT_DIR}")
+else()
+    message(WARNING
+        "Renderer：未找到 glslc，跳过着色器编译（本层静态库仍可构建；依赖着色器的用例将失败）。\n"
+        "  请把 VULKAN_SDK 指向 Vulkan SDK 根目录，或 -DBYJY_GLSLC_EXECUTABLE=<glslc 路径>")
+endif()
+
+# =============================================================================
+# 5. 可执行文件：本层不产出
 # =============================================================================
 # 层级契约：各层只产出静态库，唯一可执行文件由 Application/Test 产出（EngineTests.exe）。
 # 渲染层的行为验证自后续轮次起在 Test 层加用例，故本层不设 add_executable。

@@ -103,6 +103,30 @@ namespace engine
 		return frame_count;
 	}
 
+	//本次 render 将要使用的帧槽序号
+	uint32_t Frame_Context::slot_index_get(void) const
+	{
+		//帧槽未构建时返回 0（规避除零）
+		if (frame_overlap == 0)
+			return 0;
+		return frame_count % frame_overlap;
+	}
+
+	//等待本帧槽的完成栅栏
+	bool Frame_Context::slot_wait(void)
+	{
+		//若尚未构建完成
+		if (!valid())
+		{
+			logger.error("帧槽创建:: 帧上下文尚未构建，无法等待帧槽");
+			return false;
+		}
+		//取本帧槽（与 render 内部同一槽）
+		Frame_Slot& slot = slots[frame_count % frame_overlap];
+		//等待该帧槽前一次提交完成
+		return vk_result_check(vkWaitForFences(device, 1, &slot.in_flight_fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+	}
+
 	//创建单个帧槽及其对象
 	bool Frame_Context::frame_slot_create(Frame_Slot& slot)
 	{

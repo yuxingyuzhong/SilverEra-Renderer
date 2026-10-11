@@ -1,6 +1,8 @@
 #include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+//内存上下文完整定义（深度图像创建 / 视图创建 / 销毁）
+#include "Application/Renderer/src/render/Memory/内存上下文.h"
 
 namespace engine
 {
@@ -163,6 +165,212 @@ namespace engine
 			if (!vk_result_check(vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphores[index]), "vkCreateSemaphore"))
 				return false;
 
+		//创建深度图像与视图并完成首帧前的一次布局转换
+		if (!depth_resources_create())
+			return false;
+
 		return true;
 	}
+
+	/*
+	选择深度格式
+	优先 D32_SFLOAT，回退 D32_SFLOAT_S8_UINT → D24_UNORM_S8_UINT；
+	候选项须经 vkGetPhysicalDeviceFormatProperties 的 optimalTilingFeatures 查
+	VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT；均不可用则记错误返回假。
+	*/
+	bool Swapchain_Context::depth_format_select(void)
+	{
+		//候选深度格式（按优先级）
+		const VkFormat candidates[3] = {
+			VK_FORMAT_D32_SFLOAT,
+			VK_FORMAT_D32_SFLOAT_S8_UINT,
+			VK_FORMAT_D24_UNORM_S8_UINT,
+		};
+		//逐项检查深度附件特性
+		for (VkFormat candidate : candidates)
+		{
+			//查询该格式的属性
+			VkFormatProperties properties{};
+			vkGetPhysicalDeviceFormatProperties(physical_device, candidate, &properties);
+			//若支持深度 / 模板附件特性
+			if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+			{
+				depth_format = candidate;
+				return true;
+			}
+		}
+
+		logger.error("交换链:: 无任何可用深度格式（D32/D24 均不可作深度附件）");
+		return false;
+	}
+
+	/*
+	创建深度图像与视图
+	每交换链图像一张；创建完成后（首次）执行一次布局转换，使后续帧直接以其为深度附件。
+	*/
+	bool Swapchain_Context::depth_resources_create(void)
+	{
+		//前置：内存模块与逻辑设备必须齐备
+		if (memory == nullptr || !memory->valid())
+		{
+			logger.error("交换链:: 内存上下文不可用，无法创建深度图像");
+			return false;
+		}
+		//选择深度格式（若尚未选定）
+		if (depth_format == VK_FORMAT_UNDEFINED && !depth_format_select())
+			return false;
+
+		//深度图像数量 = 交换链图像数
+		uint32_t count = static_cast<uint32_t>(images.size());
+		depth_images.assign(count, VK_NULL_HANDLE);
+		depth_allocations.assign(count, VK_NULL_HANDLE);
+		depth_views.assign(count, VK_NULL_HANDLE);
+
+		//逐张创建深度图像与视图
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			//创建深度图像（设备本地、深度附件用途）
+			if (!memory->image_create(depth_images[index], depth_allocations[index], extent.width, extent.height,
+				depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))
+				return false;
+			//创建深度图像视图
+			if (!memory->image_view_create(depth_views[index], depth_images[index], depth_format, VK_IMAGE_ASPECT_DEPTH_BIT))
+				return false;
+		}
+
+		//首帧前转一次（后续帧沿用，故仅首次执行）
+		if (!depth_initialized)
+		{
+			if (!depth_transition())
+				return false;
+			depth_initialized = true;
+		}
+
+		logger.info("交换链:: 深度图像已建立（{} 张，格式 {}）", count, static_cast<int32_t>(depth_format));
+		return true;
+	}
+
+	//销毁深度图像与视图
+	void Swapchain_Context::depth_resources_destroy(void)
+	{
+		//内存模块就绪时归还深度图像与视图
+		if (memory != nullptr)
+		{
+			for (std::size_t index = 0; index < depth_views.size(); ++index)
+			{
+				//归还深度图像视图
+				memory->image_view_destroy(depth_views[index]);
+				//归还深度图像
+				memory->image_destroy(depth_images[index], depth_allocations[index]);
+			}
+		}
+
+		//清空容器并复位状态
+		depth_views.clear();
+		depth_images.clear();
+		depth_allocations.clear();
+		depth_initialized = false;
+		depth_format = VK_FORMAT_UNDEFINED;
+	}
+
+	/*
+	深度图像一次性布局转换
+	UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL：srcStage=TOP_OF_PIPE、srcAccess=0、
+	dstStage=EARLY|LATE_FRAGMENT_TESTS、dstAccess=DEPTH_STENCIL_ATTACHMENT_WRITE（U5）。
+	经临时命令池一次性提交并等待完成，不依赖帧模块。
+	*/
+	bool Swapchain_Context::depth_transition(void)
+	{
+		//前置：设备与深度图像齐备
+		if (device == VK_NULL_HANDLE || depth_images.empty())
+			return false;
+
+		//临时命令池
+		VkCommandPoolCreateInfo pool_info{};
+		pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		pool_info.queueFamilyIndex = graphics_family;
+		VkCommandPool pool = VK_NULL_HANDLE;
+		//若命令池创建失败
+		if (!vk_result_check(vkCreateCommandPool(device, &pool_info, nullptr, &pool), "交换链:: 深度转换创建临时命令池"))
+			return false;
+
+		//命令缓冲
+		VkCommandBufferAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		alloc_info.commandPool = pool;
+		alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		alloc_info.commandBufferCount = 1;
+		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+		//若命令缓冲分配失败
+		if (!vk_result_check(vkAllocateCommandBuffers(device, &alloc_info, &command_buffer), "交换链:: 深度转换分配命令缓冲"))
+		{
+			vkDestroyCommandPool(device, pool, nullptr);
+			return false;
+		}
+
+		//开始录制（一次性提交）
+		VkCommandBufferBeginInfo begin_info{};
+		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "交换链:: 深度转换开始录制");
+
+		//逐张深度图像转换布局
+		for (VkImage depth_image : depth_images)
+		{
+			//布局转换屏障（UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL）
+			VkImageMemoryBarrier barrier{};
+			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = depth_image;
+			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+		}
+
+		//结束录制
+		vk_result_check(vkEndCommandBuffer(command_buffer), "交换链:: 深度转换结束录制");
+
+		//完成栅栏（未触发态）
+		VkFenceCreateInfo fence_info{};
+		fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		//若栅栏创建失败
+		if (!vk_result_check(vkCreateFence(device, &fence_info, nullptr, &fence), "交换链:: 深度转换创建栅栏"))
+		{
+			vkDestroyCommandPool(device, pool, nullptr);
+			return false;
+		}
+
+		//获取图形队列
+		VkQueue queue = VK_NULL_HANDLE;
+		vkGetDeviceQueue(device, graphics_family, 0, &queue);
+
+		//提交并等待完成
+		VkSubmitInfo submit_info{};
+		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submit_info.commandBufferCount = 1;
+		submit_info.pCommandBuffers = &command_buffer;
+		bool ok = vk_result_check(vkQueueSubmit(queue, 1, &submit_info, fence), "交换链:: 深度转换提交");
+		//若提交成功则等待其完成
+		if (ok)
+			ok = vk_result_check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "交换链:: 深度转换等待完成");
+
+		//回收栅栏与命令池
+		vkDestroyFence(device, fence, nullptr);
+		vkDestroyCommandPool(device, pool, nullptr);
+		return ok;
+	}
 }
+

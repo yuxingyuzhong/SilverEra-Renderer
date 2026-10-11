@@ -48,6 +48,34 @@ namespace engine
 	};
 
 	/*
+	渲染项
+	持裸 Vulkan 句柄，由门面组装后交给帧模块录制（不引入模块间依赖边）。
+	*/
+	struct Frame_Render_Item
+	{
+		//图形管线
+		VkPipeline pipeline = VK_NULL_HANDLE;
+		//管线布局（推送常量与描述符集绑定需要）
+		VkPipelineLayout layout = VK_NULL_HANDLE;
+		//场景 UBO 描述符集（set 0；可为空）
+		VkDescriptorSet scene_set = VK_NULL_HANDLE;
+		//采样器描述符集（set 1；可为空）
+		VkDescriptorSet sampler_set = VK_NULL_HANDLE;
+		//描述符集数量（0/1/2）
+		uint32_t descriptor_set_count = 0;
+		//顶点缓冲
+		VkBuffer vertex_buffer = VK_NULL_HANDLE;
+		//索引缓冲
+		VkBuffer index_buffer = VK_NULL_HANDLE;
+		//索引数
+		uint32_t index_count = 0;
+		//推送常量数据（可为空）
+		const void* push_constants = nullptr;
+		//推送常量字节数（0 表不推送）
+		uint32_t push_constant_size = 0;
+	};
+
+	/*
 	帧上下文
 	持有帧槽集合，负责取图像、命令录制、提交与呈现、延迟销毁（§5.2 / §6.2）。
 	生命周期：build → render × N → destroy；destroy 幂等，析构兜底。
@@ -82,19 +110,37 @@ namespace engine
 		/*
 		渲染一帧（取图像 → 录制 → 提交 → 呈现）
 		swapchain：当前交换链；rebuild_needed_out：置真表示本帧遇到过期 / 次优，需上层重建；
-		clear_color：清屏色（RGBA，线性 0~1）。返回假视为硬错误。
+		items / item_count：渲染项列表（可为空，此时只清屏）；clear_color：清屏色。
+		返回假视为硬错误。
 		*/
-		bool render(Swapchain_Context& swapchain, bool& rebuild_needed_out, const float clear_color[4]);
+		bool render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
+			bool& rebuild_needed_out, const float clear_color[4]);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
+		/*
+		本次 render 将要使用的帧槽序号（frame_count % frame_overlap）
+		供门面在调用 render 前取用「同一槽」的场景 UBO / 描述符集，保证与帧内部一致。
+		*/
+		uint32_t slot_index_get(void) const;
+		/*
+		等待本帧槽的完成栅栏
+		供门面在写入「本帧槽」的资源（如场景 UBO）之前调用，避免覆盖 GPU 仍在读取的上一轮内容；
+		render 内部还会再等一次，届时栅栏已发出，vkWaitForFences 立即返回，无副作用。
+		返回假视为硬错误（等待失败或帧上下文未构建）。
+		*/
+		bool slot_wait(void);
 	private:
 		//创建单个帧槽及其对象（实现见 core/帧槽创建.cpp）
 		bool frame_slot_create(Frame_Slot& slot);
 		//销毁单个帧槽及其对象（实现见 core/帧槽创建.cpp）
 		void frame_slot_destroy(Frame_Slot& slot);
-		//录制命令缓冲（实现见 core/命令录制.cpp）
+		/*
+		录制命令缓冲（实现见 core/命令录制.cpp）
+		颜色 / 深度附件布局转换为动态渲染，随后按渲染项依次绑定并 vkCmdDrawIndexed。
+		*/
 		void command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
-			VkExtent2D extent, const float clear_color[4]);
+			VkImageView depth_view, VkExtent2D extent,
+			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4]);
 		//提交并呈现（实现见 core/提交呈现.cpp）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			Swapchain_Context& swapchain, bool& rebuild_needed_out);

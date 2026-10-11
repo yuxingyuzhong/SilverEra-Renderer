@@ -11,6 +11,11 @@
 #include "Application/Renderer/src/render/Memory/内存上下文.h"
 #include "Application/Renderer/src/render/Swapchain/交换链.h"
 #include "Application/Renderer/src/render/Frame/帧上下文.h"
+#include "Application/Renderer/src/render/Shader/着色器.h"
+#include "Application/Renderer/src/render/Pipeline/管线.h"
+#include "Application/Renderer/src/render/Mesh/网格.h"
+#include "Application/Renderer/src/render/Texture/纹理.h"
+#include "Application/Renderer/src/render/Scene/相机.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
 #include "Application/Renderer/src/render/Renderer/渲染器.h"
 
@@ -19,7 +24,7 @@ namespace engine
 {
 	/*
 	渲染器实现体
-	持有五个模块的实例并按依赖顺序编排创建与销毁；本类只被 渲染器.cpp 使用。
+	持有各模块的实例并按依赖顺序编排创建与销毁；本类只被 渲染器.cpp 使用。
 	*/
 	class Renderer::Impl
 	{
@@ -36,6 +41,32 @@ namespace engine
 		Swapchain_Context swapchain;
 		//帧模块
 		Frame_Context frame;
+		//着色器模块
+		Shader_Context shader;
+		//管线模块
+		Pipeline_Context pipeline;
+		//网格模块
+		Mesh_Context mesh;
+		//纹理模块
+		Texture_Context texture;
+		//相机（生成每帧视图 × 投影矩阵）
+		Camera camera;
+		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
+		std::vector<VkBuffer> scene_ubos;
+		//场景 UBO 内存（与 scene_ubos 一一对应）
+		std::vector<VmaAllocation> scene_ubo_allocs;
+		//当前绘制所用纹理句柄（0 表未指定）
+		uint64_t current_texture = 0;
+		//内置默认白纹理句柄
+		uint64_t default_texture = 0;
+		//顶点着色器模块句柄（销毁须先于着色器模块）
+		VkShaderModule vert_module = VK_NULL_HANDLE;
+		//片元着色器模块句柄（销毁须先于着色器模块）
+		VkShaderModule frag_module = VK_NULL_HANDLE;
+		//待绘制项（长度 0 或 1，由 mesh_draw 登记，frame_render 消费后清空）
+		std::vector<Frame_Render_Item> pending_items;
+		//待绘制项的推送常量（列主序 16 浮点模型矩阵；地址稳定，供 pending_items 指向）
+		float pending_transform[16] = {};
 		//是否已初始化
 		bool initialized = false;
 		//已呈现帧数

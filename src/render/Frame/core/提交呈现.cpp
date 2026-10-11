@@ -5,7 +5,8 @@
 namespace engine
 {
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制 → 提交并呈现
-	bool Frame_Context::render(Swapchain_Context& swapchain, bool& rebuild_needed_out, const float clear_color[4])
+	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
+		bool& rebuild_needed_out, const float clear_color[4])
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -67,9 +68,10 @@ namespace engine
 		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
 			return false;
 
-		//录制命令缓冲（布局转换 + 清屏 + 呈现前布局转换）
+		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
-			swapchain.image_view_get(image_index), swapchain.extent_get(), clear_color);
+			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
+			swapchain.extent_get(), items, item_count, clear_color);
 
 		//提交并呈现
 		if (!submit_present(slot, image_index, image_available, swapchain, rebuild_needed_out))
