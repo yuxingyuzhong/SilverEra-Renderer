@@ -63,12 +63,18 @@ namespace engine
 		//取图像视图与采样器（供描述符写入；句柄无效返回假）
 		bool texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const;
 	private:
-		//创建采样器（线性过滤 / REPEAT 寻址 / mipmap 关闭；实现见 core/采样器创建.cpp）
+		/*
+		取共享采样器
+		参数固定（线性过滤 / REPEAT 寻址 / mipmap 关闭），全模块共用一个实例；
+		首次调用创建，之后复用（实现见 core/采样器创建.cpp）。
+		*/
 		bool sampler_create(VkSampler& sampler_out);
 		//内存模块（图像创建 / 上传 / 销毁在此完成）
 		Memory_Context* memory = nullptr;
 		//逻辑设备
 		VkDevice device = VK_NULL_HANDLE;
+		//共享采样器（全模块共用，destroy 时统一归还）
+		VkSampler shared_sampler = VK_NULL_HANDLE;
 		//纹理记录集合（下标 = 句柄 - 1）
 		std::vector<Texture_Record> records;
 	};

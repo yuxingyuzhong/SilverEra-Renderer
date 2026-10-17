@@ -54,8 +54,15 @@ namespace engine
 	{
 		//相对注视点的位置偏移
 		glm::vec3 offset(position[0] - target[0], position[1] - target[1], position[2] - target[2]);
-		//上方向（旋转轴）
+		//上方向（旋转轴；glm::rotate 按轴长度缩放角度，故须归一化）
 		glm::vec3 up_axis(up[0], up[1], up[2]);
+		//轴长度
+		float up_length = glm::length(up_axis);
+		//若轴长度为零则退化为默认上方向（避免除零）
+		if (up_length <= 0.0f)
+			up_axis = glm::vec3(0.0f, 1.0f, 0.0f);
+		else
+			up_axis /= up_length;
 		//绕上方向旋转偏移向量
 		glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), radians_delta, up_axis);
 		glm::vec3 rotated = glm::vec3(rotation * glm::vec4(offset, 0.0f));

@@ -35,6 +35,18 @@
 #     SDL3 / VMA / Vulkan 的包含路径都是本层「实现细节」，不出现在对外面上：
 #     本层公共头不暴露 SDL、Vulkan、VMA 的任何类型（源文件里以私有包含根引入）。
 #
+# 私有包含根（对外面的「补集」，本层源码注释中「见 cmake/对外接口.cmake 的私有包含根」即指本节）
+#     下面这些目录只对「本层自身编译」可见，由 Application/Renderer/CMakeLists.txt 的
+#     target_include_directories(... PRIVATE ...) 段声明，不进 BYJY_RENDERER_OUT_INC，
+#     因此层外既拿不到 SDL3，也拿不到 Vulkan / VMA：
+#       SDL3/include                SDL3 公共头（windowing / video / event）
+#       include/build_config        SDL3 由构建脚本生成的头（SDL_build_config.h）
+#       SDL3/src                    SDL3 内部头（仅本层个别实现用到）
+#       external/VulkanMemoryAllocator/include   VMA 头（vk_mem_alloc.h）
+#       ${BYJY_VULKAN_INCLUDE_DIR}  Vulkan SDK 头（vulkan/vulkan.h）
+#       external/                   第三方顶层（含 glm）
+#     声明落点见 Application/Renderer/CMakeLists.txt 的 PRIVATE 段。
+#
 # 链接与系统库为什么比 EngineCore 面多
 #     RendererCore 内含 SDL3、VMA 与本层渲染代码的符号，最终链接方（Test 层的
 #     EngineTests.exe）必须一并带上：

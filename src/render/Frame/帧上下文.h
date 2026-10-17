@@ -167,11 +167,9 @@ namespace engine
 		std::vector<Frame_Slot> slots;
 		//图像可用信号量轮转游标
 		uint32_t acquire_cursor = 0;
-		//已推进帧数
+		//已推进帧数（同时用作帧槽轮转依据与延迟销毁的释放判据）
 		uint32_t frame_count = 0;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
-		//当前帧序号（延迟销毁的释放判据）
-		uint64_t frame_serial = 0;
 	};
 }

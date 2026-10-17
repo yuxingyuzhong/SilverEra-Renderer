@@ -23,8 +23,8 @@ namespace engine
 			return false;
 		}
 
-		//取当前帧槽（在途帧轮转）
-		Frame_Slot& slot = slots[frame_serial % frame_overlap];
+		//取当前帧槽（在途帧轮转；帧槽集合长度即 frame_overlap）
+		Frame_Slot& slot = slots[frame_count % frame_overlap];
 
 		//等待该帧槽前一次提交完成（超时给足，waitAll 为真；K9）
 		if (!vk_result_check(vkWaitForFences(device, 1, &slot.in_flight_fence, VK_TRUE, UINT64_MAX), "vkWaitForFences"))
@@ -77,8 +77,7 @@ namespace engine
 		if (!submit_present(slot, image_index, image_available, swapchain, rebuild_needed_out))
 			return false;
 
-		//推进帧序号与帧计数
-		++frame_serial;
+		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
 		++frame_count;
 		//释放到期的延迟销毁条目
 		deferred_flush();

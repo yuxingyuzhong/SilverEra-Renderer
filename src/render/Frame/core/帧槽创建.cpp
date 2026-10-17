@@ -87,7 +87,6 @@ namespace engine
 		present_family = 0;
 		frame_overlap = 0;
 		acquire_cursor = 0;
-		frame_serial = 0;
 		frame_count = 0;
 	}
 

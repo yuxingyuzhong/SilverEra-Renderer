@@ -4,9 +4,13 @@
 
 namespace engine
 {
-	//创建采样器（线性过滤 / REPEAT 寻址 / mipmap 关闭）
+	//取共享采样器（线性过滤 / REPEAT 寻址 / mipmap 关闭；首次创建后复用）
 	bool Texture_Context::sampler_create(VkSampler& sampler_out)
 	{
+		//若已存在则直接复用（参数固定，无需重建）
+		if (sampler_out != VK_NULL_HANDLE)
+			return true;
+
 		//默认无有效句柄
 		sampler_out = VK_NULL_HANDLE;
 		//前置：逻辑设备必须齐备

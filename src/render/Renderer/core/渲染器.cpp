@@ -127,6 +127,18 @@ namespace engine
 			shutdown();
 			return false;
 		}
+		/*
+		钳制在途帧数
+		图像可用信号量属「每交换链图像」（数量 = 交换链图像数），帧模块按该池轮转取用；
+		仅当在途帧数不超过信号量数时，「先等帧栅栏」才能保证被取用的信号量已在前一次被消费（K13）。
+		*/
+		uint32_t image_available_count = impl->swapchain.image_available_count_get();
+		//若在途帧数超过图像可用信号量数则下调并告警
+		if (image_available_count > 0 && effective.frame_overlap > image_available_count)
+		{
+			logger.warn("渲染器:: 在途帧数 {} 超过图像可用信号量数 {}，已下调至前者", effective.frame_overlap, image_available_count);
+			effective.frame_overlap = image_available_count;
+		}
 		//⑧ 帧
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
@@ -251,8 +263,6 @@ namespace engine
 				return false;
 			}
 		}
-		//当前绘制纹理指向默认白纹理
-		impl->current_texture = impl->default_texture;
 		//⑮ 网格：记录内存模块
 		if (!impl->mesh.build(impl->memory))
 		{
@@ -294,8 +304,7 @@ namespace engine
 				impl->memory.buffer_destroy(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot]);
 		impl->scene_ubos.clear();
 		impl->scene_ubo_allocs.clear();
-		//纹理句柄复位
-		impl->current_texture = 0;
+		//默认纹理句柄复位
 		impl->default_texture = 0;
 		//管线依赖设备与内存，须先于两者销毁
 		impl->pipeline.destroy();
@@ -314,10 +323,16 @@ namespace engine
 		//交换链销毁连带销毁深度图像，须排在管线之后
 		impl->swapchain.destroy();
 		impl->memory.destroy();
-		impl->device.destroy();
+		/*
+		先平台后设备
+		平台持有「借用」的实例句柄，销毁表面（vkDestroySurfaceKHR）要求实例仍在途；
+		设备销毁会连带 vkDestroyInstance，故必须排在平台之后。
+		*/
 		impl->platform.destroy();
-		//清空待绘制项
+		impl->device.destroy();
+		//清空待绘制项与其推送常量存储
 		impl->pending_items.clear();
+		impl->pending_transforms.clear();
 		//复位状态
 		impl->frame_count = 0;
 		impl->initialized = false;
@@ -338,12 +353,17 @@ namespace engine
 
 		//① 泵事件
 		impl->platform.events_pump();
-		//② 若窗口请求退出则交调用方收敛
-		if (impl->platform.close_requested())
+		/*
+		② 若窗口请求退出则交调用方收敛
+		③ 若窗口最小化则挂起本帧（避免 0×0 交换链；K7）
+		两种挂起情形都不消费待绘制项，故一并清空，避免连续挂起期间无限累积。
+		*/
+		if (impl->platform.close_requested() || impl->platform.minimized())
+		{
+			impl->pending_items.clear();
+			impl->pending_transforms.clear();
 			return true;
-		//③ 若窗口最小化则挂起本帧（避免 0×0 交换链；K7）
-		if (impl->platform.minimized())
-			return true;
+		}
 
 		//取当前窗口客户区尺寸
 		uint32_t width = 0;
@@ -361,6 +381,9 @@ namespace engine
 				//若重建失败仅告警，本帧继续
 				if (!impl->swapchain.rebuild(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
+				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 				rebuilt = true;
 			}
 		}
@@ -376,7 +399,7 @@ namespace engine
 		/*
 		⑤ 取本帧帧槽序号（与帧模块内部一致），把相机视图 × 投影写入该槽 UBO 并绑定 set0；
 		再为待绘制项填装 set0 / set1 描述符集（descriptor_set_count = 2）。
-		推送常量恒为列主序 16 浮点模型矩阵（mesh_draw 已写入 pending_transform）。
+		推送常量恒为列主序 16 浮点模型矩阵（mesh_draw 已写入对应的 pending_transforms 存储）。
 		*/
 		uint32_t slot = impl->frame.slot_index_get();
 		/*
@@ -422,14 +445,20 @@ namespace engine
 			logger.error("渲染器:: 帧渲染失败");
 			return false;
 		}
-		//消费完毕，清空待绘制项（下一帧由 mesh_draw 重新登记）
+		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
 		impl->pending_items.clear();
+		impl->pending_transforms.clear();
 		//若帧链路要求重建且本帧尚未重建
 		if (rebuild_needed && !rebuilt)
 		{
 			//尺寸有效时重建交换链
 			if (width != 0 && height != 0)
+			{
 				impl->swapchain.rebuild(width, height);
+				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
+			}
 		}
 
 		//⑥ 帧计数自增
@@ -518,9 +547,11 @@ namespace engine
 
 		/*
 		推送常量：列主序 16 浮点模型矩阵
-		transform 为空则用单位矩阵；写入 Impl::pending_transform（地址稳定，
-		供 pending_items 中的指针指向，直至下一帧 frame_render 消费完毕）。
+		transform 为空则用单位矩阵；每次调用追加一块独立存储，
+		供 pending_items 中的指针指向，直至下一帧 frame_render 消费完毕。
 		*/
+		impl->pending_transforms.emplace_back();
+		std::array<float, 16>& transform_store = impl->pending_transforms.back();
 		if (transform == nullptr)
 		{
 			//单位矩阵（列主序）
@@ -531,17 +562,17 @@ namespace engine
 				0.0f, 0.0f, 0.0f, 1.0f
 			};
 			for (uint32_t index = 0; index < 16; ++index)
-				impl->pending_transform[index] = identity[index];
+				transform_store[index] = identity[index];
 		}
 		else
 		{
 			//拷贝外部模型矩阵
 			for (uint32_t index = 0; index < 16; ++index)
-				impl->pending_transform[index] = transform[index];
+				transform_store[index] = transform[index];
 		}
 
 		/*
-		组装待绘制项（本阶段长度 0 或 1）
+		组装待绘制项
 		描述符集（set0 场景 UBO / set1 采样器）延迟到 frame_render 时按「本帧帧槽」填装，
 		故此处先置空、数量为 0。
 		*/
@@ -554,11 +585,10 @@ namespace engine
 		item.vertex_buffer = vertex_buffer;
 		item.index_buffer = index_buffer;
 		item.index_count = index_count;
-		item.push_constants = impl->pending_transform;
+		item.push_constants = transform_store.data();
 		item.push_constant_size = 64;
 
-		//登记待绘制项（先清空，保证长度 0 或 1）
-		impl->pending_items.clear();
+		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
 	}
@@ -593,6 +623,16 @@ namespace engine
 		return impl->texture.texture_create_checkerboard(handle_out, width, height, cell_size);
 	}
 
+	//卸载纹理
+	void Renderer::texture_unload(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//转交纹理模块销毁
+		impl->texture.texture_destroy(handle);
+	}
+
 	//设置当前绘制所用纹理
 	void Renderer::texture_bind_set(uint64_t texture_handle)
 	{
@@ -617,8 +657,6 @@ namespace engine
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
-		//记录当前纹理
-		impl->current_texture = target;
 	}
 
 	//相机：设置位置

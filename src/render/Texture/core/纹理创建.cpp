@@ -38,12 +38,9 @@ namespace engine
 	//销毁
 	void Texture_Context::destroy(void)
 	{
-		//逆序销毁全部纹理
+		//逐条销毁全部纹理（记录彼此独立，销毁顺序不影响正确性）
 		for (auto& record : records)
 		{
-			//若设备已记录则销毁采样器
-			if (device != VK_NULL_HANDLE && record.sampler != VK_NULL_HANDLE)
-				vkDestroySampler(device, record.sampler, nullptr);
 			//若内存模块已记录则归还图像视图与图像
 			if (memory != nullptr)
 			{
@@ -54,6 +51,12 @@ namespace engine
 			}
 			//复位记录
 			record = Texture_Record{};
+		}
+		//归还共享采样器
+		if (device != VK_NULL_HANDLE && shared_sampler != VK_NULL_HANDLE)
+		{
+			vkDestroySampler(device, shared_sampler, nullptr);
+			shared_sampler = VK_NULL_HANDLE;
 		}
 
 		//清空记录并复位
@@ -109,9 +112,8 @@ namespace engine
 			return false;
 		}
 
-		//创建采样器
-		VkSampler sampler = VK_NULL_HANDLE;
-		if (!sampler_create(sampler))
+		//取共享采样器（首次调用创建，之后复用）
+		if (!sampler_create(shared_sampler))
 		{
 			memory->image_view_destroy(view);
 			memory->image_destroy(image, allocation);
@@ -123,7 +125,7 @@ namespace engine
 		record.image = image;
 		record.allocation = allocation;
 		record.view = view;
-		record.sampler = sampler;
+		record.sampler = shared_sampler;
 		record.valid = true;
 		records.push_back(record);
 
@@ -178,10 +180,7 @@ namespace engine
 		//若记录已无效
 		if (!record.valid)
 			return;
-		//设备就绪时销毁采样器
-		if (device != VK_NULL_HANDLE && record.sampler != VK_NULL_HANDLE)
-			vkDestroySampler(device, record.sampler, nullptr);
-		//内存模块就绪时归还图像视图与图像
+		//内存模块就绪时归还图像视图与图像（采样器为模块共享，不随单条纹理销毁）
 		if (memory != nullptr)
 		{
 			//归还图像视图

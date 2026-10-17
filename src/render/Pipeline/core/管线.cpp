@@ -135,6 +135,8 @@ namespace engine
 		scene_sets.clear();
 		sampler_sets.clear();
 		pipeline = VK_NULL_HANDLE;
+		vert_module = VK_NULL_HANDLE;
+		frag_module = VK_NULL_HANDLE;
 		descriptor_pool = VK_NULL_HANDLE;
 		pipeline_layout = VK_NULL_HANDLE;
 		sampler_set_layout = VK_NULL_HANDLE;
@@ -164,6 +166,9 @@ namespace engine
 			vkDestroyPipeline(device, pipeline, nullptr);
 			pipeline = VK_NULL_HANDLE;
 		}
+		//记住着色器模块，供格式变化时重建复用（模块所有权仍在调用方）
+		this->vert_module = vert_module;
+		this->frag_module = frag_module;
 
 		//创建图形管线
 		if (!graphics_pipeline_create(vert_module, frag_module))
@@ -171,6 +176,28 @@ namespace engine
 
 		logger.info("管线:: 图形管线已建立");
 		return true;
+	}
+
+	//按交换链格式重建图形管线
+	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format)
+	{
+		//图形管线尚未建立则无需处理
+		if (pipeline == VK_NULL_HANDLE)
+			return true;
+		//格式未变则无需重建（空操作）
+		if (config.color_format == color_format && config.depth_format == depth_format)
+			return true;
+
+		logger.info("管线:: 交换链格式变化（颜色 {}，深度 {}），重建图形管线",
+			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format));
+		//等待设备空闲，确保旧管线不再被在途帧引用
+		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle（管线重建）"))
+			return false;
+		//更新配置中的格式
+		config.color_format = color_format;
+		config.depth_format = depth_format;
+		//复用已记住的着色器模块重建
+		return pipeline_build(vert_module, frag_module);
 	}
 
 	//获取图形管线

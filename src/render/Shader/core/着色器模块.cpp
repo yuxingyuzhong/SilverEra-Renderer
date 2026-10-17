@@ -43,6 +43,14 @@ namespace engine
 		bytes_out.resize(static_cast<std::size_t>(size));
 		stream.seekg(0);
 		stream.read(bytes_out.data(), size);
+		//若实际读取字节数不足（短读或流已处于失败态）
+		if (stream.gcount() != size)
+		{
+			logger.error("着色器:: 着色器文件读取不完整 {}", file_name);
+			bytes_out.clear();
+			stream.close();
+			return false;
+		}
 		stream.close();
 		return true;
 	}
@@ -63,6 +71,22 @@ namespace engine
 		vector<char> bytes;
 		if (!file_bytes_read(bytes, file_name))
 			return false;
+
+		//若字节长度非 4 字节倍数（SPIR-V 以 32 位字为单位）
+		if (bytes.size() % 4 != 0)
+		{
+			logger.error("着色器:: 字节码长度非 4 字节倍数 {}", file_name);
+			return false;
+		}
+		//取首字作为魔数判据
+		uint32_t magic = 0;
+		memcpy(&magic, bytes.data(), sizeof(uint32_t));
+		//若魔数不匹配（非 SPIR-V 字节码）
+		if (magic != 0x07230203u)
+		{
+			logger.error("着色器:: 魔数不匹配，非 SPIR-V 字节码（魔数 {}）{}", magic, file_name);
+			return false;
+		}
 
 		//着色器模块创建信息（pCode 须 4 字节对齐；vector 数据天然满足）
 		VkShaderModuleCreateInfo create_info{};

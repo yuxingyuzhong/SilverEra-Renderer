@@ -44,11 +44,12 @@ namespace engine
 
 		/*
 		创建缓冲
-		host_visible 为真：主机可见且可随机访问，可直接写入 / 读回（也用作上传暂存）。
+		host_visible 为真：主机可见，可直接写入 / 读回（也用作上传暂存）；
+		                   sequential_write 为真表示只做顺序写入（上传暂存），据此选择更优的内存类型。
 		host_visible 为假：设备本地，需另经 upload_buffer 上传。
 		*/
 		bool buffer_create(VkBuffer& buffer_out, VmaAllocation& alloc_out,
-			VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible);
+			VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write = false);
 		//销毁缓冲（缓冲与它的内存一起归还）
 		void buffer_destroy(VkBuffer buffer, VmaAllocation alloc);
 		//写入缓冲（仅对主机可见的缓冲有意义）

@@ -20,8 +20,9 @@ namespace engine
 			case SDL_EVENT_QUIT:
 				close_flag = true;
 				break;
-			//若窗口尺寸变化（仅置标志，交换链重建推迟到帧链路）
+			//若窗口尺寸变化或像素尺寸变化（HiDPI 跨不同 DPI 显示器；仅置标志，交换链重建推迟到帧链路）
 			case SDL_EVENT_WINDOW_RESIZED:
+			case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 				resize_flag = true;
 				break;
 			//若窗口被最小化

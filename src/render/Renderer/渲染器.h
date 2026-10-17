@@ -78,7 +78,8 @@ namespace engine
 		/*
 		绘制网格
 		transform 为列主序 16 浮点模型矩阵，可为 nullptr 表示单位矩阵；
-		本调用只登记一个待绘制项，实际绘制在下一帧 frame_render 时发生。
+		本调用只登记一个待绘制项，实际绘制在下一帧 frame_render 时发生；
+		同一帧内可多次调用以登记多个网格（各自独立的模型矩阵）。
 		*/
 		bool mesh_draw(Mesh_Handle handle, const float* transform);
 
@@ -89,6 +90,8 @@ namespace engine
 		bool texture_load(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height);
 		//程序生成棋盘格纹理
 		bool texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
+		//卸载纹理（句柄无效则忽略；绑定过该纹理的帧槽需由调用方重新 texture_bind_set）
+		void texture_unload(uint64_t handle);
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
 

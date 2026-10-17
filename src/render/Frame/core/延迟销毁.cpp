@@ -11,8 +11,8 @@ namespace engine
 	*/
 	void Frame_Context::deferred_push(Deferred_Entry entry, uint32_t delay_frames)
 	{
-		//标记释放帧号（当前帧序号 + 延迟帧数）
-		entry.release_frame = frame_serial + delay_frames;
+		//标记释放帧号（当前帧计数 + 延迟帧数）
+		entry.release_frame = frame_count + delay_frames;
 		//入队
 		deferred_entries.push_back(std::move(entry));
 	}
@@ -31,7 +31,7 @@ namespace engine
 		for (auto it = deferred_entries.begin(); it != deferred_entries.end();)
 		{
 			//若尚未到释放帧号则跳过
-			if (it->release_frame > frame_serial)
+			if (it->release_frame > frame_count)
 			{
 				++it;
 				continue;

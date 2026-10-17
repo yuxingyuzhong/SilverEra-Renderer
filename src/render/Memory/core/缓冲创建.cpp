@@ -5,12 +5,14 @@ namespace engine
 {
 	/*
 	创建缓冲
-	host_visible 为真：主机可见且可随机访问（VMA 允许映射），并保持持久映射，
-	                   因此写入 / 读回不必再自行挑选内存类型。
+	host_visible 为真：主机可见（VMA 允许映射），并保持持久映射，
+	                   因此写入 / 读回不必再自行挑选内存类型；
+	                   其中 sequential_write 为真的（上传暂存）按「仅顺序写入」优化，
+	                   为假的按「主机随机读写」处理。
 	host_visible 为假：按设备本地分配，且申请专用内存（长命且体积大，不做子分配复用）。
 	*/
 	bool Memory_Context::buffer_create(VkBuffer& buffer_out, VmaAllocation& alloc_out,
-		VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible)
+		VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write)
 	{
 		//前置：分配器与逻辑设备必须就绪
 		if (!valid())
@@ -31,8 +33,14 @@ namespace engine
 		alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
 		//若需主机可见
 		if (host_visible)
-			//主机可随机读写，并保持映射（读写取回同一个指针）
-			alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		{
+			//仅顺序写入者（上传暂存）按顺序写优化
+			if (sequential_write)
+				alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+			//其余按主机可随机读写处理，并保持映射（读写取回同一个指针）
+			else
+				alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		}
 		//若为设备本地
 		else
 			alloc_info.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;

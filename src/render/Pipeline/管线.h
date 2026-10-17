@@ -46,6 +46,13 @@ namespace engine
 
 		//构建图形管线（顶点输入 position vec3 + uv vec2；推送常量 mat4 模型矩阵；深度测试开 / 写开；背面剔除 BACK）
 		bool pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module);
+		/*
+		按交换链格式重建图形管线
+		图形管线把颜色 / 深度格式固化在 VkPipelineRenderingCreateInfo 中，
+		交换链重建若换了格式（颜色或深度），旧管线即与新渲染目标不匹配，必须重建；
+		格式未变时不做任何操作（空操作，无等待、无重建开销）。
+		*/
+		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format);
 
 		//获取图形管线
 		VkPipeline pipeline_get(void) const;
@@ -85,5 +92,9 @@ namespace engine
 		std::vector<VkDescriptorSet> sampler_sets;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
+		//图形管线创建时所用的顶点着色器模块（供格式变化时重建复用；模块所有权仍归上层）
+		VkShaderModule vert_module = VK_NULL_HANDLE;
+		//图形管线创建时所用的片元着色器模块（供格式变化时重建复用；模块所有权仍归上层）
+		VkShaderModule frag_module = VK_NULL_HANDLE;
 	};
 }

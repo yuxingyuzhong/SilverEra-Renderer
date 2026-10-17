@@ -3,9 +3,20 @@
 #include "Application/Renderer/src/render/Renderer/core/结果检查.h"
 //顶点布局（Vertex 步长与属性偏移据此推导）
 #include "Application/Renderer/src/render/Mesh/网格数据.h"
+//offsetof
+#include <cstddef>
 
 namespace engine
 {
+	/*
+	顶点布局静态断言
+	下方 binding 步长与属性偏移按字面量书写，此处断言其与 Mesh::Vertex 的实际布局一致，
+	避免两侧各自漂移而静默错配（位置 vec3 在 0，纹理坐标 vec2 在 12，步长 20）。
+	*/
+	static_assert(sizeof(Vertex) == 20, "Mesh::Vertex 步长须为 20 字节（vec3 位置 + vec2 纹理坐标）");
+	static_assert(offsetof(Vertex, position) == 0, "Mesh::Vertex::position 偏移须为 0");
+	static_assert(offsetof(Vertex, uv) == 12, "Mesh::Vertex::uv 偏移须为 12");
+
 	/*
 	创建图形管线
 	动态渲染（pNext 链入 VkPipelineRenderingCreateInfo，颜色 / 深度附件格式来自配置）；

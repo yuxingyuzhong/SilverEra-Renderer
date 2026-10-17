@@ -103,10 +103,10 @@ namespace engine
 			return false;
 		}
 
-		//创建暂存缓冲（主机可见并用作传输源）
+		//创建暂存缓冲（主机可见、仅顺序写入，并用作传输源）
 		VkBuffer staging_buffer = VK_NULL_HANDLE;
 		VmaAllocation staging_alloc = VK_NULL_HANDLE;
-		if (!buffer_create(staging_buffer, staging_alloc, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true))
+		if (!buffer_create(staging_buffer, staging_alloc, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, true))
 			return false;
 
 		//写入暂存缓冲
@@ -149,10 +149,10 @@ namespace engine
 			return false;
 		}
 
-		//创建暂存缓冲（主机可见并用作传输源）
+		//创建暂存缓冲（主机可见、仅顺序写入，并用作传输源）
 		VkBuffer staging_buffer = VK_NULL_HANDLE;
 		VmaAllocation staging_alloc = VK_NULL_HANDLE;
-		if (!buffer_create(staging_buffer, staging_alloc, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true))
+		if (!buffer_create(staging_buffer, staging_alloc, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, true))
 			return false;
 
 		//写入暂存缓冲
