@@ -56,14 +56,24 @@ namespace engine
 		if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount)
 			image_count = capabilities.maxImageCount;
 
-		//图像用法：颜色附件（与能力求交，避免能力不足时创建失败）
-		VkImageUsageFlags usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT & capabilities.supportedUsageFlags;
+		/*
+		图像用法：颜色附件 ＋ 传输源（均与能力求交，避免能力不足时创建失败）
+		传输源用法供像素回读（把渲染结果拷回主机内存）；若表面能力不含该位，
+		则仅以颜色附件建链并置回读能力标志为假，由上层查询后自行降级。
+		*/
+		VkImageUsageFlags usage = (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+			& capabilities.supportedUsageFlags;
 		//若颜色附件用法不受支持
 		if ((usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) == 0)
 		{
 			logger.error("交换链:: 表面不支持颜色附件用法");
 			return false;
 		}
+		//记录图像是否具备传输源用法（像素回读前提）
+		color_transfer_src = (usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+		//若不具备则告警（不影响原有渲染路径）
+		if (!color_transfer_src)
+			logger.warn("交换链:: 表面不支持传输源用法，像素回读不可用");
 
 		//合成模式（优先不透明）
 		VkCompositeAlphaFlagBitsKHR composite_alpha = composite_alpha_select(capabilities.supportedCompositeAlpha);

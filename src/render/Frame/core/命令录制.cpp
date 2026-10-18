@@ -4,11 +4,11 @@
 
 namespace engine
 {
-	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制 + UI 阶段）+ 呈现前布局转换
+	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制 + UI 阶段）+ 可选像素回读 + 呈现前布局转换
 	void Frame_Context::command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 		VkImageView depth_view, VkExtent2D extent,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -182,17 +182,66 @@ namespace engine
 		vkCmdEndRendering(command_buffer);
 
 		/*
-		颜色布局转换：COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
-		呈现同步由 render_finished 信号量与 present 等待承担，故 dstStage = BOTTOM_OF_PIPE、dstAccess = 0（K12）。
+		像素回读（可选）
+		渲染通道结束后先把颜色附件转入 TRANSFER_SRC_OPTIMAL，再把整张附件拷入主机可见的回读缓冲；
+		屏障 src 为颜色附件输出写入、dst 为传输读取，保证拷贝读到本帧已完成写入的像素。
 		*/
-		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		barrier.dstAccessMask = 0;
-		vkCmdPipelineBarrier(command_buffer,
-			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-			0, 0, nullptr, 0, nullptr, 1, &barrier);
+		if (readback_buffer != VK_NULL_HANDLE)
+		{
+			//布局转换：颜色附件 → 传输源
+			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+			//拷贝区域（整张颜色附件，RGBA8 紧排；行距 / 图距为 0 表示按范围紧排）
+			VkBufferImageCopy copy_region{};
+			copy_region.bufferOffset = 0;
+			copy_region.bufferRowLength = 0;
+			copy_region.bufferImageHeight = 0;
+			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.baseArrayLayer = 0;
+			copy_region.imageSubresource.layerCount = 1;
+			copy_region.imageOffset = { 0, 0, 0 };
+			copy_region.imageExtent = { extent.width, extent.height, 1 };
+			//把颜色附件拷入回读缓冲
+			vkCmdCopyImageToBuffer(command_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				readback_buffer, 1, &copy_region);
+
+			/*
+			颜色布局转换：TRANSFER_SRC_OPTIMAL → PRESENT_SRC_KHR
+			呈现同步由 render_finished 信号量与 present 等待承担，故 dstStage = BOTTOM_OF_PIPE、dstAccess = 0（K12）。
+			*/
+			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			barrier.dstAccessMask = 0;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+		}
+		//若不回读则直接由颜色附件转入呈现布局（与无回读路径逐字节一致）
+		else
+		{
+			/*
+			颜色布局转换：COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
+			呈现同步由 render_finished 信号量与 present 等待承担，故 dstStage = BOTTOM_OF_PIPE、dstAccess = 0（K12）。
+			*/
+			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			barrier.dstAccessMask = 0;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+		}
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");

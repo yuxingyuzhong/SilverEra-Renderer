@@ -139,11 +139,11 @@ namespace engine
 			logger.warn("渲染器:: 在途帧数 {} 超过图像可用信号量数 {}，已下调至前者", effective.frame_overlap, image_available_count);
 			effective.frame_overlap = image_available_count;
 		}
-		//⑧ 帧
+		//⑧ 帧（像素回读缓冲依赖内存模块，故传入 memory）
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
 			impl->device.present_family_get(), impl->device.present_queue_get(),
-			impl->swapchain, effective.frame_overlap))
+			impl->swapchain, impl->memory, effective.frame_overlap))
 		{
 			logger.error("渲染器:: 帧基础设施创建失败");
 			shutdown();
@@ -368,12 +368,18 @@ namespace engine
 		return impl != nullptr && impl->initialized;
 	}
 
-	//每帧推进
-	bool Renderer::frame_render(void)
+	//每帧推进（可选像素回读）
+	bool Renderer::frame_render(uint8_t* readback_pixels, uint32_t readback_capacity,
+		uint32_t* readback_width, uint32_t* readback_height)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return false;
+		//回读尺寸出参先复位（未兑现时保持零，便于调用方判据）
+		if (readback_width != nullptr)
+			*readback_width = 0;
+		if (readback_height != nullptr)
+			*readback_height = 0;
 
 		//① 泵事件
 		impl->platform.events_pump();
@@ -459,12 +465,22 @@ namespace engine
 			item.descriptor_set_count = 2;
 		}
 
-		//交给帧模块走取图像 / 录制 / 提交 / 呈现
+		//交给帧模块走取图像 / 录制 / 提交 / 呈现（可选像素回读）
 		const float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		bool rebuild_needed = false;
+		//像素回读请求（仅当调用方给出目标缓冲时组装）
+		Frame_Readback_Request readback_request{};
+		Frame_Readback_Request* readback_ptr = nullptr;
+		//若调用方请求回读
+		if (readback_pixels != nullptr)
+		{
+			readback_request.pixels = readback_pixels;
+			readback_request.capacity = readback_capacity;
+			readback_ptr = &readback_request;
+		}
 		if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
 			static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
-			impl->ui_channel.draw_callback_get()))
+			impl->ui_channel.draw_callback_get(), readback_ptr))
 		{
 			logger.error("渲染器:: 帧渲染失败");
 			return false;
@@ -472,6 +488,25 @@ namespace engine
 		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
 		impl->pending_items.clear();
 		impl->pending_transforms.clear();
+		/*
+		回读结果交付
+		若本帧请求回读但帧模块未产出像素（如窗口最小化 / 关闭请求而跳过渲染，
+		或交换链过期提前返回），视为本次回读未兑现，报错返回假并保持尺寸出参为零。
+		*/
+		if (readback_ptr != nullptr)
+		{
+			//若帧模块未回读任何像素
+			if (readback_request.bytes == 0)
+			{
+				logger.error("渲染器:: 本帧未产出像素，像素回读未兑现");
+				return false;
+			}
+			//回填回读尺寸
+			if (readback_width != nullptr)
+				*readback_width = readback_request.width;
+			if (readback_height != nullptr)
+				*readback_height = readback_request.height;
+		}
 		//若帧链路要求重建且本帧尚未重建
 		if (rebuild_needed && !rebuilt)
 		{
@@ -506,6 +541,16 @@ namespace engine
 		if (impl == nullptr)
 			return 0;
 		return impl->frame_count;
+	}
+
+	//是否支持像素回读
+	bool Renderer::readback_supported(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//交换链图像具备传输源用法才可回读
+		return impl->swapchain.color_transfer_src_get();
 	}
 
 	//当前交换链宽度

@@ -258,4 +258,10 @@ namespace engine
 	{
 		return depth_format;
 	}
+
+	//交换链图像是否具备传输源用法
+	bool Swapchain_Context::color_transfer_src_get(void) const
+	{
+		return color_transfer_src;
+	}
 }

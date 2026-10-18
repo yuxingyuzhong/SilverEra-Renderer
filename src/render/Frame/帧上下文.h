@@ -91,8 +91,27 @@ namespace engine
 	};
 
 	/*
+	像素回读请求
+	由门面在 render 时传入：pixels 非空即请求本帧把颜色附件拷回该主机缓冲。
+	capacity 为 pixels 的字节容量（须不小于 宽 × 高 × 4）；宽 / 高 / 字节数由帧模块回填。
+	*/
+	struct Frame_Readback_Request
+	{
+		//目标主机缓冲（为空表示本帧不回读）
+		uint8_t* pixels = nullptr;
+		//目标缓冲字节容量
+		VkDeviceSize capacity = 0;
+		//回填：回读宽度
+		uint32_t width = 0;
+		//回填：回读高度
+		uint32_t height = 0;
+		//回填：回读字节数
+		VkDeviceSize bytes = 0;
+	};
+
+	/*
 	帧上下文
-	持有帧槽集合，负责取图像、命令录制、提交与呈现、延迟销毁（§5.2 / §6.2）。
+	持有帧槽集合，负责取图像、命令录制、提交与呈现、延迟销毁、像素回读（§5.2 / §6.2）。
 	生命周期：build → render × N → destroy；destroy 幂等，析构兜底。
 	同步原语归属（§5.2 表）：帧栅栏属「每帧槽」，数量 = frame_overlap；
 	图像可用与呈现完成信号量均属「每交换链图像」，由交换链模块持有（数量 = 交换链图像数）。
@@ -112,26 +131,29 @@ namespace engine
 		构建
 		创建 frame_overlap 个帧槽（命令池 / 命令缓冲 / 栅栏）。
 		swapchain：已构建的交换链（帧链路取图像依赖它）。
+		memory：内存模块（像素回读缓冲的创建 / 销毁依赖它）。
 		*/
 		bool build(VkDevice device, VkPhysicalDevice physical_device,
 			uint32_t graphics_family, VkQueue graphics_queue,
 			uint32_t present_family, VkQueue present_queue,
-			Swapchain_Context& swapchain, uint32_t frame_overlap);
+			Swapchain_Context& swapchain, Memory_Context& memory, uint32_t frame_overlap);
 		//销毁（幂等；先等设备空闲，再逆序销毁帧槽）
 		void destroy(void);
 		//是否已构建完成（至少一个帧槽）
 		bool valid(void) const;
 
 		/*
-		渲染一帧（取图像 → 录制 → 提交 → 呈现）
+		渲染一帧（取图像 → 录制 → 提交 → 呈现，可选像素回读）
 		swapchain：当前交换链；rebuild_needed_out：置真表示本帧遇到过期 / 次优，需上层重建；
 		items / item_count：渲染项列表（可为空，此时只清屏）；clear_color：清屏色；
-		ui_callback：每帧 UI 绘制回调（可为空；在场景 pass 结束后交还上层绘制 UI）。
+		ui_callback：每帧 UI 绘制回调（可为空；在场景 pass 结束后交还上层绘制 UI）；
+		readback：像素回读请求（可为空；非空且 pixels 非空时把本帧颜色附件拷回该缓冲）。
 		返回假视为硬错误。
 		*/
 		bool render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
 			bool& rebuild_needed_out, const float clear_color[4],
-			const Frame_Ui_Callback* ui_callback = nullptr);
+			const Frame_Ui_Callback* ui_callback = nullptr,
+			Frame_Readback_Request* readback = nullptr);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -160,12 +182,13 @@ namespace engine
 		/*
 		录制命令缓冲（实现见 core/命令录制.cpp）
 		颜色 / 深度附件布局转换为动态渲染，随后按渲染项依次绑定并 vkCmdDrawIndexed；
-		场景 pass 结束后若给定 UI 回调则交还上层绘制 UI（再经呈现前布局转换收尾）。
+		场景 pass 结束后若给定 UI 回调则交还上层绘制 UI；
+		若给定回读缓冲则在呈现转换前转入 TRANSFER_SRC 并把颜色附件拷入该缓冲（再经呈现前布局转换收尾）。
 		*/
 		void command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 			VkImageView depth_view, VkExtent2D extent,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-			const Frame_Ui_Callback* ui_callback = nullptr);
+			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
@@ -173,6 +196,20 @@ namespace engine
 		void deferred_push(Deferred_Entry entry, uint32_t delay_frames);
 		//释放到期的延迟销毁条目（实现见 core/延迟销毁.cpp）
 		void deferred_flush(void);
+		/*
+		确保回读缓冲就绪（实现见 core/像素回读.cpp）
+		尚未创建或字节数不足时按需创建 / 重建（主机可见，用途 TRANSFER_DST）；
+		返回假视为硬错误。
+		*/
+		bool readback_buffer_ensure(VkDeviceSize size);
+		//销毁回读缓冲（实现见 core/像素回读.cpp）
+		void readback_buffer_destroy(void);
+		/*
+		帧后读出像素（实现见 core/像素回读.cpp）
+		等本帧槽栅栏（拷贝与渲染同在一个命令缓冲，栅栏发出即数据就绪）→ 主机读回 →
+		回填宽 / 高 / 字节数。
+		*/
+		bool readback_read(Frame_Slot& slot, Frame_Readback_Request& request, VkExtent2D extent);
 	private:
 		//逻辑设备
 		VkDevice device = VK_NULL_HANDLE;
@@ -196,5 +233,13 @@ namespace engine
 		uint32_t frame_count = 0;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
+		//内存模块（像素回读缓冲的创建 / 销毁依赖它）
+		Memory_Context* memory = nullptr;
+		//像素回读缓冲（主机可见；按需创建，交换链尺寸变化时重建）
+		VkBuffer readback_buffer = VK_NULL_HANDLE;
+		//像素回读缓冲内存
+		VmaAllocation readback_alloc = VK_NULL_HANDLE;
+		//像素回读缓冲当前字节数
+		VkDeviceSize readback_size = 0;
 	};
 }

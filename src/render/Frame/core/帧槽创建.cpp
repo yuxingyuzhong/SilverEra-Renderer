@@ -1,6 +1,8 @@
 #include "src/render/Frame/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
+//内存上下文完整定义（构建前置校验需要其 valid()）
+#include "src/render/Memory/内存上下文.h"
 
 namespace engine
 {
@@ -15,7 +17,7 @@ namespace engine
 	bool Frame_Context::build(VkDevice device, VkPhysicalDevice physical_device,
 		uint32_t graphics_family, VkQueue graphics_queue,
 		uint32_t present_family, VkQueue present_queue,
-		Swapchain_Context& swapchain, uint32_t frame_overlap)
+		Swapchain_Context& swapchain, Memory_Context& memory, uint32_t frame_overlap)
 	{
 		//前置：设备句柄与两队列必须齐备
 		if (device == VK_NULL_HANDLE || graphics_queue == VK_NULL_HANDLE || present_queue == VK_NULL_HANDLE)
@@ -27,6 +29,12 @@ namespace engine
 		if (!swapchain.valid())
 		{
 			logger.error("帧上下文:: 交换链尚未构建，无法建立帧上下文");
+			return false;
+		}
+		//前置：内存模块必须已构建（像素回读缓冲依赖它）
+		if (!memory.valid())
+		{
+			logger.error("帧上下文:: 内存上下文尚未构建，无法建立帧上下文");
 			return false;
 		}
 		//前置：在途帧数为正
@@ -44,6 +52,8 @@ namespace engine
 		this->present_family = present_family;
 		this->present_queue = present_queue;
 		this->frame_overlap = frame_overlap;
+		//记录内存模块（像素回读缓冲的创建 / 销毁依赖它）
+		this->memory = &memory;
 
 		//创建帧槽集合
 		slots.resize(frame_overlap);
@@ -74,6 +84,8 @@ namespace engine
 			//逆序销毁全部帧槽
 			for (auto& slot : slots)
 				frame_slot_destroy(slot);
+			//归还像素回读缓冲（须在内存模块销毁之前）
+			readback_buffer_destroy();
 		}
 		//清空帧槽与延迟销毁队列
 		slots.clear();
@@ -89,6 +101,8 @@ namespace engine
 		frame_overlap = 0;
 		acquire_cursor = 0;
 		frame_count = 0;
+		//解除对内存模块的引用
+		memory = nullptr;
 	}
 
 	//是否已构建完成

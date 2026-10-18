@@ -4,9 +4,10 @@
 
 namespace engine
 {
-	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制 → 提交并呈现
+	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
 	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
-		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback)
+		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
+		Frame_Readback_Request* readback)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -69,10 +70,42 @@ namespace engine
 		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
 			return false;
 
-		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 呈现前布局转换）
+		/*
+		像素回读准备（可选）
+		非空请求即先让回读缓冲就绪：先校验交换链图像具备传输源用法与目标容量，
+		再按「宽 × 高 × 4」确保缓冲；随后录制时把颜色附件拷入该缓冲。
+		*/
+		VkBuffer readback_target = VK_NULL_HANDLE;
+		//本帧是否请求回读（请求存在且目标缓冲非空）
+		bool readback_active = readback != nullptr && readback->pixels != nullptr;
+		//若本帧请求回读
+		if (readback_active)
+		{
+			//前置：交换链图像须具备传输源用法
+			if (!swapchain.color_transfer_src_get())
+			{
+				logger.error("提交呈现:: 交换链图像不具备传输源用法，像素回读不可用");
+				return false;
+			}
+			//本帧像素字节数（RGBA8 紧排）
+			VkExtent2D readback_extent = swapchain.extent_get();
+			VkDeviceSize readback_bytes = static_cast<VkDeviceSize>(readback_extent.width) * readback_extent.height * 4;
+			//若回读目标容量不足
+			if (readback->capacity < readback_bytes)
+			{
+				logger.error("提交呈现:: 回读目标容量不足（需 {} 字节，有 {} 字节）", readback_bytes, readback->capacity);
+				return false;
+			}
+			//确保回读缓冲就绪并把句柄交给录制
+			if (!readback_buffer_ensure(readback_bytes))
+				return false;
+			readback_target = readback_buffer;
+		}
+
+		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
-			swapchain.extent_get(), items, item_count, clear_color, ui_callback);
+			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target);
 
 		/*
 		取本帧呈现完成信号量
@@ -85,6 +118,14 @@ namespace engine
 
 		//提交并呈现
 		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
+			return false;
+
+		/*
+		像素读出（可选）
+		渲染与拷贝录在同一命令缓冲，故等本帧槽栅栏即可保证像素已落入回读缓冲；
+		读出后回填宽 / 高 / 字节数供调用方取用。
+		*/
+		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
 			return false;
 
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）

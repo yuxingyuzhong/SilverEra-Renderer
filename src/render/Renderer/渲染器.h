@@ -61,12 +61,21 @@ namespace engine
 		void shutdown(void);
 		//是否已初始化
 		bool valid(void) const;
-		//每帧推进（泵事件 → 取图像 → 录制 → 提交 → 呈现）
-		bool frame_render(void);
+		/*
+		每帧推进（泵事件 → 取图像 → 录制 → 提交 → 呈现）
+		readback_pixels 非空即把本帧最终颜色附件回读到该主机缓冲（RGBA8 紧排、逐行自上而下）；
+		readback_capacity 为其字节容量，须不小于「宽 × 高 × 4」，否则本帧不渲染并返回假；
+		readback_width / readback_height 非空时回填回读尺寸。
+		未请求回读时，后三个参数可全部省略（与旧调用完全兼容）。
+		*/
+		bool frame_render(uint8_t* readback_pixels = nullptr, uint32_t readback_capacity = 0,
+			uint32_t* readback_width = nullptr, uint32_t* readback_height = nullptr);
 		//窗口是否请求退出
 		bool close_requested(void) const;
 		//已呈现帧数（调试与用例断言用）
 		uint64_t frame_count(void) const;
+		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
+		bool readback_supported(void) const;
 		//当前交换链尺寸（窗口缩放后可能变化）
 		uint32_t extent_width(void) const;
 		uint32_t extent_height(void) const;

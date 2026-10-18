@@ -27,6 +27,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Device/core/物理设备选择.cpp"
     "src/render/Device/core/设备上下文.cpp"
     "src/render/Device/core/逻辑设备创建.cpp"
+    "src/render/Frame/core/像素回读.cpp"
     "src/render/Frame/core/命令录制.cpp"
     "src/render/Frame/core/帧槽创建.cpp"
     "src/render/Frame/core/延迟销毁.cpp"

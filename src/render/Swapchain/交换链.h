@@ -83,6 +83,8 @@ namespace engine
 		VkImageView depth_view_get(uint32_t index) const;
 		//获取深度格式（已选定的设备支持格式）
 		VkFormat depth_format_get(void) const;
+		//交换链图像是否具备传输源用法（像素回读的前提）
+		bool color_transfer_src_get(void) const;
 	private:
 		//创建交换链与图像视图、图像可用信号量（实现见 core/交换链重建.cpp）
 		bool swapchain_create(uint32_t width, uint32_t height);
@@ -127,6 +129,8 @@ namespace engine
 		VkFormat depth_format = VK_FORMAT_UNDEFINED;
 		//深度图像是否已完成首帧前的一次布局转换
 		bool depth_initialized = false;
+		//交换链图像是否具备传输源用法（像素回读前提；建链时按表面能力确定）
+		bool color_transfer_src = false;
 		//交换链范围
 		VkExtent2D extent = { 0, 0 };
 		//交换链图像
