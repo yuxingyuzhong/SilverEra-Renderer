@@ -292,6 +292,8 @@ target_include_directories(RendererCore
         "${BYJY_VULKAN_INCLUDE_DIR}"
         "${PROJECT_ROOT_DIR}/external"
 )
+# 层内实现文件（.cpp）跨目录包含写「本层根相对」src/...；头文件仍写项目根全路径。
+target_include_directories(RendererCore PRIVATE "${PROJECT_ROOT_DIR}")
 
 if(BYJY_RENDERER_OUT_DEF)
     target_compile_definitions(RendererCore PUBLIC ${BYJY_RENDERER_OUT_DEF})

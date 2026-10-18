@@ -1,4 +1,4 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Platform/局部命名空间使用.h"
 //获取日志系统
 #include "Engine/EngineCore/src/tools/Logging/日志系统运行包.h"
 
@@ -29,6 +29,9 @@ namespace engine
 		（无头用例仍创建真实窗口与表面，只是不显示）。
 		*/
 		SDL_WindowFlags flags = SDL_WINDOW_VULKAN;
+		//可见窗口允许用户拖拽调整尺寸（事件泵已置 resize 标志、帧链路会重建交换链）
+		if (!hidden)
+			flags |= SDL_WINDOW_RESIZABLE;
 		//若需隐藏窗口
 		if (hidden)
 			flags |= SDL_WINDOW_HIDDEN;

@@ -1,8 +1,10 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Mesh/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（缓冲创建 / 上传 / 销毁）
-#include "Application/Renderer/src/render/Memory/内存上下文.h"
+#include "src/render/Memory/内存上下文.h"
+//memcpy
+#include <cstring>
 
 namespace engine
 {
@@ -36,15 +38,12 @@ namespace engine
 			//释放全部网格缓冲
 			for (auto& record : records)
 			{
-				//归还顶点缓冲
-				memory->buffer_destroy(record.vertex_buffer, record.vertex_allocation);
-				//归还索引缓冲
-				memory->buffer_destroy(record.index_buffer, record.index_allocation);
+				//归还顶点 / 索引共用缓冲
+				memory->buffer_destroy(record.buffer, record.allocation);
 				//复位记录
-				record.vertex_buffer = VK_NULL_HANDLE;
-				record.vertex_allocation = VK_NULL_HANDLE;
-				record.index_buffer = VK_NULL_HANDLE;
-				record.index_allocation = VK_NULL_HANDLE;
+				record.buffer = VK_NULL_HANDLE;
+				record.allocation = VK_NULL_HANDLE;
+				record.index_offset = 0;
 				record.index_count = 0;
 				record.valid = false;
 			}
@@ -86,46 +85,41 @@ namespace engine
 				return false;
 			}
 
-		//顶点缓冲字节数
+		//顶点区字节数
 		VkDeviceSize vertex_bytes = sizeof(Vertex) * data.vertices.size();
-		//创建顶点缓冲（设备本地，可作传输目标）
-		VkBuffer vertex_buffer = VK_NULL_HANDLE;
-		VmaAllocation vertex_allocation = VK_NULL_HANDLE;
-		if (!memory->buffer_create(vertex_buffer, vertex_allocation, vertex_bytes,
-			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false))
-			return false;
-		//上传顶点数据
-		if (!memory->upload_buffer(vertex_buffer, data.vertices.data(), vertex_bytes, 0))
-		{
-			memory->buffer_destroy(vertex_buffer, vertex_allocation);
-			return false;
-		}
-
-		//索引缓冲字节数
+		//索引区字节数
 		VkDeviceSize index_bytes = sizeof(uint32_t) * data.indices.size();
-		//创建索引缓冲（设备本地，可作传输目标）
-		VkBuffer index_buffer = VK_NULL_HANDLE;
-		VmaAllocation index_allocation = VK_NULL_HANDLE;
-		if (!memory->buffer_create(index_buffer, index_allocation, index_bytes,
-			VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false))
-		{
-			memory->buffer_destroy(vertex_buffer, vertex_allocation);
+		//顶点 / 索引共用缓冲的总字节数
+		VkDeviceSize total_bytes = vertex_bytes + index_bytes;
+
+		//创建顶点 / 索引共用缓冲（设备本地；同时具备顶点 / 索引 / 传输目标用途）
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		if (!memory->buffer_create(buffer, allocation, total_bytes,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false))
 			return false;
-		}
-		//上传索引数据
-		if (!memory->upload_buffer(index_buffer, data.indices.data(), index_bytes, 0))
+
+		/*
+		按「顶点区 + 索引区」紧排组织主机侧连续数据
+		两段合并为一次 upload_buffer 提交，故须先拼成一段连续主机内存；
+		索引区偏移 = 顶点区字节数（20 字节步长的整数倍，天然满足 uint32 索引对齐）。
+		*/
+		std::vector<uint8_t> combined(static_cast<std::size_t>(total_bytes));
+		std::memcpy(combined.data(), data.vertices.data(), static_cast<std::size_t>(vertex_bytes));
+		std::memcpy(combined.data() + vertex_bytes, data.indices.data(), static_cast<std::size_t>(index_bytes));
+
+		//一次性上传（顶点与索引合并在同一缓冲、同一提交内落位）
+		if (!memory->upload_buffer(buffer, combined.data(), total_bytes, 0))
 		{
-			memory->buffer_destroy(vertex_buffer, vertex_allocation);
-			memory->buffer_destroy(index_buffer, index_allocation);
+			memory->buffer_destroy(buffer, allocation);
 			return false;
 		}
 
 		//登记网格记录
 		Mesh_Record record;
-		record.vertex_buffer = vertex_buffer;
-		record.vertex_allocation = vertex_allocation;
-		record.index_buffer = index_buffer;
-		record.index_allocation = index_allocation;
+		record.buffer = buffer;
+		record.allocation = allocation;
+		record.index_offset = vertex_bytes;
 		record.index_count = static_cast<uint32_t>(data.indices.size());
 		record.valid = true;
 		records.push_back(record);
@@ -148,29 +142,24 @@ namespace engine
 		//若记录已无效
 		if (!record.valid)
 			return;
-		//内存模块就绪时归还缓冲
+		//内存模块就绪时归还顶点 / 索引共用缓冲
 		if (memory != nullptr)
-		{
-			//归还顶点缓冲
-			memory->buffer_destroy(record.vertex_buffer, record.vertex_allocation);
-			//归还索引缓冲
-			memory->buffer_destroy(record.index_buffer, record.index_allocation);
-		}
+			//归还共用缓冲
+			memory->buffer_destroy(record.buffer, record.allocation);
 		//复位记录
-		record.vertex_buffer = VK_NULL_HANDLE;
-		record.vertex_allocation = VK_NULL_HANDLE;
-		record.index_buffer = VK_NULL_HANDLE;
-		record.index_allocation = VK_NULL_HANDLE;
+		record.buffer = VK_NULL_HANDLE;
+		record.allocation = VK_NULL_HANDLE;
+		record.index_offset = 0;
 		record.index_count = 0;
 		record.valid = false;
 	}
 
-	//取网格缓冲与索引数
-	bool Mesh_Context::mesh_record_get(Mesh_Handle handle, VkBuffer& vertex_buffer_out, VkBuffer& index_buffer_out, uint32_t& index_count_out) const
+	//取网格缓冲、索引区偏移与索引数
+	bool Mesh_Context::mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const
 	{
 		//默认输出为空
-		vertex_buffer_out = VK_NULL_HANDLE;
-		index_buffer_out = VK_NULL_HANDLE;
+		buffer_out = VK_NULL_HANDLE;
+		index_offset_out = 0;
 		index_count_out = 0;
 		//若句柄为零或越界
 		if (handle == 0 || handle > records.size())
@@ -180,9 +169,9 @@ namespace engine
 		//若记录无效
 		if (!record.valid)
 			return false;
-		//写出句柄与索引数
-		vertex_buffer_out = record.vertex_buffer;
-		index_buffer_out = record.index_buffer;
+		//写出缓冲、索引区偏移与索引数
+		buffer_out = record.buffer;
+		index_offset_out = record.index_offset;
 		index_count_out = record.index_count;
 		return true;
 	}

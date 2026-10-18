@@ -75,8 +75,8 @@ namespace engine
 
 		/*
 		一次性同步上传
-		内部临时创建命令池与命令缓冲，提交后等待完成再销毁，不依赖帧模块
-		（帧槽命令池自 Phase 5 起提供，届时改走帧槽）。
+		复用本类持有的上传命令池与完成栅栏（首次上传时创建，之后每次仅
+		重置命令池 → 录制 → 提交 → 等待），不逐次创建 / 销毁命令池，也不依赖帧模块。
 		*/
 		bool upload_buffer(VkBuffer dst_buffer, const void* data, VkDeviceSize size, VkDeviceSize offset);
 		/*
@@ -94,6 +94,8 @@ namespace engine
 	private:
 		//创建 VMA 分配器（实现见 core/分配器创建.cpp）
 		bool build_allocator(VkInstance instance, VkPhysicalDevice physical_device, VkDevice device);
+		//确保一次性上传的命令池与栅栏就绪（首次调用创建，之后复用；实现见 core/上传批次.cpp）
+		bool upload_resources_ensure(void);
 	private:
 		//VMA 分配器
 		VmaAllocator allocator = VK_NULL_HANDLE;
@@ -107,5 +109,9 @@ namespace engine
 		uint32_t graphics_family = 0;
 		//图形队列
 		VkQueue graphics_queue = VK_NULL_HANDLE;
+		//一次性上传命令池（复用；首次上传时创建，destroy 时销毁）
+		VkCommandPool upload_pool = VK_NULL_HANDLE;
+		//一次性上传完成栅栏（复用；首次上传时创建，destroy 时销毁）
+		VkFence upload_fence = VK_NULL_HANDLE;
 	};
 }

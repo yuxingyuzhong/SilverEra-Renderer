@@ -1,12 +1,12 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Frame/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制 → 提交并呈现
 	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
-		bool& rebuild_needed_out, const float clear_color[4])
+		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -17,17 +17,18 @@ namespace engine
 			return false;
 		}
 		//若交换链图像或图像可用信号量为空
-		if (swapchain.image_count_get() == 0 || swapchain.image_available_count_get() == 0)
+		if (swapchain.image_count_get() == 0 || swapchain.image_available_count_get() == 0
+			|| swapchain.render_finished_count_get() == 0)
 		{
-			logger.error("提交呈现:: 交换链图像或图像可用信号量为空");
+			logger.error("提交呈现:: 交换链图像或信号量为空");
 			return false;
 		}
 
 		//取当前帧槽（在途帧轮转；帧槽集合长度即 frame_overlap）
 		Frame_Slot& slot = slots[frame_count % frame_overlap];
 
-		//等待该帧槽前一次提交完成（超时给足，waitAll 为真；K9）
-		if (!vk_result_check(vkWaitForFences(device, 1, &slot.in_flight_fence, VK_TRUE, UINT64_MAX), "vkWaitForFences"))
+		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待；K9）
+		if (!slot_fence_wait(slot))
 			return false;
 
 		/*
@@ -68,13 +69,22 @@ namespace engine
 		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
 			return false;
 
-		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + 呈现前布局转换）
+		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
-			swapchain.extent_get(), items, item_count, clear_color);
+			swapchain.extent_get(), items, item_count, clear_color, ui_callback);
+
+		/*
+		取本帧呈现完成信号量
+		按 §5.2 归属表，呈现完成信号量属「每交换链图像」，数量 = 交换链图像数；
+		按本次 acquire 得到的 image_index 取用：同一信号量只会在同一张交换链图像
+		被再次获取时才复用，而那时上一次 present 必然已消费它（帧栅栏只保证
+		提交完成，不保证 present 已取走信号量）。
+		*/
+		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
 
 		//提交并呈现
-		if (!submit_present(slot, image_index, image_available, swapchain, rebuild_needed_out))
+		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
 			return false;
 
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
@@ -86,7 +96,7 @@ namespace engine
 
 	//提交并呈现
 	bool Frame_Context::submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
-		Swapchain_Context& swapchain, bool& rebuild_needed_out)
+		VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out)
 	{
 		//等待信号量提交信息（图像可用，等待发生在颜色附件输出阶段）
 		VkSemaphoreSubmitInfo wait_info{};
@@ -99,10 +109,10 @@ namespace engine
 		command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
 		command_info.commandBuffer = slot.command_buffer;
 
-		//信号量提交信息（呈现完成，供 present 等待）
+		//信号量提交信息（呈现完成，供 present 等待；按交换链图像持有）
 		VkSemaphoreSubmitInfo signal_info{};
 		signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-		signal_info.semaphore = slot.render_finished;
+		signal_info.semaphore = render_finished;
 		signal_info.stageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 
 		//提交信息（等待图像可用 → 执行命令 → 信号呈现完成）
@@ -121,11 +131,11 @@ namespace engine
 
 		//交换链句柄需取地址，故用局部量承接
 		VkSwapchainKHR swapchain_handle = swapchain.handle_get();
-		//呈现信息（等待该帧槽的呈现完成信号量）
+		//呈现信息（等待本图像的呈现完成信号量）
 		VkPresentInfoKHR present_info{};
 		present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 		present_info.waitSemaphoreCount = 1;
-		present_info.pWaitSemaphores = &slot.render_finished;
+		present_info.pWaitSemaphores = &render_finished;
 		present_info.swapchainCount = 1;
 		present_info.pSwapchains = &swapchain_handle;
 		present_info.pImageIndices = &image_index;

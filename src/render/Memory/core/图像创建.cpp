@@ -1,5 +1,5 @@
-#include "../局部命名空间使用.h"
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Memory/局部命名空间使用.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {

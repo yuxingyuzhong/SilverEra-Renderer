@@ -1,8 +1,8 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Swapchain/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（深度图像创建 / 视图创建 / 销毁）
-#include "Application/Renderer/src/render/Memory/内存上下文.h"
+#include "src/render/Memory/内存上下文.h"
 
 namespace engine
 {
@@ -152,18 +152,26 @@ namespace engine
 		}
 
 		/*
-		创建图像可用信号量
-		按 §5.2 归属表，图像可用信号量属「每交换链图像」，数量 = 交换链图像数（K10）；
-		随交换链重建一并销毁与重建，故由本模块持有。
-		*/
-		image_available_semaphores.resize(actual_count);
-		//信号量创建信息（复用同一份）
-		VkSemaphoreCreateInfo semaphore_info{};
-		semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		for (uint32_t index = 0; index < actual_count; ++index)
-			//若任一信号量创建失败
-			if (!vk_result_check(vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphores[index]), "vkCreateSemaphore"))
-				return false;
+	创建图像可用与呈现完成信号量
+	按 §5.2 归属表，两者均属「每交换链图像」，数量 = 交换链图像数（K10）；
+	随交换链重建一并销毁与重建，故由本模块持有。
+	呈现完成信号量按图像持有：同一信号量只会在同一张交换链图像被再次获取时才复用，
+	而那时上一次 present 必然已完成（帧栅栏只保证提交完成，不保证 present 已取走信号量）。
+	*/
+	image_available_semaphores.resize(actual_count);
+	render_finished_semaphores.resize(actual_count);
+	//信号量创建信息（复用同一份）
+	VkSemaphoreCreateInfo semaphore_info{};
+	semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	for (uint32_t index = 0; index < actual_count; ++index)
+	{
+		//若任一图像可用信号量创建失败
+		if (!vk_result_check(vkCreateSemaphore(device, &semaphore_info, nullptr, &image_available_semaphores[index]), "vkCreateSemaphore"))
+			return false;
+		//若任一呈现完成信号量创建失败
+		if (!vk_result_check(vkCreateSemaphore(device, &semaphore_info, nullptr, &render_finished_semaphores[index]), "vkCreateSemaphore"))
+			return false;
+	}
 
 		//创建深度图像与视图并完成首帧前的一次布局转换
 		if (!depth_resources_create())

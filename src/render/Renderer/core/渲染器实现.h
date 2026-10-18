@@ -18,6 +18,8 @@
 #include "Application/Renderer/src/render/Scene/相机.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
 #include "Application/Renderer/src/render/Renderer/渲染器.h"
+//UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
+#include "Application/Renderer/src/render/Renderer/渲染器_UI通道.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -51,6 +53,8 @@ namespace engine
 		Texture_Context texture;
 		//相机（生成每帧视图 × 投影矩阵）
 		Camera camera;
+		//UI 通道（供上层接入 ImGui Vulkan 后端；不代管 UI）
+		Ui_Channel_Context ui_channel;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）

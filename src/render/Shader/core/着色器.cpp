@@ -1,6 +1,6 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Shader/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //获取引擎环境（锚定可执行文件目录，处理中文路径）
 #include "Engine/EngineCore/src/tools/Engine_Env/引擎环境.h"
 

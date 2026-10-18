@@ -1,6 +1,6 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Frame/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
@@ -57,8 +57,9 @@ namespace engine
 				return false;
 			}
 
-		logger.info("帧上下文:: 帧基础设施构建完成（在途帧 {}，交换链图像 {}，图像可用信号量 {}）",
-			frame_overlap, swapchain.image_count_get(), swapchain.image_available_count_get());
+		logger.info("帧上下文:: 帧基础设施构建完成（在途帧 {}，交换链图像 {}，图像可用信号量 {}，呈现完成信号量 {}）",
+			frame_overlap, swapchain.image_count_get(), swapchain.image_available_count_get(),
+			swapchain.render_finished_count_get());
 		return true;
 	}
 
@@ -111,6 +112,21 @@ namespace engine
 		return frame_count % frame_overlap;
 	}
 
+	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
+	bool Frame_Context::slot_fence_wait(Frame_Slot& slot)
+	{
+		//先查该帧槽栅栏当前状态
+		VkResult status = vkGetFenceStatus(device, slot.in_flight_fence);
+		//若查询遭遇硬错误（既非已完成也非未就绪）
+		if (status != VK_SUCCESS && status != VK_NOT_READY)
+			return vk_result_check(status, "vkGetFenceStatus");
+		//若已完成则免去阻塞等待（多数帧命中此快速路径）
+		if (status == VK_SUCCESS)
+			return true;
+		//未完成则阻塞等待（超时给足，waitAll 为真；K9）
+		return vk_result_check(vkWaitForFences(device, 1, &slot.in_flight_fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+	}
+
 	//等待本帧槽的完成栅栏
 	bool Frame_Context::slot_wait(void)
 	{
@@ -123,7 +139,7 @@ namespace engine
 		//取本帧槽（与 render 内部同一槽）
 		Frame_Slot& slot = slots[frame_count % frame_overlap];
 		//等待该帧槽前一次提交完成
-		return vk_result_check(vkWaitForFences(device, 1, &slot.in_flight_fence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+		return slot_fence_wait(slot);
 	}
 
 	//创建单个帧槽及其对象
@@ -164,16 +180,6 @@ namespace engine
 			return false;
 		}
 
-		//呈现完成信号量创建信息
-		VkSemaphoreCreateInfo semaphore_info{};
-		semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-		//若信号量创建失败
-		if (!vk_result_check(vkCreateSemaphore(device, &semaphore_info, nullptr, &slot.render_finished), "vkCreateSemaphore"))
-		{
-			frame_slot_destroy(slot);
-			return false;
-		}
-
 		return true;
 	}
 
@@ -183,9 +189,6 @@ namespace engine
 		//若逻辑设备已记录
 		if (device != VK_NULL_HANDLE)
 		{
-			//销毁呈现完成信号量
-			if (slot.render_finished != VK_NULL_HANDLE)
-				vkDestroySemaphore(device, slot.render_finished, nullptr);
 			//销毁完成栅栏
 			if (slot.in_flight_fence != VK_NULL_HANDLE)
 				vkDestroyFence(device, slot.in_flight_fence, nullptr);
@@ -194,7 +197,6 @@ namespace engine
 				vkDestroyCommandPool(device, slot.command_pool, nullptr);
 		}
 		//复位句柄
-		slot.render_finished = VK_NULL_HANDLE;
 		slot.in_flight_fence = VK_NULL_HANDLE;
 		slot.command_pool = VK_NULL_HANDLE;
 		slot.command_buffer = VK_NULL_HANDLE;

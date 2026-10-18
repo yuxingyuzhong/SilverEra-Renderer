@@ -1,4 +1,4 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Platform/局部命名空间使用.h"
 
 namespace engine
 {
@@ -14,6 +14,9 @@ namespace engine
 		//持续取出队列中的全部事件
 		while (SDL_PollEvent(&event))
 		{
+			//若已注册事件转发回调则逐个事件转发（供上层平台后端处理输入）
+			if (event_callback != nullptr)
+				event_callback(&event, event_callback_data);
 			switch (event.type)
 			{
 			//若用户请求退出
@@ -37,5 +40,21 @@ namespace engine
 				break;
 			}
 		}
+	}
+
+	//设置 SDL 事件转发回调
+	void Platform_Context::event_forward_set(void (*callback)(const SDL_Event* event, void* user_data), void* user_data)
+	{
+		//记录回调与用户数据
+		event_callback = callback;
+		event_callback_data = user_data;
+	}
+
+	//清除 SDL 事件转发回调
+	void Platform_Context::event_forward_clear(void)
+	{
+		//置空回调与用户数据
+		event_callback = nullptr;
+		event_callback_data = nullptr;
 	}
 }

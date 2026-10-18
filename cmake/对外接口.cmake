@@ -32,19 +32,20 @@
 # 包含目录
 #     本层自有包含由「项目根」统一承担（项目内部一律写项目根相对全路径：
 #     Application/Renderer/...），它已在 EngineCore 对外面的首项里，故此处只承接即可。
-#     SDL3 / VMA / Vulkan 的包含路径都是本层「实现细节」，不出现在对外面上：
-#     本层公共头不暴露 SDL、Vulkan、VMA 的任何类型（源文件里以私有包含根引入）。
+#     另向本层公共扩展头与「接入 ImGui Vulkan 后端」放开 Vulkan SDK 与 SDL3 公共头
+#     （Vulkan SDK / SDL3/include / SDL3/include/build_config）：
+#       - 公共主头 渲染器.h 仍保持零 Vulkan / SDL 类型（Vulkan-free）；
+#       - 公共扩展头 渲染器_UI通道.h 含 Vulkan / SDL 类型，上层（Test 层）要 include 它、
+#         以及编译 imgui_impl_vulkan.cpp / imgui_impl_sdl3.cpp，必须先拿到这些头。
+#     这是设计文档 §10.1 预留的路线①（「把 Vulkan SDK 包含根提升为 PUBLIC」）的落地。
 #
 # 私有包含根（对外面的「补集」，本层源码注释中「见 cmake/对外接口.cmake 的私有包含根」即指本节）
 #     下面这些目录只对「本层自身编译」可见，由 Application/Renderer/CMakeLists.txt 的
 #     target_include_directories(... PRIVATE ...) 段声明，不进 BYJY_RENDERER_OUT_INC，
-#     因此层外既拿不到 SDL3，也拿不到 Vulkan / VMA：
-#       SDL3/include                SDL3 公共头（windowing / video / event）
-#       include/build_config        SDL3 由构建脚本生成的头（SDL_build_config.h）
-#       SDL3/src                    SDL3 内部头（仅本层个别实现用到）
+#     因此层外拿不到它们：
+#       SDL3/src                       SDL3 内部头（仅本层个别实现用到）
 #       external/VulkanMemoryAllocator/include   VMA 头（vk_mem_alloc.h）
-#       ${BYJY_VULKAN_INCLUDE_DIR}  Vulkan SDK 头（vulkan/vulkan.h）
-#       external/                   第三方顶层（含 glm）
+#       external/                     第三方顶层（含 glm）
 #     声明落点见 Application/Renderer/CMakeLists.txt 的 PRIVATE 段。
 #
 # 链接与系统库为什么比 EngineCore 面多
@@ -66,6 +67,13 @@ set(BYJY_RENDERER_OUT_LIBDIR "${BYJY_RENDERER_ROOT}")
 
 set(BYJY_RENDERER_OUT_INC
     ${BYJY_ENGINE_CORE_OUT_INC}
+    # 公共扩展头与上层接入 ImGui Vulkan 后端所需的包含根（见上方「包含目录」节说明）
+    "${BYJY_VULKAN_INCLUDE_DIR}"
+    "${BYJY_RENDERER_ROOT}/external/SDL3/include"
+    "${BYJY_RENDERER_ROOT}/external/SDL3/include/build_config"
+    # VMA 头（vk_mem_alloc.h）：公共扩展头 渲染器_UI通道.h 经 帧上下文.h 传递到 交换链.h，
+    # 上层 include 该扩展头时需能解析到 vk_mem_alloc.h，故并入对外面
+    "${BYJY_RENDERER_ROOT}/external/VulkanMemoryAllocator/include"
 )
 
 set(BYJY_RENDERER_OUT_DEF  ${BYJY_ENGINE_CORE_OUT_DEF})

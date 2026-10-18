@@ -21,11 +21,12 @@ namespace engine
 
 	/*
 	交换链上下文
-	持有 VkSwapchainKHR、其图像视图与「每交换链图像」的图像可用信号量与深度图像，
+	持有 VkSwapchainKHR、其图像视图与「每交换链图像」的图像可用 / 呈现完成信号量与深度图像，
 	并提供能力查询与重建。
 	生命周期：build → 使用 → destroy / rebuild；destroy 幂等，析构兜底。
-	同步原语归属（§5.2 表）：图像可用信号量属「每交换链图像」，数量 = 交换链图像数，
-	随交换链重建而变化，故由本模块持有与重建（呈现完成信号量与帧栅栏属「每帧槽」，由帧模块持有）。
+	同步原语归属（§5.2 表）：图像可用信号量与呈现完成信号量均属「每交换链图像」，
+	数量 = 交换链图像数，随交换链重建而变化，故由本模块持有与重建
+	（帧栅栏属「每帧槽」，由帧模块持有）。
 	深度图像亦属「每交换链图像」，随交换链重建重建（U5）。
 	*/
 	class Swapchain_Context
@@ -72,6 +73,10 @@ namespace engine
 		VkSemaphore image_available_semaphore_get(uint32_t index) const;
 		//获取图像可用信号量数量（= 交换链图像数）
 		uint32_t image_available_count_get(void) const;
+		//获取指定索引的呈现完成信号量（每交换链图像一个；提交信号 / present 等待用）
+		VkSemaphore render_finished_semaphore_get(uint32_t index) const;
+		//获取呈现完成信号量数量（= 交换链图像数）
+		uint32_t render_finished_count_get(void) const;
 		//获取指定索引的深度图像
 		VkImage depth_image_get(uint32_t index) const;
 		//获取指定索引的深度图像视图
@@ -130,6 +135,8 @@ namespace engine
 		std::vector<VkImageView> image_views;
 		//图像可用信号量（每交换链图像一个）
 		std::vector<VkSemaphore> image_available_semaphores;
+		//呈现完成信号量（每交换链图像一个；提交信号 / present 等待用）
+		std::vector<VkSemaphore> render_finished_semaphores;
 		//深度图像（每交换链图像一张）
 		std::vector<VkImage> depth_images;
 		//深度图像内存

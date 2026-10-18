@@ -1,8 +1,8 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Pipeline/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //顶点布局（Vertex 步长与属性偏移据此推导）
-#include "Application/Renderer/src/render/Mesh/网格数据.h"
+#include "src/render/Mesh/网格数据.h"
 //offsetof
 #include <cstddef>
 

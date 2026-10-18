@@ -1,6 +1,6 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Pipeline/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {

@@ -1,6 +1,6 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Device/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
@@ -38,29 +38,37 @@ namespace engine
 		}
 
 		/*
-		查询 Vulkan 1.3 特性支持
-		本层统一走动态渲染（vkCmdBeginRendering），需 dynamicRendering 特性；
-		用同一结构体先查询后启用，不支持则明确报错，不做传统 RenderPass 回退。
-		*/
-		VkPhysicalDeviceVulkan13Features supported_13{};
-		supported_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-		VkPhysicalDeviceFeatures2 supported_features{};
-		supported_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-		supported_features.pNext = &supported_13;
-		vkGetPhysicalDeviceFeatures2(physical_device, &supported_features);
-		//若物理设备不支持动态渲染
-		if (supported_13.dynamicRendering != VK_TRUE)
-		{
-			logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 动态渲染（dynamicRendering），本层无法继续");
-			return false;
-		}
+	查询 Vulkan 1.3 特性支持
+	本层统一走动态渲染（vkCmdBeginRendering）与同步 2（vkQueueSubmit2），
+	故需 dynamicRendering 与 synchronization2 两个特性；
+	用同一结构体先查询后启用，不支持则明确报错，不做传统 RenderPass / vkQueueSubmit 回退。
+	*/
+	VkPhysicalDeviceVulkan13Features supported_13{};
+	supported_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+	VkPhysicalDeviceFeatures2 supported_features{};
+	supported_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+	supported_features.pNext = &supported_13;
+	vkGetPhysicalDeviceFeatures2(physical_device, &supported_features);
+	//若物理设备不支持动态渲染
+	if (supported_13.dynamicRendering != VK_TRUE)
+	{
+		logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 动态渲染（dynamicRendering），本层无法继续");
+		return false;
+	}
+	//若物理设备不支持同步 2
+	if (supported_13.synchronization2 != VK_TRUE)
+	{
+		logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 同步 2（synchronization2），本层无法继续");
+		return false;
+	}
 
-		//启用的传统设备特性（全关）
-		VkPhysicalDeviceFeatures features{};
-		//启用的 Vulkan 1.3 特性（仅动态渲染，经 pNext 链入）
-		VkPhysicalDeviceVulkan13Features enabled_13{};
-		enabled_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-		enabled_13.dynamicRendering = VK_TRUE;
+	//启用的传统设备特性（全关）
+	VkPhysicalDeviceFeatures features{};
+	//启用的 Vulkan 1.3 特性（动态渲染 + 同步 2，经 pNext 链入）
+	VkPhysicalDeviceVulkan13Features enabled_13{};
+	enabled_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+	enabled_13.dynamicRendering = VK_TRUE;
+	enabled_13.synchronization2 = VK_TRUE;
 
 		//启用的设备扩展（呈现必需 VK_KHR_swapchain）
 		const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };

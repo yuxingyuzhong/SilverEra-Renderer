@@ -1,32 +1,26 @@
-#include "../局部命名空间使用.h"
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Memory/局部命名空间使用.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
 	namespace
 	{
 		/*
-		一次性提交
-		本文件共用的一次性提交路径：临时命令池 → 命令缓冲 → 录制 → 提交 → 等待完成 →
-		销毁命令池。Phase 3 尚无帧模块（帧槽命令池自 Phase 5 起提供），故每次上传各建一次；
-		起步阶段上传次数很少，这一开销可接受。
+		一次性提交（复用传入的命令池与栅栏）
+		每次上传：重置命令池（连带回收上次分配的命令缓冲）→ 分配命令缓冲 → 录制 →
+		提交 → 等待完成。命令池与栅栏由 Memory_Context 持有并跨多次上传复用，
+		不再逐次创建 / 销毁，避免每资源一次的命令池与栅栏开销。
 		record：在当前命令缓冲上录制全部拷贝与布局转换。
 		*/
 		template <typename Record_Fn>
-		bool upload_submit_once(VkDevice device, uint32_t graphics_family, VkQueue graphics_queue, Record_Fn record)
+		bool upload_submit_once(VkDevice device, VkCommandPool pool, VkFence fence,
+			VkQueue graphics_queue, Record_Fn record)
 		{
-			//创建临时命令池（一次性用途，用完整池销毁）
-			VkCommandPoolCreateInfo pool_info{};
-			pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-			pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-			pool_info.queueFamilyIndex = graphics_family;
-
-			VkCommandPool pool = VK_NULL_HANDLE;
-			//若命令池创建失败
-			if (!vk_result_check(vkCreateCommandPool(device, &pool_info, nullptr, &pool), "上传批次:: 创建临时命令池"))
+			//重置命令池（连带回收上次分配的命令缓冲，使其可再次分配）
+			if (!vk_result_check(vkResetCommandPool(device, pool, 0), "上传批次:: 重置上传命令池"))
 				return false;
 
-			//创建命令缓冲
+			//分配命令缓冲
 			VkCommandBufferAllocateInfo buffer_alloc_info{};
 			buffer_alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			buffer_alloc_info.commandPool = pool;
@@ -36,10 +30,7 @@ namespace engine
 			VkCommandBuffer command_buffer = VK_NULL_HANDLE;
 			//若命令缓冲分配失败
 			if (!vk_result_check(vkAllocateCommandBuffers(device, &buffer_alloc_info, &command_buffer), "上传批次:: 分配命令缓冲"))
-			{
-				vkDestroyCommandPool(device, pool, nullptr);
 				return false;
-			}
 
 			//开始录制（声明为一次性提交）
 			VkCommandBufferBeginInfo begin_info{};
@@ -47,32 +38,22 @@ namespace engine
 			begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 			//若开始录制失败
 			if (!vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "上传批次:: 开始命令录制"))
-			{
-				vkDestroyCommandPool(device, pool, nullptr);
 				return false;
-			}
 
 			//录制具体拷贝与布局转换
 			record(command_buffer);
 
 			//结束录制
 			if (!vk_result_check(vkEndCommandBuffer(command_buffer), "上传批次:: 结束命令录制"))
-			{
-				vkDestroyCommandPool(device, pool, nullptr);
 				return false;
-			}
 
-			//创建完成栅栏（未触发态，供等待本次提交用）
-			VkFenceCreateInfo fence_info{};
-			fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-
-			VkFence fence = VK_NULL_HANDLE;
-			//若栅栏创建失败
-			if (!vk_result_check(vkCreateFence(device, &fence_info, nullptr, &fence), "上传批次:: 创建完成栅栏"))
-			{
-				vkDestroyCommandPool(device, pool, nullptr);
+			/*
+			重置完成栅栏后再提交
+			栅栏在上一次「等待完成」后已发出，此处须先复位才能再次作为本次提交的完成信号；
+			首次使用时栅栏尚未发出，复位为无操作。
+			*/
+			if (!vk_result_check(vkResetFences(device, 1, &fence), "上传批次:: 重置上传栅栏"))
 				return false;
-			}
 
 			//提交到图形队列（同步完成，故不设信号量）
 			VkSubmitInfo submit_info{};
@@ -85,12 +66,47 @@ namespace engine
 			//若提交成功则等待其完成
 			if (ok)
 				ok = vk_result_check(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "上传批次:: 等待上传完成");
-
-			//回收栅栏与命令池（命令缓冲随池一并销毁）
-			vkDestroyFence(device, fence, nullptr);
-			vkDestroyCommandPool(device, pool, nullptr);
 			return ok;
 		}
+	}
+
+	//确保一次性上传的命令池与栅栏就绪（首次调用创建，之后复用；幂等）
+	bool Memory_Context::upload_resources_ensure(void)
+	{
+		//命令池与栅栏均已就绪则直接返回
+		if (upload_pool != VK_NULL_HANDLE && upload_fence != VK_NULL_HANDLE)
+			return true;
+		//前置：逻辑设备与队列族必须齐备
+		if (device == VK_NULL_HANDLE)
+		{
+			logger.error("上传批次:: 逻辑设备未就绪，无法创建上传资源");
+			return false;
+		}
+
+		//创建上传命令池（一次性用途；跨多次上传经 vkResetCommandPool 复用）
+		VkCommandPoolCreateInfo pool_info{};
+		pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		pool_info.queueFamilyIndex = graphics_family;
+		//若命令池创建失败
+		if (!vk_result_check(vkCreateCommandPool(device, &pool_info, nullptr, &upload_pool), "上传批次:: 创建上传命令池"))
+		{
+			upload_pool = VK_NULL_HANDLE;
+			return false;
+		}
+
+		//创建上传完成栅栏（未触发态，供等待本次提交用）
+		VkFenceCreateInfo fence_info{};
+		fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		//若栅栏创建失败
+		if (!vk_result_check(vkCreateFence(device, &fence_info, nullptr, &upload_fence), "上传批次:: 创建上传栅栏"))
+		{
+			vkDestroyCommandPool(device, upload_pool, nullptr);
+			upload_pool = VK_NULL_HANDLE;
+			upload_fence = VK_NULL_HANDLE;
+			return false;
+		}
+		return true;
 	}
 
 	//上传到缓冲（暂存缓冲 → 设备本地缓冲）
@@ -116,8 +132,15 @@ namespace engine
 			return false;
 		}
 
+		//确保上传命令池与栅栏就绪（首次创建，之后复用）
+		if (!upload_resources_ensure())
+		{
+			buffer_destroy(staging_buffer, staging_alloc);
+			return false;
+		}
+
 		//提交「暂存缓冲 → 目标缓冲」的拷贝
-		bool ok = upload_submit_once(device, graphics_family, graphics_queue, [&](VkCommandBuffer command_buffer)
+		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
 		{
 			VkBufferCopy copy_region{};
 			copy_region.srcOffset = 0;
@@ -162,8 +185,15 @@ namespace engine
 			return false;
 		}
 
+		//确保上传命令池与栅栏就绪（首次创建，之后复用）
+		if (!upload_resources_ensure())
+		{
+			buffer_destroy(staging_buffer, staging_alloc);
+			return false;
+		}
+
 		//提交「布局转换 → 拷贝到图像 → 布局转换」三步
-		bool ok = upload_submit_once(device, graphics_family, graphics_queue, [&](VkCommandBuffer command_buffer)
+		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
 		{
 			//布局：未定义 → 传输目标（旧内容不必保留）
 			VkImageMemoryBarrier to_transfer{};

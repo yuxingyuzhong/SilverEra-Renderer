@@ -1,13 +1,14 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Frame/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
-	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制）+ 呈现前布局转换
+	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制 + UI 阶段）+ 呈现前布局转换
 	void Frame_Context::command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 		VkImageView depth_view, VkExtent2D extent,
-		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4])
+		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
+		const Frame_Ui_Callback* ui_callback)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -93,7 +94,21 @@ namespace engine
 		scissor.extent = extent;
 		vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-		//逐渲染项绘制
+		/*
+		逐渲染项绘制（带状态缓存）
+		本层只有一条场景管线，且同一帧内所有渲染项的 set0 / set1 描述符集
+		都是「本帧槽」的同一组值（渲染器门面按 slot 统一填装）；故管线与描述符集
+		只在首项绑定一次，后续相同项跳过重复的状态切换（K 优化：减少 GPU 状态切换）。
+		推送常量（各网格模型矩阵）与顶点 / 索引缓冲各网格不同，仍须逐项绑定。
+		*/
+		//当前已绑定的图形管线（初始为空）
+		VkPipeline bound_pipeline = VK_NULL_HANDLE;
+		//当前已绑定的管线布局
+		VkPipelineLayout bound_layout = VK_NULL_HANDLE;
+		//当前已绑定的描述符集数量
+		uint32_t bound_set_count = 0;
+		//当前已绑定的描述符集（set0 在前，set1 在后）
+		VkDescriptorSet bound_sets[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
 		for (uint32_t index = 0; index < item_count; ++index)
 		{
 			//当前渲染项
@@ -103,17 +118,37 @@ namespace engine
 				|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0)
 				continue;
 
-			//绑定图形管线
-			vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.pipeline);
+			//仅在与当前已绑定管线不同时重绑（同帧各渲染项共用同一条场景管线）
+			if (item.pipeline != bound_pipeline)
+			{
+				//绑定图形管线
+				vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.pipeline);
+				bound_pipeline = item.pipeline;
+				//管线变化使「已绑定布局 / 描述符集」失效，一并复位
+				bound_layout = VK_NULL_HANDLE;
+				bound_set_count = 0;
+				bound_sets[0] = VK_NULL_HANDLE;
+				bound_sets[1] = VK_NULL_HANDLE;
+			}
 
 			//若存在可绑定描述符集
 			if (item.descriptor_set_count > 0)
 			{
-				//待绑定描述符集数组（set0 在前，set1 在后）
-				VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
-				//绑定描述符集
-				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
-					0, item.descriptor_set_count, sets, 0, nullptr);
+				//仅在与当前已绑定（布局 + 数量 + 集合）不同时重绑
+				if (item.layout != bound_layout || item.descriptor_set_count != bound_set_count
+					|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1])
+				{
+					//待绑定描述符集数组（set0 在前，set1 在后）
+					VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
+					//绑定描述符集
+					vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
+						0, item.descriptor_set_count, sets, 0, nullptr);
+					//记录当前已绑定的布局与描述符集
+					bound_layout = item.layout;
+					bound_set_count = item.descriptor_set_count;
+					bound_sets[0] = item.scene_set;
+					bound_sets[1] = item.sampler_set;
+				}
 			}
 
 			//若存在推送常量
@@ -125,14 +160,25 @@ namespace engine
 			//绑定顶点缓冲（binding 0，偏移 0）
 			VkDeviceSize offset = 0;
 			vkCmdBindVertexBuffers(command_buffer, 0, 1, &item.vertex_buffer, &offset);
-			//绑定索引缓冲（uint32 索引）
-			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, 0, VK_INDEX_TYPE_UINT32);
+			//绑定索引缓冲（uint32 索引；偏移由网格记录给出，顶点与索引可共用一个缓冲）
+			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
 
 			//绘制索引几何
 			vkCmdDrawIndexed(command_buffer, item.index_count, 1, 0, 0, 0);
 		}
 
-		//结束动态渲染
+		/*
+		UI 阶段
+		若设置了 UI 绘制回调，则交还上层绘制 UI：上层（Test 层）在此调用
+		ImGui_ImplVulkan_RenderDrawData —— 直接画在本帧已开启的动态渲染通道内
+		（与场景共用同一通道；该通道附件为交换链颜色附件 + 深度附件，故上层
+		ImGui 管线的 PipelineRenderingCreateInfo 必须与本通道附件格式相容）。
+		回调返回后本通道仍处于开启状态。
+		*/
+		if (ui_callback != nullptr && ui_callback->fn != nullptr)
+			ui_callback->fn(command_buffer, ui_callback->user_data);
+
+		//结束场景动态渲染
 		vkCmdEndRendering(command_buffer);
 
 		/*

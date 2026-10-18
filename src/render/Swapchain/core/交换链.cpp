@@ -1,8 +1,8 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Swapchain/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（深度图像创建 / 销毁）
-#include "Application/Renderer/src/render/Memory/内存上下文.h"
+#include "src/render/Memory/内存上下文.h"
 
 namespace engine
 {
@@ -139,6 +139,11 @@ namespace engine
 			//若句柄有效
 			if (semaphore != VK_NULL_HANDLE)
 				vkDestroySemaphore(device, semaphore, nullptr);
+		//销毁呈现完成信号量
+		for (VkSemaphore semaphore : render_finished_semaphores)
+			//若句柄有效
+			if (semaphore != VK_NULL_HANDLE)
+				vkDestroySemaphore(device, semaphore, nullptr);
 		//销毁深度图像与视图（随交换链一并重建，U5）
 		depth_resources_destroy();
 		//销毁图像视图
@@ -152,6 +157,7 @@ namespace engine
 
 		//清空容器与句柄
 		image_available_semaphores.clear();
+		render_finished_semaphores.clear();
 		image_views.clear();
 		images.clear();
 		swapchain = VK_NULL_HANDLE;
@@ -212,6 +218,21 @@ namespace engine
 	uint32_t Swapchain_Context::image_available_count_get(void) const
 	{
 		return static_cast<uint32_t>(image_available_semaphores.size());
+	}
+
+	//获取指定索引的呈现完成信号量
+	VkSemaphore Swapchain_Context::render_finished_semaphore_get(uint32_t index) const
+	{
+		//越界则返回空句柄
+		if (index >= render_finished_semaphores.size())
+			return VK_NULL_HANDLE;
+		return render_finished_semaphores[index];
+	}
+
+	//获取呈现完成信号量数量
+	uint32_t Swapchain_Context::render_finished_count_get(void) const
+	{
+		return static_cast<uint32_t>(render_finished_semaphores.size());
 	}
 
 	//获取指定索引的深度图像

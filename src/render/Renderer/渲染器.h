@@ -11,6 +11,9 @@
 //游戏引擎命名空间
 namespace engine
 {
+	//UI 通道（扩展公共头 渲染器_UI通道.h 定义；此处仅前置声明，保持本公共头零 Vulkan / SDL 类型）
+	class Ui_Channel_Context;
+
 	//渲染层版本查询（d34da1c 已存在，保留）
 	std::string renderer_version(void);
 
@@ -103,6 +106,13 @@ namespace engine
 		void camera_fov_set(float radians);
 		//相机：设置近远平面
 		void camera_near_far_set(float near_plane, float far_plane);
+
+		/*
+		UI 通道（供上层接入 ImGui Vulkan 后端）
+		返回渲染层持有的 UI 通道（完整定义见 渲染器_UI通道.h，含 Vulkan / SDL 类型，
+		需上层自行包含该扩展头）；未初始化时返回空。
+		*/
+		Ui_Channel_Context* ui_channel(void);
 	private:
 		//实现体（把 SDL3 / Vulkan / VMA 全部关在 .cpp 里）
 		class Impl;

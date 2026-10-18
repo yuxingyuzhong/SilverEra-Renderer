@@ -17,17 +17,19 @@ namespace engine
 	//内存上下文（前置声明；仅作引用入参，其定义由实现文件包含）
 	class Memory_Context;
 
-	//网格记录（顶点 / 索引缓冲与其索引数）
+	/*
+	网格记录
+	顶点与索引共用一个设备本地缓冲：顶点区自 0 起，索引区自 index_offset 起（= 顶点区字节数）；
+	如此一次分配、一次上传即可同时落位顶点与索引，减少 VMA 分配与 GPU 同步次数。
+	*/
 	struct Mesh_Record
 	{
-		//顶点缓冲
-		VkBuffer vertex_buffer = VK_NULL_HANDLE;
-		//顶点缓冲内存
-		VmaAllocation vertex_allocation = VK_NULL_HANDLE;
-		//索引缓冲
-		VkBuffer index_buffer = VK_NULL_HANDLE;
-		//索引缓冲内存
-		VmaAllocation index_allocation = VK_NULL_HANDLE;
+		//顶点 / 索引共用缓冲
+		VkBuffer buffer = VK_NULL_HANDLE;
+		//缓冲内存
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		//索引区在缓冲内的字节偏移（= 顶点区字节数；对齐满足 uint32 索引要求）
+		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
 		//记录是否有效
@@ -58,12 +60,12 @@ namespace engine
 		//是否已构建完成
 		bool valid(void) const;
 
-		//创建网格（顶点 / 索引缓冲上传至设备本地；句柄自 1 起，0 表无效）
+		//创建网格（顶点 / 索引合入一个设备本地缓冲后上传；句柄自 1 起，0 表无效）
 		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data);
 		//销毁网格
 		void mesh_destroy(Mesh_Handle handle);
-		//取网格缓冲与索引数（句柄无效返回假）
-		bool mesh_record_get(Mesh_Handle handle, VkBuffer& vertex_buffer_out, VkBuffer& index_buffer_out, uint32_t& index_count_out) const;
+		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）
+		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
 
 		//生成三角形（顶点 3 / 索引 3）
 		static Mesh_Data triangle_generate(void);

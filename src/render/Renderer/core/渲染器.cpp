@@ -1,8 +1,8 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Renderer/局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Renderer/core/结果检查.h"
 //std::nothrow
 #include <new>
 
@@ -278,6 +278,27 @@ namespace engine
 				impl->camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
 		}
 
+		/*
+		⑰ UI 通道
+		向上层提供 ImGui Vulkan 后端所需的实例 / 设备 / 队列 / 窗口 / 图像信息与动态渲染口径；
+		绘制回调由上层经 ui_channel() 另行设置（渲染层不代管 UI）。
+		*/
+		impl->ui_channel.build(impl->device.instance_get(), impl->device.physical_device_get(),
+			impl->device.device_get(), impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
+			impl->platform.window_get(), effective.frame_overlap, impl->swapchain.image_count_get(),
+		impl->swapchain.format_get(), impl->swapchain.depth_format_get());
+		/*
+		把事件泵的 SDL 事件桥接到 UI 通道
+		上层经 ui_channel()->event_callback_set 注册回调后，事件泵每帧逐个事件转交，
+		供上层平台后端（imgui_impl_sdl3）处理键鼠与文本输入；未注册时该桥接为空操作。
+		桥接不持有资源；解除见 shutdown。
+		*/
+		impl->platform.event_forward_set(
+			[](const SDL_Event* event, void* user_data) {
+				static_cast<Ui_Channel_Context*>(user_data)->event_dispatch(event);
+			},
+			&impl->ui_channel);
+
 		//记录配置并标记初始化完成
 		impl->config = effective;
 		impl->initialized = true;
@@ -328,12 +349,15 @@ namespace engine
 		平台持有「借用」的实例句柄，销毁表面（vkDestroySurfaceKHR）要求实例仍在途；
 		设备销毁会连带 vkDestroyInstance，故必须排在平台之后。
 		*/
+		//解除事件泵到 UI 通道的桥接（平台销毁后不应再有回调指向 UI 通道）
+		impl->platform.event_forward_clear();
 		impl->platform.destroy();
 		impl->device.destroy();
 		//清空待绘制项与其推送常量存储
 		impl->pending_items.clear();
 		impl->pending_transforms.clear();
 		//复位状态
+		impl->ui_channel.destroy();
 		impl->frame_count = 0;
 		impl->initialized = false;
 	}
@@ -420,12 +444,11 @@ namespace engine
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
 		}
-		//把该帧槽 set0 绑定到对应 UBO
-		if (!impl->pipeline.scene_bind(slot, impl->scene_ubos[slot]))
-		{
-			logger.error("渲染器:: 场景 UBO 绑定失败（帧槽 {}）", slot);
-			return false;
-		}
+		/*
+		本帧槽 set0 无需重写
+		各帧槽的场景 UBO 缓冲句柄自 init 起恒定不变，set0 已在 init 时一次性写入；
+		每帧只更新 UBO 内容（上一段的 buffer_write），不重写描述符集。
+		*/
 		//为本帧待绘制项填装描述符集
 		for (auto& item : impl->pending_items)
 		{
@@ -440,7 +463,8 @@ namespace engine
 		const float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		bool rebuild_needed = false;
 		if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
-			static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color))
+			static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
+			impl->ui_channel.draw_callback_get()))
 		{
 			logger.error("渲染器:: 帧渲染失败");
 			return false;
@@ -535,11 +559,11 @@ namespace engine
 			return false;
 		}
 
-		//取网格缓冲与索引数
-		VkBuffer vertex_buffer = VK_NULL_HANDLE;
-		VkBuffer index_buffer = VK_NULL_HANDLE;
+		//取网格共用缓冲、索引区偏移与索引数
+		VkBuffer mesh_buffer = VK_NULL_HANDLE;
+		VkDeviceSize index_offset = 0;
 		uint32_t index_count = 0;
-		if (!impl->mesh.mesh_record_get(handle, vertex_buffer, index_buffer, index_count))
+		if (!impl->mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
 		{
 			logger.error("渲染器:: 网格绘制失败：网格句柄 {} 无效", handle);
 			return false;
@@ -582,8 +606,9 @@ namespace engine
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
 		item.descriptor_set_count = 0;
-		item.vertex_buffer = vertex_buffer;
-		item.index_buffer = index_buffer;
+		item.vertex_buffer = mesh_buffer;
+		item.index_buffer = mesh_buffer;
+		item.index_offset = index_offset;
 		item.index_count = index_count;
 		item.push_constants = transform_store.data();
 		item.push_constant_size = 64;
@@ -693,5 +718,14 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		impl->camera.near_far_set(near_plane, far_plane);
+	}
+
+	//UI 通道
+	Ui_Channel_Context* Renderer::ui_channel(void)
+	{
+		//若实现体未分配
+		if (impl == nullptr)
+			return nullptr;
+		return &impl->ui_channel;
 	}
 }

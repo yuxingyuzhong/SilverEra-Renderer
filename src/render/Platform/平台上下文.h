@@ -46,6 +46,10 @@ namespace engine
 
 		//轮询 SDL 事件，只置标志（不在此处重建交换链）
 		void events_pump(void);
+		//设置 SDL 事件转发回调（事件泵逐个事件回调；供上层平台后端处理输入）
+		void event_forward_set(void (*callback)(const SDL_Event* event, void* user_data), void* user_data);
+		//清除 SDL 事件转发回调
+		void event_forward_clear(void);
 		//窗口是否请求退出
 		bool close_requested(void) const;
 		//取走并清空「窗口尺寸已变化，交换链待重建」标志
@@ -82,5 +86,9 @@ namespace engine
 		bool resize_flag = false;
 		//窗口最小化（挂起）标志
 		bool minimize_flag = false;
+		//事件转发回调（为空表示不转发）
+		void (*event_callback)(const SDL_Event* event, void* user_data) = nullptr;
+		//事件转发回调的用户数据
+		void* event_callback_data = nullptr;
 	};
 }

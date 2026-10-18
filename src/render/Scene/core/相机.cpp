@@ -1,4 +1,4 @@
-#include "../局部命名空间使用.h"
+#include "src/render/Scene/局部命名空间使用.h"
 //glm 数学库（含矩阵变换与矩阵取址；深零到一与弧度已由 CMake 私有定义给出）
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

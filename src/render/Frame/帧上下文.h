@@ -15,8 +15,9 @@ namespace engine
 {
 	/*
 	帧槽
-	每帧槽持有：命令池、主命令缓冲、完成栅栏、呈现完成信号量。
+	每帧槽持有：命令池、主命令缓冲、完成栅栏。
 	数量 = 在途帧数 frame_overlap，与交换链图像数无关（§5.2 / §6.2）。
+	呈现完成信号量属「每交换链图像」，由交换链模块持有（数量 = 交换链图像数）。
 	*/
 	struct Frame_Slot
 	{
@@ -26,8 +27,6 @@ namespace engine
 		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
-		//呈现完成信号量（提交信号 / present 等待）
-		VkSemaphore render_finished = VK_NULL_HANDLE;
 	};
 
 	/*
@@ -67,6 +66,8 @@ namespace engine
 		VkBuffer vertex_buffer = VK_NULL_HANDLE;
 		//索引缓冲
 		VkBuffer index_buffer = VK_NULL_HANDLE;
+		//索引区在索引缓冲内的字节偏移（顶点与索引共用一个缓冲时非零）
+		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
 		//推送常量数据（可为空）
@@ -76,11 +77,25 @@ namespace engine
 	};
 
 	/*
+	UI 绘制回调
+	每帧在「场景渲染 pass 内、vkCmdEndRendering 之前」由帧链路调用，
+	把本帧命令缓冲交给上层（上层在此调用 ImGui_ImplVulkan_RenderDrawData，
+	该方法直接画在本帧已开启的动态渲染通道内（与场景共用同一通道），不自开渲染通道）。
+	*/
+	struct Frame_Ui_Callback
+	{
+		//绘制回调（命令缓冲参数）
+		void (*fn)(VkCommandBuffer command_buffer, void* user_data) = nullptr;
+		//用户数据
+		void* user_data = nullptr;
+	};
+
+	/*
 	帧上下文
 	持有帧槽集合，负责取图像、命令录制、提交与呈现、延迟销毁（§5.2 / §6.2）。
 	生命周期：build → render × N → destroy；destroy 幂等，析构兜底。
-	同步原语归属（§5.2 表）：呈现完成信号量与帧栅栏属「每帧槽」，数量 = frame_overlap；
-	图像可用信号量属「每交换链图像」，由交换链模块持有（数量 = 交换链图像数）。
+	同步原语归属（§5.2 表）：帧栅栏属「每帧槽」，数量 = frame_overlap；
+	图像可用与呈现完成信号量均属「每交换链图像」，由交换链模块持有（数量 = 交换链图像数）。
 	*/
 	class Frame_Context
 	{
@@ -95,7 +110,7 @@ namespace engine
 
 		/*
 		构建
-		创建 frame_overlap 个帧槽（命令池 / 命令缓冲 / 栅栏 / 呈现完成信号量）。
+		创建 frame_overlap 个帧槽（命令池 / 命令缓冲 / 栅栏）。
 		swapchain：已构建的交换链（帧链路取图像依赖它）。
 		*/
 		bool build(VkDevice device, VkPhysicalDevice physical_device,
@@ -110,11 +125,13 @@ namespace engine
 		/*
 		渲染一帧（取图像 → 录制 → 提交 → 呈现）
 		swapchain：当前交换链；rebuild_needed_out：置真表示本帧遇到过期 / 次优，需上层重建；
-		items / item_count：渲染项列表（可为空，此时只清屏）；clear_color：清屏色。
+		items / item_count：渲染项列表（可为空，此时只清屏）；clear_color：清屏色；
+		ui_callback：每帧 UI 绘制回调（可为空；在场景 pass 结束后交还上层绘制 UI）。
 		返回假视为硬错误。
 		*/
 		bool render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
-			bool& rebuild_needed_out, const float clear_color[4]);
+			bool& rebuild_needed_out, const float clear_color[4],
+			const Frame_Ui_Callback* ui_callback = nullptr);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -130,20 +147,28 @@ namespace engine
 		*/
 		bool slot_wait(void);
 	private:
+		/*
+		等待某帧槽前一次提交完成（实现见 core/帧槽创建.cpp）
+		快速路径：先查栅栏状态，已完成则免去一次阻塞等待调用；
+		未完成或查询出错才落到 vkWaitForFences / 错误返回。
+		*/
+		bool slot_fence_wait(Frame_Slot& slot);
 		//创建单个帧槽及其对象（实现见 core/帧槽创建.cpp）
 		bool frame_slot_create(Frame_Slot& slot);
 		//销毁单个帧槽及其对象（实现见 core/帧槽创建.cpp）
 		void frame_slot_destroy(Frame_Slot& slot);
 		/*
 		录制命令缓冲（实现见 core/命令录制.cpp）
-		颜色 / 深度附件布局转换为动态渲染，随后按渲染项依次绑定并 vkCmdDrawIndexed。
+		颜色 / 深度附件布局转换为动态渲染，随后按渲染项依次绑定并 vkCmdDrawIndexed；
+		场景 pass 结束后若给定 UI 回调则交还上层绘制 UI（再经呈现前布局转换收尾）。
 		*/
 		void command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 			VkImageView depth_view, VkExtent2D extent,
-			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4]);
-		//提交并呈现（实现见 core/提交呈现.cpp）
+			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
+			const Frame_Ui_Callback* ui_callback = nullptr);
+		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
-			Swapchain_Context& swapchain, bool& rebuild_needed_out);
+			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
 		//压入延迟销毁条目（实现见 core/延迟销毁.cpp）
 		void deferred_push(Deferred_Entry entry, uint32_t delay_frames);
 		//释放到期的延迟销毁条目（实现见 core/延迟销毁.cpp）

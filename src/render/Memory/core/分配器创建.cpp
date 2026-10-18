@@ -1,5 +1,5 @@
-#include "../局部命名空间使用.h"
-#include "Application/Renderer/src/render/Renderer/core/结果检查.h"
+#include "src/render/Memory/局部命名空间使用.h"
+#include "src/render/Renderer/core/结果检查.h"
 
 namespace engine
 {
@@ -66,6 +66,19 @@ namespace engine
 	//销毁（幂等）
 	void Memory_Context::destroy(void)
 	{
+		//若逻辑设备仍在途则先归还上传命令池与栅栏（二者不依赖 VMA 分配器）
+		if (device != VK_NULL_HANDLE)
+		{
+			//销毁上传完成栅栏
+			if (upload_fence != VK_NULL_HANDLE)
+				vkDestroyFence(device, upload_fence, nullptr);
+			//销毁上传命令池（连带回收其分配的命令缓冲）
+			if (upload_pool != VK_NULL_HANDLE)
+				vkDestroyCommandPool(device, upload_pool, nullptr);
+		}
+		upload_fence = VK_NULL_HANDLE;
+		upload_pool = VK_NULL_HANDLE;
+
 		//若分配器已创建
 		if (allocator != VK_NULL_HANDLE)
 		{
