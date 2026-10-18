@@ -7,6 +7,8 @@
 其定义置于 Mesh 模块的共用头，层外看不到任何 Vulkan / VMA / SDL3 / glm 类型。
 */
 #include "Application/Renderer/src/render/Mesh/网格数据.h"
+//管线公共语义类型（Vulkan-free）：混合档
+#include "Application/Renderer/src/render/Pipeline/管线数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -106,6 +108,13 @@ namespace engine
 		void texture_unload(uint64_t handle);
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
+
+		/*
+		设置后续绘制所用混合档（Opaque / Alpha）
+		切档会触发一次图形管线重建（内部先等设备空闲），故应在帧与帧之间调用而非帧内；
+		同档重复设置为空操作；重建失败时记录错误并保持档位记录不变（不改变帧循环时序）。
+		*/
+		void blend_mode_set(Blend_Mode mode);
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

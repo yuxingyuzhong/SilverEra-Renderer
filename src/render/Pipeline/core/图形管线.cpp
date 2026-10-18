@@ -24,7 +24,7 @@ namespace engine
 	视口与裁剪动态设置；背面剔除 BACK、正面 COUNTER_CLOCKWISE（配合 cube_generate 绕序）；
 	深度测试开 / 写开 / LESS；推送常量 mat4 模型矩阵。
 	*/
-	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module)
+	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -100,11 +100,29 @@ namespace engine
 		depth_stencil.depthBoundsTestEnable = VK_FALSE;
 		depth_stencil.stencilTestEnable = VK_FALSE;
 
-		//颜色混合（不混合，写全通道）
+		/*
+		颜色混合（按混合档生成；写全通道）
+		Opaque：关闭混合，直接写全通道（行为与本轮之前一致）；
+		Alpha ：源 alpha 混合（src.rgb * src.a + dst.rgb * (1 - src.a)），颜色与 alpha 通道同源同参。
+		sRGB 附件的混合在线性空间进行（写入时编码回 sRGB），故半透明结果值随附件传输函数不同。
+		*/
 		VkPipelineColorBlendAttachmentState color_attachment{};
-		color_attachment.blendEnable = VK_FALSE;
 		color_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
 			| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		//若为源 alpha 混合档
+		if (blend_mode == Blend_Mode::Alpha)
+		{
+			color_attachment.blendEnable = VK_TRUE;
+			color_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			color_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			color_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+			color_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			color_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			color_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		}
+		//不透明档：关闭混合
+		else
+			color_attachment.blendEnable = VK_FALSE;
 
 		//颜色混合状态
 		VkPipelineColorBlendStateCreateInfo color_blend{};

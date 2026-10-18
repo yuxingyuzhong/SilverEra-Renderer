@@ -7,6 +7,8 @@ Vulkan 头
 故可以合法暴露 Vulkan 类型（层外仍看不到 —— 见 cmake/对外接口.cmake 的私有包含根）。
 */
 #include <vulkan/vulkan.h>
+//管线公共语义类型（Vulkan-free）：混合档
+#include "Application/Renderer/src/render/Pipeline/管线数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -44,15 +46,15 @@ namespace engine
 		//是否已构建完成
 		bool valid(void) const;
 
-		//构建图形管线（顶点输入 position vec3 + uv vec2；推送常量 mat4 模型矩阵；深度测试开 / 写开；背面剔除 BACK）
-		bool pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module);
+		//构建图形管线（顶点输入 position vec3 + uv vec2；推送常量 mat4 模型矩阵；深度测试开 / 写开；背面剔除 BACK；颜色附件混合态由 blend_mode 决定）
+		bool pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque);
 		/*
-		按交换链格式重建图形管线
-		图形管线把颜色 / 深度格式固化在 VkPipelineRenderingCreateInfo 中，
-		交换链重建若换了格式（颜色或深度），旧管线即与新渲染目标不匹配，必须重建；
-		格式未变时不做任何操作（空操作，无等待、无重建开销）。
+		按交换链格式与混合档重建图形管线
+		图形管线把颜色 / 深度格式固化在 VkPipelineRenderingCreateInfo 中、把混合态固化在颜色混合状态里，
+		交换链重建若换了格式（颜色或深度），或上层切了混合档，旧管线即与渲染目标 / 期望混合不一致，必须重建；
+		格式与混合档均未变时不做任何操作（空操作，无等待、无重建开销）。
 		*/
-		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format);
+		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format, Blend_Mode blend_mode = Blend_Mode::Opaque);
 
 		//获取图形管线
 		VkPipeline pipeline_get(void) const;
@@ -72,7 +74,7 @@ namespace engine
 		//管线布局创建（实现见 core/管线布局.cpp）
 		bool pipeline_layout_create(void);
 		//图形管线创建（实现见 core/图形管线.cpp）
-		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module);
+		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode);
 	private:
 		//逻辑设备
 		VkDevice device = VK_NULL_HANDLE;
@@ -96,5 +98,7 @@ namespace engine
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//图形管线创建时所用的片元着色器模块（供格式变化时重建复用；模块所有权仍归上层）
 		VkShaderModule frag_module = VK_NULL_HANDLE;
+		//当前图形管线所用的混合档（切档即重建；供重建判据与日志）
+		Blend_Mode blend_mode = Blend_Mode::Opaque;
 	};
 }

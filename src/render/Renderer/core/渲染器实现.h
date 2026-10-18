@@ -61,6 +61,8 @@ namespace engine
 		std::vector<VmaAllocation> scene_ubo_allocs;
 		//内置默认白纹理句柄
 		uint64_t default_texture = 0;
+		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
+		Blend_Mode blend_mode = Blend_Mode::Opaque;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

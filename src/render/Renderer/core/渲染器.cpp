@@ -183,8 +183,8 @@ namespace engine
 				return false;
 			}
 		}
-		//⑫ 管线：图形管线
-		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module))
+		//⑫ 管线：图形管线（初始档位 = 不透明）
+		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module, Blend_Mode::Opaque))
 		{
 			logger.error("渲染器:: 图形管线创建失败");
 			shutdown();
@@ -412,7 +412,7 @@ namespace engine
 				if (!impl->swapchain.rebuild(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->blend_mode))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 				rebuilt = true;
 			}
@@ -515,7 +515,7 @@ namespace engine
 			{
 				impl->swapchain.rebuild(width, height);
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->blend_mode))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 			}
 		}
@@ -727,6 +727,29 @@ namespace engine
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
+	}
+
+	//设置后续绘制所用混合档（切档触发图形管线重建）
+	void Renderer::blend_mode_set(Blend_Mode mode)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//同档重复设置为空操作
+		if (impl->blend_mode == mode)
+			return;
+		/*
+		触发图形管线重建（内部先等设备空闲，确保旧管线不再被在途帧引用）
+		重建成功才更新已记录档位；失败则记录错误并保持档位记录（此时图形管线可能已不可用，
+		不改变帧循环时序：本帧仍会清屏与推进，仅绘制项跳过）。
+		*/
+		if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), mode))
+		{
+			logger.error("渲染器:: 混合档切换失败（保持已记录档位 {}）", static_cast<int32_t>(impl->blend_mode));
+			return;
+		}
+		impl->blend_mode = mode;
+		logger.info("渲染器:: 混合档已切换为 {}", static_cast<int32_t>(mode));
 	}
 
 	//相机：设置位置

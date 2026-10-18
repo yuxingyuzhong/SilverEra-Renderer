@@ -152,7 +152,7 @@ namespace engine
 	}
 
 	//构建图形管线
-	bool Pipeline_Context::pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module)
+	bool Pipeline_Context::pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
 	{
 		//前置：基础设施与着色器模块必须齐备
 		if (!valid() || vert_module == VK_NULL_HANDLE || frag_module == VK_NULL_HANDLE)
@@ -169,35 +169,38 @@ namespace engine
 		//记住着色器模块，供格式变化时重建复用（模块所有权仍在调用方）
 		this->vert_module = vert_module;
 		this->frag_module = frag_module;
+		//记住本管线所用的混合档（重建判据与日志用）
+		this->blend_mode = blend_mode;
 
 		//创建图形管线
-		if (!graphics_pipeline_create(vert_module, frag_module))
+		if (!graphics_pipeline_create(vert_module, frag_module, blend_mode))
 			return false;
 
-		logger.info("管线:: 图形管线已建立");
+		logger.info("管线:: 图形管线已建立（混合档 {}）", static_cast<int32_t>(blend_mode));
 		return true;
 	}
 
-	//按交换链格式重建图形管线
-	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format)
+	//按交换链格式与混合档重建图形管线
+	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format, Blend_Mode blend_mode)
 	{
 		//图形管线尚未建立则无需处理
 		if (pipeline == VK_NULL_HANDLE)
 			return true;
-		//格式未变则无需重建（空操作）
-		if (config.color_format == color_format && config.depth_format == depth_format)
+		//格式与混合档均未变则无需重建（空操作）
+		if (config.color_format == color_format && config.depth_format == depth_format && this->blend_mode == blend_mode)
 			return true;
 
-		logger.info("管线:: 交换链格式变化（颜色 {}，深度 {}），重建图形管线",
-			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format));
+		logger.info("管线:: 图形管线重建（颜色 {}，深度 {}，混合档 {}）",
+			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format), static_cast<int32_t>(blend_mode));
 		//等待设备空闲，确保旧管线不再被在途帧引用
 		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle（管线重建）"))
 			return false;
-		//更新配置中的格式
+		//更新配置中的格式与混合档
 		config.color_format = color_format;
 		config.depth_format = depth_format;
+		this->blend_mode = blend_mode;
 		//复用已记住的着色器模块重建
-		return pipeline_build(vert_module, frag_module);
+		return pipeline_build(vert_module, frag_module, blend_mode);
 	}
 
 	//获取图形管线
