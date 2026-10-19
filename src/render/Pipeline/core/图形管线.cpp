@@ -20,7 +20,7 @@ namespace engine
 	/*
 	创建图形管线
 	动态渲染（pNext 链入 VkPipelineRenderingCreateInfo，颜色 / 深度附件格式来自配置）；
-	顶点输入 binding 0（step 20，位置 vec3 @0 / 纹理坐标 vec2 @12）；
+	顶点输入 binding 0（step 20，位置 vec3 @0 / 纹理坐标 vec2 @12）＋ binding 1（step 64，模型矩阵 4 列 vec4 @0/16/32/48，实例步进）；
 	视口与裁剪动态设置；背面剔除 BACK、正面 COUNTER_CLOCKWISE（配合 cube_generate 绕序）；
 	深度测试开 / 写开 / LESS；推送常量 mat4 模型矩阵。
 	*/
@@ -37,14 +37,22 @@ namespace engine
 		stages[1].module = frag_module;
 		stages[1].pName = "main";
 
-		//顶点绑定（binding 0，步长 = sizeof(Vertex) = 20）
-		VkVertexInputBindingDescription vertex_binding{};
-		vertex_binding.binding = 0;
-		vertex_binding.stride = sizeof(Vertex);
-		vertex_binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		//顶点绑定（binding 0：顶点属性，步长 = sizeof(Vertex) = 20）
+		VkVertexInputBindingDescription vertex_bindings[2]{};
+		vertex_bindings[0].binding = 0;
+		vertex_bindings[0].stride = sizeof(Vertex);
+		vertex_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+		//实例绑定（binding 1：模型矩阵 4 列 vec4，步长 64，按实例步进）
+		vertex_bindings[1].binding = 1;
+		vertex_bindings[1].stride = static_cast<uint32_t>(sizeof(float) * 16);
+		vertex_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-		//顶点属性（0：位置 vec3 @0；1：纹理坐标 vec2 @12）
-		VkVertexInputAttributeDescription vertex_attributes[2]{};
+		/*
+		顶点属性（0：位置 vec3 @0；1：纹理坐标 vec2 @12）＋ 实例属性（3..6：模型矩阵 4 列 vec4）
+		实例属性**恒定声明**：渲染层只有一条绘制路径（模型矩阵统一由实例缓冲承载，
+		实例数为 1 即逐次绘制的等价路径），故不存在「管线要实例属性而未绑定实例缓冲」的合法状态。
+		*/
+		VkVertexInputAttributeDescription vertex_attributes[6]{};
 		vertex_attributes[0].location = 0;
 		vertex_attributes[0].binding = 0;
 		vertex_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -53,13 +61,21 @@ namespace engine
 		vertex_attributes[1].binding = 0;
 		vertex_attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
 		vertex_attributes[1].offset = 12;
+		//模型矩阵 4 列（列主序：列 i 位于字节偏移 i × 16）
+		for (uint32_t index = 0; index < 4; ++index)
+		{
+			vertex_attributes[2 + index].location = 3 + index;
+			vertex_attributes[2 + index].binding = 1;
+			vertex_attributes[2 + index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+			vertex_attributes[2 + index].offset = index * 16;
+		}
 
-		//顶点输入状态
+		//顶点输入状态（两个绑定：0 = 顶点步进，1 = 实例步进；共 6 条属性）
 		VkPipelineVertexInputStateCreateInfo vertex_input{};
 		vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertex_input.vertexBindingDescriptionCount = 1;
-		vertex_input.pVertexBindingDescriptions = &vertex_binding;
-		vertex_input.vertexAttributeDescriptionCount = 2;
+		vertex_input.vertexBindingDescriptionCount = 2;
+		vertex_input.pVertexBindingDescriptions = vertex_bindings;
+		vertex_input.vertexAttributeDescriptionCount = 6;
 		vertex_input.pVertexAttributeDescriptions = vertex_attributes;
 
 		//图元装配（三角形列表）

@@ -70,6 +70,12 @@ namespace engine
 		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
+		//实例缓冲（模型矩阵来源；渲染层统一走实例路径，故所有绘制项均须给出）
+		VkBuffer instance_buffer = VK_NULL_HANDLE;
+		//实例区在实例缓冲内的字节偏移（一个实例 = 16 浮点 = 64 字节）
+		VkDeviceSize instance_offset = 0;
+		//实例数（1 = 等价于逐次绘制；0 表该项不完整，会被录制时跳过）
+		uint32_t instance_count = 0;
 		//推送常量数据（可为空）
 		const void* push_constants = nullptr;
 		//推送常量字节数（0 表不推送）

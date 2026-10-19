@@ -113,9 +113,10 @@ namespace engine
 		{
 			//当前渲染项
 			const Frame_Render_Item& item = items[index];
-			//管线或顶点 / 索引缓冲缺失则跳过该项
+			//管线或顶点 / 索引 / 实例缓冲缺失则跳过该项
 			if (item.pipeline == VK_NULL_HANDLE || item.vertex_buffer == VK_NULL_HANDLE
-				|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0)
+				|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0
+				|| item.instance_buffer == VK_NULL_HANDLE || item.instance_count == 0)
 				continue;
 
 			//仅在与当前已绑定管线不同时重绑（同帧各渲染项共用同一条场景管线）
@@ -162,9 +163,16 @@ namespace engine
 			vkCmdBindVertexBuffers(command_buffer, 0, 1, &item.vertex_buffer, &offset);
 			//绑定索引缓冲（uint32 索引；偏移由网格记录给出，顶点与索引可共用一个缓冲）
 			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
+			/*
+			绑定实例缓冲（binding 1）
+			模型矩阵逐实例步进读取；实例数为 1 时即「逐次绘制」的等价路径，
+			故绑定 1 在任何合法绘制项下都必须有有效缓冲（管线已恒定声明实例属性）。
+			*/
+			VkDeviceSize instance_offset = item.instance_offset;
+			vkCmdBindVertexBuffers(command_buffer, 1, 1, &item.instance_buffer, &instance_offset);
 
-			//绘制索引几何
-			vkCmdDrawIndexed(command_buffer, item.index_count, 1, 0, 0, 0);
+			//绘制索引几何（实例数由渲染项给出；实例数 ≥ 1）
+			vkCmdDrawIndexed(command_buffer, item.index_count, item.instance_count, 0, 0, 0);
 		}
 
 		/*

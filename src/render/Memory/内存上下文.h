@@ -65,11 +65,11 @@ namespace engine
 		才能经 upload_image 写入像素。
 		*/
 		bool image_create(VkImage& image_out, VmaAllocation& alloc_out,
-			uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage);
+			uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mip_levels = 1);
 		//销毁图像（图像与它的内存一起归还）
 		void image_destroy(VkImage image, VmaAllocation alloc);
 		//创建图像视图（二维、单层、单 mip）
-		bool image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect);
+		bool image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t level_count = 1);
 		//销毁图像视图
 		void image_view_destroy(VkImageView view);
 
@@ -86,6 +86,13 @@ namespace engine
 		*/
 		bool upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
 			uint32_t width, uint32_t height, uint32_t row_pixels);
+		/*
+		生成 mip 链（第 0 级须已由 upload_image 写入并处于着色器可读布局）
+		对第 1..mip_levels-1 级逐级 vkCmdBlitImage 降采样（线性过滤），
+		一次提交完成全部级；结束后第 0 级恢复为着色器可读布局、其余级亦为着色器可读布局。
+		mip_levels ≤ 1 时为空操作（返回真）。
+		*/
+		bool image_generate_mips(VkImage image, uint32_t width, uint32_t height, uint32_t mip_levels);
 
 		//获取 VMA 分配器（供上层创建自有资源时复用）
 		VmaAllocator allocator_get(void) const;

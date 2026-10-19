@@ -8,6 +8,8 @@ Vulkan 与 VMA 头
 */
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+//纹理公共语义类型（Vulkan-free）：采样器状态与寻址模式
+#include "Application/Renderer/src/render/Texture/纹理数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -26,6 +28,8 @@ namespace engine
 		VkImageView view = VK_NULL_HANDLE;
 		//采样器
 		VkSampler sampler = VK_NULL_HANDLE;
+		//mip 级数（≥ 1；创建时按 floor(log2(max(宽,高))) + 1 生成完整 mip 链）
+		uint32_t mip_levels = 1;
 		//记录是否有效
 		bool valid = false;
 	};
@@ -54,19 +58,33 @@ namespace engine
 		//是否已构建完成
 		bool valid(void) const;
 
-		//从内存像素创建纹理（RGBA8 紧排；句柄自 1 起，0 表无效）—— 预留的文件加载入口
+		//从内存像素创建纹理（RGBA8 紧排；句柄自 1 起，0 表无效）
 		bool texture_create_from_memory(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height);
+		/*
+		从文件创建纹理（解码 PNG / JPG / BMP 等为 RGBA8 后走内存像素路径）
+		解码由外部库 stb_image 承担（唯一定义 STB_IMAGE_IMPLEMENTATION 的编译单元见 core/纹理解码.cpp）；
+		文件不存在、为空、解码失败或解码尺寸非法时返回假，且**不留下任何半初始化纹理记录**。
+		*/
+		bool texture_create_from_file(uint64_t& handle_out, const std::string& path);
 		//程序生成棋盘格纹理（RGBA8，两种灰度交替）
 		bool texture_create_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
 		//销毁纹理
 		void texture_destroy(uint64_t handle);
 		//取图像视图与采样器（供描述符写入；句柄无效返回假）
 		bool texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const;
+		/*
+		设置共享采样器状态（寻址模式 / 是否启用 mip 过滤）
+		状态变化时**销毁并重建共享采样器**，并把全部既有纹理记录改指新句柄；
+		注意：已写入的**描述符集仍持有旧采样器句柄**，故调用方（门面）须在切换后重新绑定纹理，
+		否则采样仍按旧参数进行。
+		*/
+		void sampler_state_set(const Texture_Sampler_State& state);
 	private:
 		/*
 		取共享采样器
-		参数固定（线性过滤 / REPEAT 寻址 / mipmap 关闭），全模块共用一个实例；
-		首次调用创建，之后复用（实现见 core/采样器创建.cpp）。
+		按**当前采样器状态**（sampler_state）创建：线性过滤；寻址模式由状态给出；
+		mip 过滤由状态决定（启用 = mipmapMode 线性且 maxLod 放开，关闭 = maxLod 钳到 0）；
+		全模块共用一个实例，首次调用创建，之后复用（实现见 core/采样器创建.cpp）。
 		*/
 		bool sampler_create(VkSampler& sampler_out);
 		//内存模块（图像创建 / 上传 / 销毁在此完成）
@@ -75,6 +93,8 @@ namespace engine
 		VkDevice device = VK_NULL_HANDLE;
 		//共享采样器（全模块共用，destroy 时统一归还）
 		VkSampler shared_sampler = VK_NULL_HANDLE;
+		//共享采样器状态（默认与本版次之前行为一致：重复寻址 + 不采样 mip）
+		Texture_Sampler_State sampler_state;
 		//纹理记录集合（下标 = 句柄 - 1）
 		std::vector<Texture_Record> records;
 	};

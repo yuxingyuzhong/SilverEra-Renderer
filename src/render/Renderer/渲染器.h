@@ -9,6 +9,8 @@
 #include "Application/Renderer/src/render/Mesh/网格数据.h"
 //管线公共语义类型（Vulkan-free）：混合档
 #include "Application/Renderer/src/render/Pipeline/管线数据.h"
+//纹理公共语义类型（Vulkan-free）：采样器状态
+#include "Application/Renderer/src/render/Texture/纹理数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -98,16 +100,35 @@ namespace engine
 		bool mesh_draw(Mesh_Handle handle, const float* transform);
 
 		/*
+		实例化绘制网格（同一网格 × N 个模型矩阵，一次绘制调用提交）
+		transforms 为 count 个「列主序 16 浮点模型矩阵」的连续存储（共 count × 16 个浮点），可为 nullptr 表整批单位矩阵；
+		count 为 0 或句柄无效时返回假，且**不登记任何绘制项**（不会留下半截绘制）；
+		本调用只登记一个待绘制项（其内部为一个实例化绘制调用），实际绘制在下一帧 frame_render 时发生。
+		*/
+		bool mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count);
+
+		/*
 		纹理加载（RGBA8 紧排像素）
 		成功返回真并写出纹理句柄；失败返回假，句柄保持 0。
 		*/
 		bool texture_load(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height);
+		/*
+		从文件加载纹理（PNG / JPG / BMP 等经 stb 解码为 RGBA8 后上传）
+		成功返回真并写出纹理句柄；文件不存在 / 为空 / 解码失败时返回假，句柄保持 0。
+		*/
+		bool texture_load_file(uint64_t& handle_out, const std::string& path);
 		//程序生成棋盘格纹理
 		bool texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
 		//卸载纹理（句柄无效则忽略；绑定过该纹理的帧槽需由调用方重新 texture_bind_set）
 		void texture_unload(uint64_t handle);
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
+		/*
+		设置纹理采样器状态（寻址模式 / 是否启用 mip 过滤）
+		采样器为模块共享且被烘焙进各帧槽描述符集，故本方法在切换状态后会**重新绑定当前纹理**，
+		新状态自下一次绘制起生效；未初始化时静默返回。
+		*/
+		void texture_sampler_state_set(const Texture_Sampler_State& state);
 
 		/*
 		设置后续绘制所用混合档（Opaque / Alpha）

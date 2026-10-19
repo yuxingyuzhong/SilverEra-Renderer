@@ -56,6 +56,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Swapchain/core/交换链查询.cpp"
     "src/render/Swapchain/core/交换链重建.cpp"
     "src/render/Texture/core/纹理创建.cpp"
+    "src/render/Texture/core/纹理解码.cpp"
     "src/render/Texture/core/采样器创建.cpp"
 )
 
@@ -91,4 +92,5 @@ target_sources(RendererCore PRIVATE
     "src/render/Swapchain/局部命名空间使用.h"
     "src/render/Texture/局部命名空间使用.h"
     "src/render/Texture/纹理.h"
+    "src/render/Texture/纹理数据.h"
 )

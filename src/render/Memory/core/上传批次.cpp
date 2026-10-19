@@ -244,4 +244,126 @@ namespace engine
 			logger.info("上传批次:: 图像上传完成（{}x{}）", width, height);
 		return ok;
 	}
+
+	/*
+	生成 mip 链
+	第 0 级须已由 upload_image 写入且处于着色器可读布局；
+	第 1..mip_levels-1 级逐级以线性过滤降采样（源 = 上一级、目标 = 本级，同图像不同级）；
+	每级用「源级转传输源 + 目标级转传输目标」→ blit →「目标级转着色器可读」三段完成，
+	循环结束后第 0 级由传输源恢复为着色器可读。全部命令一次提交完成。
+	*/
+	bool Memory_Context::image_generate_mips(VkImage image, uint32_t width, uint32_t height, uint32_t mip_levels)
+	{
+		//级数 ≤ 1 时为空操作
+		if (mip_levels <= 1)
+			return true;
+		//前置：上下文与队列就绪、目标句柄齐备
+		if (!valid() || image == VK_NULL_HANDLE || graphics_queue == VK_NULL_HANDLE)
+		{
+			logger.error("上传批次:: 生成 mip 链的参数不完整");
+			return false;
+		}
+		//确保上传命令池与栅栏就绪（与像素上传共用同一套一次性资源）
+		if (!upload_resources_ensure())
+			return false;
+
+		//提交全部降采样命令（一次栅栏等待）
+		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
+		{
+			//当前源级尺寸（第 0 级起始尺寸）
+			uint32_t source_width = width;
+			uint32_t source_height = height;
+
+			//逐级生成
+			for (uint32_t level = 1; level < mip_levels; ++level)
+			{
+				//目标级尺寸（不小于 1）
+				uint32_t target_width = source_width > 1 ? source_width / 2 : 1;
+				uint32_t target_height = source_height > 1 ? source_height / 2 : 1;
+
+				//源级：着色器可读 → 传输源
+				VkImageMemoryBarrier source_barrier{};
+				source_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				source_barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				source_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				source_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				source_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				source_barrier.image = image;
+				source_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 1, 0, 1 };
+				source_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				source_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+
+				//目标级：未定义 → 传输目标（旧内容无须保留）
+				VkImageMemoryBarrier target_barrier{};
+				target_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				target_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				target_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				target_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				target_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				target_barrier.image = image;
+				target_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, level, 1, 0, 1 };
+				target_barrier.srcAccessMask = 0;
+				target_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+				//三条屏障中前两条合并提交：源级走「片元着色器 → 传输」，目标级走「顶部管线 → 传输」
+				VkImageMemoryBarrier pre_barriers[2] = { source_barrier, target_barrier };
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+					0, 0, nullptr, 0, nullptr, 2, pre_barriers);
+				//目标级为「未定义 → 传输目标」，故其阶段对单独再走一次「顶部管线 → 传输」
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &target_barrier);
+
+				//线性过滤降采样（源级 → 目标级）
+				VkImageBlit blit{};
+				blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1 };
+				blit.srcOffsets[0] = { 0, 0, 0 };
+				blit.srcOffsets[1] = { static_cast<int32_t>(source_width), static_cast<int32_t>(source_height), 1 };
+				blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1 };
+				blit.dstOffsets[0] = { 0, 0, 0 };
+				blit.dstOffsets[1] = { static_cast<int32_t>(target_width), static_cast<int32_t>(target_height), 1 };
+				vkCmdBlitImage(command_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+				//目标级：传输目标 → 着色器可读（下一轮循环作为源级时再转入传输源）
+				VkImageMemoryBarrier back_barrier{};
+				back_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				back_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				back_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				back_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				back_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				back_barrier.image = image;
+				back_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, level, 1, 0, 1 };
+				back_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+				back_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &back_barrier);
+
+				//推进源尺寸
+				source_width = target_width;
+				source_height = target_height;
+			}
+
+			//第 0 级由传输源恢复为着色器可读（循环结束后它仍停在传输源）
+			VkImageMemoryBarrier level0_barrier{};
+			level0_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			level0_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			level0_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			level0_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			level0_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			level0_barrier.image = image;
+			level0_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			level0_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			level0_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &level0_barrier);
+		});
+
+		if (ok)
+			logger.info("上传批次:: mip 链已生成（{} 级，{}x{}）", mip_levels, width, height);
+		return ok;
+	}
 }

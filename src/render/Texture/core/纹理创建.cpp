@@ -89,11 +89,24 @@ namespace engine
 			return false;
 		}
 
-		//创建图像（sRGB RGBA8；采样 + 传输目标）
+		/*
+		mip 级数 = floor(log2(max(宽, 高))) + 1
+		生成完整 mip 链，使缩小绘制时能采到低级别（是否真正启用由采样器状态的 mip_filter 决定）。
+		*/
+		uint32_t mip_levels = 1;
+		uint32_t largest_side = width > height ? width : height;
+		while (largest_side > 1)
+		{
+			largest_side >>= 1;
+			++mip_levels;
+		}
+
+		//创建图像（sRGB RGBA8；采样 + 传输目标 + 传输源（mip 生成需作为源），级数 = mip 级数）
 		VkImage image = VK_NULL_HANDLE;
 		VmaAllocation allocation = VK_NULL_HANDLE;
 		if (!memory->image_create(image, allocation, width, height, VK_FORMAT_R8G8B8A8_SRGB,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+			mip_levels))
 			return false;
 
 		//上传像素（RGBA8 紧排；row_pixels 传 0 表按 width 紧排）
@@ -104,9 +117,17 @@ namespace engine
 			return false;
 		}
 
-		//创建图像视图
+		//生成 mip 链（第 0 级已写入且处于着色器可读布局）
+		if (!memory->image_generate_mips(image, width, height, mip_levels))
+		{
+			logger.error("纹理创建:: mip 链生成失败，回退");
+			memory->image_destroy(image, allocation);
+			return false;
+		}
+
+		//创建图像视图（须覆盖全部 mip 级，否则采样器无法选取低级别）
 		VkImageView view = VK_NULL_HANDLE;
-		if (!memory->image_view_create(view, image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT))
+		if (!memory->image_view_create(view, image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels))
 		{
 			memory->image_destroy(image, allocation);
 			return false;
@@ -126,12 +147,13 @@ namespace engine
 		record.allocation = allocation;
 		record.view = view;
 		record.sampler = shared_sampler;
+		record.mip_levels = mip_levels;
 		record.valid = true;
 		records.push_back(record);
 
 		//句柄自 1 起
 		handle_out = static_cast<uint64_t>(records.size());
-		logger.info("纹理创建:: 纹理已建立（句柄 {}，{}x{}）", handle_out, width, height);
+		logger.info("纹理创建:: 纹理已建立（句柄 {}，{}x{}，mip 级数 {}）", handle_out, width, height, mip_levels);
 		return true;
 	}
 

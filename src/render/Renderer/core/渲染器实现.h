@@ -59,8 +59,16 @@ namespace engine
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
 		std::vector<VmaAllocation> scene_ubo_allocs;
+		//实例缓冲（长度 = 在途帧数，主机可见，逐帧写入本帧全部实例模型矩阵）
+		std::vector<VkBuffer> instance_buffers;
+		//实例缓冲内存（与 instance_buffers 一一对应）
+		std::vector<VmaAllocation> instance_allocations;
+		//每帧槽实例缓冲容量（模型矩阵个数；一个实例 = 16 浮点 = 64 字节）
+		uint32_t instance_capacity = 256;
 		//内置默认白纹理句柄
 		uint64_t default_texture = 0;
+		//最后一次「设置当前纹理」请求的句柄（供采样器状态切换后重新绑定；0 表回落默认白纹理）
+		uint64_t bound_texture_request = 0;
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
@@ -69,13 +77,8 @@ namespace engine
 		VkShaderModule frag_module = VK_NULL_HANDLE;
 		//待绘制项（由 mesh_draw 逐次登记，frame_render 消费后清空；同帧可登记多个网格）
 		std::vector<Frame_Render_Item> pending_items;
-		/*
-		待绘制项的推送常量
-		每登记一个网格追加一块「列主序 16 浮点模型矩阵」存储；
-		用 deque 而非 vector：push_back 不使既有元素地址失效，
-		故 pending_items 中的指针在同帧内始终有效。
-		*/
-		std::deque<std::array<float, 16>> pending_transforms;
+		//本帧待绘制的实例模型矩阵（列主序 16 浮点 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
+		std::vector<std::array<float, 16>> pending_instances;
 		//是否已初始化
 		bool initialized = false;
 		//已呈现帧数

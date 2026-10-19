@@ -196,6 +196,9 @@ namespace engine
 		*/
 		impl->scene_ubos.resize(effective.frame_overlap);
 		impl->scene_ubo_allocs.resize(effective.frame_overlap);
+		//实例缓冲按帧槽各一（主机可见，逐帧写入本帧全部实例模型矩阵）
+		impl->instance_buffers.resize(effective.frame_overlap);
+		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
 			//创建场景 UBO（主机可见、统一缓冲用途）
@@ -219,6 +222,14 @@ namespace engine
 			if (!impl->pipeline.scene_bind(slot, impl->scene_ubos[slot]))
 			{
 				logger.error("渲染器:: 场景 UBO 绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//创建该帧槽的实例缓冲（主机可见、顶点缓冲用途；容量 = instance_capacity 个模型矩阵）
+			if (!impl->memory.buffer_create(impl->instance_buffers[slot], impl->instance_allocations[slot],
+				static_cast<VkDeviceSize>(impl->instance_capacity) * 64, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true))
+			{
+				logger.error("渲染器:: 实例缓冲创建失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -325,6 +336,13 @@ namespace engine
 				impl->memory.buffer_destroy(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot]);
 		impl->scene_ubos.clear();
 		impl->scene_ubo_allocs.clear();
+		//实例缓冲依赖内存模块，须先于 memory 销毁
+		if (impl->memory.valid())
+			for (size_t slot = 0; slot < impl->instance_buffers.size(); ++slot)
+				//归还实例缓冲与其内存
+				impl->memory.buffer_destroy(impl->instance_buffers[slot], impl->instance_allocations[slot]);
+		impl->instance_buffers.clear();
+		impl->instance_allocations.clear();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
 		//管线依赖设备与内存，须先于两者销毁
@@ -355,7 +373,7 @@ namespace engine
 		impl->device.destroy();
 		//清空待绘制项与其推送常量存储
 		impl->pending_items.clear();
-		impl->pending_transforms.clear();
+		impl->pending_instances.clear();
 		//复位状态
 		impl->ui_channel.destroy();
 		impl->frame_count = 0;
@@ -391,7 +409,7 @@ namespace engine
 		if (impl->platform.close_requested() || impl->platform.minimized())
 		{
 			impl->pending_items.clear();
-			impl->pending_transforms.clear();
+			impl->pending_instances.clear();
 			return true;
 		}
 
@@ -455,9 +473,29 @@ namespace engine
 		各帧槽的场景 UBO 缓冲句柄自 init 起恒定不变，set0 已在 init 时一次性写入；
 		每帧只更新 UBO 内容（上一段的 buffer_write），不重写描述符集。
 		*/
-		//为本帧待绘制项填装描述符集
+		/*
+		实例模型矩阵写入本帧槽实例缓冲
+		本帧登记的全部实例矩阵按登记顺序连续存放，故一次写入即可；
+		随后每个渲染项只携带「帧槽缓冲句柄 ＋ 字节偏移 ＋ 实例数」。
+		*/
+		if (!impl->pending_instances.empty())
+		{
+			//本帧实例矩阵总字节数（一个实例 = 16 浮点 = 64 字节）
+			VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+			//写入本帧槽实例缓冲
+			if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
+				impl->pending_instances.data(), instance_bytes, 0))
+			{
+				logger.error("渲染器:: 实例缓冲写入失败（帧槽 {}）", slot);
+				return false;
+			}
+		}
+
+		//为本帧待绘制项填装描述符集与实例缓冲句柄
 		for (auto& item : impl->pending_items)
 		{
+			//本帧槽的实例缓冲（模型矩阵来源）
+			item.instance_buffer = impl->instance_buffers[slot];
 			//本帧槽的场景 UBO 描述符集（set0）
 			item.scene_set = impl->pipeline.scene_set_get(slot);
 			//本帧槽的采样器描述符集（set1）
@@ -487,7 +525,7 @@ namespace engine
 		}
 		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
 		impl->pending_items.clear();
-		impl->pending_transforms.clear();
+		impl->pending_instances.clear();
 		/*
 		回读结果交付
 		若本帧请求回读但帧模块未产出像素（如窗口最小化 / 关闭请求而跳过渲染，
@@ -594,6 +632,42 @@ namespace engine
 		impl->mesh.mesh_destroy(handle);
 	}
 
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个），返回首个实例的字节偏移
+	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
+	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, 16>>& store,
+		const float* transforms, uint32_t count)
+	{
+		//首个实例的字节偏移（追加前的元素个数 × 64）
+		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * 64;
+		//逐实例追加
+		for (uint32_t instance = 0; instance < count; ++instance)
+		{
+			//新实例的矩阵存储
+			store.emplace_back();
+			std::array<float, 16>& target = store.back();
+			//transforms 为空则整批用单位矩阵
+			if (transforms == nullptr)
+			{
+				//单位矩阵（列主序）
+				const float identity[16] = {
+					1.0f, 0.0f, 0.0f, 0.0f,
+					0.0f, 1.0f, 0.0f, 0.0f,
+					0.0f, 0.0f, 1.0f, 0.0f,
+					0.0f, 0.0f, 0.0f, 1.0f
+				};
+				for (uint32_t element = 0; element < 16; ++element)
+					target[element] = identity[element];
+			}
+			else
+			{
+				//拷贝第 instance 个外部模型矩阵
+				for (uint32_t element = 0; element < 16; ++element)
+					target[element] = transforms[static_cast<size_t>(instance) * 16 + element];
+			}
+		}
+		return offset;
+	}
+
 	//绘制网格
 	bool Renderer::mesh_draw(Mesh_Handle handle, const float* transform)
 	{
@@ -615,30 +689,16 @@ namespace engine
 		}
 
 		/*
-		推送常量：列主序 16 浮点模型矩阵
-		transform 为空则用单位矩阵；每次调用追加一块独立存储，
-		供 pending_items 中的指针指向，直至下一帧 frame_render 消费完毕。
+		模型矩阵改由「实例缓冲」承载（本层统一走实例路径）
+		transform 为空则用单位矩阵；实例数为 1 即等价于逐次绘制（模型矩阵不再经推送常量传递）。
 		*/
-		impl->pending_transforms.emplace_back();
-		std::array<float, 16>& transform_store = impl->pending_transforms.back();
-		if (transform == nullptr)
+		if (impl->pending_instances.size() >= impl->instance_capacity)
 		{
-			//单位矩阵（列主序）
-			const float identity[16] = {
-				1.0f, 0.0f, 0.0f, 0.0f,
-				0.0f, 1.0f, 0.0f, 0.0f,
-				0.0f, 0.0f, 1.0f, 0.0f,
-				0.0f, 0.0f, 0.0f, 1.0f
-			};
-			for (uint32_t index = 0; index < 16; ++index)
-				transform_store[index] = identity[index];
+			logger.error("渲染器:: 本帧实例矩阵存储已满（容量 {}），绘制被拒", impl->instance_capacity);
+			return false;
 		}
-		else
-		{
-			//拷贝外部模型矩阵
-			for (uint32_t index = 0; index < 16; ++index)
-				transform_store[index] = transform[index];
-		}
+		//追加本项模型矩阵并取其在本帧实例缓冲内的字节偏移
+		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1);
 
 		/*
 		组装待绘制项
@@ -655,12 +715,84 @@ namespace engine
 		item.index_buffer = mesh_buffer;
 		item.index_offset = index_offset;
 		item.index_count = index_count;
-		item.push_constants = transform_store.data();
-		item.push_constant_size = 64;
+		item.instance_buffer = VK_NULL_HANDLE;
+		item.instance_offset = instance_offset;
+		item.instance_count = 1;
 
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
+	}
+
+	//实例化绘制（同一网格 × count 个模型矩阵，一次绘制调用提交）
+	bool Renderer::mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//实例数必须为正
+		if (count == 0)
+		{
+			logger.error("渲染器:: 实例化绘制的实例数必须为正");
+			return false;
+		}
+		//取网格记录（句柄无效则拒绝）
+		VkBuffer mesh_buffer = VK_NULL_HANDLE;
+		VkDeviceSize index_offset = 0;
+		uint32_t index_count = 0;
+		if (!impl->mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
+		{
+			logger.error("渲染器:: 实例化绘制的网格句柄无效");
+			return false;
+		}
+		/*
+		本帧实例矩阵存储容量校验
+		不足则整体拒绝、不登记任何绘制项（避免留下「半个实例化绘制」）。
+		*/
+		if (impl->pending_instances.size() + count > impl->instance_capacity)
+		{
+			logger.error("渲染器:: 本帧实例矩阵存储不足（需 {} 个，余 {} 个）", count,
+				impl->instance_capacity - static_cast<uint32_t>(impl->pending_instances.size()));
+			return false;
+		}
+		//追加本批模型矩阵并取首个实例在本帧实例缓冲内的字节偏移
+		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count);
+
+		/*
+		组装待绘制项
+		描述符集与实例缓冲句柄延迟到 frame_render 时按「本帧帧槽」填装，故此处先置空。
+		*/
+		Frame_Render_Item item{};
+		item.pipeline = impl->pipeline.pipeline_get();
+		item.layout = impl->pipeline.layout_get();
+		item.scene_set = VK_NULL_HANDLE;
+		item.sampler_set = VK_NULL_HANDLE;
+		item.descriptor_set_count = 0;
+		item.vertex_buffer = mesh_buffer;
+		item.index_buffer = mesh_buffer;
+		item.index_offset = index_offset;
+		item.index_count = index_count;
+		item.instance_buffer = VK_NULL_HANDLE;
+		item.instance_offset = instance_offset;
+		item.instance_count = count;
+		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
+		impl->pending_items.push_back(item);
+		return true;
+	}
+
+	//从文件加载纹理（解码由纹理模块的 stb 路径承担）
+	bool Renderer::texture_load_file(uint64_t& handle_out, const std::string& path)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 从文件加载纹理失败：尚未初始化");
+			return false;
+		}
+		//转交纹理模块解码并创建资源
+		return impl->texture.texture_create_from_file(handle_out, path);
 	}
 
 	//纹理加载
@@ -709,6 +841,8 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
+		//记录本次请求（采样器状态切换后据此重新绑定）
+		impl->bound_texture_request = texture_handle;
 		//句柄为零时回落内置默认白纹理
 		uint64_t target = texture_handle == 0 ? impl->default_texture : texture_handle;
 		//取目标纹理的视图与采样器
@@ -727,6 +861,21 @@ namespace engine
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
+	}
+
+	//设置纹理采样器状态（切换后重新绑定当前纹理，使新采样器真正生效）
+	void Renderer::texture_sampler_state_set(const Texture_Sampler_State& state)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		/*
+		切换共享采样器状态
+		采样器被烘焙进各帧槽 set1，故切换后必须重新绑定当前纹理；否则采样仍按旧参数进行。
+		*/
+		impl->texture.sampler_state_set(state);
+		//按最后一次请求重新绑定（未绑过任何纹理时回落内置默认白纹理）
+		texture_bind_set(impl->bound_texture_request);
 	}
 
 	//设置后续绘制所用混合档（切档触发图形管线重建）
