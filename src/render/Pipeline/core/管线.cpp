@@ -11,6 +11,41 @@ namespace engine
 		destroy();
 	}
 
+	//按句柄查找条目（可写）
+	Pipeline_Entry* Pipeline_Context::entry_find(uint64_t handle)
+	{
+		//线性查找（条目数量很小，无需哈希）
+		for (Pipeline_Entry& entry : pipelines)
+			//句柄一致即命中
+			if (entry.handle == handle)
+				return &entry;
+		return nullptr;
+	}
+
+	//按句柄查找条目（只读）
+	const Pipeline_Entry* Pipeline_Context::entry_find(uint64_t handle) const
+	{
+		//线性查找（条目数量很小，无需哈希）
+		for (const Pipeline_Entry& entry : pipelines)
+			//句柄一致即命中
+			if (entry.handle == handle)
+				return &entry;
+		return nullptr;
+	}
+
+	//按当前配置格式与条目自身着色器 / 混合档创建图形管线
+	bool Pipeline_Context::entry_pipeline_create(Pipeline_Entry& entry)
+	{
+		//创建结果（失败时保持空）
+		VkPipeline created = VK_NULL_HANDLE;
+		//若图形管线创建失败
+		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created))
+			return false;
+		//写回条目
+		entry.pipeline = created;
+		return true;
+	}
+
 	//构建
 	bool Pipeline_Context::build(VkDevice device, const Pipeline_Config& config)
 	{
@@ -38,7 +73,7 @@ namespace engine
 			destroy();
 			return false;
 		}
-		//创建管线布局（含推送常量范围）
+		//创建管线布局（含推送常量范围；全管线共享）
 		if (!pipeline_layout_create())
 		{
 			logger.error("管线:: 管线布局创建失败，回退");
@@ -108,15 +143,19 @@ namespace engine
 		return true;
 	}
 
-	//销毁
+	//销毁（幂等；销毁全部图形管线与基础设施）
 	void Pipeline_Context::destroy(void)
 	{
 		//若逻辑设备已记录
 		if (device != VK_NULL_HANDLE)
 		{
-			//销毁图形管线
-			if (pipeline != VK_NULL_HANDLE)
-				vkDestroyPipeline(device, pipeline, nullptr);
+			//销毁全部图形管线（默认与具名一并）
+			for (Pipeline_Entry& entry : pipelines)
+			{
+				//若该条目管线有效
+				if (entry.pipeline != VK_NULL_HANDLE)
+					vkDestroyPipeline(device, entry.pipeline, nullptr);
+			}
 			//销毁描述符池（连带回收其分配的描述符集）
 			if (descriptor_pool != VK_NULL_HANDLE)
 				vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
@@ -132,11 +171,11 @@ namespace engine
 		}
 
 		//清空容器与句柄
+		pipelines.clear();
 		scene_sets.clear();
 		sampler_sets.clear();
-		pipeline = VK_NULL_HANDLE;
-		vert_module = VK_NULL_HANDLE;
-		frag_module = VK_NULL_HANDLE;
+		next_handle = 1;
+		active_handle = 0;
 		descriptor_pool = VK_NULL_HANDLE;
 		pipeline_layout = VK_NULL_HANDLE;
 		sampler_set_layout = VK_NULL_HANDLE;
@@ -151,7 +190,7 @@ namespace engine
 		return device != VK_NULL_HANDLE && scene_set_layout != VK_NULL_HANDLE && sampler_set_layout != VK_NULL_HANDLE;
 	}
 
-	//构建图形管线
+	//登记 / 替换并激活句柄 0「默认场景管线」
 	bool Pipeline_Context::pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
 	{
 		//前置：基础设施与着色器模块必须齐备
@@ -160,56 +199,185 @@ namespace engine
 			logger.error("管线:: 图形管线构建前置不完整");
 			return false;
 		}
-		//已存在管线则先行销毁（幂等重建）
-		if (pipeline != VK_NULL_HANDLE)
+		//查找句柄 0 默认条目
+		Pipeline_Entry* entry = entry_find(0);
+		//若尚未登记则新建一条（句柄 0）
+		if (entry == nullptr)
 		{
-			vkDestroyPipeline(device, pipeline, nullptr);
-			pipeline = VK_NULL_HANDLE;
+			pipelines.push_back(Pipeline_Entry{});
+			entry = &pipelines.back();
+			entry->handle = 0;
 		}
-		//记住着色器模块，供格式变化时重建复用（模块所有权仍在调用方）
-		this->vert_module = vert_module;
-		this->frag_module = frag_module;
-		//记住本管线所用的混合档（重建判据与日志用）
-		this->blend_mode = blend_mode;
-
+		//已有管线则先行销毁（幂等重建）
+		if (entry->pipeline != VK_NULL_HANDLE)
+		{
+			vkDestroyPipeline(device, entry->pipeline, nullptr);
+			entry->pipeline = VK_NULL_HANDLE;
+		}
+		//记住着色器模块（所有权仍在调用方）与混合档
+		entry->vert_module = vert_module;
+		entry->frag_module = frag_module;
+		entry->blend_mode = blend_mode;
 		//创建图形管线
-		if (!graphics_pipeline_create(vert_module, frag_module, blend_mode))
+		if (!entry_pipeline_create(*entry))
 			return false;
+		//激活默认管线
+		active_handle = 0;
 
-		logger.info("管线:: 图形管线已建立（混合档 {}）", static_cast<int32_t>(blend_mode));
+		logger.info("管线:: 默认场景管线已建立（混合档 {}）", static_cast<int32_t>(blend_mode));
 		return true;
 	}
 
-	//按交换链格式与混合档重建图形管线
-	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format, Blend_Mode blend_mode)
+	//登记具名图形管线
+	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
 	{
-		//图形管线尚未建立则无需处理
-		if (pipeline == VK_NULL_HANDLE)
+		//默认无有效句柄
+		handle_out = 0;
+		//前置：基础设施与着色器模块必须齐备
+		if (!valid() || vert_module == VK_NULL_HANDLE || frag_module == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 具名管线登记前置不完整");
+			return false;
+		}
+		//先按当前格式把图形管线建好（失败则整体拒绝，不登记任何条目）
+		Pipeline_Entry entry{};
+		entry.handle = next_handle;
+		entry.vert_module = vert_module;
+		entry.frag_module = frag_module;
+		entry.blend_mode = blend_mode;
+		//若创建失败
+		if (!entry_pipeline_create(entry))
+		{
+			logger.error("管线:: 具名管线创建失败");
+			return false;
+		}
+		//登记条目并推进句柄
+		pipelines.push_back(entry);
+		++next_handle;
+		handle_out = entry.handle;
+
+		logger.info("管线:: 具名管线已登记（句柄 {}，混合档 {}）", entry.handle, static_cast<int32_t>(blend_mode));
+		return true;
+	}
+
+	//切换当前激活管线
+	bool Pipeline_Context::pipeline_activate(uint64_t handle)
+	{
+		//句柄未登记则拒绝（激活保持不变）
+		if (entry_find(handle) == nullptr)
+		{
+			logger.error("管线:: 激活失败：句柄 {} 未登记", handle);
+			return false;
+		}
+		active_handle = handle;
+		return true;
+	}
+
+	//注销具名管线
+	void Pipeline_Context::pipeline_release(uint64_t handle)
+	{
+		//句柄 0 为默认管线，禁止注销
+		if (handle == 0)
+			return;
+		//查找条目
+		for (vector<Pipeline_Entry>::iterator it = pipelines.begin(); it != pipelines.end(); ++it)
+		{
+			//跳过非目标条目
+			if (it->handle != handle)
+				continue;
+			//销毁其图形管线
+			if (it->pipeline != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+				vkDestroyPipeline(device, it->pipeline, nullptr);
+			//移除条目
+			pipelines.erase(it);
+			//若释放的正是当前激活管线则回落默认
+			if (active_handle == handle)
+				active_handle = 0;
+			logger.info("管线:: 具名管线已注销（句柄 {}）", handle);
+			return;
+		}
+	}
+
+	//按新颜色 / 深度格式重建全部已登记图形管线
+	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format)
+	{
+		//无任何条目则无需处理
+		if (pipelines.empty())
 			return true;
-		//格式与混合档均未变则无需重建（空操作）
-		if (config.color_format == color_format && config.depth_format == depth_format && this->blend_mode == blend_mode)
+		//格式均未变则无需重建（空操作）
+		if (config.color_format == color_format && config.depth_format == depth_format)
 			return true;
 
-		logger.info("管线:: 图形管线重建（颜色 {}，深度 {}，混合档 {}）",
-			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format), static_cast<int32_t>(blend_mode));
+		logger.info("管线:: 全部图形管线重建（颜色 {}，深度 {}）",
+			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format));
 		//等待设备空闲，确保旧管线不再被在途帧引用
 		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle（管线重建）"))
 			return false;
-		//更新配置中的格式与混合档
+		//更新配置中的格式
 		config.color_format = color_format;
 		config.depth_format = depth_format;
-		this->blend_mode = blend_mode;
-		//复用已记住的着色器模块重建
-		return pipeline_build(vert_module, frag_module, blend_mode);
+		//逐条目按新格式重建（着色器与各自混合档保留）
+		for (Pipeline_Entry& entry : pipelines)
+		{
+			//销毁旧管线
+			if (entry.pipeline != VK_NULL_HANDLE)
+			{
+				vkDestroyPipeline(device, entry.pipeline, nullptr);
+				entry.pipeline = VK_NULL_HANDLE;
+			}
+			//按新格式重建
+			if (!entry_pipeline_create(entry))
+				return false;
+		}
+		return true;
 	}
 
-	//获取图形管线
+	//重建句柄 0 默认管线的混合档
+	bool Pipeline_Context::pipeline_default_blend_set(Blend_Mode blend_mode)
+	{
+		//查找默认条目
+		Pipeline_Entry* entry = entry_find(0);
+		//无默认管线则空操作
+		if (entry == nullptr)
+			return true;
+		//同档且管线有效则空操作
+		if (entry->blend_mode == blend_mode && entry->pipeline != VK_NULL_HANDLE)
+			return true;
+
+		//等待设备空闲，确保旧管线不再被在途帧引用
+		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle（混合档切换）"))
+			return false;
+		//销毁旧管线
+		if (entry->pipeline != VK_NULL_HANDLE)
+		{
+			vkDestroyPipeline(device, entry->pipeline, nullptr);
+			entry->pipeline = VK_NULL_HANDLE;
+		}
+		//按新混合档重建
+		entry->blend_mode = blend_mode;
+		if (!entry_pipeline_create(*entry))
+			return false;
+
+		logger.info("管线:: 默认场景管线混合档已切换为 {}", static_cast<int32_t>(blend_mode));
+		return true;
+	}
+
+	//句柄是否已登记
+	bool Pipeline_Context::pipeline_has(uint64_t handle) const
+	{
+		return entry_find(handle) != nullptr;
+	}
+
+	//获取当前激活图形管线
 	VkPipeline Pipeline_Context::pipeline_get(void) const
 	{
-		return pipeline;
+		//取当前激活条目
+		const Pipeline_Entry* entry = entry_find(active_handle);
+		//条目存在则返回其管线，否则返回空句柄
+		return entry != nullptr ? entry->pipeline : VK_NULL_HANDLE;
 	}
 
-	//获取管线布局
+	//获取管线布局（全管线共享）
 	VkPipelineLayout Pipeline_Context::layout_get(void) const
 	{
 		return pipeline_layout;

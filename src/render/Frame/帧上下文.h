@@ -83,6 +83,24 @@ namespace engine
 	};
 
 	/*
+	渲染目标附件集合
+	由门面在「渲染到离屏目标」时传入：帧链路据此把场景先渲染进该目标（颜色附件 ＋ 深度附件）。
+	布局约定：颜色进入时须为 SHADER_READ_ONLY_OPTIMAL（目标创建时已转换，帧间恒保持该布局），
+	          深度进入时恒为 DEPTH_ATTACHMENT_OPTIMAL（逐帧以 CLEAR 清空）。
+	*/
+	struct Frame_Render_Target
+	{
+		//颜色图像（作颜色附件与像素回读来源）
+		VkImage color_image = VK_NULL_HANDLE;
+		//颜色图像视图
+		VkImageView color_view = VK_NULL_HANDLE;
+		//深度图像视图
+		VkImageView depth_view = VK_NULL_HANDLE;
+		//渲染范围
+		VkExtent2D extent = { 0, 0 };
+	};
+
+	/*
 	UI 绘制回调
 	每帧在「场景渲染 pass 内、vkCmdEndRendering 之前」由帧链路调用，
 	把本帧命令缓冲交给上层（上层在此调用 ImGui_ImplVulkan_RenderDrawData，
@@ -160,6 +178,16 @@ namespace engine
 			bool& rebuild_needed_out, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr,
 			Frame_Readback_Request* readback = nullptr);
+		/*
+		渲染一帧到离屏目标（不取交换链图像、不呈现）
+		帧槽等待 → 重置命令池 → 录制（目标附件 ＋ 场景 pass ＋ 可选像素回读）→ 仅以栅栏提交 → 回读；
+		与 render 共用同一批帧槽与帧计数轮转，故两者可交替调用而不打乱在途帧同步。
+		目标颜色在帧间恒处于 SHADER_READ_ONLY_OPTIMAL，故离屏结果可直接作纹理采样。
+		返回假视为硬错误。
+		*/
+		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
+			const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
+			Frame_Readback_Request* readback = nullptr);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -195,6 +223,19 @@ namespace engine
 			VkImageView depth_view, VkExtent2D extent,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
+		/*
+		录制「渲染到离屏目标」的命令缓冲（实现见 core/命令录制.cpp）
+		颜色进入布局为 SHADER_READ_ONLY_OPTIMAL，故先转入 COLOR_ATTACHMENT_OPTIMAL；
+		场景 pass 结束后按是否回读转入 TRANSFER_SRC（回读）或直接转回 SHADER_READ_ONLY，使目标帧间可采样。
+		*/
+		void command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
+			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
+			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
+		/*
+		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
+		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
+		*/
+		void items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);

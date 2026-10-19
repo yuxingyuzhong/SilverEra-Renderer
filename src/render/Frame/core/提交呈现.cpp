@@ -135,6 +135,94 @@ namespace engine
 		return true;
 	}
 
+	/*
+	渲染一帧到离屏目标
+	帧槽等待 → 重置命令池 → 录制（目标附件 + 场景 pass + 可选像素回读）→ 仅以完成栅栏提交 → 回读。
+	不取交换链图像、不呈现（离屏结果经「以目标为纹理」的正常绘制路径显示，即后处理闭环）；
+	与 render 共用同一批帧槽与帧计数轮转，故两者可交替调用。
+	*/
+	bool Frame_Context::render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
+		uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
+		Frame_Readback_Request* readback)
+	{
+		//前置：帧上下文与目标附件必须齐备
+		if (!valid() || target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
+			|| target.extent.width == 0 || target.extent.height == 0)
+		{
+			logger.error("提交呈现:: 帧上下文或离屏目标尚未就绪");
+			return false;
+		}
+
+		//取当前帧槽（与交换链路径共用同一轮转）
+		Frame_Slot& slot = slots[frame_count % frame_overlap];
+
+		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
+		if (!slot_fence_wait(slot))
+			return false;
+
+		//重置该帧槽完成栅栏（提交前必须处于未发出态）
+		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
+			return false;
+
+		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
+		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+			return false;
+
+		/*
+		像素回读准备（可选；回读来源为目标颜色附件）
+		按目标范围校验容量并确保回读缓冲就绪。
+		*/
+		VkBuffer readback_target = VK_NULL_HANDLE;
+		//本帧是否请求回读（请求存在且目标缓冲非空）
+		bool readback_active = readback != nullptr && readback->pixels != nullptr;
+		//若本帧请求回读
+		if (readback_active)
+		{
+			//目标像素字节数（RGBA8 紧排）
+			VkDeviceSize readback_bytes = static_cast<VkDeviceSize>(target.extent.width) * target.extent.height * 4;
+			//若回读目标容量不足
+			if (readback->capacity < readback_bytes)
+			{
+				logger.error("提交呈现:: 离屏回读目标容量不足（需 {} 字节，有 {} 字节）", readback_bytes, readback->capacity);
+				return false;
+			}
+			//确保回读缓冲就绪并把句柄交给录制
+			if (!readback_buffer_ensure(readback_bytes))
+				return false;
+			readback_target = readback_buffer;
+		}
+
+		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
+		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback, readback_target);
+
+		/*
+		仅以完成栅栏提交
+		离屏路径不取交换链图像、不呈现，故无信号量同步；命令缓冲完成后帧槽栅栏发出。
+		*/
+		VkCommandBufferSubmitInfo command_info{};
+		command_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+		command_info.commandBuffer = slot.command_buffer;
+
+		VkSubmitInfo2 submit_info{};
+		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+		submit_info.commandBufferInfoCount = 1;
+		submit_info.pCommandBufferInfos = &command_info;
+
+		//提交到图形队列（帧栅栏作为完成信号）
+		if (!vk_result_check(vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence), "vkQueueSubmit2（离屏）"))
+			return false;
+
+		//像素读出（可选；渲染与拷贝同批提交，等帧槽栅栏即数据就绪）
+		if (readback_active && !readback_read(slot, *readback, target.extent))
+			return false;
+
+		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
+		++frame_count;
+		//释放到期的延迟销毁条目
+		deferred_flush();
+		return true;
+	}
+
 	//提交并呈现
 	bool Frame_Context::submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 		VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out)

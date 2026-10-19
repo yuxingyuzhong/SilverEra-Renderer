@@ -134,8 +134,46 @@ namespace engine
 		设置后续绘制所用混合档（Opaque / Alpha）
 		切档会触发一次图形管线重建（内部先等设备空闲），故应在帧与帧之间调用而非帧内；
 		同档重复设置为空操作；重建失败时记录错误并保持档位记录不变（不改变帧循环时序）。
+		注意：本方法只作用于**默认场景管线**；具名管线的混合档在 pipeline_load 登记时确定，不受影响。
 		*/
 		void blend_mode_set(Blend_Mode mode);
+
+		/*
+		登记具名图形管线（顶点 / 片元着色器文件名 ＋ 混合档）
+		成功写出句柄（≥ 1）；具名管线与默认场景管线共享同一管线布局与描述符集布局，
+		仅「着色器对 ＋ 混合档」不同；未初始化 / 着色器加载失败 / 管线创建失败时返回假、句柄保持 0。
+		*/
+		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
+			Blend_Mode blend_mode = Blend_Mode::Opaque);
+		//卸载具名图形管线（句柄 0 或无效句柄忽略；卸载后其句柄失效）
+		void pipeline_unload(uint64_t handle);
+		/*
+		设置后续绘制所用图形管线
+		handle 为 0 时选回默认场景管线；句柄无效（未登记 / 已卸载）时回落默认场景管线。
+		*/
+		void pipeline_bind_set(uint64_t handle);
+
+		/*
+		创建离屏渲染目标（颜色 ＋ 深度；颜色可作纹理采样，内容可像素回读）
+		width / height 为目标尺寸；颜色 / 深度格式取当前交换链的对应格式。
+		成功写出句柄（≥ 1）；未初始化 / 参数非法 / 资源创建失败时返回假、句柄保持 0，不留半初始化资源。
+		*/
+		bool render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height);
+		//销毁离屏渲染目标（句柄无效则忽略）
+		void render_target_destroy(uint64_t handle);
+		/*
+		设置「本帧渲染到目标」
+		handle 为 0 时渲染到交换链（默认）；否则本帧把场景渲染进该目标且**不呈现到窗口**，
+		离屏结果在帧间恒处于可采样布局，可用 texture_bind_target 在后续帧采样合成（后处理闭环）。
+		句柄无效时回落交换链路径（不报错）。
+		*/
+		void render_target_set(uint64_t handle);
+		/*
+		把指定渲染目标的颜色绑定为「当前纹理」（供后续绘制采样）
+		等价于把当前纹理替换为该目标的颜色图像；句柄无效时静默返回（保持原绑定不变）。
+		与 render_target_set 配合即可完成「离屏渲染 → 采样合成」闭环。
+		*/
+		void texture_bind_target(uint64_t handle);
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

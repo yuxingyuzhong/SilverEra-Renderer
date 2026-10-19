@@ -23,8 +23,9 @@ namespace engine
 	顶点输入 binding 0（step 20，位置 vec3 @0 / 纹理坐标 vec2 @12）＋ binding 1（step 64，模型矩阵 4 列 vec4 @0/16/32/48，实例步进）；
 	视口与裁剪动态设置；背面剔除 BACK、正面 COUNTER_CLOCKWISE（配合 cube_generate 绕序）；
 	深度测试开 / 写开 / LESS；推送常量 mat4 模型矩阵。
+	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
-	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
+	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -179,9 +180,9 @@ namespace engine
 		pipeline_info.renderPass = VK_NULL_HANDLE;
 
 		//创建图形管线
-		if (!vk_result_check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline), "vkCreateGraphicsPipelines"))
+		if (!vk_result_check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_out), "vkCreateGraphicsPipelines"))
 		{
-			pipeline = VK_NULL_HANDLE;
+			pipeline_out = VK_NULL_HANDLE;
 			return false;
 		}
 

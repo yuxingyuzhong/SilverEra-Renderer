@@ -281,7 +281,15 @@ namespace engine
 			shutdown();
 			return false;
 		}
-		//⑯ 相机：设置宽高比（取当前交换链尺寸）
+		//⑯ 渲染目标：记录设备 / 图形队列与内存模块（离屏目标按需创建）
+		if (!impl->render_target.build(impl->device.device_get(), impl->device.graphics_family_get(),
+			impl->device.graphics_queue_get(), impl->memory))
+		{
+			logger.error("渲染器:: 渲染目标模块初始化失败");
+			shutdown();
+			return false;
+		}
+		//⑰ 相机：设置宽高比（取当前交换链尺寸）
 		{
 			VkExtent2D extent = impl->swapchain.extent_get();
 			//尺寸有效时刷新宽高比
@@ -290,7 +298,7 @@ namespace engine
 		}
 
 		/*
-		⑰ UI 通道
+		⑱ UI 通道
 		向上层提供 ImGui Vulkan 后端所需的实例 / 设备 / 队列 / 窗口 / 图像信息与动态渲染口径；
 		绘制回调由上层经 ui_channel() 另行设置（渲染层不代管 UI）。
 		*/
@@ -329,6 +337,9 @@ namespace engine
 		impl->mesh.destroy();
 		//纹理依赖设备与内存，须先于两者销毁
 		impl->texture.destroy();
+		//渲染目标依赖设备与内存，须先于两者销毁
+		impl->render_target.destroy();
+		impl->active_target = 0;
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
 			for (size_t slot = 0; slot < impl->scene_ubos.size(); ++slot)
@@ -358,6 +369,18 @@ namespace engine
 			impl->shader.module_destroy(impl->frag_module);
 			impl->frag_module = VK_NULL_HANDLE;
 		}
+		//具名管线的着色器模块（须先于着色器上下文复位）
+		for (auto& record : impl->extra_pipelines)
+		{
+			//回收该管线的顶点着色器模块
+			if (record.vert_module != VK_NULL_HANDLE)
+				impl->shader.module_destroy(record.vert_module);
+			//回收该管线的片元着色器模块
+			if (record.frag_module != VK_NULL_HANDLE)
+				impl->shader.module_destroy(record.frag_module);
+		}
+		impl->extra_pipelines.clear();
+		impl->bound_pipeline_request = 0;
 		impl->shader.destroy();
 		//交换链销毁连带销毁深度图像，须排在管线之后
 		impl->swapchain.destroy();
@@ -430,7 +453,7 @@ namespace engine
 				if (!impl->swapchain.rebuild(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->blend_mode))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 				rebuilt = true;
 			}
@@ -516,12 +539,45 @@ namespace engine
 			readback_request.capacity = readback_capacity;
 			readback_ptr = &readback_request;
 		}
-		if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
-			static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
-			impl->ui_channel.draw_callback_get(), readback_ptr))
+
+		/*
+		分派渲染路径
+		若已设定本帧渲染目标（句柄非零且有效）则走**离屏路径**：把场景渲染进目标、不呈现到窗口；
+		否则走**交换链路径**：取图像 → 渲染 → 呈现。两路共用同一批帧槽与帧计数轮转。
+		*/
+		bool offscreen = false;
+		//若已设定本帧渲染目标
+		if (impl->active_target != 0)
 		{
-			logger.error("渲染器:: 帧渲染失败");
-			return false;
+			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
+			Frame_Render_Target target{};
+			if (impl->render_target.target_get(impl->active_target, target.color_image, target.color_view,
+				target.depth_view, target.extent))
+			{
+				offscreen = true;
+				//渲染到离屏目标（不取交换链图像、不呈现）
+				if (!impl->frame.render_to_target(target, impl->pending_items.data(),
+					static_cast<uint32_t>(impl->pending_items.size()), clear_color,
+					impl->ui_channel.draw_callback_get(), readback_ptr))
+				{
+					logger.error("渲染器:: 离屏帧渲染失败");
+					return false;
+				}
+			}
+			//句柄无效则回落交换链路径
+			else
+				logger.warn("渲染器:: 渲染目标句柄 {} 无效，回落交换链路径", impl->active_target);
+		}
+		//若走交换链路径
+		if (!offscreen)
+		{
+			if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
+				static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
+				impl->ui_channel.draw_callback_get(), readback_ptr))
+			{
+				logger.error("渲染器:: 帧渲染失败");
+				return false;
+			}
 		}
 		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
 		impl->pending_items.clear();
@@ -553,7 +609,7 @@ namespace engine
 			{
 				impl->swapchain.rebuild(width, height);
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->blend_mode))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 			}
 		}
@@ -892,13 +948,197 @@ namespace engine
 		重建成功才更新已记录档位；失败则记录错误并保持档位记录（此时图形管线可能已不可用，
 		不改变帧循环时序：本帧仍会清屏与推进，仅绘制项跳过）。
 		*/
-		if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), mode))
+		if (!impl->pipeline.pipeline_default_blend_set(mode))
 		{
 			logger.error("渲染器:: 混合档切换失败（保持已记录档位 {}）", static_cast<int32_t>(impl->blend_mode));
 			return;
 		}
 		impl->blend_mode = mode;
 		logger.info("渲染器:: 混合档已切换为 {}", static_cast<int32_t>(mode));
+	}
+
+	//登记具名图形管线
+	bool Renderer::pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader, Blend_Mode blend_mode)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 管线登记失败：尚未初始化");
+			return false;
+		}
+		//加载顶点着色器模块
+		VkShaderModule vert_module = VK_NULL_HANDLE;
+		if (!impl->shader.module_load(vert_module, vert_shader))
+		{
+			logger.error("渲染器:: 管线登记失败：顶点着色器 {} 加载失败", vert_shader);
+			return false;
+		}
+		//加载片元着色器模块
+		VkShaderModule frag_module = VK_NULL_HANDLE;
+		if (!impl->shader.module_load(frag_module, frag_shader))
+		{
+			logger.error("渲染器:: 管线登记失败：片元着色器 {} 加载失败", frag_shader);
+			//回收已加载的顶点着色器模块，避免泄漏
+			impl->shader.module_destroy(vert_module);
+			return false;
+		}
+		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
+		uint64_t handle = 0;
+		if (!impl->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode))
+		{
+			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
+			//回收两个着色器模块，避免泄漏
+			impl->shader.module_destroy(vert_module);
+			impl->shader.module_destroy(frag_module);
+			return false;
+		}
+		//记录具名管线（着色器模块所有权在门面）
+		Impl::Extra_Pipeline_Record record{};
+		record.handle = handle;
+		record.vert_module = vert_module;
+		record.frag_module = frag_module;
+		impl->extra_pipelines.push_back(record);
+		//写出句柄
+		handle_out = handle;
+		logger.info("渲染器:: 具名管线已登记（句柄 {}）", handle);
+		return true;
+	}
+
+	//卸载具名图形管线
+	void Renderer::pipeline_unload(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄 0 为默认场景管线，禁止卸载
+		if (handle == 0)
+			return;
+		//在门面记录中查找目标
+		for (auto it = impl->extra_pipelines.begin(); it != impl->extra_pipelines.end(); ++it)
+		{
+			//跳过非目标记录
+			if (it->handle != handle)
+				continue;
+			//注销管线模块中的图形管线
+			impl->pipeline.pipeline_release(handle);
+			//销毁该管线的两个着色器模块
+			if (it->vert_module != VK_NULL_HANDLE)
+				impl->shader.module_destroy(it->vert_module);
+			if (it->frag_module != VK_NULL_HANDLE)
+				impl->shader.module_destroy(it->frag_module);
+			//移除门面记录
+			impl->extra_pipelines.erase(it);
+			//若卸载的是当前所选管线则回落默认场景管线
+			if (impl->bound_pipeline_request == handle)
+			{
+				impl->bound_pipeline_request = 0;
+				impl->pipeline.pipeline_activate(0);
+			}
+			logger.info("渲染器:: 具名管线已卸载（句柄 {}）", handle);
+			return;
+		}
+	}
+
+	//设置后续绘制所用图形管线
+	void Renderer::pipeline_bind_set(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//目标句柄（0 = 默认场景管线）
+		uint64_t target = handle;
+		//若句柄非零且尚未登记则回落默认
+		if (target != 0 && !impl->pipeline.pipeline_has(target))
+		{
+			logger.warn("渲染器:: 管线句柄 {} 未登记，回落默认场景管线", handle);
+			target = 0;
+		}
+		//激活目标管线（失败则保持原激活不变）
+		if (!impl->pipeline.pipeline_activate(target))
+			return;
+		impl->bound_pipeline_request = target;
+	}
+
+	//创建离屏渲染目标
+	bool Renderer::render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 创建渲染目标失败：尚未初始化");
+			return false;
+		}
+		//转交渲染目标模块（颜色 / 深度格式取当前交换链格式）
+		return impl->render_target.target_create(handle_out, width, height,
+			impl->swapchain.format_get(), impl->swapchain.depth_format_get());
+	}
+
+	//销毁离屏渲染目标
+	void Renderer::render_target_destroy(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//若销毁的是当前设定的本帧渲染目标则先回落交换链路径
+		if (impl->active_target == handle)
+			impl->active_target = 0;
+		//转交渲染目标模块
+		impl->render_target.target_destroy(handle);
+	}
+
+	//设置「本帧渲染到目标」
+	void Renderer::render_target_set(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄非零且未登记则回落交换链路径并告警
+		if (handle != 0 && !impl->render_target.target_valid(handle))
+		{
+			logger.warn("渲染器:: 渲染目标句柄 {} 无效，回落交换链路径", handle);
+			impl->active_target = 0;
+			return;
+		}
+		impl->active_target = handle;
+	}
+
+	//把渲染目标的颜色绑定为当前纹理（供后续绘制采样）
+	void Renderer::texture_bind_target(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//取目标颜色图像与视图
+		VkImage color_image = VK_NULL_HANDLE;
+		VkImageView color_view = VK_NULL_HANDLE;
+		VkImageView depth_view = VK_NULL_HANDLE;
+		VkExtent2D extent = { 0, 0 };
+		//句柄无效则静默返回（保持原绑定）
+		if (!impl->render_target.target_get(handle, color_image, color_view, depth_view, extent))
+		{
+			logger.warn("渲染器:: 渲染目标句柄 {} 无效，纹理绑定忽略", handle);
+			return;
+		}
+		/*
+		取共享采样器
+		采样器由纹理模块持有且被烘焙进各帧槽 set1；此处借内置默认白纹理取一次采样器句柄，
+		随后以「目标颜色视图 ＋ 该采样器」写入所有帧槽 set1。
+		*/
+		VkImageView default_view = VK_NULL_HANDLE;
+		VkSampler shared_sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+		{
+			logger.error("渲染器:: 渲染目标绑定失败：共享采样器不可用");
+			return;
+		}
+		//把目标颜色视图写入所有帧槽 set1（长命资源，一次写满全部槽）
+		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			impl->pipeline.texture_bind(slot, shared_sampler, color_view);
+		logger.info("渲染器:: 渲染目标已绑定为当前纹理（句柄 {}）", handle);
 	}
 
 	//相机：设置位置

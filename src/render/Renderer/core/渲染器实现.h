@@ -16,6 +16,8 @@
 #include "Application/Renderer/src/render/Mesh/网格.h"
 #include "Application/Renderer/src/render/Texture/纹理.h"
 #include "Application/Renderer/src/render/Scene/相机.h"
+//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
+#include "Application/Renderer/src/render/RenderTarget/渲染目标.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
 #include "Application/Renderer/src/render/Renderer/渲染器.h"
 //UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
@@ -45,8 +47,22 @@ namespace engine
 		Frame_Context frame;
 		//着色器模块
 		Shader_Context shader;
+		//具名管线记录（句柄 → 顶点 / 片元着色器模块；着色器模块所有权在门面，随卸载 / 关闭销毁）
+		struct Extra_Pipeline_Record
+		{
+			//句柄（≥ 1）
+			uint64_t handle = 0;
+			//顶点着色器模块
+			VkShaderModule vert_module = VK_NULL_HANDLE;
+			//片元着色器模块
+			VkShaderModule frag_module = VK_NULL_HANDLE;
+		};
 		//管线模块
 		Pipeline_Context pipeline;
+		//具名管线集合（默认场景管线不在内）
+		std::vector<Extra_Pipeline_Record> extra_pipelines;
+		//当前绘制所选管线句柄（0 = 默认场景管线）
+		uint64_t bound_pipeline_request = 0;
 		//网格模块
 		Mesh_Context mesh;
 		//纹理模块
@@ -55,6 +71,10 @@ namespace engine
 		Camera camera;
 		//UI 通道（供上层接入 ImGui Vulkan 后端；不代管 UI）
 		Ui_Channel_Context ui_channel;
+		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
+		Render_Target_Context render_target;
+		//本帧渲染目标句柄（0 = 直接渲染到交换链）
+		uint64_t active_target = 0;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
