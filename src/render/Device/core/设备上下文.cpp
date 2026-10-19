@@ -102,4 +102,16 @@ namespace engine
 	{
 		return validation_enabled;
 	}
+
+	//获取采样器各向异性特性是否已启用
+	bool Device_Context::anisotropy_enabled_get(void) const
+	{
+		return anisotropy_enabled;
+	}
+
+	//获取采样器最大各向异性倍数（设备上限）
+	float Device_Context::max_anisotropy_get(void) const
+	{
+		return max_sampler_anisotropy;
+	}
 }

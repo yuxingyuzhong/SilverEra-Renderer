@@ -31,7 +31,23 @@ namespace engine
 	{
 		//寻址模式（U / V / W 同值）
 		Texture_Address_Mode address_mode = Texture_Address_Mode::Repeat;
-		//是否启用 mip 过滤（false = maxLod 钳到 0，等价于忽略 mip 链）
+		//是否启用 mip 过滤（false = 不采样 mip 链）
 		bool mip_filter = false;
+		/*
+		细节层级范围
+		min_lod 为采样允许的最小层级；max_lod 为允许的最大层级，
+		取**负值**（默认 -1）表示「按 mip_filter 自动定」——
+		启用 mip 过滤时放开到 VK_LOD_CLAMP_NONE，否则钳到 0（等价于忽略 mip 链，与本版次之前行为一致）。
+		*/
+		float min_lod = 0.0f;
+		float max_lod = -1.0f;
+		/*
+		各向异性过滤
+		anisotropy 为真时启用；须设备在创建时启用了 samplerAnisotropy 特性，
+		门面会在调用采样器前按设备能力归一（不支持则置假并告警，倍数钳到设备上限）。
+		max_anisotropy 为最大各向异性倍数，小于 1 会被钳到 1。
+		*/
+		bool anisotropy = false;
+		float max_anisotropy = 1.0f;
 	};
 }

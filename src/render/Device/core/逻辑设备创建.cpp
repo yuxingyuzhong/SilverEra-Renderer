@@ -38,37 +38,62 @@ namespace engine
 		}
 
 		/*
-	查询 Vulkan 1.3 特性支持
-	本层统一走动态渲染（vkCmdBeginRendering）与同步 2（vkQueueSubmit2），
-	故需 dynamicRendering 与 synchronization2 两个特性；
-	用同一结构体先查询后启用，不支持则明确报错，不做传统 RenderPass / vkQueueSubmit 回退。
-	*/
-	VkPhysicalDeviceVulkan13Features supported_13{};
-	supported_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-	VkPhysicalDeviceFeatures2 supported_features{};
-	supported_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	supported_features.pNext = &supported_13;
-	vkGetPhysicalDeviceFeatures2(physical_device, &supported_features);
-	//若物理设备不支持动态渲染
-	if (supported_13.dynamicRendering != VK_TRUE)
-	{
-		logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 动态渲染（dynamicRendering），本层无法继续");
-		return false;
-	}
-	//若物理设备不支持同步 2
-	if (supported_13.synchronization2 != VK_TRUE)
-	{
-		logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 同步 2（synchronization2），本层无法继续");
-		return false;
-	}
+		查询 Vulkan 1.3 特性支持
+		本层统一走动态渲染（vkCmdBeginRendering）与同步 2（vkQueueSubmit2），
+		故需 dynamicRendering 与 synchronization2 两个特性；
+		用同一结构体先查询后启用，不支持则明确报错，不做传统 RenderPass / vkQueueSubmit 回退。
+		*/
+		VkPhysicalDeviceVulkan13Features supported_13{};
+		supported_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+		VkPhysicalDeviceFeatures2 supported_features{};
+		supported_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+		supported_features.pNext = &supported_13;
+		vkGetPhysicalDeviceFeatures2(physical_device, &supported_features);
+		//若物理设备不支持动态渲染
+		if (supported_13.dynamicRendering != VK_TRUE)
+		{
+			logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 动态渲染（dynamicRendering），本层无法继续");
+			return false;
+		}
+		//若物理设备不支持同步 2
+		if (supported_13.synchronization2 != VK_TRUE)
+		{
+			logger.error("逻辑设备创建:: 物理设备不支持 Vulkan 1.3 同步 2（synchronization2），本层无法继续");
+			return false;
+		}
 
-	//启用的传统设备特性（全关）
-	VkPhysicalDeviceFeatures features{};
-	//启用的 Vulkan 1.3 特性（动态渲染 + 同步 2，经 pNext 链入）
-	VkPhysicalDeviceVulkan13Features enabled_13{};
-	enabled_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-	enabled_13.dynamicRendering = VK_TRUE;
-	enabled_13.synchronization2 = VK_TRUE;
+		/*
+		启用的传统设备特性（默认全关；采样器各向异性按支持情况启用）
+		采样器各向异性属「可选特性」，必须在设备创建时显式启用后采样器才能请求 anisotropyEnable；
+		不支持时保持关闭并告警（采样器侧由门面按 anisotropy_enabled_get 归一为关闭）。
+		*/
+		VkPhysicalDeviceFeatures features{};
+		//若物理设备支持采样器各向异性
+		if (supported_features.features.samplerAnisotropy == VK_TRUE)
+		{
+			features.samplerAnisotropy = VK_TRUE;
+			anisotropy_enabled = true;
+		}
+		//不支持则告警（不硬失败）
+		else
+			logger.warn("逻辑设备创建:: 物理设备不支持采样器各向异性（samplerAnisotropy），已保持关闭");
+		//记录设备上限（最大各向异性倍数；未启用时为 1）
+		if (anisotropy_enabled)
+		{
+			//设备属性（含极限值）
+			VkPhysicalDeviceProperties properties{};
+			vkGetPhysicalDeviceProperties(physical_device, &properties);
+			max_sampler_anisotropy = properties.limits.maxSamplerAnisotropy;
+			//防御：上限异常（非 > 1）时按 1 处理
+			if (!(max_sampler_anisotropy > 1.0f))
+				max_sampler_anisotropy = 1.0f;
+		}
+
+		//启用的 Vulkan 1.3 特性（动态渲染 + 同步 2，经 pNext 链入）
+		VkPhysicalDeviceVulkan13Features enabled_13{};
+		enabled_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+		enabled_13.dynamicRendering = VK_TRUE;
+		enabled_13.synchronization2 = VK_TRUE;
 
 		//启用的设备扩展（呈现必需 VK_KHR_swapchain）
 		const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
@@ -91,7 +116,8 @@ namespace engine
 		vkGetDeviceQueue(device, graphics_family, 0, &graphics_queue);
 		//获取呈现队列（族内第 0 号队列）
 		vkGetDeviceQueue(device, present_family, 0, &present_queue);
-		logger.info("逻辑设备创建:: 逻辑设备已建立（图形队列族 {}，呈现队列族 {}）", graphics_family, present_family);
+		logger.info("逻辑设备创建:: 逻辑设备已建立（图形队列族 {}，呈现队列族 {}，采样器各向异性 {}，上限 ×{}）",
+			graphics_family, present_family, anisotropy_enabled ? "开" : "关", max_sampler_anisotropy);
 		return true;
 	}
 }

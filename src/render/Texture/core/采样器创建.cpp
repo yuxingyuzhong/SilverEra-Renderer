@@ -45,12 +45,34 @@ namespace engine
 		info.addressModeV = address_mode;
 		info.addressModeW = address_mode;
 		info.mipLodBias = 0.0f;
-		info.anisotropyEnable = VK_FALSE;
-		info.maxAnisotropy = 1.0f;
+		/*
+		各向异性过滤
+		状态为真才启用；此处不再查设备能力（设备未启用该特性时创建采样器会失败），
+		由门面在设置状态前按设备能力归一（不支持则置假、倍数钳到上限）。
+		*/
+		if (sampler_state.anisotropy)
+		{
+			info.anisotropyEnable = VK_TRUE;
+			info.maxAnisotropy = sampler_state.max_anisotropy < 1.0f ? 1.0f : sampler_state.max_anisotropy;
+		}
+		else
+		{
+			info.anisotropyEnable = VK_FALSE;
+			info.maxAnisotropy = 1.0f;
+		}
 		info.compareEnable = VK_FALSE;
 		info.compareOp = VK_COMPARE_OP_ALWAYS;
-		info.minLod = 0.0f;
-		info.maxLod = sampler_state.mip_filter ? VK_LOD_CLAMP_NONE : 0.0f;
+		/*
+		细节层级范围
+		max_lod 为负表示「按 mip 过滤开关自动定」；min_lod 不得超过 max_lod，
+		故当 max_lod 被用户收窄到 min_lod 以下时把 min_lod 一并压到 max_lod（保证创建合法）。
+		*/
+		info.minLod = sampler_state.min_lod;
+		info.maxLod = sampler_state.max_lod < 0.0f
+			? (sampler_state.mip_filter ? VK_LOD_CLAMP_NONE : 0.0f)
+			: sampler_state.max_lod;
+		if (info.minLod > info.maxLod)
+			info.minLod = info.maxLod;
 		info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 		info.unnormalizedCoordinates = VK_FALSE;
 
@@ -76,8 +98,13 @@ namespace engine
 			logger.error("纹理创建:: 设置采样器状态时逻辑设备为空");
 			return;
 		}
-		//同状态重复设置为空操作
-		if (sampler_state.address_mode == state.address_mode && sampler_state.mip_filter == state.mip_filter)
+		//同状态重复设置为空操作（逐字段比较）
+		if (sampler_state.address_mode == state.address_mode
+			&& sampler_state.mip_filter == state.mip_filter
+			&& sampler_state.min_lod == state.min_lod
+			&& sampler_state.max_lod == state.max_lod
+			&& sampler_state.anisotropy == state.anisotropy
+			&& sampler_state.max_anisotropy == state.max_anisotropy)
 			return;
 
 		//记录新状态
@@ -102,7 +129,8 @@ namespace engine
 			if (record.valid)
 				record.sampler = shared_sampler;
 		}
-		logger.info("纹理创建:: 采样器状态已切换（寻址 {}，mip 过滤 {}）",
-			static_cast<int32_t>(state.address_mode), state.mip_filter);
+		logger.info("纹理创建:: 采样器状态已切换（寻址 {}，mip 过滤 {}，minLod {}，maxLod {}，各向异性 {} ×{}）",
+			static_cast<int32_t>(state.address_mode), state.mip_filter, state.min_lod, state.max_lod,
+			state.anisotropy, state.max_anisotropy);
 	}
 }

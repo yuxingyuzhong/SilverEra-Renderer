@@ -80,6 +80,10 @@ namespace engine
 		uint64_t frame_count(void) const;
 		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
 		bool readback_supported(void) const;
+		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
+		bool sampler_anisotropy_supported(void) const;
+		//采样器最大各向异性倍数（设备上限；未初始化或未启用该特性时为 1）
+		float sampler_max_anisotropy(void) const;
 		//当前交换链尺寸（窗口缩放后可能变化）
 		uint32_t extent_width(void) const;
 		uint32_t extent_height(void) const;
@@ -174,6 +178,22 @@ namespace engine
 		与 render_target_set 配合即可完成「离屏渲染 → 采样合成」闭环。
 		*/
 		void texture_bind_target(uint64_t handle);
+
+		/*
+		从 TTF 文件加载字体（字号 = 字形像素高度）
+		字形被光栅化并打包为 RGBA8 字形图集（RGB 恒为白、A 为字形覆盖率），图集由纹理模块持有。
+		成功写出句柄（≥ 1）；未初始化 / 文件不存在 / 为空 / 解析失败 / 图集创建失败时返回假、句柄保持 0。
+		*/
+		bool font_load_file(uint64_t& handle_out, const std::string& path, uint32_t pixel_height);
+		//卸载字体（句柄无效则忽略；同时清除该字体的文本网格缓存）
+		void font_unload(uint64_t handle);
+		/*
+		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
+		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →
+		以「像素坐标 → NDC」矩阵登记一个绘制项；实际绘制在下一帧 frame_render 时发生。
+		空文本返回真但不登记绘制项；未初始化 / 字体句柄无效 / 文本无可见字形时返回假。
+		*/
+		bool text_draw(uint64_t font, const std::string& text, float pixel_x, float pixel_y);
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

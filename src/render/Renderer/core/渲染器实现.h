@@ -18,6 +18,8 @@
 #include "Application/Renderer/src/render/Scene/相机.h"
 //渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 #include "Application/Renderer/src/render/RenderTarget/渲染目标.h"
+//字体模块（TTF → 字形图集；文字绘制取用）
+#include "Application/Renderer/src/render/Text/字体.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
 #include "Application/Renderer/src/render/Renderer/渲染器.h"
 //UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
@@ -75,6 +77,22 @@ namespace engine
 		Render_Target_Context render_target;
 		//本帧渲染目标句柄（0 = 直接渲染到交换链）
 		uint64_t active_target = 0;
+		//字体模块（TTF → 字形图集）
+		Font_Context font;
+		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）
+		uint64_t text_pipeline = 0;
+		//文本网格缓存条目（(字体句柄, 文本) → 网格句柄；避免逐帧重建几何）
+		struct Text_Mesh_Record
+		{
+			//字体句柄
+			uint64_t font = 0;
+			//文本（UTF-8）
+			std::string text;
+			//网格句柄
+			Mesh_Handle mesh = 0;
+		};
+		//文本网格集合
+		std::vector<Text_Mesh_Record> text_meshes;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）

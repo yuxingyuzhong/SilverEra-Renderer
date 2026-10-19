@@ -289,7 +289,14 @@ namespace engine
 			shutdown();
 			return false;
 		}
-		//⑰ 相机：设置宽高比（取当前交换链尺寸）
+		//⑰ 字体：记录纹理模块（字形图集经纹理模块上传与销毁）
+		if (!impl->font.build(impl->texture))
+		{
+			logger.error("渲染器:: 字体模块初始化失败");
+			shutdown();
+			return false;
+		}
+		//⑱ 相机：设置宽高比（取当前交换链尺寸）
 		{
 			VkExtent2D extent = impl->swapchain.extent_get();
 			//尺寸有效时刷新宽高比
@@ -298,7 +305,7 @@ namespace engine
 		}
 
 		/*
-		⑱ UI 通道
+		⑲ UI 通道
 		向上层提供 ImGui Vulkan 后端所需的实例 / 设备 / 队列 / 窗口 / 图像信息与动态渲染口径；
 		绘制回调由上层经 ui_channel() 另行设置（渲染层不代管 UI）。
 		*/
@@ -333,8 +340,18 @@ namespace engine
 			return;
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		impl->frame.destroy();
+		//文本网格缓存依赖网格模块，须先归还网格
+		if (impl->mesh.valid())
+		{
+			for (auto& record : impl->text_meshes)
+				impl->mesh.mesh_destroy(record.mesh);
+		}
+		impl->text_meshes.clear();
+		impl->text_pipeline = 0;
 		//网格缓冲依赖内存模块，须先于 memory 销毁
 		impl->mesh.destroy();
+		//字体图集纹理依赖纹理模块，须先归还
+		impl->font.destroy();
 		//纹理依赖设备与内存，须先于两者销毁
 		impl->texture.destroy();
 		//渲染目标依赖设备与内存，须先于两者销毁
@@ -647,6 +664,24 @@ namespace engine
 		return impl->swapchain.color_transfer_src_get();
 	}
 
+	//是否支持采样器各向异性过滤
+	bool Renderer::sampler_anisotropy_supported(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->device.anisotropy_enabled_get();
+	}
+
+	//采样器最大各向异性倍数（设备上限）
+	float Renderer::sampler_max_anisotropy(void) const
+	{
+		//若尚未初始化则无能力可言
+		if (impl == nullptr || !impl->initialized)
+			return 1.0f;
+		return impl->device.max_anisotropy_get();
+	}
+
 	//当前交换链宽度
 	uint32_t Renderer::extent_width(void) const
 	{
@@ -926,10 +961,36 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		/*
+		按设备能力归一各向异性
+		设备创建时未启用 samplerAnisotropy 特性时，采样器请求各向异性会创建失败，
+		故此处先归一：不支持则置假并告警，倍数钳到 [1, 设备上限]。
+		*/
+		Texture_Sampler_State effective = state;
+		//请求各向异性时按设备能力调整
+		if (effective.anisotropy)
+		{
+			//若设备不支持该特性
+			if (!impl->device.anisotropy_enabled_get())
+			{
+				logger.warn("渲染器:: 设备不支持采样器各向异性，本次请求已忽略");
+				effective.anisotropy = false;
+				effective.max_anisotropy = 1.0f;
+			}
+			else
+			{
+				//倍数钳到 [1, 设备上限]
+				float limit = impl->device.max_anisotropy_get();
+				if (effective.max_anisotropy > limit)
+					effective.max_anisotropy = limit;
+				if (effective.max_anisotropy < 1.0f)
+					effective.max_anisotropy = 1.0f;
+			}
+		}
+		/*
 		切换共享采样器状态
 		采样器被烘焙进各帧槽 set1，故切换后必须重新绑定当前纹理；否则采样仍按旧参数进行。
 		*/
-		impl->texture.sampler_state_set(state);
+		impl->texture.sampler_state_set(effective);
 		//按最后一次请求重新绑定（未绑过任何纹理时回落内置默认白纹理）
 		texture_bind_set(impl->bound_texture_request);
 	}
@@ -1139,6 +1200,145 @@ namespace engine
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, shared_sampler, color_view);
 		logger.info("渲染器:: 渲染目标已绑定为当前纹理（句柄 {}）", handle);
+	}
+
+	//从 TTF 文件加载字体（字号 = 字形像素高度）
+	bool Renderer::font_load_file(uint64_t& handle_out, const std::string& path, uint32_t pixel_height)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 加载字体失败：尚未初始化");
+			return false;
+		}
+		//转交字体模块（光栅化字形并打包图集）
+		return impl->font.font_load_file(handle_out, path, pixel_height);
+	}
+
+	//卸载字体（一并清除其文本网格缓存）
+	void Renderer::font_unload(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//先清除该字体的文本网格缓存（网格模块就绪时归还网格）
+		for (auto it = impl->text_meshes.begin(); it != impl->text_meshes.end(); )
+		{
+			//非目标字体则前进
+			if (it->font != handle)
+			{
+				++it;
+				continue;
+			}
+			//归还网格并移除记录
+			if (impl->mesh.valid())
+				impl->mesh.mesh_destroy(it->mesh);
+			it = impl->text_meshes.erase(it);
+		}
+		//归还字体（含图集纹理）
+		impl->font.font_destroy(handle);
+	}
+
+	//绘制文本（像素坐标，原点在窗口左上、Y 向下）
+	bool Renderer::text_draw(uint64_t font, const std::string& text, float pixel_x, float pixel_y)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//取字体记录
+		const Font_Record* record = impl->font.font_get(font);
+		if (record == nullptr)
+		{
+			logger.error("渲染器:: 文字绘制失败：字体句柄 {} 无效", font);
+			return false;
+		}
+		//空文本无可绘制项（视为成功）
+		if (text.empty())
+			return true;
+
+		//懒登记文字管线（Alpha 混合档；与场景管线共享同一管线布局）
+		if (impl->text_pipeline == 0)
+		{
+			//登记结果句柄
+			uint64_t handle = 0;
+			if (!pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha))
+			{
+				logger.error("渲染器:: 文字管线登记失败");
+				return false;
+			}
+			impl->text_pipeline = handle;
+		}
+
+		/*
+		取 / 建 (字体, 文本) 网格
+		文字几何逐帧重建代价不必要，故按「字体句柄 ＋ 文本」缓存网格句柄。
+		*/
+		Mesh_Handle mesh = 0;
+		for (const auto& item : impl->text_meshes)
+		{
+			//命中本字体与本文本
+			if (item.font == font && item.text == text)
+			{
+				mesh = item.mesh;
+				break;
+			}
+		}
+		//未命中则新建
+		if (mesh == 0)
+		{
+			//生成文字几何（像素坐标，原点在文本左上角）
+			Mesh_Data data;
+			if (!Font_Context::text_geometry_build(data, *record, text))
+			{
+				logger.error("渲染器:: 文字几何生成失败（文本无可见字形）");
+				return false;
+			}
+			//上传为网格
+			if (!impl->mesh.mesh_create(mesh, data))
+			{
+				logger.error("渲染器:: 文字网格创建失败");
+				return false;
+			}
+			//登记缓存
+			Impl::Text_Mesh_Record item{};
+			item.font = font;
+			item.text = text;
+			item.mesh = mesh;
+			impl->text_meshes.push_back(item);
+		}
+
+		//绑定文字管线与字形图集纹理（图集成为当前纹理，供 set1 采样）
+		pipeline_bind_set(impl->text_pipeline);
+		texture_bind_set(record->atlas_texture);
+
+		//屏幕尺寸（像素）
+		float screen_width = static_cast<float>(extent_width());
+		float screen_height = static_cast<float>(extent_height());
+		//尺寸非法则拒绝（避免除零）
+		if (screen_width <= 0.0f || screen_height <= 0.0f)
+		{
+			logger.error("渲染器:: 文字绘制失败：交换链尺寸非法");
+			return false;
+		}
+		/*
+		像素坐标 → NDC 的仿射矩阵（列主序）
+		x' = 2 / 屏宽 × px + (2 × pixel_x / 屏宽 − 1)；
+		y' = 2 / 屏高 × py + (2 × pixel_y / 屏高 − 1)。
+		坐标系口径：Vulkan 视口把 NDC y 映射为「向下递增」的帧缓冲行号，
+		故此处**不做 Y 翻转**即可让「像素行号 = 帧缓冲行号」，像素 (x, y) 与屏幕位置一一对应。
+		*/
+		std::array<float, 16> transform = {};
+		transform[0] = 2.0f / screen_width;
+		transform[5] = 2.0f / screen_height;
+		transform[10] = 1.0f;
+		transform[12] = 2.0f * pixel_x / screen_width - 1.0f;
+		transform[13] = 2.0f * pixel_y / screen_height - 1.0f;
+		transform[15] = 1.0f;
+
+		//登记绘制项（沿用既有网格绘制路径）
+		return mesh_draw(mesh, transform.data());
 	}
 
 	//相机：设置位置

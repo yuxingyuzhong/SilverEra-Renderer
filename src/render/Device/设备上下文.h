@@ -63,6 +63,10 @@ namespace engine
 		VkQueue present_queue_get(void) const;
 		//获取校验层是否已启用
 		bool validation_get(void) const;
+		//获取采样器各向异性特性是否已启用（设备创建时按支持情况开启）
+		bool anisotropy_enabled_get(void) const;
+		//获取采样器最大各向异性倍数（设备上限；未启用该特性时为 1）
+		float max_anisotropy_get(void) const;
 	private:
 		//选取物理设备并确定图形族与呈现族（实现见 core/物理设备选择.cpp）
 		bool build_physical_device(VkSurfaceKHR surface);
@@ -85,5 +89,9 @@ namespace engine
 		VkQueue present_queue = VK_NULL_HANDLE;
 		//校验层是否已启用
 		bool validation_enabled = false;
+		//采样器各向异性特性是否已启用
+		bool anisotropy_enabled = false;
+		//采样器最大各向异性倍数（设备上限）
+		float max_sampler_anisotropy = 1.0f;
 	};
 }
