@@ -75,6 +75,30 @@ namespace engine
 		return true;
 	}
 
+	/*
+	把 UTF-8 文本解码为去重码点序列
+	解码失败字节被跳过（与几何生成同口径）；返回是否至少解出一个码点。
+	*/
+	bool Font_Context::text_codepoints(const std::string& text, std::vector<uint32_t>& codepoints_out)
+	{
+		//清空出参
+		codepoints_out.clear();
+		//读取位置
+		size_t offset = 0;
+		while (offset < text.size())
+		{
+			//本码点
+			uint32_t codepoint = 0;
+			//解码失败则已跳过 1 字节，直接继续
+			if (!utf8_decode(text, offset, codepoint))
+				continue;
+			//去重后收集
+			if (std::find(codepoints_out.begin(), codepoints_out.end(), codepoint) == codepoints_out.end())
+				codepoints_out.push_back(codepoint);
+		}
+		return !codepoints_out.empty();
+	}
+
 	//生成字符串的文字几何
 	bool Font_Context::text_geometry_build(Mesh_Data& data_out, const Font_Record& record, const std::string& text)
 	{

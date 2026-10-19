@@ -86,6 +86,8 @@ namespace engine
 				frame_slot_destroy(slot);
 			//归还像素回读缓冲（须在内存模块销毁之前）
 			readback_buffer_destroy();
+			//立即释放残留的延迟销毁条目（须在内存模块销毁之前；此时已等设备空闲）
+			deferred_release_all();
 		}
 		//清空帧槽与延迟销毁队列
 		slots.clear();
@@ -124,6 +126,12 @@ namespace engine
 		if (frame_overlap == 0)
 			return 0;
 		return frame_count % frame_overlap;
+	}
+
+	//在途帧数量
+	uint32_t Frame_Context::in_flight_count_get(void) const
+	{
+		return frame_overlap;
 	}
 
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）

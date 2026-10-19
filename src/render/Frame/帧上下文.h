@@ -31,17 +31,13 @@ namespace engine
 
 	/*
 	延迟销毁条目
-	记录一组「被交换链重建牵连」的旧对象，标记可在某帧号及以后释放（§6.4）。
-	Phase 5 重建走 vkDeviceWaitIdle 立即销毁，本机制在场备用，尚未启用。
+	记录一组「被交换链重建牵连」的旧资源，标记可在某帧号及以后释放（§6.4）。
+	旧资源整体来自交换链模块的重建移交（旧交换链 ＋ 图像视图 ＋ 两类信号量 ＋ 深度图像与内存与视图）。
 	*/
 	struct Deferred_Entry
 	{
-		//待销毁的旧交换链（可为空）
-		VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-		//待销毁的旧图像视图
-		std::vector<VkImageView> image_views;
-		//待销毁的旧图像可用信号量
-		std::vector<VkSemaphore> semaphores;
+		//旧交换链及其附属资源
+		Swapchain_Old_Resources resources;
 		//可在该帧号及以后释放
 		uint64_t release_frame = 0;
 	};
@@ -188,6 +184,19 @@ namespace engine
 		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
 			const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
 			Frame_Readback_Request* readback = nullptr);
+		/*
+		渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
+		（同帧多 pass；与 render_to_target 的跨帧闭环不同，本路径在同一帧内完成「目标 → 后处理 → 呈现」）。
+		target 为离屏目标附件；items / item_count 为**第一个 pass（场景）**的渲染项；
+		post_item 为**第二个 pass（后处理）**的单个绘制项（管线 / 布局 / 描述符集 / 全屏几何 / 实例缓冲）；
+		readback 非空时回读的是**最终呈现到交换链**的颜色附件（即后处理输出）。
+		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源）。
+		返回假视为硬错误。
+		*/
+		bool render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
+			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
+			const float clear_color[4], bool& rebuild_needed_out,
+			Frame_Readback_Request* readback = nullptr);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -202,6 +211,14 @@ namespace engine
 		返回假视为硬错误（等待失败或帧上下文未构建）。
 		*/
 		bool slot_wait(void);
+		//在途帧数量（= 帧槽数；供上层决定延迟销毁的释放帧号）
+		uint32_t in_flight_count_get(void) const;
+		/*
+		压入延迟销毁条目（指示「release_frame 帧及以后」可释放）
+		条目中的旧资源（旧交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图）由帧模块在到期时释放；
+		由交换链重建路径在移交旧资源后调用，延迟通常取「在途帧数 + 1」。
+		*/
+		void deferred_push(Deferred_Entry entry, uint32_t delay_frames);
 	private:
 		/*
 		等待某帧槽前一次提交完成（实现见 core/帧槽创建.cpp）
@@ -232,6 +249,16 @@ namespace engine
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
 		/*
+		录制「同帧多 pass」的命令缓冲（实现见 core/命令录制.cpp）
+		pass 1：颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，以 items 绘制进目标，结束渲染后转回 SHADER_READ_ONLY；
+		pass 2：交换链图像 UNDEFINED → COLOR_ATTACHMENT，以 post_item 全屏绘制（采样目标），
+		        结束后按是否回读转入 TRANSFER_SRC / PRESENT_SRC。
+		*/
+		void command_record_target_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
+			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
+			const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
+			const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE);
+		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
 		*/
@@ -239,10 +266,16 @@ namespace engine
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
-		//压入延迟销毁条目（实现见 core/延迟销毁.cpp）
-		void deferred_push(Deferred_Entry entry, uint32_t delay_frames);
 		//释放到期的延迟销毁条目（实现见 core/延迟销毁.cpp）
 		void deferred_flush(void);
+		//释放单个延迟条目的资源（实现见 core/延迟销毁.cpp）
+		void deferred_entry_release(Deferred_Entry& entry);
+		/*
+		立即释放全部延迟销毁条目（销毁期调用；实现见 core/延迟销毁.cpp）
+		关闭时已等设备空闲，无需再按 release_frame 判据，直接释放全部残留条目，
+		避免旧交换链附属资源（尤其深度图像与其内存）泄漏到内存模块销毁之后。
+		*/
+		void deferred_release_all(void);
 		/*
 		确保回读缓冲就绪（实现见 core/像素回读.cpp）
 		尚未创建或字节数不足时按需创建 / 重建（主机可见，用途 TRANSFER_DST）；

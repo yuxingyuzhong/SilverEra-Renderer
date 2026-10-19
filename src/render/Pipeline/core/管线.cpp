@@ -83,19 +83,19 @@ namespace engine
 
 		/*
 		描述符池与每帧槽描述符集
-		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap；
-		最大集数 = frame_overlap × 2（每帧槽各一个 set0 与 set1）。
+		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 2；
+		最大集数 = frame_overlap × 3（每帧槽各一个 set0、一个 set1 采样器集、一个 set1 后处理集）。
 		*/
 		VkDescriptorPoolSize pool_sizes[2]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap;
+		pool_sizes[1].descriptorCount = config.frame_overlap * 2;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		pool_info.maxSets = config.frame_overlap * 2;
+		pool_info.maxSets = config.frame_overlap * 3;
 		pool_info.poolSizeCount = 2;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
@@ -138,6 +138,22 @@ namespace engine
 			return false;
 		}
 
+		//分配后处理采样器描述符集（set 1 同布局，按帧槽独立分配）
+		post_sets.resize(config.frame_overlap);
+		vector<VkDescriptorSetLayout> post_layouts(config.frame_overlap, sampler_set_layout);
+		VkDescriptorSetAllocateInfo post_alloc{};
+		post_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		post_alloc.descriptorPool = descriptor_pool;
+		post_alloc.descriptorSetCount = config.frame_overlap;
+		post_alloc.pSetLayouts = post_layouts.data();
+		//若分配失败
+		if (!vk_result_check(vkAllocateDescriptorSets(device, &post_alloc, post_sets.data()), "vkAllocateDescriptorSets（后处理）"))
+		{
+			logger.error("管线:: 后处理描述符集分配失败，回退");
+			destroy();
+			return false;
+		}
+
 		logger.info("管线:: 管线基础设施构建完成（在途帧 {}，颜色格式 {}，深度格式 {}）",
 			config.frame_overlap, static_cast<int32_t>(config.color_format), static_cast<int32_t>(config.depth_format));
 		return true;
@@ -174,6 +190,7 @@ namespace engine
 		pipelines.clear();
 		scene_sets.clear();
 		sampler_sets.clear();
+		post_sets.clear();
 		next_handle = 1;
 		active_handle = 0;
 		descriptor_pool = VK_NULL_HANDLE;
@@ -377,6 +394,15 @@ namespace engine
 		return entry != nullptr ? entry->pipeline : VK_NULL_HANDLE;
 	}
 
+	//获取指定句柄的图形管线（不改变当前激活管线）
+	VkPipeline Pipeline_Context::pipeline_by_handle_get(uint64_t handle) const
+	{
+		//按句柄取条目
+		const Pipeline_Entry* entry = entry_find(handle);
+		//条目存在则返回其管线，否则返回空句柄
+		return entry != nullptr ? entry->pipeline : VK_NULL_HANDLE;
+	}
+
 	//获取管线布局（全管线共享）
 	VkPipelineLayout Pipeline_Context::layout_get(void) const
 	{
@@ -399,6 +425,15 @@ namespace engine
 		if (slot >= sampler_sets.size())
 			return VK_NULL_HANDLE;
 		return sampler_sets[slot];
+	}
+
+	//获取第 slot 帧槽的后处理采样器描述符集
+	VkDescriptorSet Pipeline_Context::post_set_get(uint32_t slot) const
+	{
+		//越界则返回空句柄
+		if (slot >= post_sets.size())
+			return VK_NULL_HANDLE;
+		return post_sets[slot];
 	}
 
 	//向第 slot 帧槽写场景 UBO
@@ -453,6 +488,38 @@ namespace engine
 		VkWriteDescriptorSet write{};
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = sampler_sets[slot];
+		write.dstBinding = 0;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽的后处理采样器集写采样器
+	bool Pipeline_Context::post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//前置：设备、目标集、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || slot >= post_sets.size() || post_sets[slot] == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 后处理采样器绑定参数不完整");
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 0）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = post_sets[slot];
 		write.dstBinding = 0;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;

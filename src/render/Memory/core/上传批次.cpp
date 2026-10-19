@@ -250,7 +250,8 @@ namespace engine
 	第 0 级须已由 upload_image 写入且处于着色器可读布局；
 	第 1..mip_levels-1 级逐级以线性过滤降采样（源 = 上一级、目标 = 本级，同图像不同级）；
 	每级用「源级转传输源 + 目标级转传输目标」→ blit →「目标级转着色器可读」三段完成，
-	循环结束后第 0 级由传输源恢复为着色器可读。全部命令一次提交完成。
+	循环结束后把 0..mip_levels-2 这些「曾作 blit 源」的级由传输源一并恢复为着色器可读
+	（末级仅作目标级、已是着色器可读）。全部命令一次提交完成。
 	*/
 	bool Memory_Context::image_generate_mips(VkImage image, uint32_t width, uint32_t height, uint32_t mip_levels)
 	{
@@ -346,20 +347,26 @@ namespace engine
 				source_height = target_height;
 			}
 
-			//第 0 级由传输源恢复为着色器可读（循环结束后它仍停在传输源）
-			VkImageMemoryBarrier level0_barrier{};
-			level0_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-			level0_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			level0_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			level0_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			level0_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			level0_barrier.image = image;
-			level0_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-			level0_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-			level0_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			/*
+			第 0 .. mip_levels-2 级由传输源恢复为着色器可读
+			循环中每级的「上一级」（即 0 .. mip_levels-2 级）都被转入传输源作 blit 源，且各轮只恢复
+			「本级」（目标级）的布局，故这些源级在循环结束后仍停在传输源，必须一并恢复为着色器可读，
+			否则后续采样该图像的这些 mip 级会因布局不符触发布局校验错误。
+			末级（mip_levels-1）仅作目标级、已是着色器可读，故不纳入本屏障。
+			*/
+			VkImageMemoryBarrier source_levels_barrier{};
+			source_levels_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			source_levels_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			source_levels_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			source_levels_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			source_levels_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			source_levels_barrier.image = image;
+			source_levels_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels - 1, 0, 1 };
+			source_levels_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			source_levels_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			vkCmdPipelineBarrier(command_buffer,
 				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-				0, 0, nullptr, 0, nullptr, 1, &level0_barrier);
+				0, 0, nullptr, 0, nullptr, 1, &source_levels_barrier);
 		});
 
 		if (ok)

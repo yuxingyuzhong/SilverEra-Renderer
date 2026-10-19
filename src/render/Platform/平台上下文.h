@@ -58,6 +58,12 @@ namespace engine
 		bool minimized(void) const;
 		//取窗口客户区尺寸（像素）
 		void window_size_get(uint32_t& width_out, uint32_t& height_out) const;
+		/*
+		请求改变窗口客户区尺寸（像素）
+		成功即同步置「交换链待重建」标志：隐藏窗口下 SDL 不一定派发尺寸变化事件，
+		故此处显式置标志，使「尺寸变化 → 交换链重建」在任意窗口形态下均可被上层驱动。
+		*/
+		bool window_size_set(uint32_t width, uint32_t height);
 		//原生窗口句柄（供上层调试；SDL 类型属本层实现细节）
 		SDL_Window* window_get(void) const;
 		//组装实例所需扩展清单（内部调 SDL_Vulkan_GetInstanceExtensions；返回是否成功）

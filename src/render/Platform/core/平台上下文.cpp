@@ -95,6 +95,33 @@ namespace engine
 		height_out = 0;
 	}
 
+	//请求改变窗口客户区尺寸（像素）
+	bool Platform_Context::window_size_set(uint32_t width, uint32_t height)
+	{
+		//前置：窗口必须已创建
+		if (window == nullptr)
+		{
+			logger.error("平台上下文:: 窗口尚未创建，无法改变尺寸");
+			return false;
+		}
+		//前置：宽高不得为零
+		if (width == 0 || height == 0)
+		{
+			logger.warn("平台上下文:: 请求尺寸为零，忽略（K7）");
+			return false;
+		}
+
+		//请求 SDL 改变窗口尺寸（SDL 以 int 接收，单位为像素）
+		if (!SDL_SetWindowSize(window, static_cast<int>(width), static_cast<int>(height)))
+		{
+			logger.error("平台上下文:: 窗口尺寸设置失败：{}", SDL_GetError());
+			return false;
+		}
+		//同步置「交换链待重建」标志（隐藏窗口下 SDL 不一定派发尺寸变化事件）
+		resize_flag = true;
+		return true;
+	}
+
 	//获取原生窗口句柄
 	SDL_Window* Platform_Context::window_get(void) const
 	{

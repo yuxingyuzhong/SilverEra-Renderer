@@ -46,8 +46,8 @@ namespace engine
 		this->present_family = present_family;
 		this->vsync = vsync;
 
-		//创建交换链与图像视图、图像可用信号量、深度图像
-		if (!swapchain_create(width, height))
+		//创建交换链与图像视图、图像可用信号量、深度图像（首建无旧链，故 oldSwapchain 传空）
+		if (!swapchain_create(width, height, VK_NULL_HANDLE))
 		{
 			logger.error("交换链:: 创建失败，回退");
 			//回退可能已创建的部分资源
@@ -93,7 +93,7 @@ namespace engine
 	}
 
 	//重建
-	bool Swapchain_Context::rebuild(uint32_t width, uint32_t height)
+	bool Swapchain_Context::rebuild(uint32_t width, uint32_t height, Swapchain_Old_Resources& old_out)
 	{
 		//前置：交换链侧记录必须齐备
 		if (device == VK_NULL_HANDLE || surface == VK_NULL_HANDLE)
@@ -108,23 +108,97 @@ namespace engine
 			return false;
 		}
 
-		//等待设备空闲，使旧交换链与在途帧不再被引用（§5.3）
-		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle"))
-			return false;
-		//销毁旧资源（图像视图 / 交换链 / 旧图像可用信号量）
-		swapchain_resources_destroy();
-		//按新尺寸重建
-		if (!swapchain_create(width, height))
+		/*
+		保存派生状态（重建失败回滚用）
+		这些状态依赖旧资源，抽出 / 销毁流程会将其复位，故先留存，供失败时原样恢复。
+		*/
+		VkFormat saved_format = format;
+		VkFormat saved_depth_format = depth_format;
+		VkExtent2D saved_extent = extent;
+		bool saved_depth_initialized = depth_initialized;
+		bool saved_color_transfer_src = color_transfer_src;
+
+		/*
+		析出旧资源（不销毁、不等设备空闲）
+		旧交换链作 newSwapchain 的 oldSwapchain 复用；其附属资源（图像视图 / 信号量 / 深度图像）
+		可能仍被在途帧引用，故整体移交给调用方，由帧模块延迟销毁（§6.4）。
+		*/
+		Swapchain_Old_Resources old{};
+		swapchain_resources_extract(old);
+
+		//以旧交换链作 oldSwapchain 建新链
+		if (!swapchain_create(width, height, old.swapchain))
 		{
-			logger.error("交换链:: 重建失败");
-			//清理可能已创建的半成品资源
+			logger.error("交换链:: 重建失败，清理半成品并回滚旧资源");
+			//清理可能已创建的半成品新资源
 			swapchain_resources_destroy();
+			//恢复旧资源句柄（交换链仍可用）
+			swapchain_resources_restore(old);
+			//恢复派生状态
+			format = saved_format;
+			depth_format = saved_depth_format;
+			extent = saved_extent;
+			depth_initialized = saved_depth_initialized;
+			color_transfer_src = saved_color_transfer_src;
 			return false;
 		}
 
+		//新链已建立，旧资源移交调用方延迟销毁
+		old_out = std::move(old);
 		logger.info("交换链:: 交换链已重建（{} 张图像，{}×{}）",
 			static_cast<uint32_t>(images.size()), extent.width, extent.height);
 		return true;
+	}
+
+	//析出全部交换链侧资源到旧资源集合（不销毁）
+	void Swapchain_Context::swapchain_resources_extract(Swapchain_Old_Resources& old_out)
+	{
+		//移出交换链句柄
+		old_out.swapchain = swapchain;
+		swapchain = VK_NULL_HANDLE;
+		//移出交换链图像句柄记录
+		old_out.images = std::move(images);
+		images.clear();
+		//移出图像视图
+		old_out.image_views = std::move(image_views);
+		image_views.clear();
+		//移出图像可用信号量
+		old_out.image_available_semaphores = std::move(image_available_semaphores);
+		image_available_semaphores.clear();
+		//移出呈现完成信号量
+		old_out.render_finished_semaphores = std::move(render_finished_semaphores);
+		render_finished_semaphores.clear();
+		//移出深度图像 / 内存 / 视图
+		old_out.depth_images = std::move(depth_images);
+		old_out.depth_allocations = std::move(depth_allocations);
+		old_out.depth_views = std::move(depth_views);
+		depth_images.clear();
+		depth_allocations.clear();
+		depth_views.clear();
+		//复位派生状态（新链建立时重新确定；深度首次转换标志须复位以令新深度图像重新转换）
+		format = VK_FORMAT_UNDEFINED;
+		extent = { 0, 0 };
+		color_transfer_src = false;
+		depth_initialized = false;
+	}
+
+	//把旧资源集合原样恢复回成员（重建失败回滚用）
+	void Swapchain_Context::swapchain_resources_restore(Swapchain_Old_Resources& old_in)
+	{
+		//恢复交换链句柄
+		swapchain = old_in.swapchain;
+		//恢复交换链图像句柄记录
+		images = std::move(old_in.images);
+		//恢复图像视图
+		image_views = std::move(old_in.image_views);
+		//恢复图像可用信号量
+		image_available_semaphores = std::move(old_in.image_available_semaphores);
+		//恢复呈现完成信号量
+		render_finished_semaphores = std::move(old_in.render_finished_semaphores);
+		//恢复深度图像 / 内存 / 视图
+		depth_images = std::move(old_in.depth_images);
+		depth_allocations = std::move(old_in.depth_allocations);
+		depth_views = std::move(old_in.depth_views);
 	}
 
 	//销毁交换链侧全部资源

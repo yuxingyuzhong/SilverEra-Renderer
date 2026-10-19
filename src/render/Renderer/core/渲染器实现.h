@@ -35,6 +35,18 @@ namespace engine
 	class Renderer::Impl
 	{
 	public:
+		/*
+		重建交换链并把旧资源压入帧延迟销毁队列
+		无整帧停顿：旧交换链及其附属资源（图像视图 / 两类信号量 / 深度图像与内存与视图）被移交延迟队列，
+		延迟 = 在途帧数 + 1，保证在途帧用尽后才释放（§6.4）。返回重建是否成功。
+		*/
+		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
+		/*
+		确保同帧多 pass 后处理所需资源就绪（惰性创建）
+		含：后处理具名管线（后处理.vert / 后处理.frag，不透明档）与全屏四边形网格（NDC -1..1）。
+		着色器模块由本实现体持有，随 extra_pipelines 统一销毁；网格随 mesh 模块销毁。
+		*/
+		bool post_resources_ensure(void);
 		//配置（init 成功后生效）
 		Renderer_Config config;
 		//平台模块
@@ -77,6 +89,12 @@ namespace engine
 		Render_Target_Context render_target;
 		//本帧渲染目标句柄（0 = 直接渲染到交换链）
 		uint64_t active_target = 0;
+		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）
+		uint64_t present_target = 0;
+		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档）
+		uint64_t post_pipeline = 0;
+		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）
+		Mesh_Handle fullscreen_mesh = 0;
 		//字体模块（TTF → 字形图集）
 		Font_Context font;
 		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）

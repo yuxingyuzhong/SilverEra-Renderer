@@ -46,6 +46,10 @@ namespace engine
 		physical_device = VK_NULL_HANDLE;
 		//清除校验层记录
 		validation_enabled = false;
+		//清除采样器各向异性特性记录（R-DEV-04：destroy 须复位全部派生标志）
+		anisotropy_enabled = false;
+		//复位采样器最大各向异性倍数
+		max_sampler_anisotropy = 1.0f;
 	}
 
 	//是否已构建完成

@@ -16,6 +16,79 @@ namespace engine
 		return "0.1.0";
 	}
 
+	//重建交换链并把旧资源压入帧延迟销毁队列
+	bool Renderer::Impl::swapchain_rebuild_deferred(uint32_t width, uint32_t height)
+	{
+		//旧资源（重建成功后移交延迟队列）
+		Swapchain_Old_Resources old_resources{};
+		//若重建失败则不移交任何资源（交换链已回滚为旧链，仍可用）
+		if (!swapchain.rebuild(width, height, old_resources))
+			return false;
+		//组装延迟条目并压入帧模块（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放旧资源）
+		Deferred_Entry entry{};
+		entry.resources = std::move(old_resources);
+		frame.deferred_push(std::move(entry), frame.in_flight_count_get() + 1);
+		return true;
+	}
+
+	//确保同帧多 pass 后处理所需资源就绪（惰性创建）
+	bool Renderer::Impl::post_resources_ensure(void)
+	{
+		//后处理具名管线尚未登记
+		if (post_pipeline == 0)
+		{
+			//加载后处理顶点 / 片元着色器模块
+			VkShaderModule vert_module = VK_NULL_HANDLE;
+			VkShaderModule frag_module = VK_NULL_HANDLE;
+			if (!shader.module_load(vert_module, "后处理.vert.spv"))
+			{
+				logger.error("渲染器:: 后处理顶点着色器加载失败");
+				return false;
+			}
+			if (!shader.module_load(frag_module, "后处理.frag.spv"))
+			{
+				logger.error("渲染器:: 后处理片元着色器加载失败");
+				shader.module_destroy(vert_module);
+				return false;
+			}
+			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
+			uint64_t registered = 0;
+			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque))
+			{
+				logger.error("渲染器:: 后处理管线登记失败");
+				shader.module_destroy(vert_module);
+				shader.module_destroy(frag_module);
+				return false;
+			}
+			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
+			post_pipeline = registered;
+			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
+			logger.info("渲染器:: 后处理管线已登记（句柄 {}）", registered);
+		}
+		//全屏四边形网格尚未创建
+		if (fullscreen_mesh == 0)
+		{
+			//全屏四边形（NDC 范围 -1..1；绕序取 (0,2,1)/(0,3,2) 以匹配「不做 Y 翻转」的顶点输出）
+			Mesh_Data data{};
+			data.vertices = {
+				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
+				{ { 1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
+				{ { 1.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
+				{ { -1.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+			};
+			data.indices = { 0, 2, 1, 0, 3, 2 };
+			//网格句柄（创建失败则整体失败）
+			Mesh_Handle created = 0;
+			if (!mesh.mesh_create(created, data))
+			{
+				logger.error("渲染器:: 后处理全屏网格创建失败");
+				return false;
+			}
+			fullscreen_mesh = created;
+		}
+		return true;
+	}
+
 	//构造（不创建任何 GPU 资源）
 	Renderer::Renderer(void)
 		: impl(new(std::nothrow) Impl())
@@ -357,6 +430,10 @@ namespace engine
 		//渲染目标依赖设备与内存，须先于两者销毁
 		impl->render_target.destroy();
 		impl->active_target = 0;
+		//复位同帧后处理呈现路径与其资源句柄（全屏网格随网格模块销毁、后处理管线随管线模块销毁）
+		impl->present_target = 0;
+		impl->post_pipeline = 0;
+		impl->fullscreen_mesh = 0;
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
 			for (size_t slot = 0; slot < impl->scene_ubos.size(); ++slot)
@@ -466,8 +543,8 @@ namespace engine
 			//尺寸为零则不重建
 			if (width != 0 && height != 0)
 			{
-				//若重建失败仅告警，本帧继续
-				if (!impl->swapchain.rebuild(width, height))
+				//重建交换链并把旧资源压入帧延迟队列；失败仅告警，本帧继续
+				if (!impl->swapchain_rebuild_deferred(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
 				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
@@ -514,6 +591,39 @@ namespace engine
 		每帧只更新 UBO 内容（上一段的 buffer_write），不重写描述符集。
 		*/
 		/*
+		同帧多 pass 后处理准备
+		若本帧设定「渲染到目标并同帧后处理呈现」，先确保后处理管线与全屏网格就绪，
+		并把「单位模型矩阵」追加到本帧实例存储末尾（后处理全屏四边形以此为实例缓冲来源）。
+		追加须在下方「实例缓冲写入」之前完成，故此处先行。
+		*/
+		bool post_frame = false;
+		//后处理绘制项在本帧实例缓冲内的字节偏移
+		VkDeviceSize post_instance_offset = 0;
+		//若已设定同帧后处理呈现目标
+		if (impl->present_target != 0)
+		{
+			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
+			if (impl->pending_instances.size() >= impl->instance_capacity)
+				logger.warn("渲染器:: 本帧实例存储已满，同帧后处理呈现回落原路径");
+			//若后处理资源就绪
+			else if (impl->post_resources_ensure())
+			{
+				//追加单位矩阵（列主序）并记录其字节偏移
+				post_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+				impl->pending_instances.emplace_back();
+				std::array<float, 16>& identity = impl->pending_instances.back();
+				identity.fill(0.0f);
+				identity[0] = 1.0f;
+				identity[5] = 1.0f;
+				identity[10] = 1.0f;
+				identity[15] = 1.0f;
+				post_frame = true;
+			}
+			//资源未就绪则本帧回落原路径
+			else
+				logger.warn("渲染器:: 后处理资源未就绪，本帧回落原路径");
+		}
+		/*
 		实例模型矩阵写入本帧槽实例缓冲
 		本帧登记的全部实例矩阵按登记顺序连续存放，故一次写入即可；
 		随后每个渲染项只携带「帧槽缓冲句柄 ＋ 字节偏移 ＋ 实例数」。
@@ -559,12 +669,63 @@ namespace engine
 
 		/*
 		分派渲染路径
-		若已设定本帧渲染目标（句柄非零且有效）则走**离屏路径**：把场景渲染进目标、不呈现到窗口；
-		否则走**交换链路径**：取图像 → 渲染 → 呈现。两路共用同一批帧槽与帧计数轮转。
+		① 同帧多 pass 后处理（present_target 有效且资源就绪）：渲染到目标并在同帧内后处理呈现到交换链；
+		② 离屏路径（active_target 有效）：把场景渲染进目标、不呈现到窗口；
+		③ 交换链路径（默认）：取图像 → 渲染 → 呈现。
+		三路共用同一批帧槽与帧计数轮转，且互斥（后处理优先于离屏，离屏优先于交换链）。
 		*/
 		bool offscreen = false;
-		//若已设定本帧渲染目标
-		if (impl->active_target != 0)
+		//若走同帧多 pass 后处理路径
+		if (post_frame)
+		{
+			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
+			Frame_Render_Target target{};
+			//全屏四边形网格的共用缓冲 / 索引区偏移 / 索引数
+			VkBuffer mesh_buffer = VK_NULL_HANDLE;
+			VkDeviceSize mesh_index_offset = 0;
+			uint32_t mesh_index_count = 0;
+			//目标与全屏网格均就绪才可走该路径
+			if (impl->render_target.target_get(impl->present_target, target.color_image, target.color_view,
+				target.depth_view, target.extent)
+				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count))
+			{
+				//把离屏目标颜色写入各帧槽的后处理采样器集（长命资源，一次写满全部槽）
+				VkImageView default_view = VK_NULL_HANDLE;
+				VkSampler shared_sampler = VK_NULL_HANDLE;
+				if (impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+				{
+					for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
+						impl->pipeline.post_texture_bind(each, shared_sampler, target.color_view);
+				}
+				//组装后处理绘制项（全屏四边形 ＋ 后处理管线 ＋ set0 场景 UBO / set1 离屏目标颜色）
+				Frame_Render_Item post_item{};
+				post_item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->post_pipeline);
+				post_item.layout = impl->pipeline.layout_get();
+				post_item.scene_set = impl->pipeline.scene_set_get(slot);
+				post_item.sampler_set = impl->pipeline.post_set_get(slot);
+				post_item.descriptor_set_count = 2;
+				post_item.vertex_buffer = mesh_buffer;
+				post_item.index_buffer = mesh_buffer;
+				post_item.index_offset = mesh_index_offset;
+				post_item.index_count = mesh_index_count;
+				post_item.instance_buffer = impl->instance_buffers[slot];
+				post_item.instance_offset = post_instance_offset;
+				post_item.instance_count = 1;
+				offscreen = true;
+				//渲染到目标并在同帧内后处理呈现到交换链
+				if (!impl->frame.render_to_target_present(impl->swapchain, target, impl->pending_items.data(),
+					static_cast<uint32_t>(impl->pending_items.size()), post_item, clear_color, rebuild_needed, readback_ptr))
+				{
+					logger.error("渲染器:: 同帧多 pass 后处理渲染失败");
+					return false;
+				}
+			}
+			//前置不完整则回落原路径
+			else
+				logger.warn("渲染器:: 同帧多 pass 后处理前置不完整（目标或全屏网格），回落原路径");
+		}
+		//若已设定本帧渲染目标（离屏路径）
+		if (!offscreen && impl->active_target != 0)
 		{
 			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
 			Frame_Render_Target target{};
@@ -624,7 +785,9 @@ namespace engine
 			//尺寸有效时重建交换链
 			if (width != 0 && height != 0)
 			{
-				impl->swapchain.rebuild(width, height);
+				//重建交换链并把旧资源压入帧延迟队列（失败仅告警，下一帧再试）
+				if (!impl->swapchain_rebuild_deferred(width, height))
+					logger.warn("渲染器:: 交换链重建失败（下一帧再试）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
 				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
@@ -698,6 +861,19 @@ namespace engine
 		if (impl == nullptr)
 			return 0;
 		return impl->swapchain.extent_get().height;
+	}
+
+	//请求改变窗口客户区尺寸
+	bool Renderer::window_size_set(uint32_t width, uint32_t height)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 窗口尺寸设置失败：尚未初始化");
+			return false;
+		}
+		//转交平台层（成功即置「交换链待重建」标志，重建在下一次 frame_render 内完成）
+		return impl->platform.window_size_set(width, height);
 	}
 
 	//加载网格
@@ -1167,6 +1343,22 @@ namespace engine
 		impl->active_target = handle;
 	}
 
+	//设置「本帧渲染到目标并同帧后处理呈现到交换链」
+	void Renderer::render_target_present_set(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄非零且未登记则关闭该路径并告警
+		if (handle != 0 && !impl->render_target.target_valid(handle))
+		{
+			logger.warn("渲染器:: 渲染目标句柄 {} 无效，关闭同帧后处理呈现路径", handle);
+			impl->present_target = 0;
+			return;
+		}
+		impl->present_target = handle;
+	}
+
 	//把渲染目标的颜色绑定为当前纹理（供后续绘制采样）
 	void Renderer::texture_bind_target(uint64_t handle)
 	{
@@ -1247,8 +1439,8 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return false;
-		//取字体记录
-		const Font_Record* record = impl->font.font_get(font);
+		//取字体记录（可写：惰性补烘字形需修改记录）
+		Font_Record* record = impl->font.font_get_mutable(font);
 		if (record == nullptr)
 		{
 			logger.error("渲染器:: 文字绘制失败：字体句柄 {} 无效", font);
@@ -1257,6 +1449,16 @@ namespace engine
 		//空文本无可绘制项（视为成功）
 		if (text.empty())
 			return true;
+		/*
+		惰性补烘文本所需字形
+		加载时只烘焙 ASCII；非 ASCII 码点（如中文）在首次绘制遇到时补烘并追加进图集，
+		随后图集纹理被重建（旧纹理退役），故须先补烘再取几何 / 绑纹理。
+		*/
+		if (!impl->font.glyphs_ensure(*record, text))
+		{
+			logger.error("渲染器:: 文字字形补烘失败");
+			return false;
+		}
 
 		//懒登记文字管线（Alpha 混合档；与场景管线共享同一管线布局）
 		if (impl->text_pipeline == 0)

@@ -30,7 +30,7 @@ namespace engine
 	}
 
 	//创建交换链与图像视图、图像可用信号量
-	bool Swapchain_Context::swapchain_create(uint32_t width, uint32_t height)
+	bool Swapchain_Context::swapchain_create(uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain)
 	{
 		//查询表面能力
 		VkSurfaceCapabilitiesKHR capabilities{};
@@ -111,9 +111,10 @@ namespace engine
 		create_info.clipped = VK_TRUE;
 		/*
 		旧交换链句柄
-		重建时已在 rebuild 中经 vkDeviceWaitIdle 并销毁旧交换链，故此处恒为空（§5.3）。
+		重建时传入旧交换链：驱动可复用其资源，且旧链在新链创建后即被退休（retired），
+		其句柄与附属资源由调用方经帧模块延迟销毁（§6.4）；首次创建时为 VK_NULL_HANDLE。
 		*/
-		create_info.oldSwapchain = VK_NULL_HANDLE;
+		create_info.oldSwapchain = old_swapchain;
 
 		//创建交换链
 		if (!vk_result_check(vkCreateSwapchainKHR(device, &create_info, nullptr, &swapchain), "vkCreateSwapchainKHR"))

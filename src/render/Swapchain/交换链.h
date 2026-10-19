@@ -20,6 +20,31 @@ namespace engine
 	class Memory_Context;
 
 	/*
+	交换链旧资源
+	重建时把旧交换链及其附属资源（图像视图 / 两类信号量 / 深度图像与内存与视图）整体移交，
+	不再 vkDeviceWaitIdle 立即销毁，而由上层压入帧模块的延迟销毁队列，待在途帧用尽后释放（§6.4）。
+	*/
+	struct Swapchain_Old_Resources
+	{
+		//旧交换链（建新链时作为 oldSwapchain 传入，其后延时销毁）
+		VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+		//旧交换链图像（句柄由交换链持有，此处仅作索引记录）
+		std::vector<VkImage> images;
+		//旧图像视图
+		std::vector<VkImageView> image_views;
+		//旧图像可用信号量
+		std::vector<VkSemaphore> image_available_semaphores;
+		//旧呈现完成信号量
+		std::vector<VkSemaphore> render_finished_semaphores;
+		//旧深度图像
+		std::vector<VkImage> depth_images;
+		//旧深度图像内存
+		std::vector<VmaAllocation> depth_allocations;
+		//旧深度图像视图
+		std::vector<VkImageView> depth_views;
+	};
+
+	/*
 	交换链上下文
 	持有 VkSwapchainKHR、其图像视图与「每交换链图像」的图像可用 / 呈现完成信号量与深度图像，
 	并提供能力查询与重建。
@@ -54,8 +79,13 @@ namespace engine
 		void destroy(void);
 		//是否已构建完成（交换链与图像齐备）
 		bool valid(void) const;
-		//重建（按新尺寸重查能力并重建；0×0 直接返回假，K7）
-		bool rebuild(uint32_t width, uint32_t height);
+		/*
+		重建（按新尺寸重查能力并重建；0×0 直接返回假，K7）
+		无整帧停顿：不再 vkDeviceWaitIdle，而是把旧交换链及其附属资源整体移交 old_out（不销毁），
+		并以旧交换链作 oldSwapchain 建新链；old_out 由调用方压入帧模块的延迟销毁队列。
+		重建失败时回滚（恢复旧资源，交换链仍可用）并返回假。
+		*/
+		bool rebuild(uint32_t width, uint32_t height, Swapchain_Old_Resources& old_out);
 
 		//获取交换链图像（按索引）
 		VkImage image_get(uint32_t index) const;
@@ -86,9 +116,21 @@ namespace engine
 		//交换链图像是否具备传输源用法（像素回读的前提）
 		bool color_transfer_src_get(void) const;
 	private:
-		//创建交换链与图像视图、图像可用信号量（实现见 core/交换链重建.cpp）
-		bool swapchain_create(uint32_t width, uint32_t height);
-		//销毁交换链侧全部资源（信号量 / 图像视图 / 交换链；实现见 core/交换链.cpp）
+		/*
+		创建交换链与图像视图、图像可用信号量（实现见 core/交换链重建.cpp）
+		old_swapchain 非空时作为 VkSwapchainCreateInfoKHR::oldSwapchain 传入（重建复用旧链资源）。
+		*/
+		bool swapchain_create(uint32_t width, uint32_t height, VkSwapchainKHR old_swapchain);
+		/*
+		析出全部交换链侧资源到旧资源集合（不销毁）
+		把成员中的交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图整体移入 old_out，
+		并复位依赖这些资源的派生状态（格式 / 深度格式 / 范围 / 首次转换标志 / 传输源标志），
+		使本对象处于「资源已抽出、待新建」的可重建态。
+		*/
+		void swapchain_resources_extract(Swapchain_Old_Resources& old_out);
+		//把旧资源集合原样恢复回成员（重建失败回滚用）
+		void swapchain_resources_restore(Swapchain_Old_Resources& old_in);
+		//销毁交换链侧全部资源（信号量 / 图像视图 / 深度图像 / 交换链；实现见 core/交换链.cpp）
 		void swapchain_resources_destroy(void);
 		//选择深度格式（实现见 core/交换链重建.cpp）
 		bool depth_format_select(void);

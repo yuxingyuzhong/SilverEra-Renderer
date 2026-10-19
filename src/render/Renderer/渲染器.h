@@ -87,6 +87,12 @@ namespace engine
 		//当前交换链尺寸（窗口缩放后可能变化）
 		uint32_t extent_width(void) const;
 		uint32_t extent_height(void) const;
+		/*
+		请求改变窗口客户区尺寸（像素）
+		成功返回真并置「交换链待重建」标志，交换链重建在下一次 frame_render 内完成；
+		使「尺寸变化 → 交换链重建」可由上层驱动、可被用例构造。未初始化 / 尺寸为零时返回假。
+		*/
+		bool window_size_set(uint32_t width, uint32_t height);
 
 		/*
 		加载网格（顶点 / 索引缓冲上传至设备本地）
@@ -172,6 +178,15 @@ namespace engine
 		句柄无效时回落交换链路径（不报错）。
 		*/
 		void render_target_set(uint64_t handle);
+		/*
+		设置「本帧渲染到目标并同帧后处理呈现到交换链」
+		handle 为 0 时关闭（回到 render_target_set 决定的默认路径）；
+		句柄有效时本帧把场景渲染进该目标，随即在**同一命令缓冲内**以该目标为纹理做一次全屏后处理 pass
+		直接呈现到窗口（同帧多 pass，无需跨帧中间态；优先于 render_target_set 生效）。
+		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源，故通常以当前交换链尺寸创建目标）。
+		句柄无效时回落原路径（不报错）。
+		*/
+		void render_target_present_set(uint64_t handle);
 		/*
 		把指定渲染目标的颜色绑定为「当前纹理」（供后续绘制采样）
 		等价于把当前纹理替换为该目标的颜色图像；句柄无效时静默返回（保持原绑定不变）。
