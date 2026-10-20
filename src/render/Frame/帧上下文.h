@@ -30,14 +30,36 @@ namespace engine
 	};
 
 	/*
+	延迟归还的内存资源
+	持裸 Vulkan / VMA 句柄，标记一组「经内存模块归还」的设备资源（网格缓冲 / 纹理图像 / 渲染目标附件）。
+	由门面在运行时卸载路径摘出后移交帧模块，帧模块在到期时统一经内存模块归还（§6.4）。
+	*/
+	struct Deferred_Memory_Resource
+	{
+		//缓冲（网格顶点 / 索引共用缓冲；非零时有效）
+		VkBuffer buffer = VK_NULL_HANDLE;
+		//缓冲内存（与 buffer 成对）
+		VmaAllocation buffer_allocation = VK_NULL_HANDLE;
+		//图像（纹理图像 / 渲染目标附件图像；非零时有效）
+		VkImage image = VK_NULL_HANDLE;
+		//图像内存（与 image 成对）
+		VmaAllocation image_allocation = VK_NULL_HANDLE;
+		//图像视图（非零时有效）
+		VkImageView view = VK_NULL_HANDLE;
+	};
+
+	/*
 	延迟销毁条目
-	记录一组「被交换链重建牵连」的旧资源，标记可在某帧号及以后释放（§6.4）。
-	旧资源整体来自交换链模块的重建移交（旧交换链 ＋ 图像视图 ＋ 两类信号量 ＋ 深度图像与内存与视图）。
+	记录一组「被运行时卸载牵连」的旧资源，标记可在某帧号及以后释放（§6.4）。
+	来源有二：① 交换链模块重建移交（旧交换链 ＋ 图像视图 ＋ 两类信号量 ＋ 深度图像与内存与视图）；
+	        ② 门面卸载路径摘出的内存资源（网格缓冲 / 纹理图像 / 渲染目标附件）。
 	*/
 	struct Deferred_Entry
 	{
 		//旧交换链及其附属资源
 		Swapchain_Old_Resources resources;
+		//经内存模块归还的资源（网格缓冲 / 纹理图像 / 渲染目标附件）
+		std::vector<Deferred_Memory_Resource> memory_resources;
 		//可在该帧号及以后释放
 		uint64_t release_frame = 0;
 	};
@@ -211,8 +233,22 @@ namespace engine
 		返回假视为硬错误（等待失败或帧上下文未构建）。
 		*/
 		bool slot_wait(void);
+		/*
+		等待全部帧槽的完成栅栏
+		供门面在「写满全部帧槽描述符集」或「重写共享采样器 / 重建共享采样器」之前调用，
+		避免在命令缓冲仍在途时更新（或销毁）描述符集所引用的资源。
+		*/
+		bool frames_wait(void);
 		//在途帧数量（= 帧槽数；供上层决定延迟销毁的释放帧号）
 		uint32_t in_flight_count_get(void) const;
+		/*
+		帧统计（只读观测值；供门面 frame_stats_get 取用）
+		last_frame_ms 为最近一帧的主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用，不含 GPU 时间戳）；
+		total_draw_items / total_instances 为自构建以来的累计绘制项数与实例数。
+		*/
+		double last_frame_ms_get(void) const;
+		uint64_t total_draw_items_get(void) const;
+		uint64_t total_instances_get(void) const;
 		/*
 		压入延迟销毁条目（指示「release_frame 帧及以后」可释放）
 		条目中的旧资源（旧交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图）由帧模块在到期时释放；
@@ -266,6 +302,11 @@ namespace engine
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
+		/*
+		累计本帧绘制统计（实现见 core/提交呈现.cpp）
+		绘制项数按登记项计；实例数取各绘制项 instance_count 之和（0 表该项不完整、无实例可计）。
+		*/
+		void frame_stats_accumulate(const Frame_Render_Item* items, uint32_t item_count);
 		//释放到期的延迟销毁条目（实现见 core/延迟销毁.cpp）
 		void deferred_flush(void);
 		//释放单个延迟条目的资源（实现见 core/延迟销毁.cpp）
@@ -311,6 +352,12 @@ namespace engine
 		uint32_t acquire_cursor = 0;
 		//已推进帧数（同时用作帧槽轮转依据与延迟销毁的释放判据）
 		uint32_t frame_count = 0;
+		//最近一帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
+		double last_frame_ms = 0.0;
+		//累计绘制项数（自构建以来）
+		uint64_t total_draw_items = 0;
+		//累计实例数（自构建以来）
+		uint64_t total_instances = 0;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
 		//内存模块（像素回读缓冲的创建 / 销毁依赖它）

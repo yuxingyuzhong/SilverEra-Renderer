@@ -154,6 +154,26 @@ namespace engine
 		record.valid = false;
 	}
 
+	//分离网格资源（摘出记录不销毁，归还责任移交调用方）
+	bool Mesh_Context::mesh_detach(Mesh_Handle handle, Mesh_Record& record_out)
+	{
+		//默认无资源摘出
+		record_out = Mesh_Record{};
+		//句柄为零或越界即视为无需分离
+		if (handle == 0 || handle > records.size())
+			return false;
+		//获取目标记录
+		Mesh_Record& record = records[handle - 1];
+		//若记录已无效
+		if (!record.valid)
+			return false;
+		//写出被摘出的记录（阻塞缓冲与内存）
+		record_out = record;
+		//复位原记录（归还责任已移交调用方）
+		record = Mesh_Record{};
+		return true;
+	}
+
 	//取网格缓冲、索引区偏移与索引数
 	bool Mesh_Context::mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const
 	{

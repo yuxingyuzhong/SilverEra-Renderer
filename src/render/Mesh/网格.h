@@ -64,6 +64,12 @@ namespace engine
 		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data);
 		//销毁网格
 		void mesh_destroy(Mesh_Handle handle);
+		/*
+		分离网格资源（摘出记录但**不销毁**，归还责任移交调用方）
+		供门面在运行时卸载路径把缓冲压入帧延迟销毁队列；
+		成功返回真并写出被摘出的记录；句柄无效或记录已空时返回假（不写出任何资源）。
+		*/
+		bool mesh_detach(Mesh_Handle handle, Mesh_Record& record_out);
 		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
 

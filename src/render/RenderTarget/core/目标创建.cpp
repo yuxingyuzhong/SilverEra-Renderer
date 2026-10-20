@@ -276,6 +276,26 @@ namespace engine
 		logger.info("渲染目标:: 已销毁（句柄 {}）", handle);
 	}
 
+	//分离渲染目标资源（摘出记录不销毁，归还责任移交调用方）
+	bool Render_Target_Context::target_detach(uint64_t handle, Render_Target_Record& record_out)
+	{
+		//默认无资源摘出
+		record_out = Render_Target_Record{};
+		//句柄为零或越界即视为无需分离
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出被摘出的记录（阻塞颜色 / 深度图像与视图）
+		record_out = record;
+		//整条记录复位（标记槽为空；归还责任已移交调用方）
+		record = Render_Target_Record{};
+		return true;
+	}
+
 	//取渲染目标各附件与范围
 	bool Render_Target_Context::target_get(uint64_t handle, VkImage& color_image_out, VkImageView& color_view_out,
 		VkImageView& depth_view_out, VkExtent2D& extent_out) const

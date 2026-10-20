@@ -11,6 +11,8 @@
 #include "Application/Renderer/src/render/Pipeline/管线数据.h"
 //纹理公共语义类型（Vulkan-free）：采样器状态
 #include "Application/Renderer/src/render/Texture/纹理数据.h"
+//材质公共语义类型（Vulkan-free）：材质描述与句柄
+#include "Application/Renderer/src/render/Pipeline/材质数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -40,6 +42,22 @@ namespace engine
 		bool hidden = false;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
+	};
+
+	/*
+	帧统计（只读观测值；Vulkan-free）
+	主机侧计时区间为「录制 ＋ 提交 ＋ 呈现调用」，不含 GPU 时间戳（本版次不引入 GPU 计时）。
+	*/
+	struct Frame_Stats
+	{
+		//已推进帧数
+		uint64_t frames = 0;
+		//最近一帧主机侧耗时（毫秒）
+		double frame_ms = 0.0;
+		//累计绘制项数（含同帧多 pass 路径的后处理绘制项）
+		uint64_t draw_items = 0;
+		//累计实例数
+		uint64_t instances = 0;
 	};
 
 	/*
@@ -78,6 +96,8 @@ namespace engine
 		bool close_requested(void) const;
 		//已呈现帧数（调试与用例断言用）
 		uint64_t frame_count(void) const;
+		//取帧统计快照（未初始化时各项为零）
+		Frame_Stats frame_stats_get(void) const;
 		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
 		bool readback_supported(void) const;
 		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
@@ -139,6 +159,26 @@ namespace engine
 		新状态自下一次绘制起生效；未初始化时静默返回。
 		*/
 		void texture_sampler_state_set(const Texture_Sampler_State& state);
+
+		/*
+		登记材质（图形管线 ＋ 纹理 ＋ 混合档）
+		data.pipeline 为 0 且 data.blend 为 Opaque 时沿用默认场景管线；
+		data.pipeline 为 0 且 data.blend 非 Opaque 时，以默认场景着色器对（场景.vert / 场景.frag）登记一条具名管线；
+		data.pipeline 非 0 时沿用该具名管线（其 blend 已在 pipeline_load 登记时确定）。
+		成功写出句柄（≥ 1）；未初始化 / 具名管线登记失败时返回假、句柄保持 0、不留半初始化记录。
+		*/
+		bool material_load(Material_Handle& handle_out, const Material_Data& data);
+		/*
+		卸载材质（句柄无效则忽略）
+		若材质自行登记了具名管线，则随卸载一并释放；卸载后其句柄失效。
+		*/
+		void material_unload(Material_Handle handle);
+		/*
+		设置后续绘制所用材质
+		等价于 pipeline_bind_set(材质管线) ＋ 按材质纹理绑定（失败 / 为零回落内置默认白纹理）。
+		handle 为 0 或无效句柄时回落「默认场景管线 ＋ 内置默认白纹理」。
+		*/
+		void material_bind_set(Material_Handle handle);
 
 		/*
 		设置后续绘制所用混合档（Opaque / Alpha）

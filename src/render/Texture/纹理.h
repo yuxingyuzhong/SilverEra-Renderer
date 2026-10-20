@@ -70,6 +70,12 @@ namespace engine
 		bool texture_create_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
 		//销毁纹理
 		void texture_destroy(uint64_t handle);
+		/*
+		分离纹理资源（摘出记录但**不销毁**，归还责任移交调用方）
+		供门面在运行时卸载路径把图像与其视图压入帧延迟销毁队列；
+		成功返回真并写出被摘出的记录；句柄无效或记录已空时返回假（不写出任何资源）。
+		*/
+		bool texture_detach(uint64_t handle, Texture_Record& record_out);
 		//取图像视图与采样器（供描述符写入；句柄无效返回假）
 		bool texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const;
 		/*

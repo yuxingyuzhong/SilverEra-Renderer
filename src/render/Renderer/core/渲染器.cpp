@@ -474,6 +474,8 @@ namespace engine
 				impl->shader.module_destroy(record.frag_module);
 		}
 		impl->extra_pipelines.clear();
+		//材质记录清空（材质自有的具名管线已随 extra_pipelines 释放）
+		impl->materials.clear();
 		impl->bound_pipeline_request = 0;
 		impl->shader.destroy();
 		//交换链销毁连带销毁深度图像，须排在管线之后
@@ -817,6 +819,23 @@ namespace engine
 		return impl->frame_count;
 	}
 
+	//取帧统计快照
+	Frame_Stats Renderer::frame_stats_get(void) const
+	{
+		//默认全零
+		Frame_Stats stats{};
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return stats;
+		//已推进帧数取自门面自身计数（与 frame_count() 同口径）
+		stats.frames = impl->frame_count;
+		//帧耗时与绘制 / 实例计数取自帧模块（主机侧录制统计）
+		stats.frame_ms = impl->frame.last_frame_ms_get();
+		stats.draw_items = impl->frame.total_draw_items_get();
+		stats.instances = impl->frame.total_instances_get();
+		return stats;
+	}
+
 	//是否支持像素回读
 	bool Renderer::readback_supported(void) const
 	{
@@ -895,8 +914,18 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
-		//转交网格模块销毁
-		impl->mesh.mesh_destroy(handle);
+		//摘出网格缓冲（不立即销毁，避免销毁仍被在途命令缓冲引用的缓冲）
+		Mesh_Record record{};
+		if (!impl->mesh.mesh_detach(handle, record))
+			return;
+		//组装延迟条目（缓冲经内存模块归还）
+		Deferred_Entry entry{};
+		Deferred_Memory_Resource resource{};
+		resource.buffer = record.buffer;
+		resource.buffer_allocation = record.allocation;
+		entry.memory_resources.push_back(resource);
+		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
+		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
 	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个），返回首个实例的字节偏移
@@ -1098,8 +1127,22 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
-		//转交纹理模块销毁
-		impl->texture.texture_destroy(handle);
+		//摘出纹理图像与其视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
+		Texture_Record record{};
+		if (!impl->texture.texture_detach(handle, record))
+			return;
+		//若卸载的是当前绑定视图，则回落内置默认白纹理（避免采样器状态切换时写入已失效视图）
+		if (record.view == impl->bound_view)
+			texture_bind_set(0);
+		//组装延迟条目（图像与视图经内存模块归还）
+		Deferred_Entry entry{};
+		Deferred_Memory_Resource resource{};
+		resource.image = record.image;
+		resource.image_allocation = record.allocation;
+		resource.view = record.view;
+		entry.memory_resources.push_back(resource);
+		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
+		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
 	//设置当前绘制所用纹理
@@ -1108,8 +1151,6 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
-		//记录本次请求（采样器状态切换后据此重新绑定）
-		impl->bound_texture_request = texture_handle;
 		//句柄为零时回落内置默认白纹理
 		uint64_t target = texture_handle == 0 ? impl->default_texture : texture_handle;
 		//取目标纹理的视图与采样器
@@ -1125,6 +1166,13 @@ namespace engine
 				return;
 			}
 		}
+		//记录当前绑定视图（采样器状态切换后据此重写 set1）
+		impl->bound_view = view;
+		/*
+		写满全部帧槽 set1 之前先等全部在途帧完成
+		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
+		*/
+		impl->frame.frames_wait();
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
@@ -1163,12 +1211,28 @@ namespace engine
 			}
 		}
 		/*
-		切换共享采样器状态
-		采样器被烘焙进各帧槽 set1，故切换后必须重新绑定当前纹理；否则采样仍按旧参数进行。
+		切换共享采样器状态并以新采样器重写各帧槽 set1
+		采样器被烘焙进各帧槽 set1，故切换后须重写 set1，否则采样仍按旧参数进行；
+		切换会销毁并重建共享采样器，故先等全部在途帧完成，避免销毁仍被在途描述符集引用的旧采样器。
+		重写以「当前绑定视图」为采样源（纹理与渲染目标共用该语义），未绑过任何源时回落内置默认白纹理。
 		*/
+		impl->frame.frames_wait();
 		impl->texture.sampler_state_set(effective);
-		//按最后一次请求重新绑定（未绑过任何纹理时回落内置默认白纹理）
-		texture_bind_set(impl->bound_texture_request);
+		//取重建后的共享采样器
+		VkImageView default_view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(impl->default_texture, default_view, sampler))
+		{
+			logger.error("渲染器:: 采样器状态切换失败：共享采样器不可用");
+			return;
+		}
+		//当前绑定视图为空则回落内置默认白纹理视图
+		VkImageView view = impl->bound_view != VK_NULL_HANDLE ? impl->bound_view : default_view;
+		//记录当前绑定视图（保持与 set1 一致）
+		impl->bound_view = view;
+		//以新采样器重写全部帧槽 set1
+		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			impl->pipeline.texture_bind(slot, sampler, view);
 	}
 
 	//设置后续绘制所用混合档（切档触发图形管线重建）
@@ -1252,6 +1316,12 @@ namespace engine
 		//句柄 0 为默认场景管线，禁止卸载
 		if (handle == 0)
 			return;
+		/*
+		先等全部在途帧完成
+		图形管线可能仍被在途命令缓冲引用（其绑定状态已被记录进该命令缓冲），
+		未等在途帧用尽即销毁会触发校验告警且属未定义行为。
+		*/
+		impl->frame.frames_wait();
 		//在门面记录中查找目标
 		for (auto it = impl->extra_pipelines.begin(); it != impl->extra_pipelines.end(); ++it)
 		{
@@ -1298,6 +1368,108 @@ namespace engine
 		impl->bound_pipeline_request = target;
 	}
 
+	//登记材质（图形管线 ＋ 纹理 ＋ 混合档）
+	bool Renderer::material_load(Material_Handle& handle_out, const Material_Data& data)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 材质登记失败：尚未初始化");
+			return false;
+		}
+		//待登记记录
+		Impl::Material_Record record{};
+		record.pipeline = data.pipeline;
+		record.texture = data.texture;
+		//若未指定管线且混合档非不透明：以默认场景着色器对登记一条具名管线
+		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
+		{
+			if (!pipeline_load(record.pipeline, "场景.vert.spv", "场景.frag.spv", data.blend))
+			{
+				logger.error("渲染器:: 材质登记失败：具名管线登记失败");
+				return false;
+			}
+			//标记该管线归本材质所有（卸载时一并释放）
+			record.owns_pipeline = true;
+		}
+		//标记记录有效
+		record.valid = true;
+		//分配句柄：优先复用第一个空槽，否则追加
+		Material_Handle handle = 0;
+		for (std::size_t index = 0; index < impl->materials.size(); ++index)
+		{
+			//若该槽已空
+			if (!impl->materials[index].valid)
+			{
+				impl->materials[index] = record;
+				handle = static_cast<Material_Handle>(index) + 1;
+				break;
+			}
+		}
+		//若无空槽则追加
+		if (handle == 0)
+		{
+			impl->materials.push_back(record);
+			handle = static_cast<Material_Handle>(impl->materials.size());
+		}
+		//写出句柄
+		handle_out = handle;
+		logger.info("渲染器:: 材质已登记（句柄 {}，管线 {}，纹理 {}）", handle, record.pipeline, record.texture);
+		return true;
+	}
+
+	//卸载材质
+	void Renderer::material_unload(Material_Handle handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄为零或越界即视为无需卸载（幂等）
+		if (handle == 0 || handle > impl->materials.size())
+			return;
+		//取目标记录
+		Impl::Material_Record& record = impl->materials[handle - 1];
+		//已空则忽略
+		if (!record.valid)
+			return;
+		//若材质自行登记了具名管线则一并释放（共享的前置具名管线不释放）
+		if (record.owns_pipeline && record.pipeline != 0)
+			pipeline_unload(record.pipeline);
+		//复位记录（标记槽为空）
+		record = Impl::Material_Record{};
+		logger.info("渲染器:: 材质已卸载（句柄 {}）", handle);
+	}
+
+	//设置后续绘制所用材质
+	void Renderer::material_bind_set(Material_Handle handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄为零则回落「默认场景管线 ＋ 内置默认白纹理」
+		if (handle == 0)
+		{
+			pipeline_bind_set(0);
+			texture_bind_set(0);
+			return;
+		}
+		//句柄无效则回落默认并告警
+		if (handle > impl->materials.size() || !impl->materials[handle - 1].valid)
+		{
+			logger.warn("渲染器:: 材质句柄 {} 无效，回落默认管线与默认纹理", handle);
+			pipeline_bind_set(0);
+			texture_bind_set(0);
+			return;
+		}
+		//取目标记录
+		const Impl::Material_Record& record = impl->materials[handle - 1];
+		//绑定材质管线与纹理（管线句柄未登记 / 纹理句柄无效时各自内部回落默认）
+		pipeline_bind_set(record.pipeline);
+		texture_bind_set(record.texture);
+	}
+
 	//创建离屏渲染目标
 	bool Renderer::render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height)
 	{
@@ -1323,8 +1495,27 @@ namespace engine
 		//若销毁的是当前设定的本帧渲染目标则先回落交换链路径
 		if (impl->active_target == handle)
 			impl->active_target = 0;
-		//转交渲染目标模块
-		impl->render_target.target_destroy(handle);
+		//若销毁的是当前设定的同帧后处理呈现目标则一并回落
+		if (impl->present_target == handle)
+			impl->present_target = 0;
+		//摘出颜色 / 深度图像与视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
+		Render_Target_Record record{};
+		if (!impl->render_target.target_detach(handle, record))
+			return;
+		//组装延迟条目（颜色与深度各一条内存资源）
+		Deferred_Entry entry{};
+		Deferred_Memory_Resource color{};
+		color.image = record.color_image;
+		color.image_allocation = record.color_alloc;
+		color.view = record.color_view;
+		entry.memory_resources.push_back(color);
+		Deferred_Memory_Resource depth{};
+		depth.image = record.depth_image;
+		depth.image_allocation = record.depth_alloc;
+		depth.view = record.depth_view;
+		entry.memory_resources.push_back(depth);
+		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
+		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
 	//设置「本帧渲染到目标」
@@ -1388,6 +1579,13 @@ namespace engine
 			logger.error("渲染器:: 渲染目标绑定失败：共享采样器不可用");
 			return;
 		}
+		//记录当前绑定视图（与纹理绑定共用同一语义；采样器状态切换后据此重写 set1）
+		impl->bound_view = color_view;
+		/*
+		写满全部帧槽 set1 之前先等全部在途帧完成
+		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
+		*/
+		impl->frame.frames_wait();
 		//把目标颜色视图写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, shared_sampler, color_view);

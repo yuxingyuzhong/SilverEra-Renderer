@@ -103,6 +103,9 @@ namespace engine
 		frame_overlap = 0;
 		acquire_cursor = 0;
 		frame_count = 0;
+		last_frame_ms = 0.0;
+		total_draw_items = 0;
+		total_instances = 0;
 		//解除对内存模块的引用
 		memory = nullptr;
 	}
@@ -134,6 +137,24 @@ namespace engine
 		return frame_overlap;
 	}
 
+	//最近一帧主机侧耗时（毫秒）
+	double Frame_Context::last_frame_ms_get(void) const
+	{
+		return last_frame_ms;
+	}
+
+	//累计绘制项数
+	uint64_t Frame_Context::total_draw_items_get(void) const
+	{
+		return total_draw_items;
+	}
+
+	//累计实例数
+	uint64_t Frame_Context::total_instances_get(void) const
+	{
+		return total_instances;
+	}
+
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 	bool Frame_Context::slot_fence_wait(Frame_Slot& slot)
 	{
@@ -162,6 +183,22 @@ namespace engine
 		Frame_Slot& slot = slots[frame_count % frame_overlap];
 		//等待该帧槽前一次提交完成
 		return slot_fence_wait(slot);
+	}
+
+	//等待全部帧槽的完成栅栏
+	bool Frame_Context::frames_wait(void)
+	{
+		//若尚未构建完成
+		if (!valid())
+		{
+			logger.error("帧槽创建:: 帧上下文尚未构建，无法等待全部帧槽");
+			return false;
+		}
+		//逐槽等待前一次提交完成（任一失败即返回假）
+		for (Frame_Slot& slot : slots)
+			if (!slot_fence_wait(slot))
+				return false;
+		return true;
 	}
 
 	//创建单个帧槽及其对象

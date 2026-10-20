@@ -76,6 +76,12 @@ namespace engine
 			VkFormat color_format, VkFormat depth_format);
 		//销毁渲染目标（句柄无效则忽略）
 		void target_destroy(uint64_t handle);
+		/*
+		分离渲染目标资源（摘出记录但**不销毁**，归还责任移交调用方）
+		供门面在运行时销毁路径把颜色 / 深度图像与视图压入帧延迟销毁队列；
+		成功返回真并写出被摘出的记录；句柄无效或记录已空时返回假（不写出任何资源）。
+		*/
+		bool target_detach(uint64_t handle, Render_Target_Record& record_out);
 		//取渲染目标各附件与范围（句柄无效返回假）
 		bool target_get(uint64_t handle, VkImage& color_image_out, VkImageView& color_view_out,
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;

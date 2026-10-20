@@ -78,6 +78,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Mesh/网格.h"
     "src/render/Mesh/网格数据.h"
     "src/render/Pipeline/局部命名空间使用.h"
+    "src/render/Pipeline/材质数据.h"
     "src/render/Pipeline/管线.h"
     "src/render/Pipeline/管线数据.h"
     "src/render/Platform/局部命名空间使用.h"

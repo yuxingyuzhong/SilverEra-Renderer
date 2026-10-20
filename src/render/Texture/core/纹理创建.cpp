@@ -214,6 +214,26 @@ namespace engine
 		record = Texture_Record{};
 	}
 
+	//分离纹理资源（摘出记录不销毁，归还责任移交调用方）
+	bool Texture_Context::texture_detach(uint64_t handle, Texture_Record& record_out)
+	{
+		//默认无资源摘出
+		record_out = Texture_Record{};
+		//句柄为零或越界即视为无需分离
+		if (handle == 0 || handle > records.size())
+			return false;
+		//获取目标记录
+		Texture_Record& record = records[handle - 1];
+		//若记录已无效
+		if (!record.valid)
+			return false;
+		//写出被摘出的记录（阻塞图像、内存与视图）
+		record_out = record;
+		//复位原记录（归还责任已移交调用方）
+		record = Texture_Record{};
+		return true;
+	}
+
 	//取图像视图与采样器
 	bool Texture_Context::texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const
 	{

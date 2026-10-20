@@ -75,6 +75,20 @@ namespace engine
 		Pipeline_Context pipeline;
 		//具名管线集合（默认场景管线不在内）
 		std::vector<Extra_Pipeline_Record> extra_pipelines;
+		//材质记录（管线 ＋ 纹理；有效标记用于句柄槽复用）
+		struct Material_Record
+		{
+			//图形管线句柄（0 = 默认场景管线）
+			uint64_t pipeline = 0;
+			//纹理句柄（0 = 内置默认白纹理）
+			uint64_t texture = 0;
+			//该具名管线是否由本材质自行登记（卸载时需一并释放）
+			bool owns_pipeline = false;
+			//记录是否有效
+			bool valid = false;
+		};
+		//材质集合（下标 = 句柄 - 1）
+		std::vector<Material_Record> materials;
 		//当前绘制所选管线句柄（0 = 默认场景管线）
 		uint64_t bound_pipeline_request = 0;
 		//网格模块
@@ -123,8 +137,12 @@ namespace engine
 		uint32_t instance_capacity = 256;
 		//内置默认白纹理句柄
 		uint64_t default_texture = 0;
-		//最后一次「设置当前纹理」请求的句柄（供采样器状态切换后重新绑定；0 表回落默认白纹理）
-		uint64_t bound_texture_request = 0;
+		/*
+		当前绑定视图（写入各帧槽 set1 的采样源；持裸句柄）
+		纹理与渲染目标共用同一绑定语义：无论来源是纹理还是渲染目标，均以「实际绑定的图像视图」记录，
+		故采样器状态切换后可直接以该视图重写 set1（处置 R-FACADE-06：不再按句柄回落后覆盖目标绑定）。
+		*/
+		VkImageView bound_view = VK_NULL_HANDLE;
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
 		//顶点着色器模块句柄（销毁须先于着色器模块）

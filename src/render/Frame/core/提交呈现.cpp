@@ -1,9 +1,21 @@
 #include "src/render/Frame/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
+//std::chrono（主机侧帧耗时计时）
+#include <chrono>
 
 namespace engine
 {
+	//累计本帧绘制统计（绘制项数 ＋ 实例数）
+	void Frame_Context::frame_stats_accumulate(const Frame_Render_Item* items, uint32_t item_count)
+	{
+		//累计绘制项数（按登记项计）
+		total_draw_items += item_count;
+		//累计实例数（各绘制项 instance_count 之和；0 表该项不完整、无实例可计）
+		for (uint32_t index = 0; index < item_count; ++index)
+			total_instances += items[index].instance_count;
+	}
+
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
 	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
 		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
@@ -102,6 +114,8 @@ namespace engine
 			readback_target = readback_buffer;
 		}
 
+		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
+		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
@@ -119,6 +133,10 @@ namespace engine
 		//提交并呈现
 		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
 			return false;
+		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
+		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧绘制统计
+		frame_stats_accumulate(items, item_count);
 
 		/*
 		像素读出（可选）
@@ -192,6 +210,8 @@ namespace engine
 			readback_target = readback_buffer;
 		}
 
+		//本帧计时起点（主机侧录制 ＋ 提交）
+		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback, readback_target);
 
@@ -211,6 +231,10 @@ namespace engine
 		//提交到图形队列（帧栅栏作为完成信号）
 		if (!vk_result_check(vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence), "vkQueueSubmit2（离屏）"))
 			return false;
+		//本帧主机侧耗时（毫秒；录制 ＋ 提交）
+		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧绘制统计
+		frame_stats_accumulate(items, item_count);
 
 		//像素读出（可选；渲染与拷贝同批提交，等帧槽栅栏即数据就绪）
 		if (readback_active && !readback_read(slot, *readback, target.extent))
@@ -329,6 +353,8 @@ namespace engine
 			readback_target = readback_buffer;
 		}
 
+		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
+		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		//录制命令缓冲（目标 pass ＋ 后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
 		command_record_target_present(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
@@ -340,6 +366,12 @@ namespace engine
 		//提交并呈现（与交换链路径共用同一提交 / 呈现实现）
 		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
 			return false;
+		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
+		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧绘制统计（场景 pass 项 ＋ 后处理 pass 的单个绘制项）
+		frame_stats_accumulate(items, item_count);
+		total_draw_items += 1;
+		total_instances += post_item.instance_count;
 
 		//像素读出（可选；渲染与拷贝录在同一命令缓冲，等本帧槽栅栏即数据就绪）
 		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))

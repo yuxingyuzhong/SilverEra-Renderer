@@ -23,6 +23,21 @@ namespace engine
 	//释放单个延迟条目的资源（调用方须保证其已不再被在途帧引用）
 	void Frame_Context::deferred_entry_release(Deferred_Entry& entry)
 	{
+		//运行时卸载摘出的内存资源（网格缓冲 / 纹理图像 / 渲染目标附件）经内存模块归还
+		if (memory != nullptr)
+			//逐条归还（缓冲与图像各自成对归还内存）
+			for (Deferred_Memory_Resource& resource : entry.memory_resources)
+			{
+				//若缓冲句柄有效
+				if (resource.buffer != VK_NULL_HANDLE)
+					memory->buffer_destroy(resource.buffer, resource.buffer_allocation);
+				//若图像视图句柄有效
+				if (resource.view != VK_NULL_HANDLE)
+					memory->image_view_destroy(resource.view);
+				//若图像句柄有效
+				if (resource.image != VK_NULL_HANDLE)
+					memory->image_destroy(resource.image, resource.image_allocation);
+			}
 		//旧深度图像 / 视图经内存模块归还（逐张成对）
 		if (memory != nullptr)
 		{
