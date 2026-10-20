@@ -3,6 +3,8 @@
 #include "Application/Renderer/common/前置头文件包含.h"
 //网格数据（文字几何生成需要 Vertex / Mesh_Data；Vulkan-free）
 #include "Application/Renderer/src/render/Mesh/网格数据.h"
+//文字布局参数（Vulkan-free）：对齐方式与换行宽度
+#include "Application/Renderer/src/render/Text/文字布局数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -137,11 +139,27 @@ namespace engine
 		//按码点取字形度量（尚未烘焙返回 nullptr）
 		static const Font_Glyph* glyph_seek(const Font_Record& record, uint32_t codepoint);
 		/*
+		度量单行文本
+		按字形 advance 累加得到行宽（四舍五入取整、**不含尾随空白**），行高恒等于字体像素高度。
+		无可见字形（空串 / 全空白 / 全为不支持码点）时两出参置 0 并返回假；本函数不做换行。
+		*/
+		static bool text_measure(const Font_Record& record, const std::string& text,
+			uint32_t& width_out, uint32_t& height_out);
+		/*
 		生成字符串的文字几何
 		像素坐标系：原点在**文本左上角**、Y 向下；顶点 position 为像素坐标（z = 0），uv 为图集 uv。
 		文本中不含任何可见字形（空串 / 全空白 / 全为不支持码点）时返回假，且不写出任何几何。
 		*/
 		static bool text_geometry_build(Mesh_Data& data_out, const Font_Record& record, const std::string& text);
+		/*
+		按布局生成文字几何（度量 ＋ 自动换行 ＋ 行内对齐）
+		换行：max_width > 0 时逐字符累计 advance，超限即断行（单字形超宽独占一行）；显式 '\n' 亦断行；
+		对齐：以行为单位按 align 平移起始笔位（max_width == 0 时单行，align 无效果）；
+		行距：line_height（0 取字体像素高度）。
+		无可见字形时返回假且不写出几何（与原 text_geometry_build 同口径）。
+		*/
+		static bool text_layout_build(Mesh_Data& data_out, const Font_Record& record, const std::string& text,
+			const Text_Layout& layout);
 	private:
 		//纹理模块（字形图集上传 / 销毁）
 		Texture_Context* texture = nullptr;

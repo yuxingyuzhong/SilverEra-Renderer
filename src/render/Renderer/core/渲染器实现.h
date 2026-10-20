@@ -138,13 +138,15 @@ namespace engine
 		Font_Context font;
 		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）
 		uint64_t text_pipeline = 0;
-		//文本网格缓存条目（(字体句柄, 文本) → 网格句柄；避免逐帧重建几何）
+		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
 		struct Text_Mesh_Record
 		{
 			//字体句柄
 			uint64_t font = 0;
 			//文本（UTF-8）
 			std::string text;
+			//布局（换行宽度 / 行高 / 对齐；参与缓存键，避免同文本不同布局命中旧网格）
+			Text_Layout layout;
 			//网格句柄
 			Mesh_Handle mesh = 0;
 		};

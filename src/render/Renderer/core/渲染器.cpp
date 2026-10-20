@@ -1878,8 +1878,44 @@ namespace engine
 		impl->font.font_destroy(handle);
 	}
 
-	//绘制文本（像素坐标，原点在窗口左上、Y 向下）
+	//绘制文本（默认布局：单行、左对齐）
 	bool Renderer::text_draw(uint64_t font, const std::string& text, float pixel_x, float pixel_y)
+	{
+		//默认布局即单行左对齐（不换行、行高取字体像素高度）
+		return text_draw_layout(font, text, pixel_x, pixel_y, Text_Layout{});
+	}
+
+	//度量单行文本（像素；宽不含尾随空白，高恒为字体像素高度）
+	bool Renderer::text_measure(uint64_t font, const std::string& text, float* width_out, float* height_out) const
+	{
+		//默认零度量
+		if (width_out != nullptr)
+			*width_out = 0.0f;
+		if (height_out != nullptr)
+			*height_out = 0.0f;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//取字体记录（只读）
+		const Font_Record* record = impl->font.font_get(font);
+		if (record == nullptr)
+			return false;
+		//像素度量（整型）
+		uint32_t width = 0;
+		uint32_t height = 0;
+		if (!Font_Context::text_measure(*record, text, width, height))
+			return false;
+		//写出浮点出参
+		if (width_out != nullptr)
+			*width_out = static_cast<float>(width);
+		if (height_out != nullptr)
+			*height_out = static_cast<float>(height);
+		return true;
+	}
+
+	//按布局绘制文本（像素坐标，原点在窗口左上、Y 向下）
+	bool Renderer::text_draw_layout(uint64_t font, const std::string& text, float pixel_x, float pixel_y,
+		const Text_Layout& layout)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
@@ -1919,25 +1955,30 @@ namespace engine
 		}
 
 		/*
-		取 / 建 (字体, 文本) 网格
-		文字几何逐帧重建代价不必要，故按「字体句柄 ＋ 文本」缓存网格句柄。
+		取 / 建 (字体, 文本, 布局) 网格
+		文字几何逐帧重建代价不必要，故按「字体句柄 ＋ 文本 ＋ 布局三项」缓存网格句柄；
+		布局必须参与缓存键，否则同一文本换布局后会命中旧网格（几何不更新）。
 		*/
 		Mesh_Handle mesh = 0;
 		for (const auto& item : impl->text_meshes)
 		{
 			//命中本字体与本文本
-			if (item.font == font && item.text == text)
-			{
-				mesh = item.mesh;
-				break;
-			}
+			if (item.font != font || item.text != text)
+				continue;
+			//布局三项须完全一致
+			if (item.layout.max_width != layout.max_width
+				|| item.layout.line_height != layout.line_height
+				|| item.layout.align != layout.align)
+				continue;
+			mesh = item.mesh;
+			break;
 		}
 		//未命中则新建
 		if (mesh == 0)
 		{
-			//生成文字几何（像素坐标，原点在文本左上角）
+			//按布局生成文字几何（像素坐标，原点在文本左上角）
 			Mesh_Data data;
-			if (!Font_Context::text_geometry_build(data, *record, text))
+			if (!Font_Context::text_layout_build(data, *record, text, layout))
 			{
 				logger.error("渲染器:: 文字几何生成失败（文本无可见字形）");
 				return false;
@@ -1952,6 +1993,7 @@ namespace engine
 			Impl::Text_Mesh_Record item{};
 			item.font = font;
 			item.text = text;
+			item.layout = layout;
 			item.mesh = mesh;
 			impl->text_meshes.push_back(item);
 		}

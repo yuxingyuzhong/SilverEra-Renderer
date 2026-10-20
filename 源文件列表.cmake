@@ -99,6 +99,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Swapchain/局部命名空间使用.h"
     "src/render/Text/字体.h"
     "src/render/Text/局部命名空间使用.h"
+    "src/render/Text/文字布局数据.h"
     "src/render/Texture/局部命名空间使用.h"
     "src/render/Texture/纹理.h"
     "src/render/Texture/纹理数据.h"

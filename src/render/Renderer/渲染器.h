@@ -15,6 +15,8 @@
 #include "Application/Renderer/src/render/Pipeline/材质数据.h"
 //场景公共语义类型（Vulkan-free）：场景描述
 #include "Application/Renderer/src/render/Scene/场景数据.h"
+//文字布局公共语义类型（Vulkan-free）：对齐方式与换行宽度
+#include "Application/Renderer/src/render/Text/文字布局数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -307,6 +309,21 @@ namespace engine
 		空文本返回真但不登记绘制项；未初始化 / 字体句柄无效 / 文本无可见字形时返回假。
 		*/
 		bool text_draw(uint64_t font, const std::string& text, float pixel_x, float pixel_y);
+		/*
+		度量单行文本（像素）
+		宽度按字形推进累加、**不含尾随空白**；高度恒为字体像素高度。
+		未初始化 / 字体句柄无效 / 文本无可见字形时两出参置 0 并返回假；出参指针可为空（该侧不写出）。
+		*/
+		bool text_measure(uint64_t font, const std::string& text, float* width_out, float* height_out) const;
+		/*
+		按布局绘制文本（UTF-8；像素坐标，原点在窗口左上、Y 向下，pixel_x / pixel_y 为**首行左上角**）
+		换行：layout.max_width > 0 时逐字符断行（显式 '\n' 亦断行）；max_width == 0 时单行、align 无效果。
+		对齐：以行为单位按 layout.align 平移（基准为 max_width）；行距取 layout.line_height（0 = 字体像素高度）。
+		内部与 text_draw 共用「懒登记文字管线 → 绑图集 → 按 (字体, 文本, 布局) 缓存网格 → 登记绘制项」链路。
+		空文本返回真但不登记绘制项；未初始化 / 字体句柄无效 / 文本无可见字形时返回假。
+		*/
+		bool text_draw_layout(uint64_t font, const std::string& text, float pixel_x, float pixel_y,
+			const Text_Layout& layout);
 		/*
 		取该字体累计被跳过的码点数（诊断入口；未初始化 / 句柄无效返回 0）
 		口径：只统计「补烘阶段判定为无法呈现」的码点（字体不含该码点、字形过宽、图集空间不足），
