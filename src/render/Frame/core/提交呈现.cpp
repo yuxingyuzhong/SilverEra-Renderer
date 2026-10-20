@@ -6,7 +6,10 @@
 
 namespace engine
 {
-	//累计本帧绘制统计（绘制项数 ＋ 实例数）
+	//登记态绘制统计（按登记项累计；实际绘制量由 items_record 的返回值 frame_recorded 另计）
+	//累计本帧绘制统计（登记量 ＋ 实际绘制量）
+	//登记量按登记项累计；实际绘制量取 items_record 的返回值 frame_recorded（跳过的不完整项不计）
+	//登记态绘制统计（按登记项累计；实际绘制量由 items_record 的返回值 frame_recorded 另计）
 	void Frame_Context::frame_stats_accumulate(const Frame_Render_Item* items, uint32_t item_count)
 	{
 		//累计绘制项数（按登记项计）
@@ -14,6 +17,9 @@ namespace engine
 		//累计实例数（各绘制项 instance_count 之和；0 表该项不完整、无实例可计）
 		for (uint32_t index = 0; index < item_count; ++index)
 			total_instances += items[index].instance_count;
+		//累计实际绘制量（条件：本次录制已发生，frame_recorded 非零；被跳过的项不计）
+		total_drawn_items += frame_recorded.items;
+		total_drawn_instances += frame_recorded.instances;
 	}
 
 	//读回某帧槽上一轮 GPU 时间戳并换算毫秒（调用方须保证该槽上一轮提交已完成）

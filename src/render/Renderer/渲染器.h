@@ -57,10 +57,18 @@ namespace engine
 		uint64_t frames = 0;
 		//最近一帧主机侧耗时（毫秒）
 		double frame_ms = 0.0;
-		//累计绘制项数（含同帧多 pass 路径的后处理绘制项）
+		//累计绘制项数（含同帧多 pass 路径的后处理绘制项；**按登记项计**，含被跳过的不完整项）
 		uint64_t draw_items = 0;
-		//累计实例数
+		//累计实例数（按登记项计）
 		uint64_t instances = 0;
+		/*
+		累计**实际绘制**项数（第十一轮新增；不含被跳过的渲染项）
+		与 draw_items 的差异：登记项若管线 / 缓冲缺失、索引数或实例数为 0，则被跳过、只计入 draw_items。
+		二者相等即表示「所有登记项都真正下达了绘制命令」。
+		*/
+		uint64_t drawn_items = 0;
+		//累计**实际绘制**实例数（第十一轮新增；不含被跳过的渲染项）
+		uint64_t drawn_instances = 0;
 		//最近一帧 GPU 侧耗时（毫秒；设备不支持 GPU 时间戳时恒 0）
 		double gpu_frame_ms = 0.0;
 		//累计主机侧耗时（毫秒；自 init 以来各帧 frame_ms 之和）

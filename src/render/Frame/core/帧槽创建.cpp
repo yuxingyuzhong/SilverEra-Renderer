@@ -138,7 +138,12 @@ namespace engine
 		last_frame_ms = 0.0;
 		total_frame_ms = 0.0;
 		total_draw_items = 0;
+		timestamp_supported = false;
 		total_instances = 0;
+		total_drawn_items = 0;
+		total_drawn_instances = 0;
+		frame_recorded = Recorded_Counts{};
+		timestamp_supported = false;
 		timestamp_supported = false;
 		timestamp_period = 0.0f;
 		timestamp_valid_bits = 0;
@@ -192,6 +197,18 @@ namespace engine
 	uint64_t Frame_Context::total_draw_items_get(void) const
 	{
 		return total_draw_items;
+	}
+
+	//累计实际绘制项数
+	uint64_t Frame_Context::total_drawn_items_get(void) const
+	{
+		return total_drawn_items;
+	}
+
+	//累计实际绘制实例数
+	uint64_t Frame_Context::total_drawn_instances_get(void) const
+	{
+		return total_drawn_instances;
 	}
 
 	//累计实例数

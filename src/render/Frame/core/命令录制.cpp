@@ -10,9 +10,14 @@ namespace engine
 	而各渲染项**可挂不同图形管线**（多材质 / 多管线），故管线与描述符集只在发生变化时重绑，
 	以减少 GPU 状态切换（K 优化）。推送常量与顶点 / 索引 / 实例缓冲各网格不同，仍须逐项绑定。
 	由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
+	★ 第十一轮：返回**实际绘制**的项数与实例数（不完整项被跳过，故可能小于入参 item_count），
+	  供帧统计区分「登记量」与「实际绘制量」（处置 R-FRAME-10 / R-FACADE-09）。
 	*/
-	void Frame_Context::items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count)
+	Frame_Context::Recorded_Counts Frame_Context::items_record(VkCommandBuffer command_buffer,
+		const Frame_Render_Item* items, uint32_t item_count)
 	{
+		//本批实际绘制的项数与实例数
+		Recorded_Counts counts{};
 		//当前已绑定的图形管线（初始为空）
 		VkPipeline bound_pipeline = VK_NULL_HANDLE;
 		//当前已绑定的管线布局
@@ -85,7 +90,11 @@ namespace engine
 
 			//绘制索引几何（实例数由渲染项给出；实例数 ≥ 1）
 			vkCmdDrawIndexed(command_buffer, item.index_count, item.instance_count, 0, 0, 0);
+			//累计本批实际绘制量（仅在此处递增，被跳过的项不计）
+			++counts.items;
+			counts.instances += item.instance_count;
 		}
+		return counts;
 	}
 
 	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制 + UI 阶段）+ 可选像素回读 + 呈现前布局转换
@@ -189,7 +198,9 @@ namespace engine
 		vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
 		//逐渲染项绘制（带状态缓存）
-		items_record(command_buffer, items, item_count);
+		//清零本帧实际绘制量（本次录制重新累计；链路径的各级另在下方逐级累加）
+		frame_recorded = Recorded_Counts{};
+		frame_recorded = items_record(command_buffer, items, item_count);
 
 		/*
 		UI 阶段
@@ -377,7 +388,9 @@ namespace engine
 		vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
 		//逐渲染项绘制（带状态缓存）
-		items_record(command_buffer, items, item_count);
+		//清零本帧实际绘制量（本次录制重新累计；链路径的各级另在下方逐级累加）
+		frame_recorded = Recorded_Counts{};
+		frame_recorded = items_record(command_buffer, items, item_count);
 
 		//UI 阶段（可选；与交换链路径同一时机——场景 pass 内、结束动态渲染之前）
 		if (ui_callback != nullptr && ui_callback->fn != nullptr)
@@ -548,7 +561,9 @@ namespace engine
 		scene_scissor.extent = scene_target.extent;
 		vkCmdSetScissor(command_buffer, 0, 1, &scene_scissor);
 		//场景 pass · 场景绘制
-		items_record(command_buffer, items, item_count);
+		//清零本帧实际绘制量（本次录制重新累计；链路径的各级另在下方逐级累加）
+		frame_recorded = Recorded_Counts{};
+		frame_recorded = items_record(command_buffer, items, item_count);
 		//场景 pass · 结束动态渲染
 		vkCmdEndRendering(command_buffer);
 
@@ -664,7 +679,9 @@ namespace engine
 			stage_scissor.extent = stage_extent;
 			vkCmdSetScissor(command_buffer, 0, 1, &stage_scissor);
 			//本级 · 全屏后处理绘制（单绘制项）
-			items_record(command_buffer, &post_items[stage], 1);
+			Recorded_Counts stage_counts = items_record(command_buffer, &post_items[stage], 1);
+			frame_recorded.items += stage_counts.items;
+			frame_recorded.instances += stage_counts.instances;
 			//本级 · 结束动态渲染
 			vkCmdEndRendering(command_buffer);
 

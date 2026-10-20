@@ -240,6 +240,19 @@ namespace engine
 			const Frame_Render_Target& second_target, const Frame_Render_Item* items, uint32_t item_count,
 			const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
 			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr);
+		/*
+		实际绘制量（第十一轮新增）
+		区分「登记量」（上层登记的渲染项数）与「实际绘制量」（真正下达绘制命令的量）：
+		items_record 会跳过不完整项（管线 / 缓冲缺失、索引数或实例数为 0），故实际量可能小于登记量。
+		*/
+		struct Recorded_Counts
+		{
+			//实际绘制的项数
+			uint32_t items = 0;
+			//实际绘制的实例数
+			uint64_t instances = 0;
+		};
+
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -272,6 +285,10 @@ namespace engine
 		double total_frame_ms_get(void) const;
 		uint64_t total_draw_items_get(void) const;
 		uint64_t total_instances_get(void) const;
+		//累计实际绘制项数（第十一轮；不含被跳过的不完整项）
+		uint64_t total_drawn_items_get(void) const;
+		//累计实际绘制实例数（第十一轮；不含被跳过的不完整项）
+		uint64_t total_drawn_instances_get(void) const;
 		/*
 		GPU 时间戳能力（设备与图形队列族均支持时为真；为假时 GPU 耗时字段恒 0 且不报错）
 		供门面 gpu_timestamp_supported 取用。
@@ -337,7 +354,7 @@ namespace engine
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
 		*/
-		void items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
+		Recorded_Counts items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
 			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
@@ -403,8 +420,14 @@ namespace engine
 		double total_frame_ms = 0.0;
 		//累计绘制项数（自构建以来）
 		uint64_t total_draw_items = 0;
-		//累计实例数（自构建以来）
+		//累计实例数（按登记项计；含被跳过的不完整项）
 		uint64_t total_instances = 0;
+		//累计实际绘制项数（第十一轮；不含被跳过的不完整项）
+		uint64_t total_drawn_items = 0;
+		//累计实际绘制实例数（第十一轮；不含被跳过的不完整项）
+		uint64_t total_drawn_instances = 0;
+		//本帧已录制期间累计的实际绘制量（每次 render 起始处清零，录制时由 items_record 递增）
+		Recorded_Counts frame_recorded{};
 		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
 		bool timestamp_supported = false;
 		//时间戳周期（纳秒 / tick；用于把 tick 差换算为时间）

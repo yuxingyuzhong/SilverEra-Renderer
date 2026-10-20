@@ -960,6 +960,9 @@ namespace engine
 		stats.instances = impl->frame.total_instances_get();
 		//GPU 侧耗时取自帧模块时间戳查询池（设备不支持时恒 0）
 		stats.gpu_frame_ms = impl->frame.last_gpu_frame_ms_get();
+		//实际绘制量（不含被跳过的不完整项；与登记量 draw_items / instances 对照可见差异）
+		stats.drawn_items = impl->frame.total_drawn_items_get();
+		stats.drawn_instances = impl->frame.total_drawn_instances_get();
 		//累计口径：主机侧耗时之和、GPU 侧成功读回之和与样本数
 		stats.frame_total_ms = impl->frame.total_frame_ms_get();
 		stats.gpu_total_ms = impl->frame.total_gpu_frame_ms_get();
