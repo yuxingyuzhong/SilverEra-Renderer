@@ -274,6 +274,18 @@ namespace engine
 		*/
 		bool post_chain_set(const uint64_t* handles, uint32_t count);
 		/*
+		读取当前后处理链级数（0 表未设链，即走单级默认后处理）
+		**下标即当前级序**：若某级管线被卸载，链中该句柄会被摘除、后续级序前移，
+		故与「post_chain_set 时的原始下标」可能不同。
+		*/
+		uint32_t post_chain_count(void) const;
+		/*
+		读回当前后处理链的各级管线句柄（只读诊断入口）
+		返回实际写入 out 的级数 = min(链级数, capacity)；out 为空时返回 0。
+		未初始化 / 未设链时返回 0。
+		*/
+		uint32_t post_chain_get(uint64_t* out, uint32_t capacity) const;
+		/*
 		把指定渲染目标的颜色绑定为「当前纹理」（供后续绘制采样）
 		等价于把当前纹理替换为该目标的颜色图像；句柄无效时静默返回（保持原绑定不变）。
 		与 render_target_set 配合即可完成「离屏渲染 → 采样合成」闭环。
@@ -295,6 +307,12 @@ namespace engine
 		空文本返回真但不登记绘制项；未初始化 / 字体句柄无效 / 文本无可见字形时返回假。
 		*/
 		bool text_draw(uint64_t font, const std::string& text, float pixel_x, float pixel_y);
+		/*
+		取该字体累计被跳过的码点数（诊断入口；未初始化 / 句柄无效返回 0）
+		口径：只统计「补烘阶段判定为无法呈现」的码点（字体不含该码点、字形过宽、图集空间不足），
+		按码点去重计（同一码点至多计一次），UTF-8 解码失败的字节不计；计数只增不减。
+		*/
+		uint64_t font_skipped_codepoints(uint64_t font) const;
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

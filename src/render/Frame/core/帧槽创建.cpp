@@ -138,12 +138,10 @@ namespace engine
 		last_frame_ms = 0.0;
 		total_frame_ms = 0.0;
 		total_draw_items = 0;
-		timestamp_supported = false;
 		total_instances = 0;
 		total_drawn_items = 0;
 		total_drawn_instances = 0;
 		frame_recorded = Recorded_Counts{};
-		timestamp_supported = false;
 		timestamp_supported = false;
 		timestamp_period = 0.0f;
 		timestamp_valid_bits = 0;

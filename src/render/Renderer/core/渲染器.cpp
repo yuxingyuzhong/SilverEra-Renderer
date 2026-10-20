@@ -1772,6 +1772,31 @@ namespace engine
 		return true;
 	}
 
+	//读取当前后处理链级数（0 表未设链）
+	uint32_t Renderer::post_chain_count(void) const
+	{
+		//未初始化则视为空链
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return static_cast<uint32_t>(impl->post_chain.size());
+	}
+
+	//读回当前后处理链的各级管线句柄（只读诊断入口）
+	uint32_t Renderer::post_chain_get(uint64_t* out, uint32_t capacity) const
+	{
+		//出参为空 / 未初始化 / 未设链则返回 0
+		if (out == nullptr || impl == nullptr || !impl->initialized)
+			return 0;
+		//实际写入级数 = min(链级数, 容量)
+		uint32_t count = static_cast<uint32_t>(impl->post_chain.size());
+		if (count > capacity)
+			count = capacity;
+		//按当前级序逐级写出（级序可能因管线卸载而压缩）
+		for (uint32_t index = 0; index < count; ++index)
+			out[index] = impl->post_chain[index];
+		return count;
+	}
+
 	//把渲染目标的颜色绑定为当前纹理（供后续绘制采样）
 	void Renderer::texture_bind_target(uint64_t handle)
 	{
@@ -1961,6 +1986,15 @@ namespace engine
 
 		//登记绘制项（沿用既有网格绘制路径）
 		return mesh_draw(mesh, transform.data());
+	}
+
+	//取该字体累计被跳过的码点数（诊断入口）
+	uint64_t Renderer::font_skipped_codepoints(uint64_t font) const
+	{
+		//未初始化则视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->font.font_skipped_codepoints_get(font);
 	}
 
 	//相机：设置位置

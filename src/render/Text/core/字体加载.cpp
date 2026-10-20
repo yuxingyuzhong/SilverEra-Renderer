@@ -426,6 +426,17 @@ namespace engine
 		//逐码点补烘
 		for (uint32_t codepoint : missing)
 		{
+			/*
+			字体不含该码点则直接跳过（诊断计数 +1）
+			以 FindGlyphIndex 判「是否真正支持」：空白字符（如空格）返回非 0，故不会被误计。
+			*/
+			if (stbtt_FindGlyphIndex(&info, static_cast<int>(codepoint)) == 0)
+			{
+				logger.warn("字体:: 字体不含码点 {}，已跳过", codepoint);
+				++record.skipped_codepoints;
+				record.glyphs[codepoint] = Font_Glyph{};
+				continue;
+			}
 			//本字形度量（无论有无位图都要写 advance）
 			Font_Glyph glyph{};
 			int glyph_width = 0;
@@ -446,6 +457,7 @@ namespace engine
 			if (static_cast<uint32_t>(glyph_width) + 2 > record.atlas_width)
 			{
 				logger.warn("字体:: 补烘字形 {} 过宽（{} 像素），已跳过", codepoint, glyph_width);
+				++record.skipped_codepoints;
 				stbtt_FreeBitmap(mono, nullptr);
 				record.glyphs[codepoint] = glyph;
 				continue;
@@ -461,6 +473,7 @@ namespace engine
 			if (record.cursor_y + static_cast<uint32_t>(glyph_height) + 1 > record.atlas_height)
 			{
 				logger.warn("字体:: 字形图集空间不足，字形 {} 已跳过", codepoint);
+				++record.skipped_codepoints;
 				stbtt_FreeBitmap(mono, nullptr);
 				record.glyphs[codepoint] = glyph;
 				continue;
@@ -540,6 +553,20 @@ namespace engine
 		if (!record.valid)
 			return nullptr;
 		return &record;
+	}
+
+	//取累计被跳过的码点数
+	uint64_t Font_Context::font_skipped_codepoints_get(uint64_t handle) const
+	{
+		//句柄无效则返回 0
+		if (handle == 0 || handle > records.size())
+			return 0;
+		//取目标记录
+		const Font_Record& record = records[handle - 1];
+		//已空则返回 0
+		if (!record.valid)
+			return 0;
+		return record.skipped_codepoints;
 	}
 
 	//取可写字体记录

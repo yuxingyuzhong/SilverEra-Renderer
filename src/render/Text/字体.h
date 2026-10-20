@@ -71,6 +71,13 @@ namespace engine
 		uint32_t shelf_height = 0;
 		//已退役的旧图集纹理（图集重建时产生；字体销毁时统一归还）
 		std::vector<uint64_t> retired_atlas_textures;
+		/*
+		累计被跳过的码点数（诊断口径）
+		只统计「补烘阶段判定为无法呈现」的码点：字体不含该码点、字形过宽、图集空间不足；
+		按码点去重计（同一码点至多计一次），UTF-8 解码失败的字节不计。
+		计数只增不减，跨多次绘制累加，字体销毁时随记录复位。
+		*/
+		uint64_t skipped_codepoints = 0;
 		//记录是否有效
 		bool valid = false;
 	};
@@ -112,6 +119,8 @@ namespace engine
 		void font_destroy(uint64_t handle);
 		//取字体记录（句柄无效返回 nullptr）
 		const Font_Record* font_get(uint64_t handle) const;
+		//取累计被跳过的码点数（句柄无效返回 0；口径见 Font_Record::skipped_codepoints）
+		uint64_t font_skipped_codepoints_get(uint64_t handle) const;
 		//取可写字体记录（句柄无效返回 nullptr；供惰性字形补烘）
 		Font_Record* font_get_mutable(uint64_t handle);
 		/*
