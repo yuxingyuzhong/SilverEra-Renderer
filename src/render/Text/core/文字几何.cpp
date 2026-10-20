@@ -164,6 +164,8 @@ namespace engine
 			? layout.line_height : static_cast<float>(record.pixel_height);
 		//换行宽度上限（0 表不换行）
 		float max_width = layout.max_width > 0.0f ? layout.max_width : 0.0f;
+		//字距（计入行宽，故参与换行与对齐）
+		float tracking = layout.tracking;
 
 		//按行收集字形（每行一个数组）
 		std::vector<std::vector<const Font_Glyph*>> lines;
@@ -194,7 +196,7 @@ namespace engine
 			if (glyph == nullptr)
 				continue;
 			//换行判定：当前行非空且再加入本字形会超限（单字形超宽时独占一行，不在此断行）
-			if (max_width > 0.0f && !lines.back().empty() && line_advance + glyph->advance > max_width)
+			if (max_width > 0.0f && !lines.back().empty() && line_advance + glyph->advance + tracking > max_width)
 			{
 				line_widths.push_back(line_advance);
 				lines.emplace_back();
@@ -202,7 +204,7 @@ namespace engine
 			}
 			//收容本字形
 			lines.back().push_back(glyph);
-			line_advance += glyph->advance;
+			line_advance += glyph->advance + tracking;
 		}
 		//收束最后一行
 		line_widths.push_back(line_advance);
@@ -233,6 +235,9 @@ namespace engine
 				if (pen_x < 0.0f)
 					pen_x = 0.0f;
 			}
+			//首行缩进：仅第一行整体右移（不计入行宽与换行判据）
+			if (line_index == 0)
+				pen_x += layout.first_line_indent;
 			//逐字形产出四边形
 			for (const Font_Glyph* glyph : line)
 			{
@@ -284,8 +289,8 @@ namespace engine
 					data_out.indices.push_back(base + 3);
 					data_out.indices.push_back(base + 2);
 				}
-				//推进笔位
-				pen_x += glyph->advance;
+				//推进笔位（含字距）
+				pen_x += glyph->advance + tracking;
 			}
 		}
 

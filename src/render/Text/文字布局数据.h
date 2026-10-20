@@ -33,5 +33,17 @@ namespace engine
 		float line_height = 0.0f;
 		//行内对齐
 		Text_Align align = Text_Align::Left;
+		/*
+		字距（像素；每个字形推进后额外增加的间距）
+		tracking **计入行宽**，故同时影响换行判定与对齐结果；
+		注意 text_measure 为「无字距基线」，不包含 tracking（度量为单行纯推进量）。
+		*/
+		float tracking = 0.0f;
+		/*
+		首行缩进（像素；仅首行起始笔位额外右移）
+		indent **不计入换行判据**、也不改变行宽（故右对齐 / 居中时首行整体右移，可能超出 max_width）；
+		只对第一行生效，其余行为 0。
+		*/
+		float first_line_indent = 0.0f;
 	};
 }

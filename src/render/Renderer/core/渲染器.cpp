@@ -1965,10 +1965,12 @@ namespace engine
 			//命中本字体与本文本
 			if (item.font != font || item.text != text)
 				continue;
-			//布局三项须完全一致
+			//布局五项须完全一致
 			if (item.layout.max_width != layout.max_width
 				|| item.layout.line_height != layout.line_height
-				|| item.layout.align != layout.align)
+				|| item.layout.align != layout.align
+				|| item.layout.tracking != layout.tracking
+				|| item.layout.first_line_indent != layout.first_line_indent)
 				continue;
 			mesh = item.mesh;
 			break;
