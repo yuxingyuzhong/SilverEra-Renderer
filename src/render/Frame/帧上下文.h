@@ -213,10 +213,12 @@ namespace engine
 		/*
 		渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
 		（同帧多 pass；与 render_to_target 的跨帧闭环不同，本路径在同一帧内完成「目标 → 后处理 → 呈现」）。
+		★ 第十轮收口：本函数是 render_chain_present 的**单级特例薄封装**（后处理级数 = 1、无第二目标），
+		  两条路径共用同一套录制 / 提交 / 统计实现（不再各自维护一份）。
 		target 为离屏目标附件；items / item_count 为**第一个 pass（场景）**的渲染项；
 		post_item 为**第二个 pass（后处理）**的单个绘制项（管线 / 布局 / 描述符集 / 全屏几何 / 实例缓冲）；
 		readback 非空时回读的是**最终呈现到交换链**的颜色附件（即后处理输出）。
-		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源）。
+		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源），不一致按硬错误拒绝。
 		返回假视为硬错误。
 		*/
 		bool render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
@@ -231,7 +233,7 @@ namespace engine
 		中间目标（scene_target / second_target）在帧间恒保持 SHADER_READ_ONLY_OPTIMAL（每级写完后转回）。
 		post_items 为各级后处理绘制项（其 sampler_set 须分别绑定对应源的采样集）；
 		readback 非空时回读的是**最终呈现到交换链**的颜色附件。
-		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源）。
+		要求**每个**目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源），不一致按硬错误拒绝。
 		返回假视为硬错误。
 		*/
 		bool render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target& scene_target,
@@ -317,17 +319,6 @@ namespace engine
 		void command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
-			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
-		/*
-		录制「同帧多 pass」的命令缓冲（实现见 core/命令录制.cpp）
-		pass 1：颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，以 items 绘制进目标，结束渲染后转回 SHADER_READ_ONLY；
-		pass 2：交换链图像 UNDEFINED → COLOR_ATTACHMENT，以 post_item 全屏绘制（采样目标），
-		        结束后按是否回读转入 TRANSFER_SRC / PRESENT_SRC。
-		*/
-		void command_record_target_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
-			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
-			const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
-			const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
 		录制「场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）

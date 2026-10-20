@@ -261,7 +261,7 @@ namespace engine
 		每级以独立管线对「上一级的输出」做一次全屏后处理：第 0 级取 render_target_present_set 的目标，
 		后续各级按奇偶在「该目标 / 第二目标」间 ping-pong 取样，末级结果呈现到交换链。
 		count 为 0 时清除链（回到既有的单级默认后处理路径，使用内置 后处理.vert / 后处理.frag）；
-		句柄数组为空而 count 非零、或任一句柄未登记时整链拒绝（保持原链不变）。
+		句柄数组为空而 count 非零、count 超过级数上限（8）、或任一句柄未登记时整链拒绝（保持原链不变）。
 		链长 ≥ 2 时须先用 render_target_present_secondary_set 设置第二目标，否则该帧回落单级路径。
 		*/
 		bool post_chain_set(const uint64_t* handles, uint32_t count);

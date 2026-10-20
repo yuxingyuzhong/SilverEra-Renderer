@@ -290,145 +290,17 @@ namespace engine
 
 	/*
 	渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
-	（同帧多 pass）。取图像 / 提交 / 呈现 / 像素回读与交换链路径同口径，仅录制内容不同。
+	（同帧多 pass）。
+	★ 第十轮收口：本函数为 render_chain_present 的**单级特例薄封装**（后处理级数 = 1、无第二目标），
+	  两条路径不再各自维护一套录制 / 提交 / 统计实现（消除双实现漂移风险）。
 	*/
 	bool Frame_Context::render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
 		const float clear_color[4], bool& rebuild_needed_out, Frame_Readback_Request* readback)
 	{
-		//默认无需重建
-		rebuild_needed_out = false;
-		//前置：帧上下文、交换链与离屏目标必须齐备
-		if (!valid() || !swapchain.valid())
-		{
-			logger.error("提交呈现:: 帧上下文或交换链尚未构建（同帧多 pass）");
-			return false;
-		}
-		//若交换链图像或信号量为空
-		if (swapchain.image_count_get() == 0 || swapchain.image_available_count_get() == 0
-			|| swapchain.render_finished_count_get() == 0)
-		{
-			logger.error("提交呈现:: 交换链图像或信号量为空（同帧多 pass）");
-			return false;
-		}
-		//若离屏目标附件不完整
-		if (target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
-			|| target.depth_view == VK_NULL_HANDLE || target.extent.width == 0 || target.extent.height == 0)
-		{
-			logger.error("提交呈现:: 离屏目标尚未就绪（同帧多 pass）");
-			return false;
-		}
-		//若后处理绘制项不完整
-		if (post_item.pipeline == VK_NULL_HANDLE || post_item.layout == VK_NULL_HANDLE
-			|| post_item.vertex_buffer == VK_NULL_HANDLE || post_item.index_buffer == VK_NULL_HANDLE
-			|| post_item.index_count == 0 || post_item.instance_buffer == VK_NULL_HANDLE
-			|| post_item.instance_count == 0)
-		{
-			logger.error("提交呈现:: 后处理绘制项不完整（同帧多 pass）");
-			return false;
-		}
-
-		//取当前帧槽（与其余路径共用同一轮转）
-		Frame_Slot& slot = slots[frame_count % frame_overlap];
-
-		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
-		if (!slot_fence_wait(slot))
-			return false;
-		//读回该帧槽上一轮 GPU 时间戳（此时上一轮已执行完；无能力 / 首轮时静默跳过）
-		gpu_timestamp_read(slot);
-
-		//取图像可用信号量（与交换链路径同口径）
-		VkSemaphore image_available = swapchain.image_available_semaphore_get(acquire_cursor % swapchain.image_available_count_get());
-
-		//取下一张交换链图像
-		uint32_t image_index = 0;
-		VkResult acquire = vkAcquireNextImageKHR(device, swapchain.handle_get(), UINT64_MAX,
-			image_available, VK_NULL_HANDLE, &image_index);
-		//若交换链过期或次优
-		if (acquire == VK_ERROR_OUT_OF_DATE_KHR || acquire == VK_SUBOPTIMAL_KHR)
-		{
-			//置「待重建」标志并跳过本帧（不作为硬错误）
-			rebuild_needed_out = true;
-			logger.debug("提交呈现:: 取图像返回 {}，标记交换链待重建（同帧多 pass）", vk_result_name_get(acquire));
-			return true;
-		}
-		//若取图像遇到其它硬错误
-		if (!vk_result_check(acquire, "vkAcquireNextImageKHR"))
-			return false;
-		//取用成功后推进信号量游标
-		++acquire_cursor;
-
-		//重置本帧槽完成栅栏（放在取图像成功之后，理由同交换链路径）
-		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
-			return false;
-
-		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
-		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
-			return false;
-
-		/*
-		像素回读准备（可选；回读来源为最终呈现到交换链的颜色附件，故按交换链范围校验）
-		*/
-		VkBuffer readback_target = VK_NULL_HANDLE;
-		//本帧是否请求回读（请求存在且目标缓冲非空）
-		bool readback_active = readback != nullptr && readback->pixels != nullptr;
-		//若本帧请求回读
-		if (readback_active)
-		{
-			//前置：交换链图像须具备传输源用法
-			if (!swapchain.color_transfer_src_get())
-			{
-				logger.error("提交呈现:: 交换链图像不具备传输源用法，像素回读不可用（同帧多 pass）");
-				return false;
-			}
-			//本帧像素字节数（RGBA8 紧排，按交换链范围）
-			VkExtent2D readback_extent = swapchain.extent_get();
-			VkDeviceSize readback_bytes = static_cast<VkDeviceSize>(readback_extent.width) * readback_extent.height * 4;
-			//若回读目标容量不足
-			if (readback->capacity < readback_bytes)
-			{
-				logger.error("提交呈现:: 回读目标容量不足（需 {} 字节，有 {} 字节；同帧多 pass）", readback_bytes, readback->capacity);
-				return false;
-			}
-			//确保回读缓冲就绪并把句柄交给录制
-			if (!readback_buffer_ensure(readback_bytes))
-				return false;
-			readback_target = readback_buffer;
-		}
-
-		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
-		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
-		//录制命令缓冲（目标 pass ＋ 后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
-		command_record_target_present(slot.command_buffer, swapchain.image_get(image_index),
-			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
-			target, items, item_count, post_item, clear_color, readback_target, slot.timestamp_pool);
-
-		//取本帧呈现完成信号量（按交换链图像持有）
-		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
-
-		//提交并呈现（与交换链路径共用同一提交 / 呈现实现）
-		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
-			return false;
-		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
-		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
-		//累计本帧主机侧耗时
-		total_frame_ms += last_frame_ms;
-		//累计本帧绘制统计（场景 pass 项 ＋ 后处理 pass 的单个绘制项）
-		frame_stats_accumulate(items, item_count);
-		total_draw_items += 1;
-		total_instances += post_item.instance_count;
-
-		//像素读出（可选；渲染与拷贝录在同一命令缓冲，等本帧槽栅栏即数据就绪）
-		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
-			return false;
-
-		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
-		slot.timestamp_written = true;
-		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
-		++frame_count;
-		//释放到期的延迟销毁条目
-		deferred_flush();
-		return true;
+		//单级后处理（源 = 场景目标、宿 = 交换链，不使用第二目标）
+		return render_chain_present(swapchain, target, Frame_Render_Target{}, items, item_count,
+			&post_item, 1, clear_color, rebuild_needed_out, readback);
 	}
 
 	/*
@@ -483,6 +355,30 @@ namespace engine
 				logger.error("提交呈现:: 后处理绘制项不完整（第 {} 级；后处理链）", stage);
 				return false;
 			}
+		}
+		/*
+		目标范围校验（处置 R-FRAME-09）
+		后处理着色器按帧缓冲坐标 1:1 取源，故每个中间目标的范围必须与交换链范围一致；
+		不一致会导致采样错位（画面拉伸 / 越界钳边），此处按硬错误拒绝，不做隐式缩放。
+		*/
+		VkExtent2D swapchain_extent_check = swapchain.extent_get();
+		//若场景目标范围与交换链不一致
+		if (scene_target.extent.width != swapchain_extent_check.width
+			|| scene_target.extent.height != swapchain_extent_check.height)
+		{
+			logger.error("提交呈现:: 场景目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
+				scene_target.extent.width, scene_target.extent.height,
+				swapchain_extent_check.width, swapchain_extent_check.height);
+			return false;
+		}
+		//若第二目标范围与交换链不一致
+		if (post_count >= 2 && (second_target.extent.width != swapchain_extent_check.width
+			|| second_target.extent.height != swapchain_extent_check.height))
+		{
+			logger.error("提交呈现:: 第二目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
+				second_target.extent.width, second_target.extent.height,
+				swapchain_extent_check.width, swapchain_extent_check.height);
+			return false;
 		}
 
 		//取当前帧槽（与其余路径共用同一轮转）

@@ -125,8 +125,11 @@ namespace engine
 		/*
 		本帧后处理链（各级具名管线句柄，下标即级序；空 = 走既有单级默认后处理路径）
 		由 post_chain_set 设置；各级使用同一全屏几何与场景 UBO，仅管线与源采样集不同。
+		级数上限见 POST_CHAIN_MAX_STAGES。
 		*/
 		std::vector<uint64_t> post_chain;
+		//后处理链级数上限（超出即整链拒绝；每级占用一次全屏 pass，超长链会带来隐性性能坍塌）
+		static constexpr uint32_t POST_CHAIN_MAX_STAGES = 8;
 		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档；仅用于既有单级默认路径）
 		uint64_t post_pipeline = 0;
 		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）

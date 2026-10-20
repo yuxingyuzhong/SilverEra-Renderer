@@ -731,6 +731,33 @@ namespace engine
 			if (ready && need_second)
 				ready = impl->render_target.target_get(impl->present_secondary, second_target.color_image,
 					second_target.color_view, second_target.depth_view, second_target.extent);
+			/*
+			目标范围一致性预检（处置 R-FACADE-08）
+			后处理按帧缓冲坐标 1:1 取源，故目标范围必须与交换链范围一致；不一致时本帧**回落原路径**并告警
+			（帧模块另有硬校验，此处提前回落以避免整帧失败）。
+			*/
+			if (ready)
+			{
+				//当前交换链范围
+				VkExtent2D swapchain_extent = impl->swapchain.extent_get();
+				//若场景目标范围与交换链不一致
+				if (scene_target.extent.width != swapchain_extent.width || scene_target.extent.height != swapchain_extent.height)
+				{
+					logger.warn("渲染器:: 后处理目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
+						scene_target.extent.width, scene_target.extent.height,
+						swapchain_extent.width, swapchain_extent.height);
+					ready = false;
+				}
+				//若第二目标范围与交换链不一致
+				else if (need_second && (second_target.extent.width != swapchain_extent.width
+					|| second_target.extent.height != swapchain_extent.height))
+				{
+					logger.warn("渲染器:: 后处理第二目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
+						second_target.extent.width, second_target.extent.height,
+						swapchain_extent.width, swapchain_extent.height);
+					ready = false;
+				}
+			}
 			//取共享采样器（把「各级源」写入后处理采样集）
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler shared_sampler = VK_NULL_HANDLE;
@@ -1714,6 +1741,16 @@ namespace engine
 		if (handles == nullptr)
 		{
 			logger.error("渲染器:: 后处理链设置失败：句柄数组为空而级数非零");
+			return false;
+		}
+		/*
+		级数上限（处置 R-FRAME-12 之①）
+		每级都要成对目标里的一级源 / 宿，且每帧后处理仅占 1 个实例位；超过上限即整链拒绝，
+		避免调用方误用超长链导致隐性性能坍塌（上限取 8，足够覆盖常见后处理链）。
+		*/
+		if (count > Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.error("渲染器:: 后处理链设置失败：级数 {} 超过上限 {}", count, Impl::POST_CHAIN_MAX_STAGES);
 			return false;
 		}
 		//逐句柄校验已登记（任一句柄未登记即整链拒绝，保持原链不变）
