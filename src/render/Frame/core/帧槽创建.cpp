@@ -136,12 +136,15 @@ namespace engine
 		acquire_cursor = 0;
 		frame_count = 0;
 		last_frame_ms = 0.0;
+		total_frame_ms = 0.0;
 		total_draw_items = 0;
 		total_instances = 0;
 		timestamp_supported = false;
 		timestamp_period = 0.0f;
 		timestamp_valid_bits = 0;
 		last_gpu_frame_ms = 0.0;
+		total_gpu_frame_ms = 0.0;
+		gpu_sample_count = 0;
 		//解除对内存模块的引用
 		memory = nullptr;
 	}
