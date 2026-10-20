@@ -179,6 +179,12 @@ namespace engine
 		return last_frame_ms;
 	}
 
+	//累计主机侧耗时（毫秒）
+	double Frame_Context::total_frame_ms_get(void) const
+	{
+		return total_frame_ms;
+	}
+
 	//累计绘制项数
 	uint64_t Frame_Context::total_draw_items_get(void) const
 	{
@@ -201,6 +207,18 @@ namespace engine
 	double Frame_Context::last_gpu_frame_ms_get(void) const
 	{
 		return last_gpu_frame_ms;
+	}
+
+	//累计 GPU 侧耗时（毫秒）
+	double Frame_Context::total_gpu_frame_ms_get(void) const
+	{
+		return total_gpu_frame_ms;
+	}
+
+	//已读回 GPU 时间戳的样本数
+	uint64_t Frame_Context::gpu_sample_count_get(void) const
+	{
+		return gpu_sample_count;
 	}
 
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）

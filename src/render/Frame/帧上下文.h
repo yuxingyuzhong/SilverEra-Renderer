@@ -223,6 +223,21 @@ namespace engine
 			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
 			const float clear_color[4], bool& rebuild_needed_out,
 			Frame_Readback_Request* readback = nullptr);
+		/*
+		渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理（ping-pong）并呈现到交换链
+		post_count 为后处理级数：≥ 1。第 i 级的源与宿按奇偶交替（i 偶 → 源 scene_target、宿 second_target；
+		i 奇 → 源 second_target、宿 scene_target），末级恒呈现到交换链；
+		故 post_count 为 1 时仅需 scene_target（等价于 render_to_target_present），post_count ≥ 2 时须给出 second_target。
+		中间目标（scene_target / second_target）在帧间恒保持 SHADER_READ_ONLY_OPTIMAL（每级写完后转回）。
+		post_items 为各级后处理绘制项（其 sampler_set 须分别绑定对应源的采样集）；
+		readback 非空时回读的是**最终呈现到交换链**的颜色附件。
+		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源）。
+		返回假视为硬错误。
+		*/
+		bool render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target& scene_target,
+			const Frame_Render_Target& second_target, const Frame_Render_Item* items, uint32_t item_count,
+			const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
+			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr);
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
 		/*
@@ -251,6 +266,8 @@ namespace engine
 		total_draw_items / total_instances 为自构建以来的累计绘制项数与实例数。
 		*/
 		double last_frame_ms_get(void) const;
+		//累计主机侧耗时（毫秒；自构建以来各帧「录制 ＋ 提交 ＋ 呈现调用」之和）
+		double total_frame_ms_get(void) const;
 		uint64_t total_draw_items_get(void) const;
 		uint64_t total_instances_get(void) const;
 		/*
@@ -260,6 +277,10 @@ namespace engine
 		bool gpu_timestamp_supported_get(void) const;
 		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
 		double last_gpu_frame_ms_get(void) const;
+		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回的时间戳之和；无能力时恒 0）
+		double total_gpu_frame_ms_get(void) const;
+		//已读回 GPU 时间戳的样本数（无能力 / 该帧槽首轮未写时间戳时不增；自构建以来累计）
+		uint64_t gpu_sample_count_get(void) const;
 		/*
 		压入延迟销毁条目（指示「release_frame 帧及以后」可释放）
 		条目中的旧资源（旧交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图）由帧模块在到期时释放；
@@ -307,6 +328,19 @@ namespace engine
 			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
 			const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
 			const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
+		/*
+		录制「场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
+		场景 pass：scene_target 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
+		后处理各级：源（奇偶交替）恒 SHADER_READ_ONLY → 以 post_items[i] 全屏绘制到宿（末级为交换链，
+		否则为另一中间目标，写完后转回 SHADER_READ_ONLY）；
+		交换链图像收尾按是否回读转入 TRANSFER_SRC + PRESENT_SRC 或直接转 PRESENT_SRC（与既有路径同口径）。
+		*/
+		void command_record_chain_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
+			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
+			const Frame_Render_Target& scene_target, const Frame_Render_Target& second_target,
+			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
+			uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
@@ -374,6 +408,8 @@ namespace engine
 		uint32_t frame_count = 0;
 		//最近一帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		double last_frame_ms = 0.0;
+		//累计主机侧耗时（毫秒；自构建以来）
+		double total_frame_ms = 0.0;
 		//累计绘制项数（自构建以来）
 		uint64_t total_draw_items = 0;
 		//累计实例数（自构建以来）
@@ -386,6 +422,10 @@ namespace engine
 		uint32_t timestamp_valid_bits = 0;
 		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
 		double last_gpu_frame_ms = 0.0;
+		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回之和）
+		double total_gpu_frame_ms = 0.0;
+		//已读回 GPU 时间戳的样本数（自构建以来）
+		uint64_t gpu_sample_count = 0;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
 		//内存模块（像素回读缓冲的创建 / 销毁依赖它）

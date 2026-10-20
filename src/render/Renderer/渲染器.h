@@ -63,6 +63,18 @@ namespace engine
 		uint64_t instances = 0;
 		//最近一帧 GPU 侧耗时（毫秒；设备不支持 GPU 时间戳时恒 0）
 		double gpu_frame_ms = 0.0;
+		//累计主机侧耗时（毫秒；自 init 以来各帧 frame_ms 之和）
+		double frame_total_ms = 0.0;
+		/*
+		累计 GPU 侧耗时（毫秒；自 init 以来各次成功读回的时间戳之和；设备不支持时恒 0）
+		读回口径为「按帧槽环形读回」：第 N 帧读回的是该槽上一轮（第 N − 在途帧数 帧）的耗时。
+		*/
+		double gpu_total_ms = 0.0;
+		/*
+		已读回 GPU 样本数（自 init 以来累计）
+		与帧数关系为 max(0, frames − 在途帧数)（帧槽首轮未写时间戳时不可读回）；设备不支持时恒 0。
+		*/
+		uint64_t gpu_samples = 0;
 	};
 
 	/*
@@ -238,6 +250,22 @@ namespace engine
 		*/
 		void render_target_present_set(uint64_t handle);
 		/*
+		设置「同帧后处理链」的第二（ping-pong）目标
+		post_chain_set 设定链长 ≥ 2 时必需：链上各级的源按奇偶交替（偶级取 render_target_present_set 的目标，
+		奇级取本目标），故需成对的中间目标；链长 1 时可不设置。
+		handle 为 0 时清除（回到「链长 ≥ 2 无第二目标 → 回落单级路径」）；句柄无效时清除并告警。
+		*/
+		void render_target_present_secondary_set(uint64_t handle);
+		/*
+		设置「同帧后处理链」（若干已登记管线句柄，下标即级序）
+		每级以独立管线对「上一级的输出」做一次全屏后处理：第 0 级取 render_target_present_set 的目标，
+		后续各级按奇偶在「该目标 / 第二目标」间 ping-pong 取样，末级结果呈现到交换链。
+		count 为 0 时清除链（回到既有的单级默认后处理路径，使用内置 后处理.vert / 后处理.frag）；
+		句柄数组为空而 count 非零、或任一句柄未登记时整链拒绝（保持原链不变）。
+		链长 ≥ 2 时须先用 render_target_present_secondary_set 设置第二目标，否则该帧回落单级路径。
+		*/
+		bool post_chain_set(const uint64_t* handles, uint32_t count);
+		/*
 		把指定渲染目标的颜色绑定为「当前纹理」（供后续绘制采样）
 		等价于把当前纹理替换为该目标的颜色图像；句柄无效时静默返回（保持原绑定不变）。
 		与 render_target_set 配合即可完成「离屏渲染 → 采样合成」闭环。
@@ -272,11 +300,14 @@ namespace engine
 		/*
 		应用场景描述（相机位置 / 注视点 / 视场角 / 近远平面 ＋ 清屏色）
 		等价于逐项调用上方四个相机 setter 并设置清屏色；未初始化时静默返回。
+		**参数校验**：视场角须落在 (0, π)、近平面须为正、远平面须大于近平面，任一非法即整次拒绝
+		（记录告警并保持既有相机与清屏色不变）；清屏色分量一律钳制到 [0,1]（负 / 非数归 0）。
 		*/
 		void scene_apply(const Scene_Data& scene);
 		/*
-		设置清屏色（RGBA，分量取值 0..1）
-		自下一次 frame_render 起生效；未初始化时静默返回。
+		设置清屏色（RGBA）
+		各分量钳制到 [0,1] 后生效（负 / 非数归 0、大于 1 归 1）；自下一次 frame_render 起生效；
+		未初始化或指针为空时静默返回。
 		*/
 		void clear_color_set(const float color[4]);
 

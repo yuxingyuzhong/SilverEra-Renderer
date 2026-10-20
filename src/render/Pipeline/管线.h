@@ -104,17 +104,24 @@ namespace engine
 		//第 slot 帧槽的采样器描述符集（set 1）
 		VkDescriptorSet sampler_set_get(uint32_t slot) const;
 		/*
-		第 slot 帧槽的后处理采样器描述符集（set 1）
-		与 sampler_set_get 同布局，但独立分配：使「同帧多 pass」中，场景 pass 用 sampler_set
-		采样场景纹理，后处理 pass 用 post_set 采样离屏目标，两 pass 互不覆盖对方绑定。
+		每帧槽的后处理采样器集数量
+		链式后处理中，各级的源只可能是「奇 / 偶」两种中间目标之一（ping-pong），
+		故每帧槽只需两个后处理集（index 0 表偶级源，index 1 表奇级源），与链长无关。
 		*/
-		VkDescriptorSet post_set_get(uint32_t slot) const;
+		static constexpr uint32_t POST_SET_PER_SLOT = 2;
+		/*
+		第 slot 帧槽的后处理采样器描述符集（set 1；index ∈ [0, POST_SET_PER_SLOT)）
+		与 sampler_set_get 同布局，但独立分配：使「同帧多 pass」中，场景 pass 用 sampler_set
+		采样场景纹理，后处理 pass 用 post_set 采样离屏目标，两 pass 互不覆盖对方绑定；
+		链式后处理中 index 0 / 1 分别为偶 / 奇级源的采样集，各级绑定各自的源图像。
+		*/
+		VkDescriptorSet post_set_get(uint32_t slot, uint32_t index = 0) const;
 		//向第 slot 帧槽写场景 UBO（set 0）
 		bool scene_bind(uint32_t slot, VkBuffer ubo_buffer);
 		//向第 slot 帧槽写采样器（set 1）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
-		//向第 slot 帧槽的后处理采样器集写采样器（set 1）
-		bool post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
+		//向第 slot 帧槽的后处理采样器集写采样器（set 1；index ∈ [0, POST_SET_PER_SLOT)）
+		bool post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 	private:
 		//描述符集布局创建（实现见 core/描述符布局.cpp）
 		bool descriptor_layouts_create(void);
@@ -145,7 +152,7 @@ namespace engine
 		std::vector<VkDescriptorSet> scene_sets;
 		//采样器描述符集（长度 = frame_overlap）
 		std::vector<VkDescriptorSet> sampler_sets;
-		//后处理采样器描述符集（长度 = frame_overlap；同布局、独立分配）
+		//后处理采样器描述符集（长度 = frame_overlap × POST_SET_PER_SLOT；同布局、独立分配；下标 = slot × 2 + index）
 		std::vector<VkDescriptorSet> post_sets;
 		//图形管线条目（句柄 0 为默认场景管线，其余为具名管线）
 		std::vector<Pipeline_Entry> pipelines;

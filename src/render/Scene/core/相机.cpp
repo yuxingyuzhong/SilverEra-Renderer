@@ -6,6 +6,23 @@
 
 namespace engine
 {
+	/*
+	构造
+	默认机位 / 注视点 / 视场角 / 近远平面一律取自 Scene_Data 的默认值（单一真源，避免两处硬编码漂移，
+	见 R-SCENE-07）；上方向与宽高比为本层自有默认（Scene_Data 未涵盖）。
+	*/
+	Camera::Camera(void)
+	{
+		//场景描述默认值（相机四项的唯一来源）
+		const Scene_Data defaults{};
+		//默认位置 / 注视点
+		position_set(defaults.position[0], defaults.position[1], defaults.position[2]);
+		target_set(defaults.target[0], defaults.target[1], defaults.target[2]);
+		//默认视场角与近远平面
+		fov_set(defaults.fov);
+		near_far_set(defaults.near_plane, defaults.far_plane);
+	}
+
 	//设置位置
 	void Camera::position_set(float x, float y, float z)
 	{

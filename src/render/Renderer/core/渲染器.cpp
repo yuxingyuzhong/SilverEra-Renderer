@@ -31,8 +31,35 @@ namespace engine
 		return true;
 	}
 
-	//确保同帧多 pass 后处理所需资源就绪（惰性创建）
-	bool Renderer::Impl::post_resources_ensure(void)
+	//确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
+	bool Renderer::Impl::post_mesh_ensure(void)
+	{
+		//全屏四边形网格尚未创建
+		if (fullscreen_mesh == 0)
+		{
+			//全屏四边形（NDC 范围 -1..1；绕序取 (0,2,1)/(0,3,2) 以匹配「不做 Y 翻转」的顶点输出）
+			Mesh_Data data{};
+			data.vertices = {
+				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
+				{ { 1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
+				{ { 1.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
+				{ { -1.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
+			};
+			data.indices = { 0, 2, 1, 0, 3, 2 };
+			//网格句柄（创建失败则整体失败）
+			Mesh_Handle created = 0;
+			if (!mesh.mesh_create(created, data))
+			{
+				logger.error("渲染器:: 后处理全屏网格创建失败");
+				return false;
+			}
+			fullscreen_mesh = created;
+		}
+		return true;
+	}
+
+	//确保内置单级后处理具名管线就绪（惰性登记；仅既有单级默认路径使用）
+	bool Renderer::Impl::post_pipeline_ensure(void)
 	{
 		//后处理具名管线尚未登记
 		if (post_pipeline == 0)
@@ -65,28 +92,16 @@ namespace engine
 			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
 			logger.info("渲染器:: 后处理管线已登记（句柄 {}）", registered);
 		}
-		//全屏四边形网格尚未创建
-		if (fullscreen_mesh == 0)
-		{
-			//全屏四边形（NDC 范围 -1..1；绕序取 (0,2,1)/(0,3,2) 以匹配「不做 Y 翻转」的顶点输出）
-			Mesh_Data data{};
-			data.vertices = {
-				{ { -1.0f, -1.0f, 0.0f }, { 0.0f, 0.0f } },
-				{ { 1.0f, -1.0f, 0.0f }, { 1.0f, 0.0f } },
-				{ { 1.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },
-				{ { -1.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } },
-			};
-			data.indices = { 0, 2, 1, 0, 3, 2 };
-			//网格句柄（创建失败则整体失败）
-			Mesh_Handle created = 0;
-			if (!mesh.mesh_create(created, data))
-			{
-				logger.error("渲染器:: 后处理全屏网格创建失败");
-				return false;
-			}
-			fullscreen_mesh = created;
-		}
 		return true;
+	}
+
+	//确保既有单级默认后处理所需资源就绪（默认后处理管线 ＋ 全屏网格）
+	bool Renderer::Impl::post_resources_ensure(void)
+	{
+		//先确保默认后处理管线，再确保全屏网格
+		if (!post_pipeline_ensure())
+			return false;
+		return post_mesh_ensure();
 	}
 
 	//构造（不创建任何 GPU 资源）
@@ -432,6 +447,8 @@ namespace engine
 		impl->active_target = 0;
 		//复位同帧后处理呈现路径与其资源句柄（全屏网格随网格模块销毁、后处理管线随管线模块销毁）
 		impl->present_target = 0;
+		impl->present_secondary = 0;
+		impl->post_chain.clear();
 		impl->post_pipeline = 0;
 		impl->fullscreen_mesh = 0;
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
@@ -595,11 +612,15 @@ namespace engine
 		*/
 		/*
 		同帧多 pass 后处理准备
-		若本帧设定「渲染到目标并同帧后处理呈现」，先确保后处理管线与全屏网格就绪，
+		若本帧设定「渲染到目标并同帧后处理呈现」，先确保后处理资源（全屏网格；单级路径另需默认后处理管线）就绪，
 		并把「单位模型矩阵」追加到本帧实例存储末尾（后处理全屏四边形以此为实例缓冲来源）。
 		追加须在下方「实例缓冲写入」之前完成，故此处先行。
+		路径：post_chain 非空 → 链路径（须 post_mesh_ensure；链长 ≥ 2 还须第二目标）；
+		      post_chain 为空 → 既有单级默认路径（post_resources_ensure）。
 		*/
 		bool post_frame = false;
+		//本帧是否走后处理链路径（false 且 post_frame → 既有单级默认路径）
+		bool post_chain_mode = false;
 		//后处理绘制项在本帧实例缓冲内的字节偏移
 		VkDeviceSize post_instance_offset = 0;
 		//若已设定同帧后处理呈现目标
@@ -608,23 +629,34 @@ namespace engine
 			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
 			if (impl->pending_instances.size() >= impl->instance_capacity)
 				logger.warn("渲染器:: 本帧实例存储已满，同帧后处理呈现回落原路径");
-			//若后处理资源就绪
-			else if (impl->post_resources_ensure())
-			{
-				//追加单位矩阵（列主序）并记录其字节偏移
-				post_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
-				impl->pending_instances.emplace_back();
-				std::array<float, 16>& identity = impl->pending_instances.back();
-				identity.fill(0.0f);
-				identity[0] = 1.0f;
-				identity[5] = 1.0f;
-				identity[10] = 1.0f;
-				identity[15] = 1.0f;
-				post_frame = true;
-			}
-			//资源未就绪则本帧回落原路径
+			//链长 ≥ 2 但第二目标未设置则回落单级默认路径
+			else if (!impl->post_chain.empty() && impl->post_chain.size() >= 2 && impl->present_secondary == 0)
+				logger.warn("渲染器:: 后处理链级数 ≥ 2 但第二目标未设置，本帧回落单级默认后处理");
 			else
-				logger.warn("渲染器:: 后处理资源未就绪，本帧回落原路径");
+			{
+				//本帧是否走链路径
+				bool chain_mode = !impl->post_chain.empty();
+				//确保后处理资源就绪（链 → 全屏网格；单级 → 全屏网格 ＋ 默认后处理管线）
+				bool resources_ready = chain_mode ? impl->post_mesh_ensure() : impl->post_resources_ensure();
+				//若资源就绪
+				if (resources_ready)
+				{
+					//追加单位矩阵（列主序）并记录其字节偏移
+					post_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					impl->pending_instances.emplace_back();
+					std::array<float, 16>& identity = impl->pending_instances.back();
+					identity.fill(0.0f);
+					identity[0] = 1.0f;
+					identity[5] = 1.0f;
+					identity[10] = 1.0f;
+					identity[15] = 1.0f;
+					post_frame = true;
+					post_chain_mode = chain_mode;
+				}
+				//资源未就绪则本帧回落原路径
+				else
+					logger.warn("渲染器:: 后处理资源未就绪，本帧回落原路径");
+			}
 		}
 		/*
 		实例模型矩阵写入本帧槽实例缓冲
@@ -672,7 +704,8 @@ namespace engine
 
 		/*
 		分派渲染路径
-		① 同帧多 pass 后处理（present_target 有效且资源就绪）：渲染到目标并在同帧内后处理呈现到交换链；
+		① 同帧多 pass 后处理（present_target 有效且资源就绪）：渲染到目标并在同帧内后处理呈现到交换链
+		   （post_chain_mode → N 级后处理链；否则 → 既有单级默认后处理）；
 		② 离屏路径（active_target 有效）：把场景渲染进目标、不呈现到窗口；
 		③ 交换链路径（默认）：取图像 → 渲染 → 呈现。
 		三路共用同一批帧槽与帧计数轮转，且互斥（后处理优先于离屏，离屏优先于交换链）。
@@ -681,51 +714,115 @@ namespace engine
 		//若走同帧多 pass 后处理路径
 		if (post_frame)
 		{
-			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
-			Frame_Render_Target target{};
+			//场景（第一）目标附件
+			Frame_Render_Target scene_target{};
+			//第二（ping-pong）目标附件（链长 1 时不使用）
+			Frame_Render_Target second_target{};
 			//全屏四边形网格的共用缓冲 / 索引区偏移 / 索引数
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;
 			uint32_t mesh_index_count = 0;
-			//目标与全屏网格均就绪才可走该路径
-			if (impl->render_target.target_get(impl->present_target, target.color_image, target.color_view,
-				target.depth_view, target.extent)
-				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count))
+			//链长 ≥ 2 时须第二个中间目标（链长 1 时不需要）
+			bool need_second = post_chain_mode && impl->post_chain.size() >= 2;
+			//场景目标与全屏网格均就绪（链长 ≥ 2 时第二目标亦须就绪）才可走该路径
+			bool ready = impl->render_target.target_get(impl->present_target, scene_target.color_image,
+				scene_target.color_view, scene_target.depth_view, scene_target.extent)
+				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+			if (ready && need_second)
+				ready = impl->render_target.target_get(impl->present_secondary, second_target.color_image,
+					second_target.color_view, second_target.depth_view, second_target.extent);
+			//取共享采样器（把「各级源」写入后处理采样集）
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler shared_sampler = VK_NULL_HANDLE;
+			if (ready && !impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
 			{
-				//把离屏目标颜色写入各帧槽的后处理采样器集（长命资源，一次写满全部槽）
-				VkImageView default_view = VK_NULL_HANDLE;
-				VkSampler shared_sampler = VK_NULL_HANDLE;
-				if (impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+				logger.error("渲染器:: 后处理失败：共享采样器不可用");
+				ready = false;
+			}
+			//若前置就绪
+			if (ready)
+			{
+				//把偶 / 奇级源图像写入各帧槽后处理采样器集（长命资源，一次写满全部槽）
+				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
 				{
-					for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
-						impl->pipeline.post_texture_bind(each, shared_sampler, target.color_view);
+					//index 0 = 场景目标（单级与链均使用）
+					impl->pipeline.post_texture_bind(each, shared_sampler, scene_target.color_view, 0);
+					//index 1 = 第二目标（仅链长 ≥ 2 使用）
+					if (need_second)
+						impl->pipeline.post_texture_bind(each, shared_sampler, second_target.color_view, 1);
 				}
-				//组装后处理绘制项（全屏四边形 ＋ 后处理管线 ＋ set0 场景 UBO / set1 离屏目标颜色）
-				Frame_Render_Item post_item{};
-				post_item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->post_pipeline);
-				post_item.layout = impl->pipeline.layout_get();
-				post_item.scene_set = impl->pipeline.scene_set_get(slot);
-				post_item.sampler_set = impl->pipeline.post_set_get(slot);
-				post_item.descriptor_set_count = 2;
-				post_item.vertex_buffer = mesh_buffer;
-				post_item.index_buffer = mesh_buffer;
-				post_item.index_offset = mesh_index_offset;
-				post_item.index_count = mesh_index_count;
-				post_item.instance_buffer = impl->instance_buffers[slot];
-				post_item.instance_offset = post_instance_offset;
-				post_item.instance_count = 1;
-				offscreen = true;
-				//渲染到目标并在同帧内后处理呈现到交换链
-				if (!impl->frame.render_to_target_present(impl->swapchain, target, impl->pending_items.data(),
-					static_cast<uint32_t>(impl->pending_items.size()), post_item, clear_color, rebuild_needed, readback_ptr))
+				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线）
+				std::vector<uint64_t> stage_pipelines;
+				//链路径取注册链
+				if (post_chain_mode)
+					stage_pipelines = impl->post_chain;
+				//单级路径取懒登记的默认后处理管线
+				else
+					stage_pipelines.push_back(impl->post_pipeline);
+				//组装各级后处理绘制项（全屏四边形 ＋ 各级管线 ＋ set0 场景 UBO / set1 对应源采样集）
+				std::vector<Frame_Render_Item> post_items;
+				//任一级管线缺失即整帧回落
+				bool items_ready = true;
+				for (std::size_t index = 0; index < stage_pipelines.size(); ++index)
 				{
-					logger.error("渲染器:: 同帧多 pass 后处理渲染失败");
-					return false;
+					//本级图形管线（链设置后被卸载则为空）
+					VkPipeline stage_pipeline = impl->pipeline.pipeline_by_handle_get(stage_pipelines[index]);
+					//若本级管线已失效
+					if (stage_pipeline == VK_NULL_HANDLE)
+					{
+						items_ready = false;
+						break;
+					}
+					//本级绘制项
+					Frame_Render_Item post_item{};
+					post_item.pipeline = stage_pipeline;
+					post_item.layout = impl->pipeline.layout_get();
+					post_item.scene_set = impl->pipeline.scene_set_get(slot);
+					//本级源采样集（偶级 index 0、奇级 index 1）
+					post_item.sampler_set = impl->pipeline.post_set_get(slot,
+						static_cast<uint32_t>(index % Pipeline_Context::POST_SET_PER_SLOT));
+					post_item.descriptor_set_count = 2;
+					post_item.vertex_buffer = mesh_buffer;
+					post_item.index_buffer = mesh_buffer;
+					post_item.index_offset = mesh_index_offset;
+					post_item.index_count = mesh_index_count;
+					post_item.instance_buffer = impl->instance_buffers[slot];
+					post_item.instance_offset = post_instance_offset;
+					post_item.instance_count = 1;
+					post_items.push_back(post_item);
 				}
+				//若各级绘制项齐备
+				if (items_ready)
+				{
+					offscreen = true;
+					//链路径：场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现
+					if (post_chain_mode)
+					{
+						if (!impl->frame.render_chain_present(impl->swapchain, scene_target, second_target,
+							impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
+							post_items.data(), static_cast<uint32_t>(post_items.size()),
+							clear_color, rebuild_needed, readback_ptr))
+						{
+							logger.error("渲染器:: 同帧后处理链渲染失败");
+							return false;
+						}
+					}
+					//单级路径：渲染到目标并在同帧内后处理呈现到交换链（既有语义）
+					else if (!impl->frame.render_to_target_present(impl->swapchain, scene_target,
+						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
+						post_items[0], clear_color, rebuild_needed, readback_ptr))
+					{
+						logger.error("渲染器:: 同帧多 pass 后处理渲染失败");
+						return false;
+					}
+				}
+				//含失效管线则回落原路径
+				else
+					logger.warn("渲染器:: 后处理链含已失效管线，回落原路径");
 			}
 			//前置不完整则回落原路径
 			else
-				logger.warn("渲染器:: 同帧多 pass 后处理前置不完整（目标或全屏网格），回落原路径");
+				logger.warn("渲染器:: 同帧多 pass 后处理前置不完整（目标或全屏网格或采样器），回落原路径");
 		}
 		//若已设定本帧渲染目标（离屏路径）
 		if (!offscreen && impl->active_target != 0)
@@ -836,6 +933,10 @@ namespace engine
 		stats.instances = impl->frame.total_instances_get();
 		//GPU 侧耗时取自帧模块时间戳查询池（设备不支持时恒 0）
 		stats.gpu_frame_ms = impl->frame.last_gpu_frame_ms_get();
+		//累计口径：主机侧耗时之和、GPU 侧成功读回之和与样本数
+		stats.frame_total_ms = impl->frame.total_frame_ms_get();
+		stats.gpu_total_ms = impl->frame.total_gpu_frame_ms_get();
+		stats.gpu_samples = impl->frame.gpu_sample_count_get();
 		return stats;
 	}
 
@@ -1356,6 +1457,12 @@ namespace engine
 				impl->bound_pipeline_request = 0;
 				impl->pipeline.pipeline_activate(0);
 			}
+			//若该管线在后处理链中则一并摘除（避免链残留失效句柄导致整帧回落）
+			std::size_t chain_before = impl->post_chain.size();
+			impl->post_chain.erase(std::remove(impl->post_chain.begin(), impl->post_chain.end(), handle), impl->post_chain.end());
+			//若确有摘除则告警
+			if (impl->post_chain.size() != chain_before)
+				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）", handle, impl->post_chain.size());
 			logger.info("渲染器:: 具名管线已卸载（句柄 {}）", handle);
 			return;
 		}
@@ -1516,6 +1623,9 @@ namespace engine
 		//若销毁的是当前设定的同帧后处理呈现目标则一并回落
 		if (impl->present_target == handle)
 			impl->present_target = 0;
+		//若销毁的是当前设定的后处理链第二目标则一并回落（链长 ≥ 2 将因此回落单级路径）
+		if (impl->present_secondary == handle)
+			impl->present_secondary = 0;
 		//摘出颜色 / 深度图像与视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
 		Render_Target_Record record{};
 		if (!impl->render_target.target_detach(handle, record))
@@ -1566,6 +1676,60 @@ namespace engine
 			return;
 		}
 		impl->present_target = handle;
+	}
+
+	//设置「同帧后处理链」的第二（ping-pong）目标
+	void Renderer::render_target_present_secondary_set(uint64_t handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//句柄非零且未登记则清除并告警
+		if (handle != 0 && !impl->render_target.target_valid(handle))
+		{
+			logger.warn("渲染器:: 渲染目标句柄 {} 无效，清除后处理链第二目标", handle);
+			impl->present_secondary = 0;
+			return;
+		}
+		impl->present_secondary = handle;
+	}
+
+	//设置「同帧后处理链」（若干已登记管线句柄，下标即级序）
+	bool Renderer::post_chain_set(const uint64_t* handles, uint32_t count)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 后处理链设置失败：尚未初始化");
+			return false;
+		}
+		//若为清除链
+		if (count == 0)
+		{
+			impl->post_chain.clear();
+			logger.info("渲染器:: 后处理链已清除（回落单级默认后处理）");
+			return true;
+		}
+		//句柄数组为空而级数非零则整链拒绝
+		if (handles == nullptr)
+		{
+			logger.error("渲染器:: 后处理链设置失败：句柄数组为空而级数非零");
+			return false;
+		}
+		//逐句柄校验已登记（任一句柄未登记即整链拒绝，保持原链不变）
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			//若该级句柄未登记
+			if (!impl->pipeline.pipeline_has(handles[index]))
+			{
+				logger.error("渲染器:: 后处理链设置失败：第 {} 级句柄 {} 未登记", index, handles[index]);
+				return false;
+			}
+		}
+		//写入链（保持各句柄的登记顺序不变）
+		impl->post_chain.assign(handles, handles + count);
+		logger.info("渲染器:: 后处理链已设置（{} 级）", count);
+		return true;
 	}
 
 	//把渲染目标的颜色绑定为当前纹理（供后续绘制采样）
@@ -1801,15 +1965,29 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
+		/*
+		参数校验（处置 R-FACADE-10）
+		视场角须落在 (0, π)、近平面须为正、远平面须大于近平面；任一非法即整次拒绝，
+		保持既有相机与清屏色不变（避免把非法值交给投影矩阵导致画面异常 / 除零）。
+		用「取反比较」写法使 NaN 同样被判为非法。
+		*/
+		bool scene_valid = (scene.fov > 0.0f) && (scene.fov < 3.14159265f)
+			&& (scene.near_plane > 0.0f) && (scene.far_plane > scene.near_plane);
+		//若场景描述非法
+		if (!scene_valid)
+		{
+			logger.warn("渲染器:: 场景描述非法（视场角 {}、近平面 {}、远平面 {}），整次拒绝",
+				scene.fov, scene.near_plane, scene.far_plane);
+			return;
+		}
 		//相机位置 / 注视点
 		impl->camera.position_set(scene.position[0], scene.position[1], scene.position[2]);
 		impl->camera.target_set(scene.target[0], scene.target[1], scene.target[2]);
 		//视场角与近远平面
 		impl->camera.fov_set(scene.fov);
 		impl->camera.near_far_set(scene.near_plane, scene.far_plane);
-		//清屏色（逐分量拷贝）
-		for (std::size_t index = 0; index < 4; ++index)
-			impl->clear_color[index] = scene.clear_color[index];
+		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
+		clear_color_set(scene.clear_color);
 	}
 
 	//设置清屏色（RGBA）
@@ -1818,9 +1996,22 @@ namespace engine
 		//若尚未初始化或颜色指针为空
 		if (impl == nullptr || !impl->initialized || color == nullptr)
 			return;
-		//逐分量拷贝（自下一次 frame_render 起生效）
+		/*
+		逐分量钳制到 [0,1] 后拷贝（自下一次 frame_render 起生效）
+		越界与非数（NaN）均被归一：负 / 非数 → 0，大于 1 → 1；故清屏色恒落在合法色域内。
+		*/
 		for (std::size_t index = 0; index < 4; ++index)
-			impl->clear_color[index] = color[index];
+		{
+			//当前分量
+			float value = color[index];
+			//若为负或非数则归 0
+			if (!(value >= 0.0f))
+				value = 0.0f;
+			//若大于 1 则归 1
+			else if (value > 1.0f)
+				value = 1.0f;
+			impl->clear_color[index] = value;
+		}
 	}
 
 	//UI 通道

@@ -42,10 +42,16 @@ namespace engine
 		*/
 		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
 		/*
-		确保同帧多 pass 后处理所需资源就绪（惰性创建）
-		含：后处理具名管线（后处理.vert / 后处理.frag，不透明档）与全屏四边形网格（NDC -1..1）。
-		着色器模块由本实现体持有，随 extra_pipelines 统一销毁；网格随 mesh 模块销毁。
+		确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
+		全屏四边形（NDC -1..1）随 mesh 模块销毁。
 		*/
+		bool post_mesh_ensure(void);
+		/*
+		确保内置单级后处理具名管线就绪（惰性登记；仅既有单级默认路径使用）
+		着色器对为 后处理.vert / 后处理.frag（不透明档）；着色器模块由本实现体持有，随 extra_pipelines 统一销毁。
+		*/
+		bool post_pipeline_ensure(void);
+		//确保既有单级默认后处理所需资源就绪（默认后处理管线 ＋ 全屏网格）
 		bool post_resources_ensure(void);
 		//配置（init 成功后生效）
 		Renderer_Config config;
@@ -111,7 +117,17 @@ namespace engine
 		uint64_t active_target = 0;
 		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）
 		uint64_t present_target = 0;
-		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档）
+		/*
+		本帧「同帧后处理链」的第二（ping-pong）目标句柄（0 = 未设置；见 render_target_present_secondary_set）
+		链长 ≥ 2 时必需：链上各级的源按奇偶交替，故除场景目标外还需一个中间目标承载另一奇偶级的结果。
+		*/
+		uint64_t present_secondary = 0;
+		/*
+		本帧后处理链（各级具名管线句柄，下标即级序；空 = 走既有单级默认后处理路径）
+		由 post_chain_set 设置；各级使用同一全屏几何与场景 UBO，仅管线与源采样集不同。
+		*/
+		std::vector<uint64_t> post_chain;
+		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档；仅用于既有单级默认路径）
 		uint64_t post_pipeline = 0;
 		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）
 		Mesh_Handle fullscreen_mesh = 0;

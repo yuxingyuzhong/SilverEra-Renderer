@@ -13,8 +13,12 @@ namespace engine
 	class Camera
 	{
 	public:
-		//构造（默认机位在 +Z 轴 3 单位处，注视原点）
-		Camera(void) = default;
+		/*
+		构造
+		默认机位 / 注视点 / 视场角 / 近远平面一律取自 Scene_Data 的默认值（单一真源，避免两处硬编码漂移）；
+		上方向与宽高比为本层自有默认（Scene_Data 未涵盖）。
+		*/
+		Camera(void);
 
 		//设置位置
 		void position_set(float x, float y, float z);
@@ -35,19 +39,19 @@ namespace engine
 		//写出「视图 × 投影」矩阵（列主序 16 浮点，可直接写入 UBO）
 		void view_proj_get(float out[16]) const;
 	private:
-		//位置
-		float position[3] = { 0.0f, 0.0f, 3.0f };
-		//注视点
-		float target[3] = { 0.0f, 0.0f, 0.0f };
-		//上方向
+		//位置（默认值取自 Scene_Data，见构造）
+		float position[3];
+		//注视点（默认值取自 Scene_Data，见构造）
+		float target[3];
+		//上方向（本层自有默认）
 		float up[3] = { 0.0f, 1.0f, 0.0f };
-		//视场角（弧度，默认 60 度）
-		float fov = 1.0472f;
-		//宽高比
+		//视场角（弧度；默认值取自 Scene_Data，见构造）
+		float fov;
+		//宽高比（本层自有默认）
 		float aspect = 16.0f / 9.0f;
-		//近平面
-		float near_plane = 0.1f;
-		//远平面
-		float far_plane = 100.0f;
+		//近平面（默认值取自 Scene_Data，见构造）
+		float near_plane;
+		//远平面（默认值取自 Scene_Data，见构造）
+		float far_plane;
 	};
 }

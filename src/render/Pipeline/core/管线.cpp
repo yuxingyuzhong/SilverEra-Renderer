@@ -83,19 +83,19 @@ namespace engine
 
 		/*
 		描述符池与每帧槽描述符集
-		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 2；
-		最大集数 = frame_overlap × 3（每帧槽各一个 set0、一个 set1 采样器集、一个 set1 后处理集）。
+		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 3；
+		最大集数 = frame_overlap × 4（每帧槽各一个 set0、一个 set1 采样器集、POST_SET_PER_SLOT 个 set1 后处理集）。
 		*/
 		VkDescriptorPoolSize pool_sizes[2]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * 2;
+		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT);
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		pool_info.maxSets = config.frame_overlap * 3;
+		pool_info.maxSets = config.frame_overlap * (2 + POST_SET_PER_SLOT);
 		pool_info.poolSizeCount = 2;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
@@ -138,13 +138,13 @@ namespace engine
 			return false;
 		}
 
-		//分配后处理采样器描述符集（set 1 同布局，按帧槽独立分配）
-		post_sets.resize(config.frame_overlap);
-		vector<VkDescriptorSetLayout> post_layouts(config.frame_overlap, sampler_set_layout);
+		//分配后处理采样器描述符集（set 1 同布局，按「帧槽 × POST_SET_PER_SLOT」独立分配）
+		post_sets.resize(config.frame_overlap * POST_SET_PER_SLOT);
+		vector<VkDescriptorSetLayout> post_layouts(config.frame_overlap * POST_SET_PER_SLOT, sampler_set_layout);
 		VkDescriptorSetAllocateInfo post_alloc{};
 		post_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		post_alloc.descriptorPool = descriptor_pool;
-		post_alloc.descriptorSetCount = config.frame_overlap;
+		post_alloc.descriptorSetCount = config.frame_overlap * POST_SET_PER_SLOT;
 		post_alloc.pSetLayouts = post_layouts.data();
 		//若分配失败
 		if (!vk_result_check(vkAllocateDescriptorSets(device, &post_alloc, post_sets.data()), "vkAllocateDescriptorSets（后处理）"))
@@ -427,13 +427,17 @@ namespace engine
 		return sampler_sets[slot];
 	}
 
-	//获取第 slot 帧槽的后处理采样器描述符集
-	VkDescriptorSet Pipeline_Context::post_set_get(uint32_t slot) const
+	//获取第 slot 帧槽指定 index 的后处理采样器描述符集
+	VkDescriptorSet Pipeline_Context::post_set_get(uint32_t slot, uint32_t index) const
 	{
-		//越界则返回空句柄
-		if (slot >= post_sets.size())
+		//index 越界则返回空句柄
+		if (index >= POST_SET_PER_SLOT)
 			return VK_NULL_HANDLE;
-		return post_sets[slot];
+		//帧槽 × 每槽集数 + index 越界则返回空句柄
+		std::size_t offset = static_cast<std::size_t>(slot) * POST_SET_PER_SLOT + index;
+		if (offset >= post_sets.size())
+			return VK_NULL_HANDLE;
+		return post_sets[offset];
 	}
 
 	//向第 slot 帧槽写场景 UBO
@@ -499,11 +503,13 @@ namespace engine
 		return true;
 	}
 
-	//向第 slot 帧槽的后处理采样器集写采样器
-	bool Pipeline_Context::post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	//向第 slot 帧槽指定 index 的后处理采样器集写采样器
+	bool Pipeline_Context::post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index)
 	{
+		//取目标后处理集（index 越界则返回空句柄）
+		VkDescriptorSet target_set = post_set_get(slot, index);
 		//前置：设备、目标集、采样器与视图齐备
-		if (device == VK_NULL_HANDLE || slot >= post_sets.size() || post_sets[slot] == VK_NULL_HANDLE
+		if (device == VK_NULL_HANDLE || target_set == VK_NULL_HANDLE
 			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
 		{
 			logger.error("管线:: 后处理采样器绑定参数不完整");
@@ -519,7 +525,7 @@ namespace engine
 		//描述符写（set 1 binding 0）
 		VkWriteDescriptorSet write{};
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		write.dstSet = post_sets[slot];
+		write.dstSet = target_set;
 		write.dstBinding = 0;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;

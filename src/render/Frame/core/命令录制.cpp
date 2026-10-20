@@ -693,4 +693,305 @@ namespace engine
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
 	}
+
+	/*
+	录制「场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现」的命令缓冲
+	场景 pass：scene_target 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
+	后处理各级（stage 自 0 起）：源按奇偶交替（偶 → scene_target、奇 → second_target）且恒为 SHADER_READ_ONLY，
+	        宿为「末级 → 交换链（UNDEFINED 转入颜色附件）／非末级 → 另一中间目标（SHADER_READ_ONLY 转入颜色附件，
+	        写完后转回 SHADER_READ_ONLY）」，以 post_items[stage] 全屏绘制；
+	交换链收尾与既有路径同口径（回读则 TRANSFER_SRC → PRESENT_SRC，否则 COLOR_ATTACHMENT → PRESENT_SRC）。
+	*/
+	void Frame_Context::command_record_chain_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
+		VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
+		const Frame_Render_Target& scene_target, const Frame_Render_Target& second_target,
+		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
+		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool)
+	{
+		//开始录制（一次性提交）
+		VkCommandBufferBeginInfo begin_info{};
+		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "vkBeginCommandBuffer");
+
+		/*
+		GPU 时间戳起点（可选；查询池为空即跳过）
+		先重置该查询池（须在渲染通道之外，故紧随录制开始处）再于管线顶部记录起点；
+		终点在收尾处记录，故该值覆盖「场景 pass ＋ 全部后处理 pass」的 GPU 耗时。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE)
+		{
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
+		}
+
+		//布局屏障（逐段复用同一对象，改字段即可）
+		VkImageMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+
+		/*
+		场景 pass · 场景目标颜色布局转换：SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL
+		目标颜色在帧间恒为着色器可读布局（可能已被采样），故 srcStage = FRAGMENT_SHADER、srcAccess = SHADER_READ。
+		*/
+		barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.image = scene_target.color_image;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		vkCmdPipelineBarrier(command_buffer,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+		//场景 pass · 颜色附件信息（清屏后保留）
+		VkRenderingAttachmentInfo scene_color{};
+		scene_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		scene_color.imageView = scene_target.color_view;
+		scene_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		scene_color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		scene_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		scene_color.clearValue.color.float32[0] = clear_color[0];
+		scene_color.clearValue.color.float32[1] = clear_color[1];
+		scene_color.clearValue.color.float32[2] = clear_color[2];
+		scene_color.clearValue.color.float32[3] = clear_color[3];
+
+		//场景 pass · 深度附件信息（场景目标深度在帧间恒为深度附件布局，逐帧清屏）
+		VkRenderingAttachmentInfo scene_depth{};
+		scene_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		scene_depth.imageView = scene_target.depth_view;
+		scene_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		scene_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		scene_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		scene_depth.clearValue.depthStencil.depth = 1.0f;
+		scene_depth.clearValue.depthStencil.stencil = 0;
+
+		//场景 pass · 渲染信息（渲染区 = 场景目标范围）
+		VkRenderingInfo scene_rendering{};
+		scene_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+		scene_rendering.renderArea.offset = { 0, 0 };
+		scene_rendering.renderArea.extent = scene_target.extent;
+		scene_rendering.layerCount = 1;
+		scene_rendering.colorAttachmentCount = 1;
+		scene_rendering.pColorAttachments = &scene_color;
+		scene_rendering.pDepthAttachment = &scene_depth;
+
+		//场景 pass · 进入动态渲染并设置视口 / 裁剪（按场景目标范围）
+		vkCmdBeginRendering(command_buffer, &scene_rendering);
+		VkViewport scene_viewport{};
+		scene_viewport.x = 0.0f;
+		scene_viewport.y = 0.0f;
+		scene_viewport.width = static_cast<float>(scene_target.extent.width);
+		scene_viewport.height = static_cast<float>(scene_target.extent.height);
+		scene_viewport.minDepth = 0.0f;
+		scene_viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(command_buffer, 0, 1, &scene_viewport);
+		VkRect2D scene_scissor{};
+		scene_scissor.offset = { 0, 0 };
+		scene_scissor.extent = scene_target.extent;
+		vkCmdSetScissor(command_buffer, 0, 1, &scene_scissor);
+		//场景 pass · 场景绘制
+		items_record(command_buffer, items, item_count);
+		//场景 pass · 结束动态渲染
+		vkCmdEndRendering(command_buffer);
+
+		/*
+		场景 pass → 首级后处理 · 场景目标颜色布局转换：COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
+		首级后处理在片元阶段采样该目标，故 dstStage = FRAGMENT_SHADER、dstAccess = SHADER_READ。
+		*/
+		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.image = scene_target.color_image;
+		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(command_buffer,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+		/*
+		后处理各级（ping-pong）
+		第 stage 级：源 = 偶级 scene_target / 奇级 second_target（恒为 SHADER_READ_ONLY，可直接采样）；
+		           宿 = 末级交换链图像 / 非末级另一中间目标。
+		*/
+		for (uint32_t stage = 0; stage < post_count; ++stage)
+		{
+			//本级是否为末级（宿为交换链）
+			bool last_stage = (stage + 1 == post_count);
+			//本级是否为奇级（源为 second_target、非末级宿为 scene_target）
+			bool odd_stage = (stage % 2) != 0;
+			//本级宿（非末级时的中间目标）
+			const Frame_Render_Target& dest = odd_stage ? scene_target : second_target;
+
+			//宿布局转换：末级为交换链图像（UNDEFINED → 颜色附件），否则为中间目标（SHADER_READ_ONLY → 颜色附件）
+			if (last_stage)
+			{
+				/*
+				交换链图像：UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+				同步由 acquire 信号量保护，故 srcStage = COLOR_ATTACHMENT_OUTPUT、srcAccess = 0（K11）。
+				*/
+				barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				barrier.image = swapchain_image;
+				barrier.srcAccessMask = 0;
+				barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &barrier);
+			}
+			else
+			{
+				/*
+				中间目标：SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL
+				该目标可能刚被上一级采样（WAR）或本就处于着色器可读布局，故 srcStage = FRAGMENT_SHADER、srcAccess = SHADER_READ。
+				*/
+				barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				barrier.image = dest.color_image;
+				barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &barrier);
+			}
+
+			//本级宿范围（末级取交换链范围，否则取中间目标范围）
+			VkExtent2D stage_extent = last_stage ? swapchain_extent : dest.extent;
+
+			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定）
+			VkRenderingAttachmentInfo stage_color{};
+			stage_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			stage_color.imageView = last_stage ? swapchain_view : dest.color_view;
+			stage_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			stage_color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			stage_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			stage_color.clearValue.color.float32[0] = clear_color[0];
+			stage_color.clearValue.color.float32[1] = clear_color[1];
+			stage_color.clearValue.color.float32[2] = clear_color[2];
+			stage_color.clearValue.color.float32[3] = clear_color[3];
+
+			//本级深度附件信息（末级取交换链深度，否则取中间目标深度；逐帧清屏）
+			VkRenderingAttachmentInfo stage_depth{};
+			stage_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			stage_depth.imageView = last_stage ? swapchain_depth_view : dest.depth_view;
+			stage_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			stage_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			stage_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			stage_depth.clearValue.depthStencil.depth = 1.0f;
+			stage_depth.clearValue.depthStencil.stencil = 0;
+
+			//本级渲染信息（渲染区 = 本级宿范围）
+			VkRenderingInfo stage_rendering{};
+			stage_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			stage_rendering.renderArea.offset = { 0, 0 };
+			stage_rendering.renderArea.extent = stage_extent;
+			stage_rendering.layerCount = 1;
+			stage_rendering.colorAttachmentCount = 1;
+			stage_rendering.pColorAttachments = &stage_color;
+			stage_rendering.pDepthAttachment = &stage_depth;
+
+			//本级 · 进入动态渲染并设置视口 / 裁剪（按本级宿范围）
+			vkCmdBeginRendering(command_buffer, &stage_rendering);
+			VkViewport stage_viewport{};
+			stage_viewport.x = 0.0f;
+			stage_viewport.y = 0.0f;
+			stage_viewport.width = static_cast<float>(stage_extent.width);
+			stage_viewport.height = static_cast<float>(stage_extent.height);
+			stage_viewport.minDepth = 0.0f;
+			stage_viewport.maxDepth = 1.0f;
+			vkCmdSetViewport(command_buffer, 0, 1, &stage_viewport);
+			VkRect2D stage_scissor{};
+			stage_scissor.offset = { 0, 0 };
+			stage_scissor.extent = stage_extent;
+			vkCmdSetScissor(command_buffer, 0, 1, &stage_scissor);
+			//本级 · 全屏后处理绘制（单绘制项）
+			items_record(command_buffer, &post_items[stage], 1);
+			//本级 · 结束动态渲染
+			vkCmdEndRendering(command_buffer);
+
+			//末级（交换链）：按是否回读收尾为 TRANSFER_SRC → PRESENT_SRC 或直接 COLOR_ATTACHMENT → PRESENT_SRC
+			if (last_stage)
+			{
+				if (readback_buffer != VK_NULL_HANDLE)
+				{
+					//布局转换：颜色附件 → 传输源
+					barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+					barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+					barrier.image = swapchain_image;
+					barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+					barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+					vkCmdPipelineBarrier(command_buffer,
+						VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_PIPELINE_STAGE_TRANSFER_BIT,
+						0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+					//拷贝区域（整张交换链颜色附件，RGBA8 紧排）
+					VkBufferImageCopy copy_region{};
+					copy_region.bufferOffset = 0;
+					copy_region.bufferRowLength = 0;
+					copy_region.bufferImageHeight = 0;
+					copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+					copy_region.imageSubresource.mipLevel = 0;
+					copy_region.imageSubresource.baseArrayLayer = 0;
+					copy_region.imageSubresource.layerCount = 1;
+					copy_region.imageOffset = { 0, 0, 0 };
+					copy_region.imageExtent = { swapchain_extent.width, swapchain_extent.height, 1 };
+					//把颜色附件拷入回读缓冲
+					vkCmdCopyImageToBuffer(command_buffer, swapchain_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+						readback_buffer, 1, &copy_region);
+
+					//布局转换：传输源 → 呈现布局
+					barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+					barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+					barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+					barrier.dstAccessMask = 0;
+					vkCmdPipelineBarrier(command_buffer,
+						VK_PIPELINE_STAGE_TRANSFER_BIT,
+						VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+						0, 0, nullptr, 0, nullptr, 1, &barrier);
+				}
+				//若不回读：颜色附件直接转入呈现布局
+				else
+				{
+					barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+					barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+					barrier.image = swapchain_image;
+					barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+					barrier.dstAccessMask = 0;
+					vkCmdPipelineBarrier(command_buffer,
+						VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+						VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+						0, 0, nullptr, 0, nullptr, 1, &barrier);
+				}
+			}
+			//非末级（中间目标）：颜色附件 → 着色器可读，使下一级可采样且帧间保持该布局
+			else
+			{
+				barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				barrier.image = dest.color_image;
+				barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &barrier);
+			}
+		}
+
+		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+
+		//结束录制
+		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
+	}
 }

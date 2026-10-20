@@ -38,6 +38,9 @@ namespace engine
 		uint64_t end_ticks = ticks[1] & mask;
 		//换算毫秒（timestamp_period 单位为「纳秒 / tick」）
 		last_gpu_frame_ms = static_cast<double>(end_ticks - begin_ticks) * static_cast<double>(timestamp_period) / 1.0e6;
+		//累计本次读回的 GPU 耗时与样本数（仅在确实读回时递增，故样本数 = 已成功读回的帧数）
+		total_gpu_frame_ms += last_gpu_frame_ms;
+		++gpu_sample_count;
 	}
 
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
@@ -162,6 +165,8 @@ namespace engine
 			return false;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧主机侧耗时
+		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
 
@@ -265,6 +270,8 @@ namespace engine
 			return false;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧主机侧耗时
+		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
 
@@ -404,10 +411,171 @@ namespace engine
 			return false;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧主机侧耗时
+		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计（场景 pass 项 ＋ 后处理 pass 的单个绘制项）
 		frame_stats_accumulate(items, item_count);
 		total_draw_items += 1;
 		total_instances += post_item.instance_count;
+
+		//像素读出（可选；渲染与拷贝录在同一命令缓冲，等本帧槽栅栏即数据就绪）
+		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
+			return false;
+
+		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
+		slot.timestamp_written = true;
+		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
+		++frame_count;
+		//释放到期的延迟销毁条目
+		deferred_flush();
+		return true;
+	}
+
+	/*
+	渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理（ping-pong）并呈现到交换链。
+	取图像 / 提交 / 呈现 / 像素回读与既有同帧多 pass 路径同口径，仅录制内容不同（后处理级数可变）。
+	*/
+	bool Frame_Context::render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target& scene_target,
+		const Frame_Render_Target& second_target, const Frame_Render_Item* items, uint32_t item_count,
+		const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
+		bool& rebuild_needed_out, Frame_Readback_Request* readback)
+	{
+		//默认无需重建
+		rebuild_needed_out = false;
+		//前置：帧上下文、交换链与后处理级数必须齐备
+		if (!valid() || !swapchain.valid() || post_count == 0 || post_items == nullptr)
+		{
+			logger.error("提交呈现:: 帧上下文 / 交换链 / 后处理级数不完整（后处理链）");
+			return false;
+		}
+		//若交换链图像或信号量为空
+		if (swapchain.image_count_get() == 0 || swapchain.image_available_count_get() == 0
+			|| swapchain.render_finished_count_get() == 0)
+		{
+			logger.error("提交呈现:: 交换链图像或信号量为空（后处理链）");
+			return false;
+		}
+		//若场景目标附件不完整
+		if (scene_target.color_image == VK_NULL_HANDLE || scene_target.color_view == VK_NULL_HANDLE
+			|| scene_target.depth_view == VK_NULL_HANDLE || scene_target.extent.width == 0 || scene_target.extent.height == 0)
+		{
+			logger.error("提交呈现:: 场景目标尚未就绪（后处理链）");
+			return false;
+		}
+		//若后处理级数 ≥ 2 但第二目标不完整（ping-pong 需成对目标）
+		if (post_count >= 2 && (second_target.color_image == VK_NULL_HANDLE || second_target.color_view == VK_NULL_HANDLE
+			|| second_target.depth_view == VK_NULL_HANDLE || second_target.extent.width == 0 || second_target.extent.height == 0))
+		{
+			logger.error("提交呈现:: 后处理级数 ≥ 2 但第二目标尚未就绪（后处理链）");
+			return false;
+		}
+		//逐级校验后处理绘制项完整性
+		for (uint32_t stage = 0; stage < post_count; ++stage)
+		{
+			//当前后处理绘制项
+			const Frame_Render_Item& post_item = post_items[stage];
+			//若某项不完整
+			if (post_item.pipeline == VK_NULL_HANDLE || post_item.layout == VK_NULL_HANDLE
+				|| post_item.vertex_buffer == VK_NULL_HANDLE || post_item.index_buffer == VK_NULL_HANDLE
+				|| post_item.index_count == 0 || post_item.instance_buffer == VK_NULL_HANDLE
+				|| post_item.instance_count == 0)
+			{
+				logger.error("提交呈现:: 后处理绘制项不完整（第 {} 级；后处理链）", stage);
+				return false;
+			}
+		}
+
+		//取当前帧槽（与其余路径共用同一轮转）
+		Frame_Slot& slot = slots[frame_count % frame_overlap];
+
+		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
+		if (!slot_fence_wait(slot))
+			return false;
+		//读回该帧槽上一轮 GPU 时间戳（此时上一轮已执行完；无能力 / 首轮时静默跳过）
+		gpu_timestamp_read(slot);
+
+		//取图像可用信号量（与交换链路径同口径）
+		VkSemaphore image_available = swapchain.image_available_semaphore_get(acquire_cursor % swapchain.image_available_count_get());
+
+		//取下一张交换链图像
+		uint32_t image_index = 0;
+		VkResult acquire = vkAcquireNextImageKHR(device, swapchain.handle_get(), UINT64_MAX,
+			image_available, VK_NULL_HANDLE, &image_index);
+		//若交换链过期或次优
+		if (acquire == VK_ERROR_OUT_OF_DATE_KHR || acquire == VK_SUBOPTIMAL_KHR)
+		{
+			//置「待重建」标志并跳过本帧（不作为硬错误）
+			rebuild_needed_out = true;
+			logger.debug("提交呈现:: 取图像返回 {}，标记交换链待重建（后处理链）", vk_result_name_get(acquire));
+			return true;
+		}
+		//若取图像遇到其它硬错误
+		if (!vk_result_check(acquire, "vkAcquireNextImageKHR"))
+			return false;
+		//取用成功后推进信号量游标
+		++acquire_cursor;
+
+		//重置本帧槽完成栅栏（放在取图像成功之后，理由同交换链路径）
+		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
+			return false;
+
+		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
+		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+			return false;
+
+		//像素回读准备（可选；回读来源为最终呈现到交换链的颜色附件，故按交换链范围校验）
+		VkBuffer readback_target = VK_NULL_HANDLE;
+		//本帧是否请求回读（请求存在且目标缓冲非空）
+		bool readback_active = readback != nullptr && readback->pixels != nullptr;
+		//若本帧请求回读
+		if (readback_active)
+		{
+			//前置：交换链图像须具备传输源用法
+			if (!swapchain.color_transfer_src_get())
+			{
+				logger.error("提交呈现:: 交换链图像不具备传输源用法，像素回读不可用（后处理链）");
+				return false;
+			}
+			//本帧像素字节数（RGBA8 紧排，按交换链范围）
+			VkExtent2D readback_extent = swapchain.extent_get();
+			VkDeviceSize readback_bytes = static_cast<VkDeviceSize>(readback_extent.width) * readback_extent.height * 4;
+			//若回读目标容量不足
+			if (readback->capacity < readback_bytes)
+			{
+				logger.error("提交呈现:: 回读目标容量不足（需 {} 字节，有 {} 字节；后处理链）", readback_bytes, readback->capacity);
+				return false;
+			}
+			//确保回读缓冲就绪并把句柄交给录制
+			if (!readback_buffer_ensure(readback_bytes))
+				return false;
+			readback_target = readback_buffer;
+		}
+
+		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
+		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
+		//录制命令缓冲（场景 pass ＋ N 级后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
+		command_record_chain_present(slot.command_buffer, swapchain.image_get(image_index),
+			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
+			scene_target, second_target, items, item_count, post_items, post_count, clear_color,
+			readback_target, slot.timestamp_pool);
+
+		//取本帧呈现完成信号量（按交换链图像持有）
+		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
+
+		//提交并呈现（与交换链路径共用同一提交 / 呈现实现）
+		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
+			return false;
+		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
+		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计本帧主机侧耗时
+		total_frame_ms += last_frame_ms;
+		//累计本帧绘制统计（场景 pass 项 ＋ 各级后处理 pass 的单个绘制项）
+		frame_stats_accumulate(items, item_count);
+		for (uint32_t stage = 0; stage < post_count; ++stage)
+		{
+			total_draw_items += 1;
+			total_instances += post_items[stage].instance_count;
+		}
 
 		//像素读出（可选；渲染与拷贝录在同一命令缓冲，等本帧槽栅栏即数据就绪）
 		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
