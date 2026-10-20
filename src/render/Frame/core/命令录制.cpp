@@ -92,13 +92,23 @@ namespace engine
 	void Frame_Context::command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 		VkImageView depth_view, VkExtent2D extent,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "vkBeginCommandBuffer");
+
+		/*
+		GPU 时间戳起点（可选；查询池为空即跳过）
+		先重置该查询池（须在渲染通道之外，故紧随录制开始处）再于管线顶部记录起点。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE)
+		{
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
+		}
 
 		/*
 		颜色布局转换：UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
@@ -257,6 +267,10 @@ namespace engine
 				0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
 
+		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
 	}
@@ -270,13 +284,23 @@ namespace engine
 	*/
 	void Frame_Context::command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "vkBeginCommandBuffer");
+
+		/*
+		GPU 时间戳起点（可选；查询池为空即跳过）
+		先重置该查询池（须在渲染通道之外，故紧随录制开始处）再于管线顶部记录起点。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE)
+		{
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
+		}
 
 		/*
 		颜色布局转换：SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL
@@ -413,6 +437,10 @@ namespace engine
 				0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
 
+		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
 	}
@@ -427,13 +455,25 @@ namespace engine
 	void Frame_Context::command_record_target_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
 		VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
 		const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
-		const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer)
+		const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer,
+		VkQueryPool timestamp_pool)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "vkBeginCommandBuffer");
+
+		/*
+		GPU 时间戳起点（可选；查询池为空即跳过）
+		先重置该查询池（须在渲染通道之外，故紧随录制开始处）再于管线顶部记录起点；
+		终点在收尾处记录，故该值覆盖「目标 pass ＋ 后处理 pass」两个 pass 的 GPU 耗时。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE)
+		{
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
+		}
 
 		//布局屏障（两 pass 复用同一对象，逐段改字段即可）
 		VkImageMemoryBarrier barrier{};
@@ -645,6 +685,10 @@ namespace engine
 				VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
+
+		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");

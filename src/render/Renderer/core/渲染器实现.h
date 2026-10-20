@@ -49,6 +49,8 @@ namespace engine
 		bool post_resources_ensure(void);
 		//配置（init 成功后生效）
 		Renderer_Config config;
+		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
+		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		//平台模块
 		Platform_Context platform;
 		//设备模块
@@ -82,13 +84,17 @@ namespace engine
 			uint64_t pipeline = 0;
 			//纹理句柄（0 = 内置默认白纹理）
 			uint64_t texture = 0;
-			//该具名管线是否由本材质自行登记（卸载时需一并释放）
-			bool owns_pipeline = false;
 			//记录是否有效
 			bool valid = false;
 		};
 		//材质集合（下标 = 句柄 - 1）
 		std::vector<Material_Record> materials;
+		/*
+		按混合档缓存的具名管线（下标 = 档位序，0 表该档尚未登记）
+		非不透明档材质**共享**该档的具名管线（以默认场景着色器对登记），故同档多个材质不再各自登记；
+		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
+		*/
+		std::vector<uint64_t> blend_pipelines;
 		//当前绘制所选管线句柄（0 = 默认场景管线）
 		uint64_t bound_pipeline_request = 0;
 		//网格模块

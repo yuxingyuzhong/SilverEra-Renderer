@@ -27,6 +27,10 @@ namespace engine
 		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
+		//GPU 时间戳查询池（每槽两个查询：帧始 / 帧末；设备不支持时为空）
+		VkQueryPool timestamp_pool = VK_NULL_HANDLE;
+		//该槽是否已写入过时间戳（首次写入前不读回，避免读到未执行的查询）
+		bool timestamp_written = false;
 	};
 
 	/*
@@ -250,6 +254,13 @@ namespace engine
 		uint64_t total_draw_items_get(void) const;
 		uint64_t total_instances_get(void) const;
 		/*
+		GPU 时间戳能力（设备与图形队列族均支持时为真；为假时 GPU 耗时字段恒 0 且不报错）
+		供门面 gpu_timestamp_supported 取用。
+		*/
+		bool gpu_timestamp_supported_get(void) const;
+		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
+		double last_gpu_frame_ms_get(void) const;
+		/*
 		压入延迟销毁条目（指示「release_frame 帧及以后」可释放）
 		条目中的旧资源（旧交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图）由帧模块在到期时释放；
 		由交换链重建路径在移交旧资源后调用，延迟通常取「在途帧数 + 1」。
@@ -275,7 +286,8 @@ namespace engine
 		void command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 			VkImageView depth_view, VkExtent2D extent,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
+			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
 		录制「渲染到离屏目标」的命令缓冲（实现见 core/命令录制.cpp）
 		颜色进入布局为 SHADER_READ_ONLY_OPTIMAL，故先转入 COLOR_ATTACHMENT_OPTIMAL；
@@ -283,7 +295,8 @@ namespace engine
 		*/
 		void command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE);
+			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
 		录制「同帧多 pass」的命令缓冲（实现见 core/命令录制.cpp）
 		pass 1：颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，以 items 绘制进目标，结束渲染后转回 SHADER_READ_ONLY；
@@ -293,7 +306,8 @@ namespace engine
 		void command_record_target_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
 			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
 			const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
-			const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE);
+			const Frame_Render_Item& post_item, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
@@ -307,6 +321,12 @@ namespace engine
 		绘制项数按登记项计；实例数取各绘制项 instance_count 之和（0 表该项不完整、无实例可计）。
 		*/
 		void frame_stats_accumulate(const Frame_Render_Item* items, uint32_t item_count);
+		/*
+		读回某帧槽上一轮 GPU 时间戳并换算毫秒（实现见 core/提交呈现.cpp）
+		调用时机：该槽栅栏等待完成之后、本帧录制之前（此时上一轮已执行完，结果可读）。
+		无查询池 / 尚未写过 / 结果不可用时静默跳过，不改动 last_gpu_frame_ms。
+		*/
+		void gpu_timestamp_read(Frame_Slot& slot);
 		//释放到期的延迟销毁条目（实现见 core/延迟销毁.cpp）
 		void deferred_flush(void);
 		//释放单个延迟条目的资源（实现见 core/延迟销毁.cpp）
@@ -358,6 +378,14 @@ namespace engine
 		uint64_t total_draw_items = 0;
 		//累计实例数（自构建以来）
 		uint64_t total_instances = 0;
+		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
+		bool timestamp_supported = false;
+		//时间戳周期（纳秒 / tick；用于把 tick 差换算为时间）
+		float timestamp_period = 0.0f;
+		//图形队列族时间戳有效位（小于 64 时读回后须掩去高位）
+		uint32_t timestamp_valid_bits = 0;
+		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
+		double last_gpu_frame_ms = 0.0;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
 		//内存模块（像素回读缓冲的创建 / 销毁依赖它）

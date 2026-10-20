@@ -474,8 +474,9 @@ namespace engine
 				impl->shader.module_destroy(record.frag_module);
 		}
 		impl->extra_pipelines.clear();
-		//材质记录清空（材质自有的具名管线已随 extra_pipelines 释放）
+		//材质记录与按档缓存的共享具名管线清空（具名管线已随 extra_pipelines 释放）
 		impl->materials.clear();
+		impl->blend_pipelines.clear();
 		impl->bound_pipeline_request = 0;
 		impl->shader.destroy();
 		//交换链销毁连带销毁深度图像，须排在管线之后
@@ -656,7 +657,7 @@ namespace engine
 		}
 
 		//交给帧模块走取图像 / 录制 / 提交 / 呈现（可选像素回读）
-		const float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
+		const float* clear_color = impl->clear_color;
 		bool rebuild_needed = false;
 		//像素回读请求（仅当调用方给出目标缓冲时组装）
 		Frame_Readback_Request readback_request{};
@@ -833,7 +834,19 @@ namespace engine
 		stats.frame_ms = impl->frame.last_frame_ms_get();
 		stats.draw_items = impl->frame.total_draw_items_get();
 		stats.instances = impl->frame.total_instances_get();
+		//GPU 侧耗时取自帧模块时间戳查询池（设备不支持时恒 0）
+		stats.gpu_frame_ms = impl->frame.last_gpu_frame_ms_get();
 		return stats;
+	}
+
+	//是否支持 GPU 时间戳
+	bool Renderer::gpu_timestamp_supported(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转调帧模块能力标志
+		return impl->frame.gpu_timestamp_supported_get();
 	}
 
 	//是否支持像素回读
@@ -1383,16 +1396,24 @@ namespace engine
 		Impl::Material_Record record{};
 		record.pipeline = data.pipeline;
 		record.texture = data.texture;
-		//若未指定管线且混合档非不透明：以默认场景着色器对登记一条具名管线
+		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
 		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
 		{
-			if (!pipeline_load(record.pipeline, "场景.vert.spv", "场景.frag.spv", data.blend))
+			//按档位序取缓存下标并确保缓存表足够长
+			std::size_t index = static_cast<std::size_t>(data.blend);
+			if (impl->blend_pipelines.size() <= index)
+				impl->blend_pipelines.resize(index + 1, 0);
+			//该档尚未登记则以默认场景着色器对登记一条（此后同档材质共享之）
+			if (impl->blend_pipelines[index] == 0)
 			{
-				logger.error("渲染器:: 材质登记失败：具名管线登记失败");
-				return false;
+				if (!pipeline_load(impl->blend_pipelines[index], "场景.vert.spv", "场景.frag.spv", data.blend))
+				{
+					logger.error("渲染器:: 材质登记失败：具名管线登记失败");
+					return false;
+				}
 			}
-			//标记该管线归本材质所有（卸载时一并释放）
-			record.owns_pipeline = true;
+			//材质使用该档的共享管线（所有权归门面，卸载不释放）
+			record.pipeline = impl->blend_pipelines[index];
 		}
 		//标记记录有效
 		record.valid = true;
@@ -1434,10 +1455,7 @@ namespace engine
 		//已空则忽略
 		if (!record.valid)
 			return;
-		//若材质自行登记了具名管线则一并释放（共享的前置具名管线不释放）
-		if (record.owns_pipeline && record.pipeline != 0)
-			pipeline_unload(record.pipeline);
-		//复位记录（标记槽为空）
+		//复位记录（标记槽为空；具名管线为门面共享资源，不随材质卸载释放）
 		record = Impl::Material_Record{};
 		logger.info("渲染器:: 材质已卸载（句柄 {}）", handle);
 	}
@@ -1775,6 +1793,34 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		impl->camera.near_far_set(near_plane, far_plane);
+	}
+
+	//应用场景描述（相机五项 ＋ 清屏色）
+	void Renderer::scene_apply(const Scene_Data& scene)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//相机位置 / 注视点
+		impl->camera.position_set(scene.position[0], scene.position[1], scene.position[2]);
+		impl->camera.target_set(scene.target[0], scene.target[1], scene.target[2]);
+		//视场角与近远平面
+		impl->camera.fov_set(scene.fov);
+		impl->camera.near_far_set(scene.near_plane, scene.far_plane);
+		//清屏色（逐分量拷贝）
+		for (std::size_t index = 0; index < 4; ++index)
+			impl->clear_color[index] = scene.clear_color[index];
+	}
+
+	//设置清屏色（RGBA）
+	void Renderer::clear_color_set(const float color[4])
+	{
+		//若尚未初始化或颜色指针为空
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		//逐分量拷贝（自下一次 frame_render 起生效）
+		for (std::size_t index = 0; index < 4; ++index)
+			impl->clear_color[index] = color[index];
 	}
 
 	//UI 通道

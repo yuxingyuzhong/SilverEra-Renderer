@@ -13,6 +13,8 @@
 #include "Application/Renderer/src/render/Texture/纹理数据.h"
 //材质公共语义类型（Vulkan-free）：材质描述与句柄
 #include "Application/Renderer/src/render/Pipeline/材质数据.h"
+//场景公共语义类型（Vulkan-free）：场景描述
+#include "Application/Renderer/src/render/Scene/场景数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -46,7 +48,8 @@ namespace engine
 
 	/*
 	帧统计（只读观测值；Vulkan-free）
-	主机侧计时区间为「录制 ＋ 提交 ＋ 呈现调用」，不含 GPU 时间戳（本版次不引入 GPU 计时）。
+	主机侧计时区间为「录制 ＋ 提交 ＋ 呈现调用」；
+	GPU 侧耗时由帧模块的时间戳查询池量测（设备不支持时该字段恒 0）。
 	*/
 	struct Frame_Stats
 	{
@@ -58,6 +61,8 @@ namespace engine
 		uint64_t draw_items = 0;
 		//累计实例数
 		uint64_t instances = 0;
+		//最近一帧 GPU 侧耗时（毫秒；设备不支持 GPU 时间戳时恒 0）
+		double gpu_frame_ms = 0.0;
 	};
 
 	/*
@@ -98,6 +103,11 @@ namespace engine
 		uint64_t frame_count(void) const;
 		//取帧统计快照（未初始化时各项为零）
 		Frame_Stats frame_stats_get(void) const;
+		/*
+		是否支持 GPU 时间戳（设备与图形队列族均支持时为真；未初始化时为假）
+		为假时帧统计的 gpu_frame_ms 恒 0（已优雅降级，不影响渲染）。
+		*/
+		bool gpu_timestamp_supported(void) const;
 		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
 		bool readback_supported(void) const;
 		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
@@ -258,6 +268,17 @@ namespace engine
 		void camera_fov_set(float radians);
 		//相机：设置近远平面
 		void camera_near_far_set(float near_plane, float far_plane);
+
+		/*
+		应用场景描述（相机位置 / 注视点 / 视场角 / 近远平面 ＋ 清屏色）
+		等价于逐项调用上方四个相机 setter 并设置清屏色；未初始化时静默返回。
+		*/
+		void scene_apply(const Scene_Data& scene);
+		/*
+		设置清屏色（RGBA，分量取值 0..1）
+		自下一次 frame_render 起生效；未初始化时静默返回。
+		*/
+		void clear_color_set(const float color[4]);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

@@ -55,6 +55,38 @@ namespace engine
 		//记录内存模块（像素回读缓冲的创建 / 销毁依赖它）
 		this->memory = &memory;
 
+		/*
+		探测 GPU 时间戳能力
+		三项同时满足才启用：设备支持图形与计算队列时间戳、时间戳周期有效、图形队列族有效位非零；
+		任一项不满足即降级（不创建查询池，GPU 耗时字段恒 0），既不影响构建也不报错。
+		*/
+		timestamp_supported = false;
+		timestamp_period = 0.0f;
+		timestamp_valid_bits = 0;
+		//若物理设备句柄可用则查询其属性与队列族属性
+		if (physical_device != VK_NULL_HANDLE)
+		{
+			//设备属性（取时间戳周期与图形 / 计算时间戳支持标志）
+			VkPhysicalDeviceProperties properties{};
+			vkGetPhysicalDeviceProperties(physical_device, &properties);
+			//队列族属性（取图形队列族的时间戳有效位）
+			uint32_t family_count = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &family_count, nullptr);
+			std::vector<VkQueueFamilyProperties> families(family_count);
+			vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &family_count, families.data());
+			uint32_t valid_bits = graphics_family < families.size() ? families[graphics_family].timestampValidBits : 0;
+			//记录探测结果
+			timestamp_period = properties.limits.timestampPeriod;
+			timestamp_valid_bits = valid_bits;
+			timestamp_supported = properties.limits.timestampComputeAndGraphics == VK_TRUE
+				&& timestamp_period > 0.0f && valid_bits > 0;
+		}
+		//不支持时记一条降级日志（便于定位「GPU 耗时恒 0」）
+		if (!timestamp_supported)
+			logger.warn("帧槽创建:: 设备或图形队列族不支持 GPU 时间戳，GPU 耗时统计降级为 0");
+		else
+			logger.info("帧槽创建:: GPU 时间戳可用（周期 {} 纳秒 / tick，有效位 {}）", timestamp_period, timestamp_valid_bits);
+
 		//创建帧槽集合
 		slots.resize(frame_overlap);
 		for (uint32_t index = 0; index < frame_overlap; ++index)
@@ -106,6 +138,10 @@ namespace engine
 		last_frame_ms = 0.0;
 		total_draw_items = 0;
 		total_instances = 0;
+		timestamp_supported = false;
+		timestamp_period = 0.0f;
+		timestamp_valid_bits = 0;
+		last_gpu_frame_ms = 0.0;
 		//解除对内存模块的引用
 		memory = nullptr;
 	}
@@ -153,6 +189,18 @@ namespace engine
 	uint64_t Frame_Context::total_instances_get(void) const
 	{
 		return total_instances;
+	}
+
+	//GPU 时间戳能力
+	bool Frame_Context::gpu_timestamp_supported_get(void) const
+	{
+		return timestamp_supported;
+	}
+
+	//最近一帧 GPU 侧耗时（毫秒）
+	double Frame_Context::last_gpu_frame_ms_get(void) const
+	{
+		return last_gpu_frame_ms;
 	}
 
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
@@ -239,6 +287,27 @@ namespace engine
 			return false;
 		}
 
+		/*
+		GPU 时间戳查询池（每槽两个查询：帧始 / 帧末）
+		仅在能力可用时创建；创建失败即降级为「本槽无 GPU 耗时」（不使整体构建失败）。
+		*/
+		slot.timestamp_pool = VK_NULL_HANDLE;
+		slot.timestamp_written = false;
+		if (timestamp_supported)
+		{
+			//查询池创建信息（时间戳类型，两个查询）
+			VkQueryPoolCreateInfo query_info{};
+			query_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+			query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			query_info.queryCount = 2;
+			//创建失败仅记日志并降级（该帧槽 GPU 耗时恒 0）
+			if (vkCreateQueryPool(device, &query_info, nullptr, &slot.timestamp_pool) != VK_SUCCESS)
+			{
+				slot.timestamp_pool = VK_NULL_HANDLE;
+				logger.warn("帧槽创建:: GPU 时间戳查询池创建失败，该帧槽 GPU 耗时降级为 0");
+			}
+		}
+
 		return true;
 	}
 
@@ -248,6 +317,9 @@ namespace engine
 		//若逻辑设备已记录
 		if (device != VK_NULL_HANDLE)
 		{
+			//销毁 GPU 时间戳查询池
+			if (slot.timestamp_pool != VK_NULL_HANDLE)
+				vkDestroyQueryPool(device, slot.timestamp_pool, nullptr);
 			//销毁完成栅栏
 			if (slot.in_flight_fence != VK_NULL_HANDLE)
 				vkDestroyFence(device, slot.in_flight_fence, nullptr);
@@ -256,6 +328,8 @@ namespace engine
 				vkDestroyCommandPool(device, slot.command_pool, nullptr);
 		}
 		//复位句柄
+		slot.timestamp_pool = VK_NULL_HANDLE;
+		slot.timestamp_written = false;
 		slot.in_flight_fence = VK_NULL_HANDLE;
 		slot.command_pool = VK_NULL_HANDLE;
 		slot.command_buffer = VK_NULL_HANDLE;

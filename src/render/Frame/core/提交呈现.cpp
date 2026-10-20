@@ -16,6 +16,30 @@ namespace engine
 			total_instances += items[index].instance_count;
 	}
 
+	//读回某帧槽上一轮 GPU 时间戳并换算毫秒（调用方须保证该槽上一轮提交已完成）
+	void Frame_Context::gpu_timestamp_read(Frame_Slot& slot)
+	{
+		//无查询池 / 尚未写过 / 能力未启用即跳过
+		if (slot.timestamp_pool == VK_NULL_HANDLE || !slot.timestamp_written || !timestamp_supported)
+			return;
+		//读回两个时间戳（该槽上一轮已由栅栏等待保证执行完毕，故结果就绪）
+		uint64_t ticks[2] = { 0, 0 };
+		VkResult status = vkGetQueryPoolResults(device, slot.timestamp_pool, 0, 2,
+			sizeof(ticks), ticks, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+		//尚未就绪（首轮未执行完等）即跳过，不改动已有值
+		if (status != VK_SUCCESS)
+			return;
+		/*
+		按图形队列族的时间戳有效位掩去高位
+		有效位小于 64 时高位为未定义内容，直接相减会得到错误差值。
+		*/
+		uint64_t mask = timestamp_valid_bits >= 64 ? ~0ull : ((1ull << timestamp_valid_bits) - 1ull);
+		uint64_t begin_ticks = ticks[0] & mask;
+		uint64_t end_ticks = ticks[1] & mask;
+		//换算毫秒（timestamp_period 单位为「纳秒 / tick」）
+		last_gpu_frame_ms = static_cast<double>(end_ticks - begin_ticks) * static_cast<double>(timestamp_period) / 1.0e6;
+	}
+
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
 	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
 		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
@@ -43,6 +67,8 @@ namespace engine
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待；K9）
 		if (!slot_fence_wait(slot))
 			return false;
+		//读回该帧槽上一轮 GPU 时间戳（此时上一轮已执行完；无能力 / 首轮时静默跳过）
+		gpu_timestamp_read(slot);
 
 		/*
 		取图像可用信号量
@@ -119,7 +145,8 @@ namespace engine
 		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
-			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target);
+			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target,
+			slot.timestamp_pool);
 
 		/*
 		取本帧呈现完成信号量
@@ -146,6 +173,8 @@ namespace engine
 		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
 			return false;
 
+		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
+		slot.timestamp_written = true;
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
 		++frame_count;
 		//释放到期的延迟销毁条目
@@ -163,9 +192,9 @@ namespace engine
 		uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
 		Frame_Readback_Request* readback)
 	{
-		//前置：帧上下文与目标附件必须齐备
+		//前置：帧上下文与目标附件必须齐备（含深度视图，与同帧多 pass 路径同口径）
 		if (!valid() || target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
-			|| target.extent.width == 0 || target.extent.height == 0)
+			|| target.depth_view == VK_NULL_HANDLE || target.extent.width == 0 || target.extent.height == 0)
 		{
 			logger.error("提交呈现:: 帧上下文或离屏目标尚未就绪");
 			return false;
@@ -177,6 +206,8 @@ namespace engine
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 		if (!slot_fence_wait(slot))
 			return false;
+		//读回该帧槽上一轮 GPU 时间戳（此时上一轮已执行完；无能力 / 首轮时静默跳过）
+		gpu_timestamp_read(slot);
 
 		//重置该帧槽完成栅栏（提交前必须处于未发出态）
 		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
@@ -213,7 +244,8 @@ namespace engine
 		//本帧计时起点（主机侧录制 ＋ 提交）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
-		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback, readback_target);
+		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
+			readback_target, slot.timestamp_pool);
 
 		/*
 		仅以完成栅栏提交
@@ -240,6 +272,8 @@ namespace engine
 		if (readback_active && !readback_read(slot, *readback, target.extent))
 			return false;
 
+		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
+		slot.timestamp_written = true;
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
 		++frame_count;
 		//释放到期的延迟销毁条目
@@ -293,6 +327,8 @@ namespace engine
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 		if (!slot_fence_wait(slot))
 			return false;
+		//读回该帧槽上一轮 GPU 时间戳（此时上一轮已执行完；无能力 / 首轮时静默跳过）
+		gpu_timestamp_read(slot);
 
 		//取图像可用信号量（与交换链路径同口径）
 		VkSemaphore image_available = swapchain.image_available_semaphore_get(acquire_cursor % swapchain.image_available_count_get());
@@ -358,7 +394,7 @@ namespace engine
 		//录制命令缓冲（目标 pass ＋ 后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
 		command_record_target_present(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
-			target, items, item_count, post_item, clear_color, readback_target);
+			target, items, item_count, post_item, clear_color, readback_target, slot.timestamp_pool);
 
 		//取本帧呈现完成信号量（按交换链图像持有）
 		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
@@ -377,6 +413,8 @@ namespace engine
 		if (readback_active && !readback_read(slot, *readback, swapchain.extent_get()))
 			return false;
 
+		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
+		slot.timestamp_written = true;
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
 		++frame_count;
 		//释放到期的延迟销毁条目

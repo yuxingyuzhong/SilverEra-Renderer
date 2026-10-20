@@ -90,6 +90,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Renderer/局部命名空间使用.h"
     "src/render/Renderer/渲染器.h"
     "src/render/Renderer/渲染器_UI通道.h"
+    "src/render/Scene/场景数据.h"
     "src/render/Scene/局部命名空间使用.h"
     "src/render/Scene/相机.h"
     "src/render/Shader/局部命名空间使用.h"
