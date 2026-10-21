@@ -636,18 +636,20 @@ namespace engine
 			//本级源目标（第 stage 级读第 stage % 目标数 个中间目标）
 			const Frame_Render_Target& source = targets[stage % target_count];
 			/*
-			本级「源 / 宿尺寸」推送（offset 80）
-			后处理片元据此把宿像素坐标映射为源像素坐标（1:1 时映射为恒等，非 1:1 时为点采样），
-			从而使目标尺寸**不再要求等于交换链范围**（半分辨率泛光等）。
+			本级「源 / 宿尺寸 ＋ 泛光参数」推送（offset 80，共 8 个浮点）
+			前 4 个为源宽 / 源高 / 宿宽 / 宿高（后处理片元据此映射像素坐标）；
+			后 4 个为泛光阈值 / 软膝 / 强度 / 保留（由门面写在绘制项里）。
 			*/
-			float stage_size[4] = {
+			float stage_uniform[8] = {
 				static_cast<float>(source.extent.width), static_cast<float>(source.extent.height),
 				static_cast<float>(stage_extent.width), static_cast<float>(stage_extent.height),
+				post_items[stage].post_params[0], post_items[stage].post_params[1],
+				post_items[stage].post_params[2], post_items[stage].post_params[3],
 			};
 			//本级绘制项（复制后补推送数据；不改调用方数组）
 			Frame_Render_Item stage_item = post_items[stage];
-			stage_item.push_constants = stage_size;
-			stage_item.push_constant_size = static_cast<uint32_t>(sizeof(stage_size));
+			stage_item.push_constants = stage_uniform;
+			stage_item.push_constant_size = static_cast<uint32_t>(sizeof(stage_uniform));
 			stage_item.push_constant_offset = 80;
 
 			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定）

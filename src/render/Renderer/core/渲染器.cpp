@@ -818,6 +818,9 @@ namespace engine
 					post_item.instance_buffer = impl->instance_buffers[slot];
 					post_item.instance_offset = post_instance_offset;
 					post_item.instance_count = 1;
+					//泛光参数（帧模块随「源 / 宿尺寸」一并推送，offset 96）
+					for (std::size_t each = 0; each < 4; ++each)
+						post_item.post_params[each] = impl->bloom_param[each];
 					post_items.push_back(post_item);
 				}
 				//若各级绘制项齐备
@@ -2082,6 +2085,27 @@ namespace engine
 
 		//登记绘制项（沿用既有网格绘制路径；文字颜色经推送常量下发）
 		return mesh_draw(mesh, transform.data(), impl->text_color);
+	}
+
+	//设置泛光参数（阈值 / 软膝 / 强度）
+	void Renderer::bloom_param_set(float threshold, float knee, float intensity)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//参数校验：阈值须正、软膝非负且小于阈值、强度须为有限正值
+		bool valid = (threshold > 0.0f) && (knee >= 0.0f) && (knee < threshold)
+			&& (intensity > 0.0f) && (intensity < 100.0f);
+		//若非法则整次忽略（保持原值）
+		if (!valid)
+		{
+			logger.warn("渲染器:: 泛光参数非法（阈值 {}、软膝 {}、强度 {}），整次忽略",
+				threshold, knee, intensity);
+			return;
+		}
+		impl->bloom_param[0] = threshold;
+		impl->bloom_param[1] = knee;
+		impl->bloom_param[2] = intensity;
 	}
 
 	//设置文字颜色（RGBA，逐分量钳制）

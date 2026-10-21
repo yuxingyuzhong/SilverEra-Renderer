@@ -315,6 +315,13 @@ namespace engine
 		*/
 		void text_color_set(const float color[4]);
 		/*
+		设置泛光参数（阈值 / 软膝 / 强度；均为线性空间量）
+		阈值与软膝须满足「阈值 > 0 且软膝 ≥ 0 且软膝 < 阈值」，强度须为有限正值；非法即整次忽略（保持原值）。
+		默认 0.6 / 0.1 / 1.0（与既有 `亮部提取.frag` / `泛光叠加.frag` 的常量一致，故不调用时画面不变）。
+		参数自**下一次** frame_render 的后处理链各级生效（经推送常量 offset 96 下发）。
+		*/
+		void bloom_param_set(float threshold, float knee, float intensity);
+		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →
 		以「像素坐标 → NDC」矩阵登记一个绘制项；实际绘制在下一帧 frame_render 时发生。

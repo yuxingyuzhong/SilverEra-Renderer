@@ -104,6 +104,11 @@ namespace engine
 		uint32_t push_constant_size = 0;
 		//推送常量在管线布局中的字节偏移（文字在 0；后处理的「源 / 宿尺寸」在 80）
 		uint32_t push_constant_offset = 0;
+		/*
+		后处理泛光参数（仅后处理链各级使用；x = 阈值、y = 软膝、z = 强度、w 保留）
+		由门面写入，帧模块随「源 / 宿尺寸」一并推送（offset 96）。
+		*/
+		float post_params[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 	};
 
 	/*

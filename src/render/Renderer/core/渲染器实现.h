@@ -142,6 +142,11 @@ namespace engine
 		uint64_t text_pipeline = 0;
 		//文字颜色（RGBA，默认白；由 text_color_set 更新，text_draw* 以推送常量下发）
 		float text_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		/*
+		泛光参数（阈值 / 软膝 / 强度 / 保留；默认 0.6 / 0.1 / 1.0 / 0）
+		由 bloom_param_set 更新；后处理链各级以推送常量（offset 96）下发。
+		*/
+		float bloom_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 20>> pending_push_constants;
 		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
