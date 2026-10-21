@@ -256,6 +256,15 @@ namespace engine
 		//销毁离屏渲染目标（句柄无效则忽略）
 		void render_target_destroy(uint64_t handle);
 		/*
+		读回离屏渲染目标的颜色内容（第二十六轮新增）
+		先把在途帧等尽（frames_wait），再用一次性命令缓冲同步拷贝到主机；
+		pixels 为 RGBA8 紧排（逐行自上而下、无行填充），capacity 须不小于 宽×高×4；
+		成功时 width_out / height_out（非空）回填目标尺寸。未初始化 / 句柄无效 / 容量不足返回假。
+		读回不改变目标内容，颜色图像仍保持 SHADER_READ_ONLY_OPTIMAL（可继续采样）。
+		*/
+		bool render_target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
 		设置「本帧渲染到目标」
 		handle 为 0 时渲染到交换链（默认）；否则本帧把场景渲染进该目标且**不呈现到窗口**，
 		离屏结果在帧间恒处于可采样布局，可用 texture_bind_target 在后续帧采样合成（后处理闭环）。

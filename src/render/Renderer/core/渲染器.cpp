@@ -1804,6 +1804,20 @@ namespace engine
 			impl->swapchain.format_get(), impl->swapchain.depth_format_get());
 	}
 
+	//读回离屏渲染目标的颜色内容
+	bool Renderer::render_target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽，避免与该目标的写入 / 采样冲突
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交渲染目标模块（同步拷贝并读回）
+		return impl->render_target.target_readback(handle, pixels, capacity, width_out, height_out);
+	}
+
 	//销毁离屏渲染目标
 	void Renderer::render_target_destroy(uint64_t handle)
 	{

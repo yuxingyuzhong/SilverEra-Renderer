@@ -85,6 +85,14 @@ namespace engine
 		//取渲染目标各附件与范围（句柄无效返回假）
 		bool target_get(uint64_t handle, VkImage& color_image_out, VkImageView& color_view_out,
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;
+		/*
+		读回渲染目标的颜色图像到主机缓冲（第二十六轮新增）
+		pixels 为 RGBA8 紧排（逐行自上而下、无行填充），capacity 须不小于 宽×高×4；
+		width_out / height_out 非空时回填实际尺寸。读取完成后颜色图像仍回到 SHADER_READ_ONLY。
+		调用方须保证此刻无在途帧引用该目标（门面会先调 frames_wait）。
+		*/
+		bool target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:

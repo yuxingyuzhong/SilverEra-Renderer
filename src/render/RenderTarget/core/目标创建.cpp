@@ -330,6 +330,146 @@ namespace engine
 		return records[handle - 1].valid;
 	}
 
+	/*
+	读回渲染目标的颜色图像（RGBA8 紧排）
+	流程：主色 SHADER_READ_ONLY → TRANSFER_SRC → 拷贝到主机可见暂存缓冲 → 转回 SHADER_READ_ONLY
+	     → 等栅栏 → 从暂存缓冲读出像素 → 销毁暂存缓冲。
+	同步：调用方须已保证无在途帧引用该目标（门面先 frames_wait），本函数只用一次性命令池同步提交。
+	*/
+	bool Render_Target_Context::target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 / 像素出参 / 容量校验
+		if (!valid() || pixels == nullptr || handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则拒绝
+		if (!record.valid)
+			return false;
+		//本帧字节数（RGBA8 紧排）
+		VkDeviceSize byte_size = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height * 4;
+		//若容量不足
+		if (byte_size > capacity)
+		{
+			logger.error("渲染目标:: 读回容量不足（需要 {} 字节，给出 {}）", byte_size, capacity);
+			return false;
+		}
+		//确保一次性命令资源就绪
+		if (!transient_resources_ensure())
+			return false;
+
+		//创建主机可见暂存缓冲（传输目标用途）
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation staging_alloc = VK_NULL_HANDLE;
+		if (!memory->buffer_create(staging, staging_alloc, byte_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true))
+		{
+			logger.error("渲染目标:: 读回暂存缓冲创建失败");
+			return false;
+		}
+
+		//重置命令池并分配命令缓冲
+		bool recorded = vk_result_check(vkResetCommandPool(device, transient_pool, 0), "渲染目标:: 重置读回命令池");
+		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+		if (recorded)
+		{
+			VkCommandBufferAllocateInfo buffer_alloc{};
+			buffer_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			buffer_alloc.commandPool = transient_pool;
+			buffer_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			buffer_alloc.commandBufferCount = 1;
+			recorded = vk_result_check(vkAllocateCommandBuffers(device, &buffer_alloc, &command_buffer), "渲染目标:: 分配读回命令缓冲");
+		}
+		//开始录制
+		if (recorded)
+		{
+			VkCommandBufferBeginInfo begin_info{};
+			begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			recorded = vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "渲染目标:: 开始读回录制");
+		}
+
+		if (recorded)
+		{
+			//进入传输源布局（着色器读 → 传输读）
+			VkImageMemoryBarrier to_transfer{};
+			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_transfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.image = record.color_image;
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_transfer);
+
+			//拷贝整幅颜色图像到暂存缓冲（紧排、无行填充）
+			VkBufferImageCopy region{};
+			region.bufferOffset = 0;
+			region.bufferRowLength = 0;
+			region.bufferImageHeight = 0;
+			region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			region.imageOffset = { 0, 0, 0 };
+			region.imageExtent = { record.extent.width, record.extent.height, 1 };
+			vkCmdCopyImageToBuffer(command_buffer, record.color_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+
+			//转回着色器可读（后续帧继续采样该目标）
+			VkImageMemoryBarrier to_sample = to_transfer;
+			to_sample.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_sample.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_sample.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			to_sample.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_sample);
+
+			//结束录制
+			recorded = vk_result_check(vkEndCommandBuffer(command_buffer), "渲染目标:: 结束读回录制");
+		}
+
+		//提交并等待（同步完成，不依赖帧模块）
+		if (recorded)
+		{
+			recorded = vk_result_check(vkResetFences(device, 1, &transient_fence), "渲染目标:: 重置读回栅栏");
+		}
+		if (recorded)
+		{
+			VkSubmitInfo submit_info{};
+			submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit_info.commandBufferCount = 1;
+			submit_info.pCommandBuffers = &command_buffer;
+			recorded = vk_result_check(vkQueueSubmit(graphics_queue, 1, &submit_info, transient_fence), "渲染目标:: 提交读回命令");
+		}
+		if (recorded)
+		{
+			recorded = vk_result_check(vkWaitForFences(device, 1, &transient_fence, VK_TRUE, UINT64_MAX), "渲染目标:: 等待读回完成");
+		}
+
+		//从暂存缓冲读出像素
+		if (recorded)
+		{
+			recorded = memory->buffer_read(staging, staging_alloc, pixels, byte_size, 0);
+		}
+		//归还暂存缓冲
+		memory->buffer_destroy(staging, staging_alloc);
+
+		//成功后写出尺寸
+		if (recorded)
+		{
+			if (width_out != nullptr)
+				*width_out = record.extent.width;
+			if (height_out != nullptr)
+				*height_out = record.extent.height;
+		}
+		return recorded;
+	}
+
 	//销毁（幂等）
 	void Render_Target_Context::destroy(void)
 	{
