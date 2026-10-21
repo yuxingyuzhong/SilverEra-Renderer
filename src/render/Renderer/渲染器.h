@@ -501,6 +501,12 @@ namespace engine
 		void fog_set(const float color[3], float density, float start, float end);
 		//关闭距离雾（第三十八轮新增；密度归零，其余参数保持既有值）
 		void fog_clear(void);
+		/*
+		设置环境光颜色（第四十轮新增；默认白）
+		color 为环境光颜色（分量 0..1），与环境光强度（`light_set` / `Scene_Data::light_ambient`）相乘后叠加到照度；
+		任一分量非法（越界 / 非数 / 空指针）即整次忽略并告警，保持既有颜色。
+		*/
+		void ambient_color_set(const float color[3]);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

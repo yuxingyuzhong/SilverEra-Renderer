@@ -37,6 +37,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 fog_color_density;
 	//雾距离区间（x = 起始、y = 结束；第三十八轮）
 	vec4 fog_range;
+	//环境光颜色（rgb；第四十轮）
+	vec4 ambient_color;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -58,8 +60,8 @@ void main()
 		vec3 normal = normalize(in_normal);
 		//视线方向（相机 → 片元 的反向，即片元指向相机）
 		vec3 to_view = normalize(scene.camera_pos.xyz - in_world);
-		//环境光作为基底辐射度
-		radiance = vec3(scene.light_common.x);
+		//环境光作为基底辐射度（颜色 × 强度；第四十轮引入颜色）
+			radiance = scene.ambient_color.rgb * scene.light_common.x;
 		/*
 		方向光（强度为 0 视为关闭）
 		高光按 Blinn-Phong：H = normalize(L + V)，取各光源贡献的最大值（不做叠加，避免过曝）

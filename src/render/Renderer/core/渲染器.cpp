@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；416 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 416,
+			//创建场景 UBO（主机可见、统一缓冲用途；432 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 432,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -450,6 +450,16 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
 			{
 				logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始环境光颜色（offset 416、16 字节；第四十轮）
+			float ambient_block[4] = {
+				impl->ambient_color[0], impl->ambient_color[1], impl->ambient_color[2], 0.0f,
+			};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
+			{
+				logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -631,6 +641,10 @@ namespace engine
 		impl->fog_density = 0.0f;
 		impl->fog_start = 1.0f;
 		impl->fog_end = 10.0f;
+		//复位环境光颜色（第四十轮：默认白）
+		impl->ambient_color[0] = 1.0f;
+		impl->ambient_color[1] = 1.0f;
+		impl->ambient_color[2] = 1.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -854,6 +868,15 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
 		{
 			logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽环境光颜色（offset 416、16 字节；第四十轮）
+		float ambient_block[4] = {
+			impl->ambient_color[0], impl->ambient_color[1], impl->ambient_color[2], 0.0f,
+		};
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
+		{
+			logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2988,6 +3011,24 @@ namespace engine
 			return;
 		//密度归零即关闭（颜色与区间保持既有值，便于再次开启）
 		impl->fog_density = 0.0f;
+	}
+
+	//设置环境光颜色（第四十轮新增）
+	void Renderer::ambient_color_set(const float color[3])
+	{
+		//若尚未初始化或颜色指针为空
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		//颜色各分量须落在 [0,1]（取反比较使 NaN 判非法）
+		for (std::size_t index = 0; index < 3; ++index)
+			//分量越界或非数即整次忽略
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+			{
+				logger.warn("渲染器:: 环境光颜色非法（{}），整次忽略", color[index]);
+				return;
+			}
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->ambient_color[index] = color[index];
 	}
 
 	//设置清屏色（RGBA）
