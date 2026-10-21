@@ -33,6 +33,10 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_spot_dir[4];
 	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；第三十四轮）
 	vec4 point_spot_cone[4];
+	//雾色（rgb）＋ 密度（w；0 = 关闭；第三十八轮）
+	vec4 fog_color_density;
+	//雾距离区间（x = 起始、y = 结束；第三十八轮）
+	vec4 fog_range;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -120,5 +124,20 @@ void main()
 	}
 	//最终颜色：反照率 × 累加辐射度 ＋ 高光（强度由 light_common.y 统一缩放），钳制到 [0,1]
 	vec3 lit = albedo_color.rgb * radiance + vec3(specular * scene.light_common.y);
-	out_color = vec4(clamp(lit, 0.0, 1.0), albedo_color.a);
+	/*
+	距离雾（第三十八轮；密度 0 = 关闭）
+	按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度 混合雾色；
+	雾前的照度与雾后的混合都在线性空间完成，最后统一钳制。
+	*/
+	vec3 final_rgb = lit;
+	if (scene.fog_color_density.w > 0.0)
+	{
+		float view_distance = length(scene.camera_pos.xyz - in_world);
+		//雾区间跨度（避免除零）
+		float fog_span = max(scene.fog_range.y - scene.fog_range.x, 0.0001);
+		float fog_t = clamp((view_distance - scene.fog_range.x) / fog_span, 0.0, 1.0);
+		float fog_factor = clamp(fog_t * fog_t * scene.fog_color_density.w, 0.0, 1.0);
+		final_rgb = mix(lit, scene.fog_color_density.rgb, fog_factor);
+	}
+	out_color = vec4(clamp(final_rgb, 0.0, 1.0), albedo_color.a);
 }

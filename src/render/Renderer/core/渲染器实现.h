@@ -76,6 +76,14 @@ namespace engine
 		*/
 		uint32_t attenuation_mode = 0;
 		/*
+		距离雾（第三十八轮）
+		密度为 0 表示关闭（默认，画面与引入雾前一致）；开启后按「相机 → 片元」距离在起始 / 结束距离间平滑混入雾色。
+		*/
+		float fog_color[3] = { 0.05f, 0.05f, 0.10f };
+		float fog_density = 0.0f;
+		float fog_start = 1.0f;
+		float fog_end = 10.0f;
+		/*
 		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
 		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。
 		*/

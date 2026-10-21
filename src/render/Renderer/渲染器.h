@@ -493,6 +493,14 @@ namespace engine
 		bool light_attenuation_set(uint32_t mode);
 		//读取当前距离衰减模式（第三十六轮新增；未初始化返回 0）
 		uint32_t light_attenuation_get(void) const;
+		/*
+		设置距离雾（第三十八轮新增；默认关闭）
+		color 为雾色（分量 0..1），density 为强度（0..1，0 = 关闭），start / end 为线性距离区间（世界单位，须 start ≥ 0 且 end > start）。
+		片元按「相机 → 片元」距离在 [start, end] 间取 `t² × density` 混合雾色；任一参数非法即整次忽略并告警。
+		*/
+		void fog_set(const float color[3], float density, float start, float end);
+		//关闭距离雾（第三十八轮新增；密度归零，其余参数保持既有值）
+		void fog_clear(void);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

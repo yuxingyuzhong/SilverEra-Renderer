@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；384 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 384,
+			//创建场景 UBO（主机可见、统一缓冲用途；416 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 416,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -436,6 +436,20 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
 			{
 				logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			/*
+			写入初始雾参数（offset 384、32 字节；第三十八轮）
+			前 16 字节 = 雾色 rgb ＋ 密度 w；后 16 字节 = 起始距离 x ＋ 结束距离 y。
+			*/
+			float fog_block[8] = {
+				impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
+				impl->fog_start, impl->fog_end, 0.0f, 0.0f,
+			};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
+			{
+				logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -610,6 +624,13 @@ namespace engine
 		impl->specular_shininess = 16.0f;
 		//复位距离衰减模式（第三十六轮：默认线性）
 		impl->attenuation_mode = 0;
+		//复位距离雾（第三十八轮：密度 0 = 关闭）
+		impl->fog_color[0] = 0.05f;
+		impl->fog_color[1] = 0.05f;
+		impl->fog_color[2] = 0.10f;
+		impl->fog_density = 0.0f;
+		impl->fog_start = 1.0f;
+		impl->fog_end = 10.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -823,6 +844,16 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
 		{
 			logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽雾参数（offset 384、32 字节；第三十八轮）
+		float fog_block[8] = {
+			impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
+			impl->fog_start, impl->fog_end, 0.0f, 0.0f,
+		};
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
+		{
+			logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2915,6 +2946,46 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->attenuation_mode;
+	}
+
+	//设置距离雾（第三十八轮新增）
+	void Renderer::fog_set(const float color[3], float density, float start, float end)
+	{
+		//若尚未初始化或颜色指针为空
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		/*
+		参数校验（取反比较使 NaN 判非法）
+		颜色各分量须落在 [0,1]，密度须在 [0,1]、起始非负、结束大于起始；
+		任一非法即整次忽略并告警（保持既有雾参数）。
+		*/
+		bool fog_valid = (density >= 0.0f) && (density <= 1.0f)
+			&& (start >= 0.0f) && (start <= 1e6f) && (end > start) && (end <= 1e6f);
+		for (std::size_t index = 0; index < 3; ++index)
+			//颜色分量越界或非数即判非法
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				fog_valid = false;
+		//若雾参数非法
+		if (!fog_valid)
+		{
+			logger.warn("渲染器:: 雾参数非法（密度 {}、起始 {}、结束 {}），整次忽略", density, start, end);
+			return;
+		}
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->fog_color[index] = color[index];
+		impl->fog_density = density;
+		impl->fog_start = start;
+		impl->fog_end = end;
+	}
+
+	//关闭距离雾（第三十八轮新增）
+	void Renderer::fog_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//密度归零即关闭（颜色与区间保持既有值，便于再次开启）
+		impl->fog_density = 0.0f;
 	}
 
 	//设置清屏色（RGBA）
