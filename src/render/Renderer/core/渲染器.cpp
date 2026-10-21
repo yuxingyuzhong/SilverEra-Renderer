@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；256 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 256,
+			//创建场景 UBO（主机可见、统一缓冲用途；384 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 384,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -413,6 +413,29 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
 			{
 				logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			/*
+			写入初始聚光参数（offset 256、128 字节；第三十四轮）
+			前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦」；
+			两个 std140 数组各自连续，故分两段排布。
+			*/
+			float spot_block[32] = {};
+			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+			{
+				//槽内基址（每个槽 4 个浮点）
+				const std::size_t base = static_cast<std::size_t>(light) * 4;
+				spot_block[base + 0] = impl->point_lights[light].spot_direction[0];
+				spot_block[base + 1] = impl->point_lights[light].spot_direction[1];
+				spot_block[base + 2] = impl->point_lights[light].spot_direction[2];
+				spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
+				spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
+				spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
+			}
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
+			{
+				logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -776,6 +799,28 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
 		{
 			logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		/*
+		写入该帧槽聚光参数（offset 256、128 字节；第三十四轮）
+		前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦」；
+		两个 std140 数组各自连续，故分两段排布。
+		*/
+		float spot_block[32] = {};
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+		{
+			//槽内基址（每个槽 4 个浮点）
+			const std::size_t base = static_cast<std::size_t>(light) * 4;
+			spot_block[base + 0] = impl->point_lights[light].spot_direction[0];
+			spot_block[base + 1] = impl->point_lights[light].spot_direction[1];
+			spot_block[base + 2] = impl->point_lights[light].spot_direction[2];
+			spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
+			spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
+			spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
+		}
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
+		{
+			logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2683,6 +2728,8 @@ namespace engine
 		}
 		impl->point_lights[0].radius = radius;
 		impl->point_lights[0].intensity = intensity;
+		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
+		impl->point_lights[0].is_spot = false;
 		impl->point_light_count = 1;
 		impl->light_ambient = ambient;
 		//关闭方向光（第三十二轮：单点光源入口等价于「仅一个点光源」）
@@ -2731,6 +2778,68 @@ namespace engine
 		}
 		light.radius = radius;
 		light.intensity = intensity;
+		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
+		light.is_spot = false;
+		impl->point_light_count += 1;
+		impl->light_ambient = ambient;
+		return true;
+	}
+
+	//追加一个聚光灯（第三十四轮新增）
+	bool Renderer::light_add_spot(const float position[3], const float direction[3], const float color[3],
+		float radius, float intensity, float inner_deg, float outer_deg, float ambient)
+	{
+		//若尚未初始化或任一指针为空
+		if (impl == nullptr || !impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
+			return false;
+		/*
+		参数校验（点光源同口径 ＋ 方向非退化 ＋ 锥角关系）
+		方向长度须非零；锥角须满足 0 < 内角 < 外角 ≤ 90；
+		用取反比较写法使 NaN 同样被判为非法，任一非法即拒绝并保持既有光源。
+		*/
+		float direction_length_squared = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
+		bool light_valid = (direction_length_squared > 1e-12f) && (radius > 0.0f) && (radius <= 1e6f)
+			&& (intensity >= 0.0f) && (intensity <= 1e6f)
+			&& (ambient >= 0.0f) && (ambient <= 1.0f)
+			&& (inner_deg > 0.0f) && (inner_deg < outer_deg) && (outer_deg <= 90.0f);
+		//位置须为有限值
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
+				light_valid = false;
+		//颜色分量越界或非数即判非法
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				light_valid = false;
+		//若参数非法
+		if (!light_valid)
+		{
+			logger.warn("渲染器:: 聚光灯参数非法（位置 ({}, {}, {})、半径 {}、强度 {}、内角 {}、外角 {}），拒绝",
+				position[0], position[1], position[2], radius, intensity, inner_deg, outer_deg);
+			return false;
+		}
+		//若已达上限
+		if (impl->point_light_count >= Impl::POINT_LIGHT_MAX)
+		{
+			logger.warn("渲染器:: 光源数量已达上限（{}），拒绝追加聚光灯", Impl::POINT_LIGHT_MAX);
+			return false;
+		}
+		//写入新槽位（按登记顺序累加）
+		Impl::Point_Light& light = impl->point_lights[impl->point_light_count];
+		float inverse_length = 1.0f / std::sqrt(direction_length_squared);
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			light.position[index] = position[index];
+			light.color[index] = color[index];
+			//方向归一化（内部恒存单位向量）
+			light.spot_direction[index] = direction[index] * inverse_length;
+		}
+		light.radius = radius;
+		light.intensity = intensity;
+		light.is_spot = true;
+		//锥角转余弦（度 → 弧度；内角更小故其余弦更大）
+		constexpr float degrees_to_radians = 0.017453292519943295f;
+		light.spot_inner_cos = std::cos(inner_deg * degrees_to_radians);
+		light.spot_outer_cos = std::cos(outer_deg * degrees_to_radians);
 		impl->point_light_count += 1;
 		impl->light_ambient = ambient;
 		return true;

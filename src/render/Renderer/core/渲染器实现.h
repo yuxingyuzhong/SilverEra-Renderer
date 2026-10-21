@@ -83,6 +83,19 @@ namespace engine
 			float color[3] = { 1.0f, 1.0f, 1.0f };
 			//强度（≥ 0）
 			float intensity = 1.0f;
+			/*
+			聚光灯附加参数（第三十四轮）
+			普通点光源的 is_spot 恒假；聚光灯在此基础上额外乘锥形衰减：
+			cone = smoothstep(spot_outer_cos, spot_inner_cos, dot(L, spot_direction))。
+			*/
+			//是否聚光灯
+			bool is_spot = false;
+			//光传播方向（单位向量；仅 is_spot 为真时有效）
+			float spot_direction[3] = { 0.0f, 0.0f, -1.0f };
+			//内锥角余弦（cos(内角)；锥内为 1）
+			float spot_inner_cos = 1.0f;
+			//外锥角余弦（cos(外角)；锥外为 0）
+			float spot_outer_cos = 0.0f;
 		};
 		//点光源数量上限（与着色器循环上限一致）
 		static constexpr uint32_t POINT_LIGHT_MAX = 4;

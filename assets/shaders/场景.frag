@@ -29,6 +29,10 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_pos_radius[4];
 	//点光源颜色（rgb）＋ 强度（w），最多 4 个
 	vec4 point_color_intensity[4];
+	//聚光灯方向（xyz = 光传播方向）＋ 有效标志（w > 0.5 表示该槽为聚光灯；第三十四轮）
+	vec4 point_spot_dir[4];
+	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；第三十四轮）
+	vec4 point_spot_cone[4];
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -81,13 +85,26 @@ void main()
 			//线性衰减：距离达到半径时降为 0（半径为 0 时视为无衰减）
 			float radius = scene.point_pos_radius[index].w;
 			float attenuation = radius > 0.000001 ? clamp(1.0 - distance / radius, 0.0, 1.0) : 1.0;
+			/*
+			聚光灯锥形衰减（第三十四轮）
+			普通点光源的有效标志为 0 → cone 恒 1；聚光灯按「光轴与光源→片元方向」夹角取平滑锥形：
+			夹角小于内角 → 1，大于外角 → 0，其间 smoothstep 过渡。
+			*/
+			float cone = 1.0;
+			if (scene.point_spot_dir[index].w > 0.5)
+			{
+				//光源 → 片元 的方向（to_light 为片元 → 光源，取反即得）
+				vec3 light_to_fragment = -to_light;
+				float cos_angle = dot(light_to_fragment, scene.point_spot_dir[index].xyz);
+				cone = smoothstep(scene.point_spot_cone[index].y, scene.point_spot_cone[index].x, cos_angle);
+			}
 			float ndotl = max(dot(normal, to_light), 0.0);
 			radiance += scene.point_color_intensity[index].rgb * scene.point_color_intensity[index].w
-				* ndotl * attenuation;
-			//高光同样取最大值；衰减为 0 的光源不产生高光
+				* ndotl * attenuation * cone;
+			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * attenuation);
+			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * attenuation * cone);
 		}
 	}
 	//最终颜色：反照率 × 累加辐射度 ＋ 高光（强度由 light_common.y 统一缩放），钳制到 [0,1]

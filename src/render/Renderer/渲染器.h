@@ -464,6 +464,17 @@ namespace engine
 		*/
 		bool light_add_point(const float position[3], const float color[3], float radius, float intensity, float ambient);
 		/*
+		追加一个聚光灯（第三十四轮新增；与点光源同槽、共用 4 盏上限）
+		direction 为**光传播方向**（从光源指向被照区域，长度须非零，内部归一化）；
+		inner_deg / outer_deg 为内 / 外锥角（度）：须满足 0 < inner_deg < outer_deg ≤ 90，
+		锥内照度不衰减、锥外为 0、两者之间按 smoothstep 平滑过渡。
+		position / radius / color / intensity / ambient 语义同 `light_add_point`。
+		任一参数非法（空指针 / 方向退化 / 半径非正 / 颜色越界 / 锥角非法）或已满 4 盏时
+		返回假并告警，既有光源保持不变。
+		*/
+		bool light_add_spot(const float position[3], const float direction[3], const float color[3],
+			float radius, float intensity, float inner_deg, float outer_deg, float ambient);
+		/*
 		清空全部点光源并恢复方向光默认强度（第三十二轮新增）
 		方向 / 颜色 / 环境光保持既有值；清空后画面回到「仅方向光」。
 		*/
