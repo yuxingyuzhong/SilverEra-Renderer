@@ -98,5 +98,17 @@ namespace engine
 		0 = 线性（默认）、1 = 平方反比；其它取值由 scene_apply 忽略并告警（保持门面当前模式）。
 		*/
 		uint32_t attenuation_mode = 0;
+		/*
+		距离雾（第三十九轮）
+		默认密度 0（关闭），画面与引入雾前一致；开启后按「相机 → 片元」距离在 [起始, 结束] 间混入雾色。
+		*/
+		//雾色（RGB，0..1）
+		float fog_color[3] = { 0.05f, 0.05f, 0.10f };
+		//雾强度（0..1；0 = 关闭）
+		float fog_density = 0.0f;
+		//雾起始距离（世界单位；≥ 0）
+		float fog_start = 1.0f;
+		//雾结束距离（世界单位；须大于起始）
+		float fog_end = 10.0f;
 	};
 }
