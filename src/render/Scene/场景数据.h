@@ -26,6 +26,13 @@ namespace engine
 		float near_plane = 0.1f;
 		//远裁剪平面距离
 		float far_plane = 100.0f;
+		/*
+		正交投影开关（默认关闭 = 透视，与既有默认一致）
+		开启后「垂直可见高度」由 ortho_height 决定，与相机距离无关（近大远小消失）。
+		*/
+		bool ortho = false;
+		//正交投影的垂直可见高度（世界单位；仅 ortho 为真时生效；须为正）
+		float ortho_height = 2.0f;
 		//清屏色（RGBA，分量取值 0..1）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 	};

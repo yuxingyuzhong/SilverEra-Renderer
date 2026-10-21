@@ -89,6 +89,16 @@ namespace engine
 		position[2] = target[2] + rotated.z;
 	}
 
+	//设置投影模式（正交 / 透视）
+	void Camera::ortho_set(bool enabled, float ortho_height)
+	{
+		//若垂直高度非正则忽略本次设置（保持原模式）
+		if (!(ortho_height > 0.0f))
+			return;
+		ortho = enabled;
+		this->ortho_height = ortho_height;
+	}
+
 	//写出「视图 × 投影」矩阵（列主序 16 浮点）
 	void Camera::view_proj_get(float out[16]) const
 	{
@@ -97,8 +107,21 @@ namespace engine
 			glm::vec3(position[0], position[1], position[2]),
 			glm::vec3(target[0], target[1], target[2]),
 			glm::vec3(up[0], up[1], up[2]));
-		//透视投影（深度范围 [0,1]，K1）
-		glm::mat4 proj = glm::perspective(fov, aspect, near_plane, far_plane);
+		/*
+		投影矩阵（深度范围 [0,1]，K1）
+		正交模式：垂直可见高度 ortho_height、宽按 aspect 推出，与相机距离无关；
+		透视模式：沿用 fov。
+		*/
+		glm::mat4 proj;
+		if (ortho)
+		{
+			//垂直 / 水平半尺寸
+			float half_height = ortho_height * 0.5f;
+			float half_width = half_height * aspect;
+			proj = glm::ortho(-half_width, half_width, -half_height, half_height, near_plane, far_plane);
+		}
+		else
+			proj = glm::perspective(fov, aspect, near_plane, far_plane);
 		//Y 翻转：Vulkan 的 NDC Y 轴向下（K1）
 		proj[1][1] *= -1.0f;
 		//组合「视图 × 投影」（列主序）

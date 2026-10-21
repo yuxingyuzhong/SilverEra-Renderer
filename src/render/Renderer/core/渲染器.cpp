@@ -2161,7 +2161,9 @@ namespace engine
 		用「取反比较」写法使 NaN 同样被判为非法。
 		*/
 		bool scene_valid = (scene.fov > 0.0f) && (scene.fov < 3.14159265f)
-			&& (scene.near_plane > 0.0f) && (scene.far_plane > scene.near_plane);
+			&& (scene.near_plane > 0.0f) && (scene.far_plane > scene.near_plane)
+			//正交模式额外要求垂直可见高度为正（否则投影矩阵退化）
+			&& (!scene.ortho || scene.ortho_height > 0.0f);
 		//若场景描述非法
 		if (!scene_valid)
 		{
@@ -2175,6 +2177,8 @@ namespace engine
 		//视场角与近远平面
 		impl->camera.fov_set(scene.fov);
 		impl->camera.near_far_set(scene.near_plane, scene.far_plane);
+		//投影模式（正交 / 透视；高度合法性已在上方整体校验）
+		impl->camera.ortho_set(scene.ortho, scene.ortho_height);
 		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
 		clear_color_set(scene.clear_color);
 	}
