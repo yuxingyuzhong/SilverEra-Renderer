@@ -441,6 +441,15 @@ namespace engine
 		未初始化或指针为空时静默返回。
 		*/
 		void clear_color_set(const float color[4]);
+		/*
+		设置方向光与环境光（第二十九轮新增）
+		direction 为**光传播方向**（指向场景内部；长度须非零，内部归一化），
+		color 为光颜色（分量 0..1），intensity 为强度（≥ 0，与颜色相乘后使用），
+		ambient 为环境光（0..1，直接叠加到照度）；照度最终钳制到 [0,1]。
+		任一参数非法（空指针 / 零向量 / 非数 / 负强度 / 越界颜色）即**整次拒绝**并告警，
+		保持既有光照不变；自下一次 frame_render 起生效。
+		*/
+		void light_set(const float direction[3], const float color[3], float intensity, float ambient);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

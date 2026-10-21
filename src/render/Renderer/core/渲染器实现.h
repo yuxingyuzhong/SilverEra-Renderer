@@ -57,6 +57,15 @@ namespace engine
 		Renderer_Config config;
 		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
+		/*
+		光照参数（第二十九轮新增；随场景 UBO 逐帧下发）
+		默认值保证「未提供法线的网格」画面与旧版完全一致：
+		方向 (0,0,-1)（朝 -Z 传播）、颜色白、强度 1、环境光 0 → 照度为 1。
+		*/
+		float light_direction[3] = { 0.0f, 0.0f, -1.0f };
+		float light_color[3] = { 1.0f, 1.0f, 1.0f };
+		float light_intensity = 1.0f;
+		float light_ambient = 0.0f;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

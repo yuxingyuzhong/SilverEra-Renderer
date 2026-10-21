@@ -35,5 +35,18 @@ namespace engine
 		float ortho_height = 2.0f;
 		//清屏色（RGBA，分量取值 0..1）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
+		/*
+		方向光与环境光（第二十九轮新增）
+		默认值即「满照」：方向朝 -Z、白色、强度 1、环境光 0 —— 未提供法线的网格照度为 1，
+		故默认场景画面与引入光照前逐通道一致。
+		*/
+		//光传播方向（单位向量；长度须非零，渲染层内部归一化）
+		float light_direction[3] = { 0.0f, 0.0f, -1.0f };
+		//光颜色（RGB，分量 0..1）
+		float light_color[3] = { 1.0f, 1.0f, 1.0f };
+		//光强度（≥ 0）
+		float light_intensity = 1.0f;
+		//环境光（0..1，直接叠加到照度）
+		float light_ambient = 0.0f;
 	};
 }

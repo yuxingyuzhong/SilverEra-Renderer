@@ -11,16 +11,17 @@ namespace engine
 	/*
 	顶点布局静态断言
 	下方 binding 步长与属性偏移按字面量书写，此处断言其与 Mesh::Vertex 的实际布局一致，
-	避免两侧各自漂移而静默错配（位置 vec3 在 0，纹理坐标 vec2 在 12，步长 20）。
+	避免两侧各自漂移而静默错配（位置 vec3 在 0，纹理坐标 vec2 在 12，法线 vec3 在 20，步长 32）。
 	*/
-	static_assert(sizeof(Vertex) == 20, "Mesh::Vertex 步长须为 20 字节（vec3 位置 + vec2 纹理坐标）");
+	static_assert(sizeof(Vertex) == 32, "Mesh::Vertex 步长须为 32 字节（vec3 位置 + vec2 纹理坐标 + vec3 法线）");
 	static_assert(offsetof(Vertex, position) == 0, "Mesh::Vertex::position 偏移须为 0");
 	static_assert(offsetof(Vertex, uv) == 12, "Mesh::Vertex::uv 偏移须为 12");
+	static_assert(offsetof(Vertex, normal) == 20, "Mesh::Vertex::normal 偏移须为 20");
 
 	/*
 	创建图形管线
 	动态渲染（pNext 链入 VkPipelineRenderingCreateInfo，颜色 / 深度附件格式来自配置）；
-	顶点输入 binding 0（step 20，位置 vec3 @0 / 纹理坐标 vec2 @12）＋ binding 1（step 64，模型矩阵 4 列 vec4 @0/16/32/48，实例步进）；
+	顶点输入 binding 0（step 32，位置 vec3 @0 / 纹理坐标 vec2 @12 / 法线 vec3 @20）＋ binding 1（step 64，模型矩阵 4 列 vec4 @0/16/32/48，实例步进）；
 	视口与裁剪动态设置；背面剔除 BACK、正面 COUNTER_CLOCKWISE（配合 cube_generate 绕序）；
 	深度测试开 / 写开 / LESS；推送常量 mat4 模型矩阵。
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
@@ -49,11 +50,11 @@ namespace engine
 		vertex_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
 		/*
-		顶点属性（0：位置 vec3 @0；1：纹理坐标 vec2 @12）＋ 实例属性（3..6：模型矩阵 4 列 vec4）
+		顶点属性（0：位置 vec3 @0；1：纹理坐标 vec2 @12；2：法线 vec3 @20）＋ 实例属性（3..6：模型矩阵 4 列 vec4）
 		实例属性**恒定声明**：渲染层只有一条绘制路径（模型矩阵统一由实例缓冲承载，
 		实例数为 1 即逐次绘制的等价路径），故不存在「管线要实例属性而未绑定实例缓冲」的合法状态。
 		*/
-		VkVertexInputAttributeDescription vertex_attributes[6]{};
+		VkVertexInputAttributeDescription vertex_attributes[7]{};
 		vertex_attributes[0].location = 0;
 		vertex_attributes[0].binding = 0;
 		vertex_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -62,21 +63,26 @@ namespace engine
 		vertex_attributes[1].binding = 0;
 		vertex_attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
 		vertex_attributes[1].offset = 12;
+		//顶点法线（第二十九轮新增；location 2，偏移 20，零向量表示未提供）
+		vertex_attributes[2].location = 2;
+		vertex_attributes[2].binding = 0;
+		vertex_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+		vertex_attributes[2].offset = 20;
 		//模型矩阵 4 列（列主序：列 i 位于字节偏移 i × 16）
 		for (uint32_t index = 0; index < 4; ++index)
 		{
-			vertex_attributes[2 + index].location = 3 + index;
-			vertex_attributes[2 + index].binding = 1;
-			vertex_attributes[2 + index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-			vertex_attributes[2 + index].offset = index * 16;
+			vertex_attributes[3 + index].location = 3 + index;
+			vertex_attributes[3 + index].binding = 1;
+			vertex_attributes[3 + index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+			vertex_attributes[3 + index].offset = index * 16;
 		}
 
-		//顶点输入状态（两个绑定：0 = 顶点步进，1 = 实例步进；共 6 条属性）
+		//顶点输入状态（两个绑定：0 = 顶点步进，1 = 实例步进；共 7 条属性）
 		VkPipelineVertexInputStateCreateInfo vertex_input{};
 		vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 		vertex_input.vertexBindingDescriptionCount = 2;
 		vertex_input.pVertexBindingDescriptions = vertex_bindings;
-		vertex_input.vertexAttributeDescriptionCount = 6;
+		vertex_input.vertexAttributeDescriptionCount = 7;
 		vertex_input.pVertexAttributeDescriptions = vertex_attributes;
 
 		//图元装配（三角形列表）

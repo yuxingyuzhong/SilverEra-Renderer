@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 64,
+			//创建场景 UBO（主机可见、统一缓冲用途；96 字节 = mat4 ＋ 两组光照 vec4）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 96,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -373,6 +373,17 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始光照参数块（offset 64：方向 xyz ＋ 环境光 w、颜色 rgb ＋ 强度 w）
+			float light_block[8] = {
+				impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_ambient,
+				impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
+			};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 32, 64))
+			{
+				logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -532,6 +543,15 @@ namespace engine
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
 		impl->cull_enabled = true;
+		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
+		impl->light_direction[0] = 0.0f;
+		impl->light_direction[1] = 0.0f;
+		impl->light_direction[2] = -1.0f;
+		impl->light_color[0] = 1.0f;
+		impl->light_color[1] = 1.0f;
+		impl->light_color[2] = 1.0f;
+		impl->light_intensity = 1.0f;
+		impl->light_ambient = 0.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -685,6 +705,16 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
 		{
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽光照参数块（offset 64；第二十九轮新增）
+		float light_block[8] = {
+			impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_ambient,
+			impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
+		};
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 32, 64))
+		{
+			logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2498,6 +2528,44 @@ namespace engine
 		impl->camera.ortho_set(scene.ortho, scene.ortho_height);
 		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
 		clear_color_set(scene.clear_color);
+		//光照（统一走 light_set：非法参数由后者整次拒绝）
+		light_set(scene.light_direction, scene.light_color, scene.light_intensity, scene.light_ambient);
+	}
+
+	//设置方向光与环境光（第二十九轮新增）
+	void Renderer::light_set(const float direction[3], const float color[3], float intensity, float ambient)
+	{
+		//若尚未初始化或任一指针为空
+		if (impl == nullptr || !impl->initialized || direction == nullptr || color == nullptr)
+			return;
+		/*
+		参数校验
+		方向长度须非零（否则无法归一化）、颜色各分量须落在 [0,1]、强度须非负且有限、环境光须落在 [0,1]；
+		用「取反比较」写法使 NaN 同样被判为非法，任一非法即整次拒绝并保持既有光照。
+		*/
+		float length_squared = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
+		bool light_valid = (length_squared > 1e-12f) && (intensity >= 0.0f) && (intensity <= 1e6f)
+			&& (ambient >= 0.0f) && (ambient <= 1.0f);
+		for (std::size_t index = 0; index < 3; ++index)
+			//颜色分量越界或非数即判非法
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				light_valid = false;
+		//若光照参数非法
+		if (!light_valid)
+		{
+			logger.warn("渲染器:: 光照参数非法（方向 ({}, {}, {})、强度 {}、环境光 {}），整次拒绝",
+				direction[0], direction[1], direction[2], intensity, ambient);
+			return;
+		}
+		//归一化方向（内部恒存单位向量）
+		float inverse_length = 1.0f / std::sqrt(length_squared);
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			impl->light_direction[index] = direction[index] * inverse_length;
+			impl->light_color[index] = color[index];
+		}
+		impl->light_intensity = intensity;
+		impl->light_ambient = ambient;
 	}
 
 	//设置清屏色（RGBA）

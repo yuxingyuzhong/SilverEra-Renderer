@@ -17,7 +17,8 @@ namespace engine
 		scene_binding.binding = 0;
 		scene_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		scene_binding.descriptorCount = 1;
-		scene_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		//顶点与片元阶段均可见（第二十九轮：片元着色器需读取其中的光照参数）
+		scene_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
 		//set 0 布局创建信息
 		VkDescriptorSetLayoutCreateInfo scene_info{};
