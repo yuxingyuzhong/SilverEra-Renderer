@@ -458,6 +458,17 @@ namespace engine
 		*/
 		void light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient);
 		/*
+		追加一个点光源（第三十二轮新增；最多 4 个，按登记顺序累加）
+		不清空既有光源；超出上限、参数非法（空指针 / 半径非正 / 颜色越界 / 强度或环境光越界）时
+		返回假并告警，既有光源保持不变。ambient 为全局环境光（多次调用取最后一次的合法值）。
+		*/
+		bool light_add_point(const float position[3], const float color[3], float radius, float intensity, float ambient);
+		/*
+		清空全部点光源并恢复方向光默认强度（第三十二轮新增）
+		方向 / 颜色 / 环境光保持既有值；清空后画面回到「仅方向光」。
+		*/
+		void lights_clear(void);
+		/*
 		设置镜面高光参数（第三十一轮新增；对方向光与点光源均生效）
 		intensity 为高光强度（≥ 0，0 = 关闭），shininess 为光泽度（≥ 1，越大高光越集中）。
 		任一参数非法（NaN / 强度为负 / 光泽度小于 1）即整次拒绝并告警。

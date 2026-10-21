@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；128 字节 = mat4 ＋ 光照三组 ＋ 相机位置）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 128,
+			//创建场景 UBO（主机可见、统一缓冲用途；256 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 256,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -376,12 +376,11 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//写入初始光照参数块（offset 64、64 字节：方向/位置 ＋ 颜色/强度 ＋ 模式/高光 ＋ 相机位置）
-			const float* light_vector = impl->light_mode == 1 ? impl->light_position : impl->light_direction;
+			//写入初始光照块（offset 64、64 字节：公共参数 ＋ 方向光 ＋ 颜色 ＋ 相机位置）
 			float light_block[16] = {
-				light_vector[0], light_vector[1], light_vector[2], impl->light_ambient,
-				impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
-				static_cast<float>(impl->light_mode), impl->light_radius, impl->specular_intensity, impl->specular_shininess,
+				impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
+				impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
+				impl->light_color[0], impl->light_color[1], impl->light_color[2], 0.0f,
 				0.0f, 0.0f, 0.0f, 0.0f,
 			};
 			//相机世界位置（镜面高光的视线方向来源）
@@ -393,6 +392,27 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 			{
 				logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始点光源数组（offset 128、128 字节；4 个槽位，未用槽位清零）
+			float point_block[32] = {};
+			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+			{
+				//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
+				const std::size_t base = static_cast<std::size_t>(light) * 4;
+				point_block[base + 0] = impl->point_lights[light].position[0];
+				point_block[base + 1] = impl->point_lights[light].position[1];
+				point_block[base + 2] = impl->point_lights[light].position[2];
+				point_block[base + 3] = impl->point_lights[light].radius;
+				point_block[16 + base + 0] = impl->point_lights[light].color[0];
+				point_block[16 + base + 1] = impl->point_lights[light].color[1];
+				point_block[16 + base + 2] = impl->point_lights[light].color[2];
+				point_block[16 + base + 3] = impl->point_lights[light].intensity;
+			}
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
+			{
+				logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -561,12 +581,8 @@ namespace engine
 		impl->light_color[2] = 1.0f;
 		impl->light_intensity = 1.0f;
 		impl->light_ambient = 0.0f;
-		//点光源与高光恢复默认（方向光模式、半径 5、高光关闭、光泽度 16）
-		impl->light_mode = 0;
-		impl->light_position[0] = 0.0f;
-		impl->light_position[1] = 0.0f;
-		impl->light_position[2] = 2.0f;
-		impl->light_radius = 5.0f;
+		//点光源与高光恢复默认（无点光源、方向光强度 1、高光关闭、光泽度 16）
+		impl->point_light_count = 0;
 		impl->specular_intensity = 0.0f;
 		impl->specular_shininess = 16.0f;
 		impl->pending_push_constants.clear();
@@ -724,13 +740,11 @@ namespace engine
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
 		}
-		//写入该帧槽光照参数块（offset 64、64 字节；第三十一轮扩为点光源 ＋ 高光 ＋ 相机位置）
-		//光源位置 / 方向按模式选择：点光源模式下 light_param0.xyz 为光位置
-		const float* light_vector = impl->light_mode == 1 ? impl->light_position : impl->light_direction;
+		//写入该帧槽光照块（offset 64、64 字节；第三十二轮：公共参数 ＋ 方向光 ＋ 颜色 ＋ 相机位置）
 		float light_block[16] = {
-			light_vector[0], light_vector[1], light_vector[2], impl->light_ambient,
-			impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
-			static_cast<float>(impl->light_mode), impl->light_radius, impl->specular_intensity, impl->specular_shininess,
+			impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
+			impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
+			impl->light_color[0], impl->light_color[1], impl->light_color[2], 0.0f,
 			0.0f, 0.0f, 0.0f, 0.0f,
 		};
 		//相机世界位置（镜面高光的视线方向来源）
@@ -742,6 +756,26 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 		{
 			logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽点光源数组（offset 128、128 字节；4 个槽位，未用槽位清零）
+		float point_block[32] = {};
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+		{
+			//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
+			const std::size_t base = static_cast<std::size_t>(light) * 4;
+			point_block[base + 0] = impl->point_lights[light].position[0];
+			point_block[base + 1] = impl->point_lights[light].position[1];
+			point_block[base + 2] = impl->point_lights[light].position[2];
+			point_block[base + 3] = impl->point_lights[light].radius;
+			point_block[16 + base + 0] = impl->point_lights[light].color[0];
+			point_block[16 + base + 1] = impl->point_lights[light].color[1];
+			point_block[16 + base + 2] = impl->point_lights[light].color[2];
+			point_block[16 + base + 3] = impl->point_lights[light].intensity;
+		}
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
+		{
+			logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2593,8 +2627,8 @@ namespace engine
 		}
 		impl->light_intensity = intensity;
 		impl->light_ambient = ambient;
-		//切换到方向光模式（后设者生效）
-		impl->light_mode = 0;
+		//切回「仅方向光」（清空点光源；第三十二轮）
+		impl->point_light_count = 0;
 	}
 
 	//设置点光源（第三十一轮新增）
@@ -2627,13 +2661,74 @@ namespace engine
 		//写入点光源参数（位置即「光位置」，由着色器按模式选择语义）
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			impl->light_position[index] = position[index];
-			impl->light_color[index] = color[index];
+			impl->point_lights[0].position[index] = position[index];
+			impl->point_lights[0].color[index] = color[index];
+			//方向光颜色保持既有值
 		}
-		impl->light_radius = radius;
-		impl->light_intensity = intensity;
+		impl->point_lights[0].radius = radius;
+		impl->point_lights[0].intensity = intensity;
+		impl->point_light_count = 1;
 		impl->light_ambient = ambient;
-		impl->light_mode = 1;
+		//关闭方向光（第三十二轮：单点光源入口等价于「仅一个点光源」）
+		impl->light_intensity = 0.0f;
+	}
+
+	//追加一个点光源（第三十二轮新增）
+	bool Renderer::light_add_point(const float position[3], const float color[3], float radius, float intensity, float ambient)
+	{
+		//若尚未初始化或任一指针为空
+		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
+			return false;
+		/*
+		参数校验（与 light_point_set 同口径）＋ 容量校验
+		任一非法或已满即返回假并告警，既有光源保持不变。
+		*/
+		bool light_valid = (radius > 0.0f) && (radius <= 1e6f) && (intensity >= 0.0f) && (intensity <= 1e6f)
+			&& (ambient >= 0.0f) && (ambient <= 1.0f);
+		//位置须为有限值
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
+				light_valid = false;
+		//颜色分量越界或非数即判非法
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				light_valid = false;
+		//若光照参数非法
+		if (!light_valid)
+		{
+			logger.warn("渲染器:: 追加点光源参数非法（位置 ({}, {}, {})、半径 {}、强度 {}），拒绝",
+				position[0], position[1], position[2], radius, intensity);
+			return false;
+		}
+		//若已达上限
+		if (impl->point_light_count >= Impl::POINT_LIGHT_MAX)
+		{
+			logger.warn("渲染器:: 点光源数量已达上限（{}），拒绝追加", Impl::POINT_LIGHT_MAX);
+			return false;
+		}
+		//写入新槽位（按登记顺序累加）
+		Impl::Point_Light& light = impl->point_lights[impl->point_light_count];
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			light.position[index] = position[index];
+			light.color[index] = color[index];
+		}
+		light.radius = radius;
+		light.intensity = intensity;
+		impl->point_light_count += 1;
+		impl->light_ambient = ambient;
+		return true;
+	}
+
+	//清空全部点光源（第三十二轮新增）
+	void Renderer::lights_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//清空计数并恢复方向光默认强度（方向 / 颜色 / 环境光保持既有值）
+		impl->point_light_count = 0;
+		impl->light_intensity = 1.0f;
 	}
 
 	//设置镜面高光参数（第三十一轮新增）

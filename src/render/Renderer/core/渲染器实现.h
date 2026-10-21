@@ -58,24 +58,37 @@ namespace engine
 		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		/*
-		光照参数（第二十九轮新增；随场景 UBO 逐帧下发）
+		光照参数（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源；随场景 UBO 逐帧下发）
 		默认值保证「未提供法线的网格」画面与旧版完全一致：
-		方向 (0,0,-1)（朝 -Z 传播）、颜色白、强度 1、环境光 0 → 照度为 1。
+		方向 (0,0,-1)（朝 -Z 传播）、颜色白、强度 1、环境光 0、无点光源 → 照度为 1。
 		*/
 		float light_direction[3] = { 0.0f, 0.0f, -1.0f };
 		float light_color[3] = { 1.0f, 1.0f, 1.0f };
 		float light_intensity = 1.0f;
 		float light_ambient = 0.0f;
-		/*
-		点光源与镜面高光（第三十一轮新增；随场景 UBO 逐帧下发）
-		light_mode：0 = 方向光（默认）、1 = 点光源；后设者生效。
-		点光源位置 / 衰减半径仅模式为 1 时生效；高光参数对两种光源均生效。
-		*/
-		uint32_t light_mode = 0;
-		float light_position[3] = { 0.0f, 0.0f, 2.0f };
-		float light_radius = 5.0f;
+		//镜面高光（第三十一轮；对全部光源生效）
 		float specular_intensity = 0.0f;
 		float specular_shininess = 16.0f;
+		/*
+		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
+		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。
+		*/
+		struct Point_Light
+		{
+			//位置（世界坐标）
+			float position[3] = { 0.0f, 0.0f, 0.0f };
+			//线性衰减半径（> 0）
+			float radius = 5.0f;
+			//颜色（RGB，0..1）
+			float color[3] = { 1.0f, 1.0f, 1.0f };
+			//强度（≥ 0）
+			float intensity = 1.0f;
+		};
+		//点光源数量上限（与着色器循环上限一致）
+		static constexpr uint32_t POINT_LIGHT_MAX = 4;
+		//点光源数组与当前数量
+		Point_Light point_lights[POINT_LIGHT_MAX];
+		uint32_t point_light_count = 0;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

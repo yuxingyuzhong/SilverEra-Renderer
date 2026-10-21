@@ -22,18 +22,22 @@ layout(location = 1) out vec3 out_normal;
 //传递给片元着色器的世界空间位置（第三十一轮：点光源与镜面高光需要）
 layout(location = 2) out vec3 out_world;
 
-//场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置，逐帧更新
+//场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
 {
 	mat4 view_proj;
-	//xyz = 光传播方向（方向光）或光位置（点光源），w = 环境光
-	vec4 light_param0;
-	//rgb = 光颜色，w = 强度
-	vec4 light_param1;
-	//x = 光源模式（0 方向光 / 1 点光源）、y = 衰减半径、z = 高光强度、w = 光泽度
-	vec4 light_param2;
+	//x = 环境光、y = 高光强度、z = 光泽度、w = 有效点光源数量（第三十二轮）
+	vec4 light_common;
+	//xyz = 方向光传播方向，w = 方向光强度（0 = 关闭）
+	vec4 light_dir;
+	//rgb = 方向光颜色，w 保留
+	vec4 light_color;
 	//xyz = 相机世界位置，w 保留
 	vec4 camera_pos;
+	//点光源位置（xyz）＋ 衰减半径（w），最多 4 个
+	vec4 point_pos_radius[4];
+	//点光源颜色（rgb）＋ 强度（w），最多 4 个
+	vec4 point_color_intensity[4];
 } scene;
 
 void main()
