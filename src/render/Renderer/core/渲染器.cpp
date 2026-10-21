@@ -2279,6 +2279,25 @@ namespace engine
 		impl->post_stage_param_valid[stage] = true;
 	}
 
+	//读取某一级的泛光专设参数（只读诊断）
+	uint32_t Renderer::post_stage_param_get(uint32_t stage, float out[4]) const
+	{
+		//出参为空则无内容可写
+		if (out == nullptr)
+			return 0;
+		//默认写零
+		for (std::size_t each = 0; each < 4; ++each)
+			out[each] = 0.0f;
+		//未初始化 / 级序不在链内 / 该级未设专设值 → 0
+		if (impl == nullptr || !impl->initialized || stage >= impl->post_chain.size()
+			|| stage >= Impl::POST_CHAIN_MAX_STAGES || !impl->post_stage_param_valid[stage])
+			return 0;
+		//写出该级专设值
+		for (std::size_t each = 0; each < 4; ++each)
+			out[each] = impl->post_stage_param[stage][each];
+		return 1;
+	}
+
 	//设置文字颜色（RGBA，逐分量钳制）
 	void Renderer::text_color_set(const float color[4])
 	{

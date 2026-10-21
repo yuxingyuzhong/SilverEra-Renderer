@@ -338,6 +338,11 @@ namespace engine
 		*/
 		void post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity);
 		/*
+		读取某一级的泛光专设参数（第二十四轮新增；只读诊断）
+		返回 1 = 该级有专设值（out 写出 4 个分量）、0 = 未设或级序不在链内（out 写 0）；未初始化返回 0。
+		*/
+		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
+		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →
 		以「像素坐标 → NDC」矩阵登记一个绘制项；实际绘制在下一帧 frame_render 时发生。
