@@ -9,6 +9,76 @@
 //游戏引擎命名空间
 namespace engine
 {
+	namespace
+	{
+		//列主序 4×4 矩阵相乘（out = a × b；out 可与 a / b 不同）
+		void matrix4_multiply(const float a[16], const float b[16], float out[16])
+		{
+			for (std::size_t column = 0; column < 4; ++column)
+				for (std::size_t row = 0; row < 4; ++row)
+				{
+					//累加「a 的第 row 行」与「b 的第 column 列」的点积
+					float sum = 0.0f;
+					for (std::size_t k = 0; k < 4; ++k)
+						sum += a[k * 4 + row] * b[column * 4 + k];
+					out[column * 4 + row] = sum;
+				}
+		}
+
+		/*
+		视锥剔除（保守口径；第二十二轮新增）
+		把局部包围盒 8 个角经「model × view_proj」变换到裁剪空间，逐个测 6 个裁剪面；
+		**仅当 8 个角同时落在同一个面外**时判为「完全不可见」（返回真）；
+		任何相交 / 跨越近平面一律保留（不做背面与遮挡剔除）。
+		*/
+		bool frustum_cull_aabb(const float view_proj[16], const float model[16], const float bounds_min[3], const float bounds_max[3])
+		{
+			//组合矩阵（列主序）
+			float mvp[16] = {};
+			matrix4_multiply(view_proj, model, mvp);
+			//六个裁剪面的「全部角点在外」标志（左 / 右 / 下 / 上 / 近 / 远）
+			bool outside[6] = { true, true, true, true, true, true };
+			for (std::size_t corner = 0; corner < 8; ++corner)
+			{
+				//角点局部坐标（按位取上下界）
+				float x = (corner & 1) ? bounds_max[0] : bounds_min[0];
+				float y = (corner & 2) ? bounds_max[1] : bounds_min[1];
+				float z = (corner & 4) ? bounds_max[2] : bounds_min[2];
+				//变换到裁剪空间
+				float clip_x = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
+				float clip_y = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13];
+				float clip_z = mvp[2] * x + mvp[6] * y + mvp[10] * z + mvp[14];
+				float clip_w = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
+				//逐面判「该角是否在外」
+				if (!(clip_x > clip_w))
+					outside[0] = false;
+				if (!(clip_x < -clip_w))
+					outside[1] = false;
+				if (!(clip_y > clip_w))
+					outside[2] = false;
+				if (!(clip_y < -clip_w))
+					outside[3] = false;
+				if (!(clip_z < 0.0f))
+					outside[4] = false;
+				if (!(clip_z > clip_w))
+					outside[5] = false;
+			}
+			//任一面「全部角点在外」即视为完全不可见
+			for (std::size_t plane = 0; plane < 6; ++plane)
+				if (outside[plane])
+					return true;
+			return false;
+		}
+
+		//单位矩阵（列主序）
+		const float IDENTITY_MATRIX4[16] = {
+			1.0f, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, 1.0f,
+		};
+	}
+
 	//渲染层版本查询
 	string renderer_version(void)
 	{
@@ -963,6 +1033,8 @@ namespace engine
 		stats.frame_total_ms = impl->frame.total_frame_ms_get();
 		stats.gpu_total_ms = impl->frame.total_gpu_frame_ms_get();
 		stats.gpu_samples = impl->frame.gpu_sample_count_get();
+		//最近一帧实际执行的后处理级数（0 = 未走后处理链）
+		stats.post_stages = impl->frame.last_post_stages_get();
 		return stats;
 	}
 
@@ -1125,6 +1197,25 @@ namespace engine
 		}
 
 		/*
+		实例级视锥剔除（第二十二轮新增）
+		完全在视锥外的绘制项**不登记**（合法跳过，不是错误）；返回真表示已剔除。
+		保守口径：包围盒与视锥相交一律保留，故画面与旧版一致、仅减少不可见项。
+		*/
+		float bounds_min[3] = {};
+		float bounds_max[3] = {};
+		if (impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		{
+			//当前视图 × 投影矩阵
+			float view_proj[16] = {};
+			impl->camera.view_proj_get(view_proj);
+			//模型矩阵（空指针视作单位矩阵）
+			const float* model = (transform != nullptr) ? transform : IDENTITY_MATRIX4;
+			//若包围盒完全落在视锥外则跳过登记
+			if (frustum_cull_aabb(view_proj, model, bounds_min, bounds_max))
+				return true;
+		}
+
+		/*
 		模型矩阵改由「实例缓冲」承载（本层统一走实例路径）
 		transform 为空则用单位矩阵；实例数为 1 即等价于逐次绘制（模型矩阵不再经推送常量传递）。
 		*/
@@ -1201,6 +1292,26 @@ namespace engine
 		{
 			logger.error("渲染器:: 实例化绘制的网格句柄无效");
 			return false;
+		}
+		/*
+		整批视锥剔除（第二十二轮新增）
+		逐实例判可见性，**全部实例都在视锥外**才整批跳过（部分可见则整批保留，含被遮挡实例）。
+		*/
+		float bounds_min[3] = {};
+		float bounds_max[3] = {};
+		if (transforms != nullptr && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		{
+			//当前视图 × 投影矩阵
+			float view_proj[16] = {};
+			impl->camera.view_proj_get(view_proj);
+			//是否至少有一个实例可见
+			bool any_visible = false;
+			for (uint32_t instance = 0; instance < count && !any_visible; ++instance)
+				if (!frustum_cull_aabb(view_proj, transforms + static_cast<std::size_t>(instance) * 16, bounds_min, bounds_max))
+					any_visible = true;
+			//若整批不可见则不登记
+			if (!any_visible)
+				return true;
 		}
 		/*
 		本帧实例矩阵存储容量校验

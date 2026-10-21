@@ -239,6 +239,12 @@ namespace engine
 		return gpu_sample_count;
 	}
 
+	//最近一帧实际执行的后处理级数
+	uint32_t Frame_Context::last_post_stages_get(void) const
+	{
+		return last_post_stages;
+	}
+
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 	bool Frame_Context::slot_fence_wait(Frame_Slot& slot)
 	{

@@ -175,6 +175,8 @@ namespace engine
 		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
+		//交换链直通路径无后处理级
+		last_post_stages = 0;
 
 		/*
 		像素读出（可选）
@@ -280,6 +282,8 @@ namespace engine
 		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
+		//离屏路径无后处理级
+		last_post_stages = 0;
 
 		//像素读出（可选；渲染与拷贝同批提交，等帧槽栅栏即数据就绪）
 		if (readback_active && !readback_read(slot, *readback, target.extent))
@@ -467,6 +471,8 @@ namespace engine
 		total_frame_ms += last_frame_ms;
 		//累计本帧绘制统计（场景 pass 项 ＋ 各级后处理 pass 的单个绘制项）
 		frame_stats_accumulate(items, item_count);
+		//本帧实际执行的后处理级数（链路径即 post_count）
+		last_post_stages = post_count;
 		for (uint32_t stage = 0; stage < post_count; ++stage)
 		{
 			total_draw_items += 1;

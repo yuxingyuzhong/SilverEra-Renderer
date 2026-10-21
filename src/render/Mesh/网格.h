@@ -32,6 +32,12 @@ namespace engine
 		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
+		/*
+		局部包围盒（创建时按顶点位置一次算出；第二十二轮新增）
+		供门面做实例级视锥剔除；空网格（不应出现）时取全零，等价于「保守保留」。
+		*/
+		float bounds_min[3] = { 0.0f, 0.0f, 0.0f };
+		float bounds_max[3] = { 0.0f, 0.0f, 0.0f };
 		//记录是否有效
 		bool valid = false;
 	};
@@ -72,6 +78,8 @@ namespace engine
 		bool mesh_detach(Mesh_Handle handle, Mesh_Record& record_out);
 		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
+		//取网格局部包围盒（句柄无效返回假；第二十二轮新增）
+		bool mesh_bounds_get(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
 
 		//生成三角形（顶点 3 / 索引 3）
 		static Mesh_Data triangle_generate(void);

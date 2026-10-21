@@ -121,6 +121,25 @@ namespace engine
 		record.allocation = allocation;
 		record.index_offset = vertex_bytes;
 		record.index_count = static_cast<uint32_t>(data.indices.size());
+		/*
+		局部包围盒：按顶点位置逐轴取极值
+		只在创建时算一次（句柄有效期间只读）；顶点位置来自 Vertex::position（vec3）。
+		*/
+		record.bounds_min[0] = record.bounds_max[0] = data.vertices[0].position[0];
+		record.bounds_min[1] = record.bounds_max[1] = data.vertices[0].position[1];
+		record.bounds_min[2] = record.bounds_max[2] = data.vertices[0].position[2];
+		for (const Vertex& vertex : data.vertices)
+		{
+			for (std::size_t axis = 0; axis < 3; ++axis)
+			{
+				//若该轴坐标更小则更新下界
+				if (vertex.position[axis] < record.bounds_min[axis])
+					record.bounds_min[axis] = vertex.position[axis];
+				//若该轴坐标更大则更新上界
+				if (vertex.position[axis] > record.bounds_max[axis])
+					record.bounds_max[axis] = vertex.position[axis];
+			}
+		}
 		record.valid = true;
 		records.push_back(record);
 
@@ -193,6 +212,27 @@ namespace engine
 		buffer_out = record.buffer;
 		index_offset_out = record.index_offset;
 		index_count_out = record.index_count;
+		return true;
+	}
+
+	//取网格局部包围盒
+	bool Mesh_Context::mesh_bounds_get(Mesh_Handle handle, float min_out[3], float max_out[3]) const
+	{
+		//若句柄为零或越界
+		if (handle == 0 || handle > records.size())
+			return false;
+		//获取目标记录
+		const Mesh_Record& record = records[handle - 1];
+		//若记录无效
+		if (!record.valid)
+			return false;
+		//若出参非空则写出包围盒
+		if (min_out != nullptr)
+			for (std::size_t axis = 0; axis < 3; ++axis)
+				min_out[axis] = record.bounds_min[axis];
+		if (max_out != nullptr)
+			for (std::size_t axis = 0; axis < 3; ++axis)
+				max_out[axis] = record.bounds_max[axis];
 		return true;
 	}
 }
