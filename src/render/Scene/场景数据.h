@@ -48,5 +48,25 @@ namespace engine
 		float light_intensity = 1.0f;
 		//环境光（0..1，直接叠加到照度）
 		float light_ambient = 0.0f;
+		/*
+		点光源组与镜面高光（第三十二 / 三十三轮）
+		默认 0 盏点光源、高光关闭 —— 与引入点光源前画面一致。
+		*/
+		//点光源数量（0..4；超出 4 的部分由 scene_apply 忽略并告警）
+		uint32_t light_count = 0;
+		//点光源位置（世界坐标；仅前 light_count 项有效）
+		float point_light_position[4][3] = {};
+		//点光源颜色（RGB，0..1）
+		float point_light_color[4][3] = {
+			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
+		};
+		//点光源线性衰减半径（> 0）
+		float point_light_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		//点光源强度（≥ 0）
+		float point_light_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//镜面高光强度（≥ 0；0 = 关闭）
+		float specular_intensity = 0.0f;
+		//镜面高光光泽度（≥ 1）
+		float specular_shininess = 16.0f;
 	};
 }

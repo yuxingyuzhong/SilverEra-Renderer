@@ -2591,6 +2591,22 @@ namespace engine
 		clear_color_set(scene.clear_color);
 		//光照（统一走 light_set：非法参数由后者整次拒绝）
 		light_set(scene.light_direction, scene.light_color, scene.light_intensity, scene.light_ambient);
+		/*
+		点光源组与镜面高光（第三十三轮）
+		先按方向光重置点光源（light_set 已清空），再逐条追加；单条非法只跳过该条并告警，
+		数量超过上限（4）的部分同样忽略，不影响方向光与其余点光源。
+		*/
+		for (uint32_t index = 0; index < scene.light_count; ++index)
+			//超过上限的部分不再登记
+			if (index >= 4)
+				break;
+			else
+				light_add_point(scene.point_light_position[index], scene.point_light_color[index],
+					scene.point_light_radius[index], scene.point_light_intensity[index], scene.light_ambient);
+		specular_set(scene.specular_intensity, scene.specular_shininess);
+		//若点光源数量超过上限则告警（已登记前 4 盏）
+		if (scene.light_count > 4)
+			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", scene.light_count);
 	}
 
 	//设置方向光与环境光（第二十九轮新增）
