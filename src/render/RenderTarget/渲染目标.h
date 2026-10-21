@@ -93,9 +93,21 @@ namespace engine
 		*/
 		bool target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回渲染目标的指定子矩形（第二十七轮新增）
+		x / y 为左上角（像素），region_width / region_height 为子区域尺寸；须完整落在目标范围内，
+		否则整次拒绝（返回假、尺寸出参保持 0）。pixels 为该子区域 RGBA8 紧排，capacity ≥ 区域宽×高×4。
+		*/
+		bool target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:
+		//读回实现（整幅 / 子区域共用；区域须已校验）
+		bool target_readback_impl(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//确保一次性命令池与栅栏就绪（首次创建，之后复用）
 		bool transient_resources_ensure(void);
 		//一次性布局转换：颜色 UNDEFINED → SHADER_READ_ONLY、深度 UNDEFINED → DEPTH_ATTACHMENT

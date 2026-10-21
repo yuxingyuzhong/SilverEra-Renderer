@@ -148,6 +148,8 @@ namespace engine
 		record.view = view;
 		record.sampler = shared_sampler;
 		record.mip_levels = mip_levels;
+		record.width = width;
+		record.height = height;
 		record.valid = true;
 		records.push_back(record);
 
@@ -251,6 +253,42 @@ namespace engine
 		//写出视图与采样器
 		view_out = record.view;
 		sampler_out = record.sampler;
+		return true;
+	}
+
+	//读回纹理第 0 级像素
+	bool Texture_Context::texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若内存模块未就绪 / 出参为空 / 句柄越界
+		if (memory == nullptr || pixels == nullptr || handle == 0 || handle > records.size())
+			return false;
+		//获取目标记录
+		const Texture_Record& record = records[handle - 1];
+		//若记录无效或尺寸缺失
+		if (!record.valid || record.width == 0 || record.height == 0)
+			return false;
+		//本幅字节数（RGBA8 紧排）
+		VkDeviceSize byte_size = static_cast<VkDeviceSize>(record.width) * record.height * 4;
+		//若容量不足
+		if (byte_size > capacity)
+		{
+			logger.error("纹理创建:: 读回容量不足（需要 {} 字节，给出 {}）", byte_size, capacity);
+			return false;
+		}
+		//转交内存模块同步读回（布局往返由内存模块完成）
+		if (!memory->image_readback(record.image, record.width, record.height, pixels, byte_size))
+			return false;
+		//写出尺寸
+		if (width_out != nullptr)
+			*width_out = record.width;
+		if (height_out != nullptr)
+			*height_out = record.height;
 		return true;
 	}
 }

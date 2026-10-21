@@ -246,6 +246,83 @@ namespace engine
 	}
 
 	/*
+	从图像读回像素（第 0 级、整幅；RGBA8 紧排）
+	流程：SHADER_READ_ONLY → TRANSFER_SRC → 拷贝到主机暂存缓冲 → 转回 SHADER_READ_ONLY
+	     → 等栅栏 → buffer_read 读出 → 销毁暂存缓冲。
+	调用方须保证此刻无在途帧引用该图像（门面读回接口已先 frames_wait）。
+	*/
+	bool Memory_Context::image_readback(VkImage image, uint32_t width, uint32_t height, void* data, VkDeviceSize data_size)
+	{
+		//前置：上下文与队列就绪、图像与出参齐备、尺寸与容量一致
+		if (!valid() || image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE
+			|| width == 0 || height == 0
+			|| data_size < static_cast<VkDeviceSize>(width) * height * 4)
+		{
+			logger.error("上传批次:: 图像读回的参数不完整");
+			return false;
+		}
+
+		//创建主机可见暂存缓冲（传输目标用途）
+		VkBuffer staging_buffer = VK_NULL_HANDLE;
+		VmaAllocation staging_alloc = VK_NULL_HANDLE;
+		if (!buffer_create(staging_buffer, staging_alloc, data_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true))
+			return false;
+
+		//确保一次性命令资源就绪
+		if (!upload_resources_ensure())
+		{
+			buffer_destroy(staging_buffer, staging_alloc);
+			return false;
+		}
+
+		//提交「转入传输源 → 拷贝 → 转回着色器可读」三步
+		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
+		{
+			//着色器可读 → 传输源
+			VkImageMemoryBarrier to_transfer{};
+			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_transfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.image = image;
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
+
+			//图像 → 暂存缓冲（第 0 级、紧排）
+			VkBufferImageCopy copy_region{};
+			copy_region.bufferOffset = 0;
+			copy_region.bufferRowLength = 0;
+			copy_region.bufferImageHeight = 0;
+			copy_region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			copy_region.imageOffset = { 0, 0, 0 };
+			copy_region.imageExtent = { width, height, 1 };
+			vkCmdCopyImageToBuffer(command_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer, 1, &copy_region);
+
+			//传输源 → 着色器可读（恢复默认终态）
+			VkImageMemoryBarrier to_shader = to_transfer;
+			to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_shader.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_shader);
+		});
+
+		//从暂存缓冲读出像素
+		if (ok)
+			ok = buffer_read(staging_buffer, staging_alloc, data, data_size, 0);
+		//回收暂存缓冲（无论成败）
+		buffer_destroy(staging_buffer, staging_alloc);
+		return ok;
+	}
+
+	/*
 	生成 mip 链
 	第 0 级须已由 upload_image 写入且处于着色器可读布局；
 	第 1..mip_levels-1 级逐级以线性过滤降采样（源 = 上一级、目标 = 本级，同图像不同级）；

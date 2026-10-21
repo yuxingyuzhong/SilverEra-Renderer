@@ -195,6 +195,14 @@ namespace engine
 		bool texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
 		//卸载纹理（句柄无效则忽略；绑定过该纹理的帧槽需由调用方重新 texture_bind_set）
 		void texture_unload(uint64_t handle);
+		/*
+		读回纹理第 0 级像素（第二十七轮新增）
+		先等尽在途帧（frames_wait）再同步读回；pixels 为 RGBA8 紧排（逐行自上而下），
+		capacity 须不小于 宽×高×4；成功时 width_out / height_out（非空）回填纹理尺寸。
+		未初始化 / 句柄无效 / 容量不足返回假（尺寸出参为 0）；读回不改变纹理内容与布局。
+		*/
+		bool texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
 		/*
@@ -263,6 +271,15 @@ namespace engine
 		读回不改变目标内容，颜色图像仍保持 SHADER_READ_ONLY_OPTIMAL（可继续采样）。
 		*/
 		bool render_target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回离屏渲染目标的指定子矩形（第二十七轮新增）
+		x / y 为左上角、region_width / region_height 为子区域尺寸（须完整落在目标内，否则整次拒绝）；
+		pixels 为该子区域 RGBA8 紧排，capacity 须不小于 区域宽×高×4；成功时回填区域尺寸。
+		同样先 frames_wait，再同步读回；读回不改内容与布局。
+		*/
+		bool render_target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
 		设置「本帧渲染到目标」

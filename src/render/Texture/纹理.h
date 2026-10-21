@@ -30,6 +30,9 @@ namespace engine
 		VkSampler sampler = VK_NULL_HANDLE;
 		//mip 级数（≥ 1；创建时按 floor(log2(max(宽,高))) + 1 生成完整 mip 链）
 		uint32_t mip_levels = 1;
+		//第 0 级尺寸（像素；第二十七轮新增，供读回计算容量）
+		uint32_t width = 0;
+		uint32_t height = 0;
 		//记录是否有效
 		bool valid = false;
 	};
@@ -78,6 +81,13 @@ namespace engine
 		bool texture_detach(uint64_t handle, Texture_Record& record_out);
 		//取图像视图与采样器（供描述符写入；句柄无效返回假）
 		bool texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const;
+		/*
+		读回纹理第 0 级像素（第二十七轮新增）
+		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 宽×高×4；
+		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。调用方须保证无在途帧引用该纹理（门面先 frames_wait）。
+		*/
+		bool texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		/*
 		设置共享采样器状态（寻址模式 / 是否启用 mip 过滤）
 		状态变化时**销毁并重建共享采样器**，并把全部既有纹理记录改指新句柄；

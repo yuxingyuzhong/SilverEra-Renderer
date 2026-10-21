@@ -87,6 +87,13 @@ namespace engine
 		bool upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
 			uint32_t width, uint32_t height, uint32_t row_pixels);
 		/*
+		从图像读回像素（第二十七轮新增）
+		读取第 0 级、整幅图像到 data（RGBA8 紧排，data_size 须为 宽×高×4）；
+		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL（复用一次性上传命令池同步完成）。
+		调用方须保证此刻无在途帧引用该图像。
+		*/
+		bool image_readback(VkImage image, uint32_t width, uint32_t height, void* data, VkDeviceSize data_size);
+		/*
 		生成 mip 链（第 0 级须已由 upload_image 写入并处于着色器可读布局）
 		对第 1..mip_levels-1 级逐级 vkCmdBlitImage 降采样（线性过滤），
 		一次提交完成全部级；结束后第 0 级恢复为着色器可读布局、其余级亦为着色器可读布局。

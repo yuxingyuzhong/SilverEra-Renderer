@@ -1443,6 +1443,20 @@ namespace engine
 		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
+	//读回纹理第 0 级像素
+	bool Renderer::texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽，避免与该纹理的采样冲突
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（内存模块同步读回）
+		return impl->texture.texture_readback(handle, pixels, capacity, width_out, height_out);
+	}
+
 	//设置当前绘制所用纹理
 	void Renderer::texture_bind_set(uint64_t texture_handle)
 	{
@@ -1816,6 +1830,22 @@ namespace engine
 			return false;
 		//转交渲染目标模块（同步拷贝并读回）
 		return impl->render_target.target_readback(handle, pixels, capacity, width_out, height_out);
+	}
+
+	//读回离屏渲染目标的指定子矩形
+	bool Renderer::render_target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽，避免与该目标的写入 / 采样冲突
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交渲染目标模块（子区域同步拷贝）
+		return impl->render_target.target_readback_region(handle, x, y, region_width, region_height,
+			pixels, capacity, width_out, height_out);
 	}
 
 	//销毁离屏渲染目标

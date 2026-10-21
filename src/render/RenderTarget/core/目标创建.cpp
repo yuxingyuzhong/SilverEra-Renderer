@@ -330,13 +330,60 @@ namespace engine
 		return records[handle - 1].valid;
 	}
 
+	//读回整幅颜色图像
+	bool Render_Target_Context::target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//先取范围，整幅即「原点 ＋ 完整尺寸」
+		if (handle == 0 || handle > records.size())
+			return false;
+		//若目标已空
+		if (!records[handle - 1].valid)
+			return false;
+		//转交实现（整幅）
+		return target_readback_impl(handle, 0, 0, records[handle - 1].extent.width,
+			records[handle - 1].extent.height, pixels, capacity, width_out, height_out);
+	}
+
+	//读回指定子矩形
+	bool Render_Target_Context::target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 / 子区域尺寸校验
+		if (handle == 0 || handle > records.size() || region_width == 0 || region_height == 0)
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则拒绝
+		if (!record.valid)
+			return false;
+		//子区域须完整落在目标范围内（含右 / 下边界）
+		if (x >= record.extent.width || y >= record.extent.height
+			|| region_width > record.extent.width - x || region_height > record.extent.height - y)
+		{
+			logger.error("渲染目标:: 读回子区域越界（{}×{} 目标，区域 {}×{} @ {},{}）",
+				record.extent.width, record.extent.height, region_width, region_height, x, y);
+			return false;
+		}
+		//转交实现（子区域）
+		return target_readback_impl(handle, x, y, region_width, region_height, pixels, capacity,
+			width_out, height_out);
+	}
+
 	/*
-	读回渲染目标的颜色图像（RGBA8 紧排）
+	读回实现（整幅 / 子区域共用；区域已由调用方校验）
 	流程：主色 SHADER_READ_ONLY → TRANSFER_SRC → 拷贝到主机可见暂存缓冲 → 转回 SHADER_READ_ONLY
 	     → 等栅栏 → 从暂存缓冲读出像素 → 销毁暂存缓冲。
 	同步：调用方须已保证无在途帧引用该目标（门面先 frames_wait），本函数只用一次性命令池同步提交。
 	*/
-	bool Render_Target_Context::target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+	bool Render_Target_Context::target_readback_impl(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
 		//出参先复位
@@ -352,8 +399,8 @@ namespace engine
 		//已空则拒绝
 		if (!record.valid)
 			return false;
-		//本帧字节数（RGBA8 紧排）
-		VkDeviceSize byte_size = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height * 4;
+		//子区域字节数（RGBA8 紧排）
+		VkDeviceSize byte_size = static_cast<VkDeviceSize>(region_width) * region_height * 4;
 		//若容量不足
 		if (byte_size > capacity)
 		{
@@ -410,14 +457,14 @@ namespace engine
 			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 				VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_transfer);
 
-			//拷贝整幅颜色图像到暂存缓冲（紧排、无行填充）
+			//拷贝指定子区域到暂存缓冲（紧排、无行填充）
 			VkBufferImageCopy region{};
 			region.bufferOffset = 0;
 			region.bufferRowLength = 0;
 			region.bufferImageHeight = 0;
 			region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			region.imageOffset = { 0, 0, 0 };
-			region.imageExtent = { record.extent.width, record.extent.height, 1 };
+			region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
+			region.imageExtent = { region_width, region_height, 1 };
 			vkCmdCopyImageToBuffer(command_buffer, record.color_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
 
 			//转回着色器可读（后续帧继续采样该目标）
@@ -459,13 +506,13 @@ namespace engine
 		//归还暂存缓冲
 		memory->buffer_destroy(staging, staging_alloc);
 
-		//成功后写出尺寸
+		//成功后写出子区域尺寸
 		if (recorded)
 		{
 			if (width_out != nullptr)
-				*width_out = record.extent.width;
+				*width_out = region_width;
 			if (height_out != nullptr)
-				*height_out = record.extent.height;
+				*height_out = region_height;
 		}
 		return recorded;
 	}
