@@ -369,23 +369,16 @@ namespace engine
 			}
 		}
 		/*
-		目标范围校验（处置 R-FRAME-09）
-		后处理着色器按帧缓冲坐标 1:1 取源，故每个中间目标的范围必须与交换链范围一致；
-		不一致会导致采样错位（画面拉伸 / 越界钳边），此处按硬错误拒绝，不做隐式缩放。
+		目标尺寸校验（第十七轮放宽）
+		后处理片元按「源 / 宿尺寸」推送做像素映射，故各目标**不再要求与交换链同范围**（支持半分辨率泛光等）；
+		仅要求尺寸非零（上方已逐个校验）。
 		*/
 		VkExtent2D swapchain_extent_check = swapchain.extent_get();
-		//逐目标比对范围
-		for (uint32_t each = 0; each < target_count; ++each)
+		//若交换链范围为零（无法建立末级视口）
+		if (swapchain_extent_check.width == 0 || swapchain_extent_check.height == 0)
 		{
-			//若该目标范围与交换链不一致
-			if (targets[each].extent.width != swapchain_extent_check.width
-				|| targets[each].extent.height != swapchain_extent_check.height)
-			{
-				logger.error("提交呈现:: 第 {} 个目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
-					each, targets[each].extent.width, targets[each].extent.height,
-					swapchain_extent_check.width, swapchain_extent_check.height);
-				return false;
-			}
+			logger.error("提交呈现:: 交换链范围为零（后处理链）");
+			return false;
 		}
 
 		//取当前帧槽（与其余路径共用同一轮转）

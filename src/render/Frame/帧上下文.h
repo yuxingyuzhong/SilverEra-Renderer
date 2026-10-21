@@ -102,6 +102,8 @@ namespace engine
 		const void* push_constants = nullptr;
 		//推送常量字节数（0 表不推送）
 		uint32_t push_constant_size = 0;
+		//推送常量在管线布局中的字节偏移（文字在 0；后处理的「源 / 宿尺寸」在 80）
+		uint32_t push_constant_offset = 0;
 	};
 
 	/*

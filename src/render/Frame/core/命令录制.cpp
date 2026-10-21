@@ -71,9 +71,10 @@ namespace engine
 
 			//若存在推送常量
 			if (item.push_constants != nullptr && item.push_constant_size > 0)
-				//推送常量到顶点阶段
-				vkCmdPushConstants(command_buffer, item.layout, VK_SHADER_STAGE_VERTEX_BIT,
-					0, item.push_constant_size, item.push_constants);
+				//推送常量到顶点与片元阶段（偏移由绘制项给出：文字 0 / 后处理尺寸 80）
+				vkCmdPushConstants(command_buffer, item.layout,
+					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+					item.push_constant_offset, item.push_constant_size, item.push_constants);
 
 			//绑定顶点缓冲（binding 0，偏移 0）
 			VkDeviceSize offset = 0;
@@ -632,6 +633,22 @@ namespace engine
 
 			//本级宿范围（末级取交换链范围，否则取中间目标范围）
 			VkExtent2D stage_extent = last_stage ? swapchain_extent : dest.extent;
+			//本级源目标（第 stage 级读第 stage % 目标数 个中间目标）
+			const Frame_Render_Target& source = targets[stage % target_count];
+			/*
+			本级「源 / 宿尺寸」推送（offset 80）
+			后处理片元据此把宿像素坐标映射为源像素坐标（1:1 时映射为恒等，非 1:1 时为点采样），
+			从而使目标尺寸**不再要求等于交换链范围**（半分辨率泛光等）。
+			*/
+			float stage_size[4] = {
+				static_cast<float>(source.extent.width), static_cast<float>(source.extent.height),
+				static_cast<float>(stage_extent.width), static_cast<float>(stage_extent.height),
+			};
+			//本级绘制项（复制后补推送数据；不改调用方数组）
+			Frame_Render_Item stage_item = post_items[stage];
+			stage_item.push_constants = stage_size;
+			stage_item.push_constant_size = static_cast<uint32_t>(sizeof(stage_size));
+			stage_item.push_constant_offset = 80;
 
 			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定）
 			VkRenderingAttachmentInfo stage_color{};
@@ -679,8 +696,8 @@ namespace engine
 			stage_scissor.offset = { 0, 0 };
 			stage_scissor.extent = stage_extent;
 			vkCmdSetScissor(command_buffer, 0, 1, &stage_scissor);
-			//本级 · 全屏后处理绘制（单绘制项）
-			Recorded_Counts stage_counts = items_record(command_buffer, &post_items[stage], 1);
+			//本级 · 全屏后处理绘制（单绘制项，含源 / 宿尺寸推送）
+			Recorded_Counts stage_counts = items_record(command_buffer, &stage_item, 1);
 			frame_recorded.items += stage_counts.items;
 			frame_recorded.instances += stage_counts.instances;
 			//本级 · 结束动态渲染

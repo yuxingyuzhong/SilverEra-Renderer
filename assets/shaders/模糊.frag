@@ -13,12 +13,20 @@ layout(location = 0) out vec4 out_color;
 //源纹理（描述符集 1）：上一级的输出
 layout(set = 1, binding = 0) uniform sampler2D source_image;
 
+//推送常量：后处理「源 / 宿尺寸」（offset 80；x/y = 源宽高，z/w = 宿宽高）
+layout(push_constant) uniform Push_Size
+{
+	layout(offset = 80) vec4 size_xy;
+} push_size;
+
 void main()
 {
 	//源纹理尺寸（用于越界钳制）
 	ivec2 source_size = textureSize(source_image, 0);
 	//中心像素坐标
-	ivec2 center = ivec2(gl_FragCoord.xy);
+		//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
+	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
+	ivec2 center = ivec2(gl_FragCoord.xy * source_scale);
 	//累加颜色
 	vec3 sum = vec3(0.0);
 	//3×3 高斯核（可分离核 [1 2 1] ⊗ [1 2 1] / 16）

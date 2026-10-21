@@ -15,6 +15,12 @@ layout(location = 0) out vec4 out_color;
 //源纹理（描述符集 1）：上一级的输出
 layout(set = 1, binding = 0) uniform sampler2D source_image;
 
+//推送常量：后处理「源 / 宿尺寸」（offset 80；x/y = 源宽高，z/w = 宿宽高）
+layout(push_constant) uniform Push_Size
+{
+	layout(offset = 80) vec4 size_xy;
+} push_size;
+
 //按偏移取亮度（越界钳到边缘）
 float luma_at(ivec2 coord, ivec2 size, ivec2 offset)
 {
@@ -27,7 +33,9 @@ void main()
 {
 	//源纹理尺寸与中心坐标
 	ivec2 source_size = textureSize(source_image, 0);
-	ivec2 coord = clamp(ivec2(gl_FragCoord.xy), ivec2(0), source_size - ivec2(1));
+		//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
+	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
+	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//中心与 3×3 邻域亮度
 	float l00 = luma_at(coord, source_size, ivec2(-1, -1));
 	float l10 = luma_at(coord, source_size, ivec2(0, -1));

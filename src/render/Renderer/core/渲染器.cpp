@@ -739,24 +739,19 @@ namespace engine
 				ready = impl->render_target.target_get(impl->present_extra[each - 1], targets[each].color_image,
 					targets[each].color_view, targets[each].depth_view, targets[each].extent);
 			/*
-			目标范围一致性预检（处置 R-FACADE-08）
-			后处理按帧缓冲坐标 1:1 取源，故每个目标范围必须与交换链范围一致；不一致时本帧**回落原路径**并告警
-			（帧模块另有硬校验，此处提前回落以避免整帧失败）。
+			目标尺寸预检（第十七轮放宽）
+			后处理片元按「源 / 宿尺寸」推送做像素映射，故目标**不再要求等于交换链范围**；
+			仅要求每个目标尺寸非零（零尺寸无法建立视口）。
 			*/
 			if (ready)
 			{
-				//当前交换链范围
-				VkExtent2D swapchain_extent = impl->swapchain.extent_get();
-				//逐目标比对范围
+				//逐目标检查尺寸非零
 				for (std::size_t each = 0; each < targets.size(); ++each)
 				{
-					//若该目标范围与交换链不一致
-					if (targets[each].extent.width != swapchain_extent.width
-						|| targets[each].extent.height != swapchain_extent.height)
+					//若该目标尺寸为零
+					if (targets[each].extent.width == 0 || targets[each].extent.height == 0)
 					{
-						logger.warn("渲染器:: 第 {} 个后处理目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
-							each, targets[each].extent.width, targets[each].extent.height,
-							swapchain_extent.width, swapchain_extent.height);
+						logger.warn("渲染器:: 第 {} 个后处理目标尺寸为零，本帧回落原路径", each);
 						ready = false;
 						break;
 					}
