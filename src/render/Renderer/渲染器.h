@@ -343,6 +343,14 @@ namespace engine
 		*/
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		/*
+		启用 / 关闭视锥剔除（第二十五轮新增；默认开启）
+		关闭后网格绘制项一律照常登记（含完全在视锥外的项），culled_items 不再递增；
+		用于调试 / 对照与「上层自行剔除」的场景。未初始化时静默忽略。
+		*/
+		void cull_enabled_set(bool enabled);
+		//查询视锥剔除是否启用（未初始化返回默认值 true）
+		bool cull_enabled(void) const;
+		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →
 		以「像素坐标 → NDC」矩阵登记一个绘制项；实际绘制在下一帧 frame_render 时发生。

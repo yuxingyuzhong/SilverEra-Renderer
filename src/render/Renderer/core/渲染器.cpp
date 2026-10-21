@@ -530,6 +530,8 @@ namespace engine
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
 			impl->post_stage_param_valid[stage] = false;
 		impl->culled_items = 0;
+		//剔除开关恢复默认（开启）
+		impl->cull_enabled = true;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -1219,7 +1221,7 @@ namespace engine
 		*/
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
-		if (impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		if (impl->cull_enabled && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
 		{
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
@@ -1319,7 +1321,7 @@ namespace engine
 		*/
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
-		if (transforms != nullptr && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		if (transforms != nullptr && impl->cull_enabled && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
 		{
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
@@ -1644,7 +1646,16 @@ namespace engine
 			impl->post_chain.erase(std::remove(impl->post_chain.begin(), impl->post_chain.end(), handle), impl->post_chain.end());
 			//若确有摘除则告警
 			if (impl->post_chain.size() != chain_before)
-				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）", handle, impl->post_chain.size());
+			{
+				/*
+				级序已压缩（第二十五轮修复）
+				逐级专设参数按旧下标存放，压缩后会错位到别的级，故整体清除（宁可回到全局参数，不可错配）。
+				*/
+				for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+					impl->post_stage_param_valid[stage] = false;
+				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）；逐级参数已整体清除",
+					handle, impl->post_chain.size());
+			}
 			logger.info("渲染器:: 具名管线已卸载（句柄 {}）", handle);
 			return;
 		}
@@ -2277,6 +2288,24 @@ namespace engine
 		impl->post_stage_param[stage][2] = intensity;
 		impl->post_stage_param[stage][3] = 0.0f;
 		impl->post_stage_param_valid[stage] = true;
+	}
+
+	//启用 / 关闭视锥剔除
+	void Renderer::cull_enabled_set(bool enabled)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->cull_enabled = enabled;
+	}
+
+	//查询视锥剔除是否启用
+	bool Renderer::cull_enabled(void) const
+	{
+		//未初始化时返回默认值（开启）
+		if (impl == nullptr || !impl->initialized)
+			return true;
+		return impl->cull_enabled;
 	}
 
 	//读取某一级的泛光专设参数（只读诊断）

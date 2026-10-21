@@ -156,6 +156,8 @@ namespace engine
 		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
+		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
+		bool cull_enabled = true;
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 20>> pending_push_constants;
 		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
