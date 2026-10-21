@@ -147,6 +147,15 @@ namespace engine
 		由 bloom_param_set 更新；后处理链各级以推送常量（offset 96）下发。
 		*/
 		float bloom_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
+		/*
+		逐级泛光参数覆盖（第二十三轮）
+		post_stage_param[stage] 有效时覆盖全局 bloom_param（x = 阈值、y = 软膝、z = 强度、w 保留）；
+		由 post_stage_param_set 设置，post_chain_set 时整体清除（链一变，旧下标即失去意义）。
+		*/
+		float post_stage_param[POST_CHAIN_MAX_STAGES][4] = {};
+		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
+		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
+		uint64_t culled_items = 0;
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 20>> pending_push_constants;
 		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）

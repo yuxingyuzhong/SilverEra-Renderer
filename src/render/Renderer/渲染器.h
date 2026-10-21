@@ -90,6 +90,11 @@ namespace engine
 		0 = 本帧未走后处理链（交换链直通 / 离屏路径）；N = 链路径实际录制了 N 个后处理 pass。
 		*/
 		uint32_t post_stages = 0;
+		/*
+		累计因视锥剔除而未登记的绘制项数（第二十三轮新增）
+		与 draw_items 互补：draw_items 为实际登记量，二者之和即「意图登记的项数」。
+		*/
+		uint64_t culled_items = 0;
 	};
 
 	/*
@@ -326,6 +331,12 @@ namespace engine
 		参数自**下一次** frame_render 的后处理链各级生效（经推送常量 offset 96 下发）。
 		*/
 		void bloom_param_set(float threshold, float knee, float intensity);
+		/*
+		设置**某一级**后处理链的泛光参数（第二十三轮新增；覆盖全局 bloom_param_set 的值）
+		stage 为链内级序（0 起，须小于当前链级数）；参数校验同 bloom_param_set（非法整次忽略）。
+		专设值自下一次 frame_render 生效；post_chain_set 会清除全部逐级专设值（链变则下标失效）。
+		*/
+		void post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity);
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →

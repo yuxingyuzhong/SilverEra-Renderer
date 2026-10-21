@@ -526,6 +526,10 @@ namespace engine
 		impl->text_color[1] = 1.0f;
 		impl->text_color[2] = 1.0f;
 		impl->text_color[3] = 1.0f;
+		//复位逐级泛光参数覆盖与剔除观测
+		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+			impl->post_stage_param_valid[stage] = false;
+		impl->culled_items = 0;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -889,8 +893,18 @@ namespace engine
 					post_item.instance_offset = post_instance_offset;
 					post_item.instance_count = 1;
 					//泛光参数（帧模块随「源 / 宿尺寸」一并推送，offset 96）
-					for (std::size_t each = 0; each < 4; ++each)
-						post_item.post_params[each] = impl->bloom_param[each];
+					if (index < Impl::POST_CHAIN_MAX_STAGES && impl->post_stage_param_valid[index])
+					{
+						//该级有专设参数则覆盖全局值
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_params[each] = impl->post_stage_param[index][each];
+					}
+					else
+					{
+						//否则用全局泛光参数
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_params[each] = impl->bloom_param[each];
+					}
 					post_items.push_back(post_item);
 				}
 				//若各级绘制项齐备
@@ -1035,6 +1049,8 @@ namespace engine
 		stats.gpu_samples = impl->frame.gpu_sample_count_get();
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链）
 		stats.post_stages = impl->frame.last_post_stages_get();
+		//累计因视锥剔除而未登记的项数
+		stats.culled_items = impl->culled_items;
 		return stats;
 	}
 
@@ -1212,7 +1228,11 @@ namespace engine
 			const float* model = (transform != nullptr) ? transform : IDENTITY_MATRIX4;
 			//若包围盒完全落在视锥外则跳过登记
 			if (frustum_cull_aabb(view_proj, model, bounds_min, bounds_max))
+			{
+				//计入剔除观测（累计量）
+				++impl->culled_items;
 				return true;
+			}
 		}
 
 		/*
@@ -1311,7 +1331,11 @@ namespace engine
 					any_visible = true;
 			//若整批不可见则不登记
 			if (!any_visible)
+			{
+				//整批按一个绘制项计（与登记量的口径一致）
+				++impl->culled_items;
 				return true;
+			}
 		}
 		/*
 		本帧实例矩阵存储容量校验
@@ -1903,6 +1927,9 @@ namespace engine
 		if (count == 0)
 		{
 			impl->post_chain.clear();
+			//链已清空 → 逐级专设参数一并失效
+			for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+				impl->post_stage_param_valid[stage] = false;
 			logger.info("渲染器:: 后处理链已清除（回落单级默认后处理）");
 			return true;
 		}
@@ -1934,6 +1961,9 @@ namespace engine
 		}
 		//写入链（保持各句柄的登记顺序不变）
 		impl->post_chain.assign(handles, handles + count);
+		//链已变 → 逐级专设参数失效（旧下标对应旧级序）
+		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+			impl->post_stage_param_valid[stage] = false;
 		logger.info("渲染器:: 后处理链已设置（{} 级）", count);
 		return true;
 	}
@@ -2217,6 +2247,36 @@ namespace engine
 		impl->bloom_param[0] = threshold;
 		impl->bloom_param[1] = knee;
 		impl->bloom_param[2] = intensity;
+	}
+
+	//设置某一级后处理链的泛光参数（覆盖全局值）
+	void Renderer::post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级泛光参数设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		//参数校验：阈值须正、软膝非负且小于阈值、强度须为有限正值
+		bool valid = (threshold > 0.0f) && (knee >= 0.0f) && (knee < threshold)
+			&& (intensity > 0.0f) && (intensity < 100.0f);
+		//若非法则整次忽略（保持原值）
+		if (!valid)
+		{
+			logger.warn("渲染器:: 逐级泛光参数非法（级 {}：阈值 {}、软膝 {}、强度 {}），整次忽略",
+				stage, threshold, knee, intensity);
+			return;
+		}
+		impl->post_stage_param[stage][0] = threshold;
+		impl->post_stage_param[stage][1] = knee;
+		impl->post_stage_param[stage][2] = intensity;
+		impl->post_stage_param[stage][3] = 0.0f;
+		impl->post_stage_param_valid[stage] = true;
 	}
 
 	//设置文字颜色（RGBA，逐分量钳制）
