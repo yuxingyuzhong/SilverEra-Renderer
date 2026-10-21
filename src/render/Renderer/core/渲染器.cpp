@@ -359,8 +359,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；96 字节 = mat4 ＋ 两组光照 vec4）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 96,
+			//创建场景 UBO（主机可见、统一缓冲用途；128 字节 = mat4 ＋ 光照三组 ＋ 相机位置）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 128,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -376,12 +376,21 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//写入初始光照参数块（offset 64：方向 xyz ＋ 环境光 w、颜色 rgb ＋ 强度 w）
-			float light_block[8] = {
-				impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_ambient,
+			//写入初始光照参数块（offset 64、64 字节：方向/位置 ＋ 颜色/强度 ＋ 模式/高光 ＋ 相机位置）
+			const float* light_vector = impl->light_mode == 1 ? impl->light_position : impl->light_direction;
+			float light_block[16] = {
+				light_vector[0], light_vector[1], light_vector[2], impl->light_ambient,
 				impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
+				static_cast<float>(impl->light_mode), impl->light_radius, impl->specular_intensity, impl->specular_shininess,
+				0.0f, 0.0f, 0.0f, 0.0f,
 			};
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 32, 64))
+			//相机世界位置（镜面高光的视线方向来源）
+			float camera_position[3] = {};
+			impl->camera.position_get(camera_position);
+			light_block[12] = camera_position[0];
+			light_block[13] = camera_position[1];
+			light_block[14] = camera_position[2];
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 			{
 				logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
 				shutdown();
@@ -552,6 +561,14 @@ namespace engine
 		impl->light_color[2] = 1.0f;
 		impl->light_intensity = 1.0f;
 		impl->light_ambient = 0.0f;
+		//点光源与高光恢复默认（方向光模式、半径 5、高光关闭、光泽度 16）
+		impl->light_mode = 0;
+		impl->light_position[0] = 0.0f;
+		impl->light_position[1] = 0.0f;
+		impl->light_position[2] = 2.0f;
+		impl->light_radius = 5.0f;
+		impl->specular_intensity = 0.0f;
+		impl->specular_shininess = 16.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -707,12 +724,22 @@ namespace engine
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
 		}
-		//写入该帧槽光照参数块（offset 64；第二十九轮新增）
-		float light_block[8] = {
-			impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_ambient,
+		//写入该帧槽光照参数块（offset 64、64 字节；第三十一轮扩为点光源 ＋ 高光 ＋ 相机位置）
+		//光源位置 / 方向按模式选择：点光源模式下 light_param0.xyz 为光位置
+		const float* light_vector = impl->light_mode == 1 ? impl->light_position : impl->light_direction;
+		float light_block[16] = {
+			light_vector[0], light_vector[1], light_vector[2], impl->light_ambient,
 			impl->light_color[0], impl->light_color[1], impl->light_color[2], impl->light_intensity,
+			static_cast<float>(impl->light_mode), impl->light_radius, impl->specular_intensity, impl->specular_shininess,
+			0.0f, 0.0f, 0.0f, 0.0f,
 		};
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 32, 64))
+		//相机世界位置（镜面高光的视线方向来源）
+		float camera_position[3] = {};
+		impl->camera.position_get(camera_position);
+		light_block[12] = camera_position[0];
+		light_block[13] = camera_position[1];
+		light_block[14] = camera_position[2];
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 		{
 			logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
 			return false;
@@ -2566,6 +2593,63 @@ namespace engine
 		}
 		impl->light_intensity = intensity;
 		impl->light_ambient = ambient;
+		//切换到方向光模式（后设者生效）
+		impl->light_mode = 0;
+	}
+
+	//设置点光源（第三十一轮新增）
+	void Renderer::light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient)
+	{
+		//若尚未初始化或任一指针为空
+		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
+			return;
+		/*
+		参数校验（与 light_set 同口径，另加「半径须为正且有限」）
+		用取反比较写法使 NaN 同样被判为非法，任一非法即整次拒绝并保持既有光照。
+		*/
+		bool light_valid = (radius > 0.0f) && (radius <= 1e6f) && (intensity >= 0.0f) && (intensity <= 1e6f)
+			&& (ambient >= 0.0f) && (ambient <= 1.0f);
+		//位置须为有限值
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
+				light_valid = false;
+		//颜色分量越界或非数即判非法
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				light_valid = false;
+		//若光照参数非法
+		if (!light_valid)
+		{
+			logger.warn("渲染器:: 点光源参数非法（位置 ({}, {}, {})、半径 {}、强度 {}、环境光 {}），整次拒绝",
+				position[0], position[1], position[2], radius, intensity, ambient);
+			return;
+		}
+		//写入点光源参数（位置即「光位置」，由着色器按模式选择语义）
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			impl->light_position[index] = position[index];
+			impl->light_color[index] = color[index];
+		}
+		impl->light_radius = radius;
+		impl->light_intensity = intensity;
+		impl->light_ambient = ambient;
+		impl->light_mode = 1;
+	}
+
+	//设置镜面高光参数（第三十一轮新增）
+	void Renderer::specular_set(float intensity, float shininess)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//参数校验（取反比较使 NaN 判非法）
+		if (!(intensity >= 0.0f && intensity <= 1e6f) || !(shininess >= 1.0f && shininess <= 1e6f))
+		{
+			logger.warn("渲染器:: 高光参数非法（强度 {}、光泽度 {}），整次拒绝", intensity, shininess);
+			return;
+		}
+		impl->specular_intensity = intensity;
+		impl->specular_shininess = shininess;
 	}
 
 	//设置清屏色（RGBA）

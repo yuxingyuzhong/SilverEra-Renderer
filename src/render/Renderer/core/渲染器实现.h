@@ -66,6 +66,16 @@ namespace engine
 		float light_color[3] = { 1.0f, 1.0f, 1.0f };
 		float light_intensity = 1.0f;
 		float light_ambient = 0.0f;
+		/*
+		点光源与镜面高光（第三十一轮新增；随场景 UBO 逐帧下发）
+		light_mode：0 = 方向光（默认）、1 = 点光源；后设者生效。
+		点光源位置 / 衰减半径仅模式为 1 时生效；高光参数对两种光源均生效。
+		*/
+		uint32_t light_mode = 0;
+		float light_position[3] = { 0.0f, 0.0f, 2.0f };
+		float light_radius = 5.0f;
+		float specular_intensity = 0.0f;
+		float specular_shininess = 16.0f;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

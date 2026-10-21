@@ -19,15 +19,21 @@ layout(location = 6) in vec4 in_model_3;
 layout(location = 0) out vec2 out_uv;
 //传递给片元着色器的世界空间法线（未提供时为零向量）
 layout(location = 1) out vec3 out_normal;
+//传递给片元着色器的世界空间位置（第三十一轮：点光源与镜面高光需要）
+layout(location = 2) out vec3 out_world;
 
-//场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数，逐帧更新
+//场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
 {
 	mat4 view_proj;
-	//光照：xyz = 光传播方向（单位向量），w = 环境光
-	vec4 light_dir;
-	//光照：rgb = 光颜色，w = 强度
-	vec4 light_color;
+	//xyz = 光传播方向（方向光）或光位置（点光源），w = 环境光
+	vec4 light_param0;
+	//rgb = 光颜色，w = 强度
+	vec4 light_param1;
+	//x = 光源模式（0 方向光 / 1 点光源）、y = 衰减半径、z = 高光强度、w = 光泽度
+	vec4 light_param2;
+	//xyz = 相机世界位置，w 保留
+	vec4 camera_pos;
 } scene;
 
 void main()
@@ -35,7 +41,10 @@ void main()
 	//实例模型矩阵（列主序：4 个列向量拼装）
 	mat4 model = mat4(in_model_0, in_model_1, in_model_2, in_model_3);
 	out_uv = in_uv;
+	//世界空间位置
+	vec4 world = model * vec4(in_position, 1.0);
+	out_world = world.xyz;
 	//法线经模型矩阵线性部分变换（不做逆转置；非等比缩放下为近似）
 	out_normal = mat3(model) * in_normal;
-	gl_Position = scene.view_proj * model * vec4(in_position, 1.0);
+	gl_Position = scene.view_proj * world;
 }

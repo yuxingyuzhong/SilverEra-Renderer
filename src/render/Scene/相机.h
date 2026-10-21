@@ -44,6 +44,8 @@ namespace engine
 
 		//写出「视图 × 投影」矩阵（列主序 16 浮点，可直接写入 UBO）
 		void view_proj_get(float out[16]) const;
+		//写出相机世界位置（3 浮点；第三十一轮新增，供片元计算镜面高光的视线方向）
+		void position_get(float out[3]) const;
 	private:
 		//位置（默认值取自 Scene_Data，见构造）
 		float position[3];

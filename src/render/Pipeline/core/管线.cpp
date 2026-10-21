@@ -451,11 +451,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 96 字节：mat4 视图投影 ＋ 两组光照 vec4；第二十九轮由 64 扩为 96）
+		//缓冲描述（场景 UBO 128 字节：mat4 视图投影 ＋ 光照三组 vec4 ＋ 相机位置；第三十一轮由 96 扩为 128）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 96;
+		buffer_info.range = 128;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};

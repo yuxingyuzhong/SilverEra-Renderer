@@ -131,4 +131,12 @@ namespace engine
 		for (uint32_t index = 0; index < 16; ++index)
 			out[index] = data[index];
 	}
+
+	//写出相机世界位置（3 浮点）
+	void Camera::position_get(float out[3]) const
+	{
+		//逐个分量拷贝（不改动内部状态）
+		for (uint32_t index = 0; index < 3; ++index)
+			out[index] = position[index];
+	}
 }

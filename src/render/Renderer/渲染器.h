@@ -450,6 +450,19 @@ namespace engine
 		保持既有光照不变；自下一次 frame_render 起生效。
 		*/
 		void light_set(const float direction[3], const float color[3], float intensity, float ambient);
+		/*
+		设置点光源（第三十一轮新增；与方向光二选一，后设者生效）
+		position 为光源世界位置，radius 为线性衰减半径（> 0；距离达到半径时照度为 0），
+		color / intensity / ambient 语义同 `light_set`。
+		任一参数非法（空指针 / 半径非正或非数 / 颜色越界 / 强度或环境光越界）即整次拒绝并告警。
+		*/
+		void light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient);
+		/*
+		设置镜面高光参数（第三十一轮新增；对方向光与点光源均生效）
+		intensity 为高光强度（≥ 0，0 = 关闭），shininess 为光泽度（≥ 1，越大高光越集中）。
+		任一参数非法（NaN / 强度为负 / 光泽度小于 1）即整次拒绝并告警。
+		*/
+		void specular_set(float intensity, float shininess);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）
