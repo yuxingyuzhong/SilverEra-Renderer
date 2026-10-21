@@ -447,7 +447,7 @@ namespace engine
 		impl->active_target = 0;
 		//复位同帧后处理呈现路径与其资源句柄（全屏网格随网格模块销毁、后处理管线随管线模块销毁）
 		impl->present_target = 0;
-		impl->present_secondary = 0;
+		impl->present_extra.clear();
 		impl->post_chain.clear();
 		impl->post_pipeline = 0;
 		impl->fullscreen_mesh = 0;
@@ -629,9 +629,9 @@ namespace engine
 			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
 			if (impl->pending_instances.size() >= impl->instance_capacity)
 				logger.warn("渲染器:: 本帧实例存储已满，同帧后处理呈现回落原路径");
-			//链长 ≥ 2 但第二目标未设置则回落单级默认路径
-			else if (!impl->post_chain.empty() && impl->post_chain.size() >= 2 && impl->present_secondary == 0)
-				logger.warn("渲染器:: 后处理链级数 ≥ 2 但第二目标未设置，本帧回落单级默认后处理");
+			//链长 ≥ 2 但目标组不足 2 个则回落单级默认路径
+			else if (!impl->post_chain.empty() && impl->post_chain.size() >= 2 && impl->present_extra.empty())
+				logger.warn("渲染器:: 后处理链级数 ≥ 2 但中间目标不足 2 个，本帧回落单级默认后处理");
 			else
 			{
 				//本帧是否走链路径
@@ -714,48 +714,46 @@ namespace engine
 		//若走同帧多 pass 后处理路径
 		if (post_frame)
 		{
-			//场景（第一）目标附件
-			Frame_Render_Target scene_target{};
-			//第二（ping-pong）目标附件（链长 1 时不使用）
-			Frame_Render_Target second_target{};
+			/*
+			中间目标组
+			首项为场景目标（present_target），其余为额外中间目标（present_extra）；
+			链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时目标数必须 ≥ 2（上方已保证）。
+			*/
+			std::vector<Frame_Render_Target> targets(1 + impl->present_extra.size());
 			//全屏四边形网格的共用缓冲 / 索引区偏移 / 索引数
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;
 			uint32_t mesh_index_count = 0;
-			//链长 ≥ 2 时须第二个中间目标（链长 1 时不需要）
-			bool need_second = post_chain_mode && impl->post_chain.size() >= 2;
-			//场景目标与全屏网格均就绪（链长 ≥ 2 时第二目标亦须就绪）才可走该路径
-			bool ready = impl->render_target.target_get(impl->present_target, scene_target.color_image,
-				scene_target.color_view, scene_target.depth_view, scene_target.extent)
+			//场景目标与全屏网格均就绪才可走该路径
+			bool ready = impl->render_target.target_get(impl->present_target, targets[0].color_image,
+				targets[0].color_view, targets[0].depth_view, targets[0].extent)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
-			if (ready && need_second)
-				ready = impl->render_target.target_get(impl->present_secondary, second_target.color_image,
-					second_target.color_view, second_target.depth_view, second_target.extent);
+			//逐个取额外中间目标附件
+			for (std::size_t each = 1; ready && each < targets.size(); ++each)
+				ready = impl->render_target.target_get(impl->present_extra[each - 1], targets[each].color_image,
+					targets[each].color_view, targets[each].depth_view, targets[each].extent);
 			/*
 			目标范围一致性预检（处置 R-FACADE-08）
-			后处理按帧缓冲坐标 1:1 取源，故目标范围必须与交换链范围一致；不一致时本帧**回落原路径**并告警
+			后处理按帧缓冲坐标 1:1 取源，故每个目标范围必须与交换链范围一致；不一致时本帧**回落原路径**并告警
 			（帧模块另有硬校验，此处提前回落以避免整帧失败）。
 			*/
 			if (ready)
 			{
 				//当前交换链范围
 				VkExtent2D swapchain_extent = impl->swapchain.extent_get();
-				//若场景目标范围与交换链不一致
-				if (scene_target.extent.width != swapchain_extent.width || scene_target.extent.height != swapchain_extent.height)
+				//逐目标比对范围
+				for (std::size_t each = 0; each < targets.size(); ++each)
 				{
-					logger.warn("渲染器:: 后处理目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
-						scene_target.extent.width, scene_target.extent.height,
-						swapchain_extent.width, swapchain_extent.height);
-					ready = false;
-				}
-				//若第二目标范围与交换链不一致
-				else if (need_second && (second_target.extent.width != swapchain_extent.width
-					|| second_target.extent.height != swapchain_extent.height))
-				{
-					logger.warn("渲染器:: 后处理第二目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
-						second_target.extent.width, second_target.extent.height,
-						swapchain_extent.width, swapchain_extent.height);
-					ready = false;
+					//若该目标范围与交换链不一致
+					if (targets[each].extent.width != swapchain_extent.width
+						|| targets[each].extent.height != swapchain_extent.height)
+					{
+						logger.warn("渲染器:: 第 {} 个后处理目标范围 {}x{} 与交换链 {}x{} 不一致，本帧回落原路径",
+							each, targets[each].extent.width, targets[each].extent.height,
+							swapchain_extent.width, swapchain_extent.height);
+						ready = false;
+						break;
+					}
 				}
 			}
 			//取共享采样器（把「各级源」写入后处理采样集）
@@ -769,15 +767,11 @@ namespace engine
 			//若前置就绪
 			if (ready)
 			{
-				//把偶 / 奇级源图像写入各帧槽后处理采样器集（长命资源，一次写满全部槽）
+				//把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号；长命资源，一次写满全部槽）
 				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
-				{
-					//index 0 = 场景目标（单级与链均使用）
-					impl->pipeline.post_texture_bind(each, shared_sampler, scene_target.color_view, 0);
-					//index 1 = 第二目标（仅链长 ≥ 2 使用）
-					if (need_second)
-						impl->pipeline.post_texture_bind(each, shared_sampler, second_target.color_view, 1);
-				}
+					for (std::size_t index = 0; index < targets.size(); ++index)
+						impl->pipeline.post_texture_bind(each, shared_sampler, targets[index].color_view,
+							static_cast<uint32_t>(index));
 				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线）
 				std::vector<uint64_t> stage_pipelines;
 				//链路径取注册链
@@ -805,9 +799,9 @@ namespace engine
 					post_item.pipeline = stage_pipeline;
 					post_item.layout = impl->pipeline.layout_get();
 					post_item.scene_set = impl->pipeline.scene_set_get(slot);
-					//本级源采样集（偶级 index 0、奇级 index 1）
+					//本级源采样集（下标 = 级序 % 目标数，与帧模块的目标轮转一致）
 					post_item.sampler_set = impl->pipeline.post_set_get(slot,
-						static_cast<uint32_t>(index % Pipeline_Context::POST_SET_PER_SLOT));
+						static_cast<uint32_t>(index % targets.size()));
 					post_item.descriptor_set_count = 2;
 					post_item.vertex_buffer = mesh_buffer;
 					post_item.index_buffer = mesh_buffer;
@@ -822,24 +816,14 @@ namespace engine
 				if (items_ready)
 				{
 					offscreen = true;
-					//链路径：场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现
-					if (post_chain_mode)
-					{
-						if (!impl->frame.render_chain_present(impl->swapchain, scene_target, second_target,
-							impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
-							post_items.data(), static_cast<uint32_t>(post_items.size()),
-							clear_color, rebuild_needed, readback_ptr))
-						{
-							logger.error("渲染器:: 同帧后处理链渲染失败");
-							return false;
-						}
-					}
-					//单级路径：渲染到目标并在同帧内后处理呈现到交换链（既有语义）
-					else if (!impl->frame.render_to_target_present(impl->swapchain, scene_target,
+					//场景 pass ＋ N 级后处理 pass（目标轮转）＋ 呈现（单级路径即本函数 N = 1 的特例）
+					if (!impl->frame.render_chain_present(impl->swapchain, targets.data(),
+						static_cast<uint32_t>(targets.size()),
 						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
-						post_items[0], clear_color, rebuild_needed, readback_ptr))
+						post_items.data(), static_cast<uint32_t>(post_items.size()),
+						clear_color, rebuild_needed, readback_ptr))
 					{
-						logger.error("渲染器:: 同帧多 pass 后处理渲染失败");
+						logger.error("渲染器:: 同帧后处理链渲染失败");
 						return false;
 					}
 				}
@@ -1650,12 +1634,22 @@ namespace engine
 		//若销毁的是当前设定的本帧渲染目标则先回落交换链路径
 		if (impl->active_target == handle)
 			impl->active_target = 0;
-		//若销毁的是当前设定的同帧后处理呈现目标则一并回落
+		//若销毁的是当前设定的同帧后处理呈现目标则一并回落并清空目标组
 		if (impl->present_target == handle)
+		{
 			impl->present_target = 0;
-		//若销毁的是当前设定的后处理链第二目标则一并回落（链长 ≥ 2 将因此回落单级路径）
-		if (impl->present_secondary == handle)
-			impl->present_secondary = 0;
+			impl->present_extra.clear();
+		}
+		//若销毁的是目标组中的额外中间目标则从组内摘除（链长 ≥ 2 将因此回落单级路径）
+		for (std::size_t index = 0; index < impl->present_extra.size(); ++index)
+		{
+			//命中即原地摘除并结束（句柄唯一）
+			if (impl->present_extra[index] == handle)
+			{
+				impl->present_extra.erase(impl->present_extra.begin() + static_cast<std::ptrdiff_t>(index));
+				break;
+			}
+		}
 		//摘出颜色 / 深度图像与视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
 		Render_Target_Record record{};
 		if (!impl->render_target.target_detach(handle, record))
@@ -1703,25 +1697,53 @@ namespace engine
 		{
 			logger.warn("渲染器:: 渲染目标句柄 {} 无效，关闭同帧后处理呈现路径", handle);
 			impl->present_target = 0;
+			impl->present_extra.clear();
 			return;
 		}
 		impl->present_target = handle;
+		//目标组重置为「仅该目标」（多级链须改用 render_target_present_chain_set）
+		impl->present_extra.clear();
 	}
 
-	//设置「同帧后处理链」的第二（ping-pong）目标
-	void Renderer::render_target_present_secondary_set(uint64_t handle)
+	//设置「同帧后处理链」的中间目标组（2..4 个句柄；首项为场景目标）
+	bool Renderer::render_target_present_chain_set(const uint64_t* handles, uint32_t count)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
-			return;
-		//句柄非零且未登记则清除并告警
-		if (handle != 0 && !impl->render_target.target_valid(handle))
 		{
-			logger.warn("渲染器:: 渲染目标句柄 {} 无效，清除后处理链第二目标", handle);
-			impl->present_secondary = 0;
-			return;
+			logger.error("渲染器:: 后处理目标组设置失败：尚未初始化");
+			return false;
 		}
-		impl->present_secondary = handle;
+		//若为清除目标组（关闭同帧后处理呈现路径）
+		if (count == 0)
+		{
+			impl->present_target = 0;
+			impl->present_extra.clear();
+			logger.info("渲染器:: 后处理目标组已清除");
+			return true;
+		}
+		//若句柄数组为空 / 数量越界则整组拒绝
+		if (handles == nullptr || count > Impl::PRESENT_TARGET_MAX)
+		{
+			logger.error("渲染器:: 后处理目标组设置失败：句柄数组为空或数量 {} 越界（上限 {}）",
+				count, Impl::PRESENT_TARGET_MAX);
+			return false;
+		}
+		//逐个校验句柄已登记
+		for (uint32_t each = 0; each < count; ++each)
+		{
+			//若某句柄未登记则整组拒绝（保持原目标组不变）
+			if (!impl->render_target.target_valid(handles[each]))
+			{
+				logger.error("渲染器:: 后处理目标组设置失败：第 {} 个句柄 {} 未登记", each, handles[each]);
+				return false;
+			}
+		}
+		//写入目标组（首项为场景目标，其余为额外中间目标）
+		impl->present_target = handles[0];
+		impl->present_extra.assign(handles + 1, handles + count);
+		logger.info("渲染器:: 后处理目标组已设置（{} 个）", count);
+		return true;
 	}
 
 	//设置「同帧后处理链」（若干已登记管线句柄，下标即级序）

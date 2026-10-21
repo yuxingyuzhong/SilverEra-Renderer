@@ -226,18 +226,18 @@ namespace engine
 			const float clear_color[4], bool& rebuild_needed_out,
 			Frame_Readback_Request* readback = nullptr);
 		/*
-		渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理（ping-pong）并呈现到交换链
-		post_count 为后处理级数：≥ 1。第 i 级的源与宿按奇偶交替（i 偶 → 源 scene_target、宿 second_target；
-		i 奇 → 源 second_target、宿 scene_target），末级恒呈现到交换链；
-		故 post_count 为 1 时仅需 scene_target（等价于 render_to_target_present），post_count ≥ 2 时须给出 second_target。
-		中间目标（scene_target / second_target）在帧间恒保持 SHADER_READ_ONLY_OPTIMAL（每级写完后转回）。
+		渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理并呈现到交换链
+		targets / target_count 为中间目标组：targets[0] 为场景目标，其余为额外中间目标（2..4 个）；
+		第 i 级的源 = targets[i % target_count]、非末级宿 = targets[(i + 1) % target_count]，末级恒呈现到交换链；
+		故 post_count ≥ 2 时须 target_count ≥ 2（单目标无法做 ping-pong）。
+		中间目标在帧间恒保持 SHADER_READ_ONLY_OPTIMAL（每级写完后转回）。
 		post_items 为各级后处理绘制项（其 sampler_set 须分别绑定对应源的采样集）；
 		readback 非空时回读的是**最终呈现到交换链**的颜色附件。
 		要求**每个**目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源），不一致按硬错误拒绝。
 		返回假视为硬错误。
 		*/
-		bool render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target& scene_target,
-			const Frame_Render_Target& second_target, const Frame_Render_Item* items, uint32_t item_count,
+		bool render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target* targets,
+			uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 			const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
 			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr);
 		/*
@@ -338,15 +338,15 @@ namespace engine
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
 		/*
-		录制「场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
-		场景 pass：scene_target 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
-		后处理各级：源（奇偶交替）恒 SHADER_READ_ONLY → 以 post_items[i] 全屏绘制到宿（末级为交换链，
-		否则为另一中间目标，写完后转回 SHADER_READ_ONLY）；
+		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
+		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
+		后处理各级：源（targets[i % target_count]）恒 SHADER_READ_ONLY → 以 post_items[i] 全屏绘制到宿
+		（末级为交换链，否则 targets[(i + 1) % target_count]，写完后转回 SHADER_READ_ONLY）；
 		交换链图像收尾按是否回读转入 TRANSFER_SRC + PRESENT_SRC 或直接转 PRESENT_SRC（与既有路径同口径）。
 		*/
 		void command_record_chain_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
 			VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
-			const Frame_Render_Target& scene_target, const Frame_Render_Target& second_target,
+			const Frame_Render_Target* targets, uint32_t target_count,
 			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
 			uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE);

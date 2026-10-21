@@ -459,19 +459,22 @@ namespace engine
 	}
 
 	/*
-	录制「场景 pass ＋ N 级后处理 pass（ping-pong）＋ 呈现」的命令缓冲
-	场景 pass：scene_target 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
-	后处理各级（stage 自 0 起）：源按奇偶交替（偶 → scene_target、奇 → second_target）且恒为 SHADER_READ_ONLY，
-	        宿为「末级 → 交换链（UNDEFINED 转入颜色附件）／非末级 → 另一中间目标（SHADER_READ_ONLY 转入颜色附件，
-	        写完后转回 SHADER_READ_ONLY）」，以 post_items[stage] 全屏绘制；
+	录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ 呈现」的命令缓冲
+	场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
+	后处理各级（stage 自 0 起）：源 = targets[stage % target_count]、恒 SHADER_READ_ONLY，
+	        宿 = 「末级 → 交换链（UNDEFINED 转入颜色附件）／非末级 → targets[(stage + 1) % target_count]
+	              （SHADER_READ_ONLY 转入颜色附件，写完后转回 SHADER_READ_ONLY）」，
+	        以 post_items[stage] 全屏绘制；
 	交换链收尾与既有路径同口径（回读则 TRANSFER_SRC → PRESENT_SRC，否则 COLOR_ATTACHMENT → PRESENT_SRC）。
 	*/
 	void Frame_Context::command_record_chain_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
 		VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
-		const Frame_Render_Target& scene_target, const Frame_Render_Target& second_target,
+		const Frame_Render_Target* targets, uint32_t target_count,
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
 		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool)
 	{
+		//场景目标（目标组首项）
+		const Frame_Render_Target& scene_target = targets[0];
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
 		begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -582,18 +585,16 @@ namespace engine
 			0, 0, nullptr, 0, nullptr, 1, &barrier);
 
 		/*
-		后处理各级（ping-pong）
-		第 stage 级：源 = 偶级 scene_target / 奇级 second_target（恒为 SHADER_READ_ONLY，可直接采样）；
-		           宿 = 末级交换链图像 / 非末级另一中间目标。
+		后处理各级（多目标轮转）
+		第 stage 级：源 = targets[stage % target_count]（恒为 SHADER_READ_ONLY，可直接采样）；
+		           宿 = 末级交换链图像 / 非末级 targets[(stage + 1) % target_count]。
 		*/
 		for (uint32_t stage = 0; stage < post_count; ++stage)
 		{
 			//本级是否为末级（宿为交换链）
 			bool last_stage = (stage + 1 == post_count);
-			//本级是否为奇级（源为 second_target、非末级宿为 scene_target）
-			bool odd_stage = (stage % 2) != 0;
-			//本级宿（非末级时的中间目标）
-			const Frame_Render_Target& dest = odd_stage ? scene_target : second_target;
+			//本级宿（非末级时的中间目标：源的下一个目标，环形轮转）
+			const Frame_Render_Target& dest = targets[(stage + 1) % target_count];
 
 			//宿布局转换：末级为交换链图像（UNDEFINED → 颜色附件），否则为中间目标（SHADER_READ_ONLY → 颜色附件）
 			if (last_stage)

@@ -118,10 +118,12 @@ namespace engine
 		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）
 		uint64_t present_target = 0;
 		/*
-		本帧「同帧后处理链」的第二（ping-pong）目标句柄（0 = 未设置；见 render_target_present_secondary_set）
-		链长 ≥ 2 时必需：链上各级的源按奇偶交替，故除场景目标外还需一个中间目标承载另一奇偶级的结果。
+		本帧「同帧后处理链」的额外中间目标句柄（下标 1..N-1；空 = 只有 present_target 一个目标）
+		由 render_target_present_chain_set 设置；链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时至少需 2 个目标。
 		*/
-		uint64_t present_secondary = 0;
+		std::vector<uint64_t> present_extra;
+		//同帧后处理呈现的目标数上限（= 每帧槽后处理采样集数量，超出即整组拒绝）
+		static constexpr uint32_t PRESENT_TARGET_MAX = Pipeline_Context::POST_SET_PER_SLOT;
 		/*
 		本帧后处理链（各级具名管线句柄，下标即级序；空 = 走既有单级默认后处理路径）
 		由 post_chain_set 设置；各级使用同一全屏几何与场景 UBO，仅管线与源采样集不同。

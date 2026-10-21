@@ -255,24 +255,28 @@ namespace engine
 		handle 为 0 时关闭（回到 render_target_set 决定的默认路径）；
 		句柄有效时本帧把场景渲染进该目标，随即在**同一命令缓冲内**以该目标为纹理做一次全屏后处理 pass
 		直接呈现到窗口（同帧多 pass，无需跨帧中间态；优先于 render_target_set 生效）。
+		本调用把中间目标组重置为「仅该目标」（额外目标清空）；需要多级链时改用
+		render_target_present_chain_set 一次性给出目标组。
 		要求目标范围与交换链范围一致（后处理按帧缓冲坐标 1:1 取源，故通常以当前交换链尺寸创建目标）。
 		句柄无效时回落原路径（不报错）。
 		*/
 		void render_target_present_set(uint64_t handle);
 		/*
-		设置「同帧后处理链」的第二（ping-pong）目标
-		post_chain_set 设定链长 ≥ 2 时必需：链上各级的源按奇偶交替（偶级取 render_target_present_set 的目标，
-		奇级取本目标），故需成对的中间目标；链长 1 时可不设置。
-		handle 为 0 时清除（回到「链长 ≥ 2 无第二目标 → 回落单级路径」）；句柄无效时清除并告警。
+		设置「同帧后处理链」的中间目标组（2..4 个已登记渲染目标句柄）
+		handles[0] 为场景目标（等同 render_target_present_set 的目标），handles[1..] 为额外中间目标；
+		链上第 i 级的源 = handles[i % count]、非末级宿 = handles[(i + 1) % count]，故链长 ≥ 2 时至少要给 2 个目标。
+		count 为 0 时清除（关闭同帧后处理呈现路径）；handles 为空而 count 非零、count > 4、
+		或任一句柄未登记时整组拒绝（保持原目标组不变）。
+		本调用会覆盖 render_target_present_set 设定的场景目标（目标组以本调用为准）。
 		*/
-		void render_target_present_secondary_set(uint64_t handle);
+		bool render_target_present_chain_set(const uint64_t* handles, uint32_t count);
 		/*
 		设置「同帧后处理链」（若干已登记管线句柄，下标即级序）
-		每级以独立管线对「上一级的输出」做一次全屏后处理：第 0 级取 render_target_present_set 的目标，
-		后续各级按奇偶在「该目标 / 第二目标」间 ping-pong 取样，末级结果呈现到交换链。
+		每级以独立管线对「上一级的输出」做一次全屏后处理：第 0 级取目标组的首个目标，
+		后续各级按「级序 % 目标数」在目标组间轮转取样，末级结果呈现到交换链。
 		count 为 0 时清除链（回到既有的单级默认后处理路径，使用内置 后处理.vert / 后处理.frag）；
 		句柄数组为空而 count 非零、count 超过级数上限（8）、或任一句柄未登记时整链拒绝（保持原链不变）。
-		链长 ≥ 2 时须先用 render_target_present_secondary_set 设置第二目标，否则该帧回落单级路径。
+		链长 ≥ 2 时须先用 render_target_present_chain_set 设置 ≥ 2 个目标，否则该帧回落单级路径。
 		*/
 		bool post_chain_set(const uint64_t* handles, uint32_t count);
 		/*

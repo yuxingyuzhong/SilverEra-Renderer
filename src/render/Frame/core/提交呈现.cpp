@@ -304,26 +304,27 @@ namespace engine
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
 		const float clear_color[4], bool& rebuild_needed_out, Frame_Readback_Request* readback)
 	{
-		//单级后处理（源 = 场景目标、宿 = 交换链，不使用第二目标）
-		return render_chain_present(swapchain, target, Frame_Render_Target{}, items, item_count,
+		//单级后处理（源 = 场景目标、宿 = 交换链，目标组仅一项）
+		return render_chain_present(swapchain, &target, 1, items, item_count,
 			&post_item, 1, clear_color, rebuild_needed_out, readback);
 	}
 
 	/*
-	渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理（ping-pong）并呈现到交换链。
-	取图像 / 提交 / 呈现 / 像素回读与既有同帧多 pass 路径同口径，仅录制内容不同（后处理级数可变）。
+	渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理（多目标轮转）并呈现到交换链。
+	取图像 / 提交 / 呈现 / 像素回读与既有同帧多 pass 路径同口径，仅录制内容不同（后处理级数与目标数可变）。
 	*/
-	bool Frame_Context::render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target& scene_target,
-		const Frame_Render_Target& second_target, const Frame_Render_Item* items, uint32_t item_count,
+	bool Frame_Context::render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target* targets,
+		uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 		const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
 		bool& rebuild_needed_out, Frame_Readback_Request* readback)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
-		//前置：帧上下文、交换链与后处理级数必须齐备
-		if (!valid() || !swapchain.valid() || post_count == 0 || post_items == nullptr)
+		//前置：帧上下文、交换链、目标组与后处理级数必须齐备
+		if (!valid() || !swapchain.valid() || post_count == 0 || post_items == nullptr
+			|| targets == nullptr || target_count == 0)
 		{
-			logger.error("提交呈现:: 帧上下文 / 交换链 / 后处理级数不完整（后处理链）");
+			logger.error("提交呈现:: 帧上下文 / 交换链 / 目标组 / 后处理级数不完整（后处理链）");
 			return false;
 		}
 		//若交换链图像或信号量为空
@@ -333,19 +334,24 @@ namespace engine
 			logger.error("提交呈现:: 交换链图像或信号量为空（后处理链）");
 			return false;
 		}
-		//若场景目标附件不完整
-		if (scene_target.color_image == VK_NULL_HANDLE || scene_target.color_view == VK_NULL_HANDLE
-			|| scene_target.depth_view == VK_NULL_HANDLE || scene_target.extent.width == 0 || scene_target.extent.height == 0)
+		//若后处理级数 ≥ 2 但目标不足（轮转需至少两个目标）
+		if (post_count >= 2 && target_count < 2)
 		{
-			logger.error("提交呈现:: 场景目标尚未就绪（后处理链）");
+			logger.error("提交呈现:: 后处理级数 {} ≥ 2 但目标组仅 {} 个（后处理链）", post_count, target_count);
 			return false;
 		}
-		//若后处理级数 ≥ 2 但第二目标不完整（ping-pong 需成对目标）
-		if (post_count >= 2 && (second_target.color_image == VK_NULL_HANDLE || second_target.color_view == VK_NULL_HANDLE
-			|| second_target.depth_view == VK_NULL_HANDLE || second_target.extent.width == 0 || second_target.extent.height == 0))
+		//逐目标校验完整性（场景目标与全部额外中间目标同口径）
+		for (uint32_t each = 0; each < target_count; ++each)
 		{
-			logger.error("提交呈现:: 后处理级数 ≥ 2 但第二目标尚未就绪（后处理链）");
-			return false;
+			//当前目标附件
+			const Frame_Render_Target& current = targets[each];
+			//若该目标不完整
+			if (current.color_image == VK_NULL_HANDLE || current.color_view == VK_NULL_HANDLE
+				|| current.depth_view == VK_NULL_HANDLE || current.extent.width == 0 || current.extent.height == 0)
+			{
+				logger.error("提交呈现:: 第 {} 个目标尚未就绪（后处理链）", each);
+				return false;
+			}
 		}
 		//逐级校验后处理绘制项完整性
 		for (uint32_t stage = 0; stage < post_count; ++stage)
@@ -368,23 +374,18 @@ namespace engine
 		不一致会导致采样错位（画面拉伸 / 越界钳边），此处按硬错误拒绝，不做隐式缩放。
 		*/
 		VkExtent2D swapchain_extent_check = swapchain.extent_get();
-		//若场景目标范围与交换链不一致
-		if (scene_target.extent.width != swapchain_extent_check.width
-			|| scene_target.extent.height != swapchain_extent_check.height)
+		//逐目标比对范围
+		for (uint32_t each = 0; each < target_count; ++each)
 		{
-			logger.error("提交呈现:: 场景目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
-				scene_target.extent.width, scene_target.extent.height,
-				swapchain_extent_check.width, swapchain_extent_check.height);
-			return false;
-		}
-		//若第二目标范围与交换链不一致
-		if (post_count >= 2 && (second_target.extent.width != swapchain_extent_check.width
-			|| second_target.extent.height != swapchain_extent_check.height))
-		{
-			logger.error("提交呈现:: 第二目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
-				second_target.extent.width, second_target.extent.height,
-				swapchain_extent_check.width, swapchain_extent_check.height);
-			return false;
+			//若该目标范围与交换链不一致
+			if (targets[each].extent.width != swapchain_extent_check.width
+				|| targets[each].extent.height != swapchain_extent_check.height)
+			{
+				logger.error("提交呈现:: 第 {} 个目标范围 {}x{} 与交换链 {}x{} 不一致（后处理链按 1:1 取源）",
+					each, targets[each].extent.width, targets[each].extent.height,
+					swapchain_extent_check.width, swapchain_extent_check.height);
+				return false;
+			}
 		}
 
 		//取当前帧槽（与其余路径共用同一轮转）
@@ -458,7 +459,7 @@ namespace engine
 		//录制命令缓冲（场景 pass ＋ N 级后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
 		command_record_chain_present(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
-			scene_target, second_target, items, item_count, post_items, post_count, clear_color,
+			targets, target_count, items, item_count, post_items, post_count, clear_color,
 			readback_target, slot.timestamp_pool);
 
 		//取本帧呈现完成信号量（按交换链图像持有）

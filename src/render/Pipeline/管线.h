@@ -105,15 +105,15 @@ namespace engine
 		VkDescriptorSet sampler_set_get(uint32_t slot) const;
 		/*
 		每帧槽的后处理采样器集数量
-		链式后处理中，各级的源只可能是「奇 / 偶」两种中间目标之一（ping-pong），
-		故每帧槽只需两个后处理集（index 0 表偶级源，index 1 表奇级源），与链长无关。
+		链式后处理中第 i 级的源 = 第 (i % 目标数) 个中间目标，故每帧槽需「目标数」个后处理集；
+		目标数上限即本常量（4）：下标 0 恒为场景目标，1..3 为额外中间目标。
 		*/
-		static constexpr uint32_t POST_SET_PER_SLOT = 2;
+		static constexpr uint32_t POST_SET_PER_SLOT = 4;
 		/*
 		第 slot 帧槽的后处理采样器描述符集（set 1；index ∈ [0, POST_SET_PER_SLOT)）
 		与 sampler_set_get 同布局，但独立分配：使「同帧多 pass」中，场景 pass 用 sampler_set
 		采样场景纹理，后处理 pass 用 post_set 采样离屏目标，两 pass 互不覆盖对方绑定；
-		链式后处理中 index 0 / 1 分别为偶 / 奇级源的采样集，各级绑定各自的源图像。
+		链式后处理中 index = 级序 % 目标数，各级绑定各自的源图像。
 		*/
 		VkDescriptorSet post_set_get(uint32_t slot, uint32_t index = 0) const;
 		//向第 slot 帧槽写场景 UBO（set 0）
