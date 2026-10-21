@@ -2648,10 +2648,26 @@ namespace engine
 			else
 				light_add_point(scene.point_light_position[index], scene.point_light_color[index],
 					scene.point_light_radius[index], scene.point_light_intensity[index], scene.light_ambient);
+		/*
+		聚光灯组（第三十五轮）
+		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条并告警，
+		不影响方向光与已登记的其余光源。
+		*/
+		for (uint32_t index = 0; index < scene.spot_light_count; ++index)
+			//超过上限的部分不再登记
+			if (index >= 4)
+				break;
+			else
+				light_add_spot(scene.spot_light_position[index], scene.spot_light_direction[index],
+					scene.spot_light_color[index], scene.spot_light_radius[index], scene.spot_light_intensity[index],
+					scene.spot_light_inner_deg[index], scene.spot_light_outer_deg[index], scene.light_ambient);
 		specular_set(scene.specular_intensity, scene.specular_shininess);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (scene.light_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", scene.light_count);
+		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 4 盏上限）
+		if (scene.spot_light_count > 4)
+			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 4，仅登记前 4 盏（与点光源共用上限）", scene.spot_light_count);
 	}
 
 	//设置方向光与环境光（第二十九轮新增）

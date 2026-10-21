@@ -68,5 +68,30 @@ namespace engine
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
 		float specular_shininess = 16.0f;
+		/*
+		聚光灯组（第三十五轮）
+		与点光源组共用 4 盏上限：`scene_apply` 先登记点光源、再登记聚光灯，超出部分忽略；
+		默认 0 盏 —— 与引入聚光灯前画面一致。
+		*/
+		//聚光灯数量（0..4）
+		uint32_t spot_light_count = 0;
+		//聚光灯位置（世界坐标；仅前 spot_light_count 项有效）
+		float spot_light_position[4][3] = {};
+		//聚光灯传播方向（从光源指向被照区域；长度须非零）
+		float spot_light_direction[4][3] = {
+			{ 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f },
+		};
+		//聚光灯颜色（RGB，0..1）
+		float spot_light_color[4][3] = {
+			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
+		};
+		//聚光灯线性衰减半径（> 0）
+		float spot_light_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		//聚光灯强度（≥ 0）
+		float spot_light_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//内锥角（度；须满足 0 < 内角 < 外角）
+		float spot_light_inner_deg[4] = { 15.0f, 15.0f, 15.0f, 15.0f };
+		//外锥角（度；须 ≤ 90）
+		float spot_light_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
 	};
 }
