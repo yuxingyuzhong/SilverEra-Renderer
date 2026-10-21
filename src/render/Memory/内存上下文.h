@@ -94,6 +94,13 @@ namespace engine
 		*/
 		bool image_readback(VkImage image, uint32_t width, uint32_t height, void* data, VkDeviceSize data_size);
 		/*
+		从图像读回指定子区域（第二十八轮新增；第 0 级、RGBA8 紧排）
+		x / y 为左上角，region_width / region_height 为区域尺寸（须落在图像内，由调用方保证）；
+		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。
+		*/
+		bool image_readback_region(VkImage image, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size);
+		/*
 		生成 mip 链（第 0 级须已由 upload_image 写入并处于着色器可读布局）
 		对第 1..mip_levels-1 级逐级 vkCmdBlitImage 降采样（线性过滤），
 		一次提交完成全部级；结束后第 0 级恢复为着色器可读布局、其余级亦为着色器可读布局。

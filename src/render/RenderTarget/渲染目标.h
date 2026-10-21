@@ -101,6 +101,13 @@ namespace engine
 		bool target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回渲染目标的深度图像（第二十八轮新增）
+		values 为 32 位深度原始值（本层深度格式为 D32_SFLOAT，按 float 解释即可）；
+		capacity 为 values 的**元素个数**，须不小于 宽×高；depth 图像读回后仍回到 DEPTH_ATTACHMENT。
+		*/
+		bool target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:

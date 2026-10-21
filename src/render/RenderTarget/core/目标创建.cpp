@@ -183,9 +183,9 @@ namespace engine
 			record_resources_destroy(record);
 			return false;
 		}
-		//创建深度图像（深度附件）
+		//创建深度图像（深度附件 ＋ 传输源；第二十八轮增加传输源以支持深度读回）
 		if (!memory->image_create(record.depth_image, record.depth_alloc, width, height, depth_format,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
 		{
 			logger.error("渲染目标:: 深度图像创建失败");
 			record_resources_destroy(record);
@@ -374,6 +374,141 @@ namespace engine
 		//转交实现（子区域）
 		return target_readback_impl(handle, x, y, region_width, region_height, pixels, capacity,
 			width_out, height_out);
+	}
+
+	/*
+	读回深度图像（32 位原始值；第二十八轮新增）
+	流程：DEPTH_ATTACHMENT → TRANSFER_SRC（DEPTH 方面）→ 拷贝到主机缓冲 → 转回 DEPTH_ATTACHMENT。
+	调用方须已保证无在途帧引用该目标（门面先 frames_wait）。
+	*/
+	bool Render_Target_Context::target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 / 出参校验
+		if (!valid() || values == nullptr || handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空或无深度图像则拒绝
+		if (!record.valid || record.depth_image == VK_NULL_HANDLE)
+			return false;
+		//容量（元素个数）校验
+		VkDeviceSize value_count = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height;
+		if (value_count > capacity)
+		{
+			logger.error("渲染目标:: 深度读回容量不足（需要 {} 个元素，给出 {}）", value_count, capacity);
+			return false;
+		}
+		//字节数（每像素 32 位）
+		VkDeviceSize byte_size = value_count * 4;
+		//确保一次性命令资源就绪
+		if (!transient_resources_ensure())
+			return false;
+
+		//主机可见暂存缓冲
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation staging_alloc = VK_NULL_HANDLE;
+		if (!memory->buffer_create(staging, staging_alloc, byte_size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true))
+		{
+			logger.error("渲染目标:: 深度读回暂存缓冲创建失败");
+			return false;
+		}
+
+		//重置命令池并分配命令缓冲
+		bool recorded = vk_result_check(vkResetCommandPool(device, transient_pool, 0), "渲染目标:: 重置深度读回命令池");
+		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+		if (recorded)
+		{
+			VkCommandBufferAllocateInfo buffer_alloc{};
+			buffer_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			buffer_alloc.commandPool = transient_pool;
+			buffer_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			buffer_alloc.commandBufferCount = 1;
+			recorded = vk_result_check(vkAllocateCommandBuffers(device, &buffer_alloc, &command_buffer), "渲染目标:: 分配深度读回命令缓冲");
+		}
+		//开始录制
+		if (recorded)
+		{
+			VkCommandBufferBeginInfo begin_info{};
+			begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			recorded = vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "渲染目标:: 开始深度读回录制");
+		}
+
+		if (recorded)
+		{
+			//深度附件 → 传输源
+			VkImageMemoryBarrier to_transfer{};
+			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_transfer.oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.image = record.depth_image;
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+			to_transfer.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
+
+			//深度图像 → 暂存缓冲（整幅、紧排）
+			VkBufferImageCopy region{};
+			region.bufferOffset = 0;
+			region.bufferRowLength = 0;
+			region.bufferImageHeight = 0;
+			region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
+			region.imageOffset = { 0, 0, 0 };
+			region.imageExtent = { record.extent.width, record.extent.height, 1 };
+			vkCmdCopyImageToBuffer(command_buffer, record.depth_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+
+			//传输源 → 深度附件（恢复帧间不变量）
+			VkImageMemoryBarrier to_depth = to_transfer;
+			to_depth.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			to_depth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			to_depth.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+			to_depth.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_depth);
+
+			//结束录制
+			recorded = vk_result_check(vkEndCommandBuffer(command_buffer), "渲染目标:: 结束深度读回录制");
+		}
+
+		//提交并等待
+		if (recorded)
+			recorded = vk_result_check(vkResetFences(device, 1, &transient_fence), "渲染目标:: 重置深度读回栅栏");
+		if (recorded)
+		{
+			VkSubmitInfo submit_info{};
+			submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit_info.commandBufferCount = 1;
+			submit_info.pCommandBuffers = &command_buffer;
+			recorded = vk_result_check(vkQueueSubmit(graphics_queue, 1, &submit_info, transient_fence), "渲染目标:: 提交深度读回命令");
+		}
+		if (recorded)
+			recorded = vk_result_check(vkWaitForFences(device, 1, &transient_fence, VK_TRUE, UINT64_MAX), "渲染目标:: 等待深度读回完成");
+		//读出原始值
+		if (recorded)
+			recorded = memory->buffer_read(staging, staging_alloc, values, byte_size, 0);
+		//归还暂存缓冲
+		memory->buffer_destroy(staging, staging_alloc);
+
+		//写出尺寸
+		if (recorded)
+		{
+			if (width_out != nullptr)
+				*width_out = record.extent.width;
+			if (height_out != nullptr)
+				*height_out = record.extent.height;
+		}
+		return recorded;
 	}
 
 	/*

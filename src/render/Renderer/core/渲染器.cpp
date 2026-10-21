@@ -1457,6 +1457,22 @@ namespace engine
 		return impl->texture.texture_readback(handle, pixels, capacity, width_out, height_out);
 	}
 
+	//读回纹理第 0 级的指定子区域
+	bool Renderer::texture_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（子区域同步读回）
+		return impl->texture.texture_readback_region(handle, x, y, region_width, region_height,
+			pixels, capacity, width_out, height_out);
+	}
+
 	//设置当前绘制所用纹理
 	void Renderer::texture_bind_set(uint64_t texture_handle)
 	{
@@ -1846,6 +1862,20 @@ namespace engine
 		//转交渲染目标模块（子区域同步拷贝）
 		return impl->render_target.target_readback_region(handle, x, y, region_width, region_height,
 			pixels, capacity, width_out, height_out);
+	}
+
+	//读回离屏渲染目标的深度图像
+	bool Renderer::render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽，避免与该目标的写入冲突
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交渲染目标模块（深度同步拷贝）
+		return impl->render_target.target_readback_depth(handle, values, capacity, width_out, height_out);
 	}
 
 	//销毁离屏渲染目标

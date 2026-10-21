@@ -203,6 +203,13 @@ namespace engine
 		*/
 		bool texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回纹理第 0 级的指定子区域（第二十八轮新增）
+		x / y 为左上角，区域须完整落在纹理内；pixels 为区域 RGBA8 紧排，容量 ≥ 区域宽×高×4。
+		*/
+		bool texture_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
 		/*
@@ -280,6 +287,13 @@ namespace engine
 		*/
 		bool render_target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回离屏渲染目标的深度图像（第二十八轮新增）
+		values 为 32 位深度原始值数组（本层深度格式 D32_SFLOAT，按 float 解释）；
+		capacity 为元素个数，须不小于 宽×高；成功时回填目标尺寸。先 frames_wait 再同步读回。
+		*/
+		bool render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
 		设置「本帧渲染到目标」

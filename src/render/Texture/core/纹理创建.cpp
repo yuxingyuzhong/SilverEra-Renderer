@@ -291,4 +291,44 @@ namespace engine
 			*height_out = record.height;
 		return true;
 	}
+
+	//读回纹理第 0 级的指定子区域
+	bool Texture_Context::texture_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若内存模块未就绪 / 出参为空 / 句柄越界 / 区域为空
+		if (memory == nullptr || pixels == nullptr || handle == 0 || handle > records.size()
+			|| region_width == 0 || region_height == 0)
+			return false;
+		//获取目标记录
+		const Texture_Record& record = records[handle - 1];
+		//若记录无效 / 尺寸缺失 / 区域越界
+		if (!record.valid || record.width == 0 || record.height == 0
+			|| x >= record.width || y >= record.height
+			|| region_width > record.width - x || region_height > record.height - y)
+			return false;
+		//区域字节数（RGBA8 紧排）
+		VkDeviceSize byte_size = static_cast<VkDeviceSize>(region_width) * region_height * 4;
+		//若容量不足
+		if (byte_size > capacity)
+		{
+			logger.error("纹理创建:: 区域读回容量不足（需要 {} 字节，给出 {}）", byte_size, capacity);
+			return false;
+		}
+		//转交内存模块（子区域同步读回）
+		if (!memory->image_readback_region(record.image, x, y, region_width, region_height, pixels, byte_size))
+			return false;
+		//写出区域尺寸
+		if (width_out != nullptr)
+			*width_out = region_width;
+		if (height_out != nullptr)
+			*height_out = region_height;
+		return true;
+	}
 }

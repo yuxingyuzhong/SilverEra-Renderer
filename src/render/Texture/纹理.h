@@ -89,6 +89,13 @@ namespace engine
 		bool texture_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
+		读回纹理第 0 级的指定子区域（第二十八轮新增）
+		x / y 为左上角，区域须完整落在纹理内（越界整次拒绝）；pixels 为该区域 RGBA8 紧排。
+		*/
+		bool texture_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
 		设置共享采样器状态（寻址模式 / 是否启用 mip 过滤）
 		状态变化时**销毁并重建共享采样器**，并把全部既有纹理记录改指新句柄；
 		注意：已写入的**描述符集仍持有旧采样器句柄**，故调用方（门面）须在切换后重新绑定纹理，

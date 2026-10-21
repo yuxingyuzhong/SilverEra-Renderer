@@ -253,10 +253,18 @@ namespace engine
 	*/
 	bool Memory_Context::image_readback(VkImage image, uint32_t width, uint32_t height, void* data, VkDeviceSize data_size)
 	{
+		//整幅即「原点 ＋ 完整尺寸」的区域读回
+		return image_readback_region(image, 0, 0, width, height, data, data_size);
+	}
+
+	//从图像读回指定子区域
+	bool Memory_Context::image_readback_region(VkImage image, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size)
+	{
 		//前置：上下文与队列就绪、图像与出参齐备、尺寸与容量一致
 		if (!valid() || image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE
-			|| width == 0 || height == 0
-			|| data_size < static_cast<VkDeviceSize>(width) * height * 4)
+			|| region_width == 0 || region_height == 0
+			|| data_size < static_cast<VkDeviceSize>(region_width) * region_height * 4)
 		{
 			logger.error("上传批次:: 图像读回的参数不完整");
 			return false;
@@ -293,14 +301,14 @@ namespace engine
 				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
 
-			//图像 → 暂存缓冲（第 0 级、紧排）
+			//图像子区域 → 暂存缓冲（第 0 级、紧排）
 			VkBufferImageCopy copy_region{};
 			copy_region.bufferOffset = 0;
 			copy_region.bufferRowLength = 0;
 			copy_region.bufferImageHeight = 0;
 			copy_region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			copy_region.imageOffset = { 0, 0, 0 };
-			copy_region.imageExtent = { width, height, 1 };
+			copy_region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
+			copy_region.imageExtent = { region_width, region_height, 1 };
 			vkCmdCopyImageToBuffer(command_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer, 1, &copy_region);
 
 			//传输源 → 着色器可读（恢复默认终态）
