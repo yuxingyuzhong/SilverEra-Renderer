@@ -70,6 +70,12 @@ namespace engine
 		float specular_intensity = 0.0f;
 		float specular_shininess = 16.0f;
 		/*
+		距离衰减模式（第三十六轮；对点光源与聚光灯共同生效）
+		0 = 线性（clamp(1 − d / radius)，默认，与引入该开关前一致）；1 = 平方反比（1 / (1 + (d / radius)²)）。
+		随场景 UBO 的 `light_color.w` 逐帧下发。
+		*/
+		uint32_t attenuation_mode = 0;
+		/*
 		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
 		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。
 		*/

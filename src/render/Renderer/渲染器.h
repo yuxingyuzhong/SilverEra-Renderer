@@ -485,6 +485,14 @@ namespace engine
 		任一参数非法（NaN / 强度为负 / 光泽度小于 1）即整次拒绝并告警。
 		*/
 		void specular_set(float intensity, float shininess);
+		/*
+		设置距离衰减模式（第三十六轮新增；对点光源与聚光灯共同生效）
+		mode = 0 线性衰减（`clamp(1 − d / radius, 0, 1)`，默认）；mode = 1 平方反比（`1 / (1 + (d / radius)²)`）。
+		仅接受 0 与 1；其它取值返回假并告警（保持原模式）。自下一次 frame_render 起生效。
+		*/
+		bool light_attenuation_set(uint32_t mode);
+		//读取当前距离衰减模式（第三十六轮新增；未初始化返回 0）
+		uint32_t light_attenuation_get(void) const;
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

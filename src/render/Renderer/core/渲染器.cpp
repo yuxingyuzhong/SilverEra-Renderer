@@ -380,7 +380,7 @@ namespace engine
 			float light_block[16] = {
 				impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
 				impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
-				impl->light_color[0], impl->light_color[1], impl->light_color[2], 0.0f,
+				impl->light_color[0], impl->light_color[1], impl->light_color[2], static_cast<float>(impl->attenuation_mode),
 				0.0f, 0.0f, 0.0f, 0.0f,
 			};
 			//相机世界位置（镜面高光的视线方向来源）
@@ -608,6 +608,8 @@ namespace engine
 		impl->point_light_count = 0;
 		impl->specular_intensity = 0.0f;
 		impl->specular_shininess = 16.0f;
+		//复位距离衰减模式（第三十六轮：默认线性）
+		impl->attenuation_mode = 0;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -767,7 +769,7 @@ namespace engine
 		float light_block[16] = {
 			impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
 			impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
-			impl->light_color[0], impl->light_color[1], impl->light_color[2], 0.0f,
+			impl->light_color[0], impl->light_color[1], impl->light_color[2], static_cast<float>(impl->attenuation_mode),
 			0.0f, 0.0f, 0.0f, 0.0f,
 		};
 		//相机世界位置（镜面高光的视线方向来源）
@@ -2886,6 +2888,31 @@ namespace engine
 		}
 		impl->specular_intensity = intensity;
 		impl->specular_shininess = shininess;
+	}
+
+	//设置距离衰减模式（第三十六轮新增）
+	bool Renderer::light_attenuation_set(uint32_t mode)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//仅接受线性（0）与平方反比（1）
+		if (mode > 1)
+		{
+			logger.warn("渲染器:: 距离衰减模式非法（{}），仅接受 0（线性）/ 1（平方反比）", mode);
+			return false;
+		}
+		impl->attenuation_mode = mode;
+		return true;
+	}
+
+	//读取当前距离衰减模式（第三十六轮新增）
+	uint32_t Renderer::light_attenuation_get(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->attenuation_mode;
 	}
 
 	//设置清屏色（RGBA）

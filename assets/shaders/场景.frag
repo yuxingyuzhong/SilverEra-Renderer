@@ -21,7 +21,7 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 light_common;
 	//xyz = 方向光传播方向，w = 方向光强度（0 = 关闭）
 	vec4 light_dir;
-	//rgb = 方向光颜色，w 保留
+	//rgb = 方向光颜色，w = 距离衰减模式（0 = 线性、1 = 平方反比；第三十六轮）
 	vec4 light_color;
 	//xyz = 相机世界位置，w 保留
 	vec4 camera_pos;
@@ -82,9 +82,20 @@ void main()
 			float distance = length(offset);
 			//避免零距离除零
 			vec3 to_light = distance > 0.000001 ? offset / distance : vec3(0.0, 0.0, 1.0);
-			//线性衰减：距离达到半径时降为 0（半径为 0 时视为无衰减）
+			/*
+			距离衰减（第三十六轮可切换模式）
+			mode 0（默认）：线性，距离达到半径时降为 0；mode 1：平方反比 1/(1+(d/r)²)，不设硬截断；
+			半径为 0 时两种模式均视为无衰减。模式随 light_color.w 逐帧下发，点光源与聚光灯共用。
+			*/
 			float radius = scene.point_pos_radius[index].w;
-			float attenuation = radius > 0.000001 ? clamp(1.0 - distance / radius, 0.0, 1.0) : 1.0;
+			float attenuation = 1.0;
+			if (radius > 0.000001)
+			{
+				float normalized = distance / radius;
+				attenuation = scene.light_color.w > 0.5
+					? 1.0 / (1.0 + normalized * normalized)
+					: clamp(1.0 - normalized, 0.0, 1.0);
+			}
 			/*
 			聚光灯锥形衰减（第三十四轮）
 			普通点光源的有效标志为 0 → cone 恒 1；聚光灯按「光轴与光源→片元方向」夹角取平滑锥形：
