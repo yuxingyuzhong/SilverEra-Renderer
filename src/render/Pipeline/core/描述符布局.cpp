@@ -7,7 +7,8 @@ namespace engine
 	/*
 	创建描述符集布局
 	set 0：场景 UBO（binding 0，顶点阶段可见，逐帧更新视图投影矩阵）；
-	set 1：采样器（binding 0，片元阶段可见，反照率贴图）。
+	set 1：采样器（binding 0 = 当前纹理 / 上一级输出；binding 1 = 场景目标，供「双源」后处理片元叠加）。
+	binding 1 在单源片元中不被声明，故多出的描述符不影响既有管线；由绑定接口一并写入以避免未写描述符。
 	*/
 	bool Pipeline_Context::descriptor_layouts_create(void)
 	{
@@ -27,18 +28,22 @@ namespace engine
 		if (!vk_result_check(vkCreateDescriptorSetLayout(device, &scene_info, nullptr, &scene_set_layout), "vkCreateDescriptorSetLayout（场景）"))
 			return false;
 
-		//set 1 绑定（采样器）
-		VkDescriptorSetLayoutBinding sampler_binding{};
-		sampler_binding.binding = 0;
-		sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		sampler_binding.descriptorCount = 1;
-		sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		//set 1 绑定（采样器：0 = 当前纹理 / 上一级输出，1 = 场景目标）
+		VkDescriptorSetLayoutBinding sampler_bindings[2]{};
+		sampler_bindings[0].binding = 0;
+		sampler_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		sampler_bindings[0].descriptorCount = 1;
+		sampler_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		sampler_bindings[1].binding = 1;
+		sampler_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		sampler_bindings[1].descriptorCount = 1;
+		sampler_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
 		//set 1 布局创建信息
 		VkDescriptorSetLayoutCreateInfo sampler_info{};
 		sampler_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		sampler_info.bindingCount = 1;
-		sampler_info.pBindings = &sampler_binding;
+		sampler_info.bindingCount = 2;
+		sampler_info.pBindings = sampler_bindings;
 		//若采样器布局创建失败
 		if (!vk_result_check(vkCreateDescriptorSetLayout(device, &sampler_info, nullptr, &sampler_set_layout), "vkCreateDescriptorSetLayout（采样器）"))
 			return false;

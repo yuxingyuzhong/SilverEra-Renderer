@@ -140,6 +140,10 @@ namespace engine
 		Font_Context font;
 		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）
 		uint64_t text_pipeline = 0;
+		//文字颜色（RGBA，默认白；由 text_color_set 更新，text_draw* 以推送常量下发）
+		float text_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
+		std::deque<std::array<float, 20>> pending_push_constants;
 		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
 		struct Text_Mesh_Record
 		{

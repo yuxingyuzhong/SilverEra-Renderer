@@ -120,8 +120,13 @@ namespace engine
 		bool scene_bind(uint32_t slot, VkBuffer ubo_buffer);
 		//向第 slot 帧槽写采样器（set 1）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
-		//向第 slot 帧槽的后处理采样器集写采样器（set 1；index ∈ [0, POST_SET_PER_SLOT)）
+		//向第 slot 帧槽的后处理采样器集写采样器（set 1 binding 0；index ∈ [0, POST_SET_PER_SLOT)）
 		bool post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
+		/*
+		向第 slot 帧槽的后处理采样器集写「第二源」（set 1 binding 1；index ∈ [0, POST_SET_PER_SLOT)）
+		用于双源后处理片元（如 泛光叠加.frag）：binding 0 为上一级输出、binding 1 恒为场景目标。
+		*/
+		bool post_scene_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 	private:
 		//描述符集布局创建（实现见 core/描述符布局.cpp）
 		bool descriptor_layouts_create(void);

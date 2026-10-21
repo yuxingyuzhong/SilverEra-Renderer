@@ -156,10 +156,12 @@ namespace engine
 		/*
 		绘制网格
 		transform 为列主序 16 浮点模型矩阵，可为 nullptr 表示单位矩阵；
+		color 为可选的 RGBA 颜色（长度 ≥ 4，分量 0..1）：非空时随绘制项推送常量下发（offset 64），
+		仅对声明了该推送常量的片元（文字）有意义；为空时不推送常量（场景 / 后处理路径的既有行为）；
 		本调用只登记一个待绘制项，实际绘制在下一帧 frame_render 时发生；
 		同一帧内可多次调用以登记多个网格（各自独立的模型矩阵）。
 		*/
-		bool mesh_draw(Mesh_Handle handle, const float* transform);
+		bool mesh_draw(Mesh_Handle handle, const float* transform, const float* color = nullptr);
 
 		/*
 		实例化绘制网格（同一网格 × N 个模型矩阵，一次绘制调用提交）
@@ -306,6 +308,12 @@ namespace engine
 		bool font_load_file(uint64_t& handle_out, const std::string& path, uint32_t pixel_height);
 		//卸载字体（句柄无效则忽略；同时清除该字体的文本网格缓存）
 		void font_unload(uint64_t handle);
+		/*
+		设置文字颜色（RGBA，分量 0..1；逐分量钳制：负值 / 非数归 0、大于 1 归 1）
+		颜色由门面记录，自**下一次** text_draw / text_draw_layout 起生效（经推送常量 offset 64 下发）；
+		未设置时默认白色 (1,1,1,1)；未初始化或 color 为空时静默返回。
+		*/
+		void text_color_set(const float color[4]);
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →

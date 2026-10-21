@@ -451,6 +451,12 @@ namespace engine
 		impl->post_chain.clear();
 		impl->post_pipeline = 0;
 		impl->fullscreen_mesh = 0;
+		//复位文字颜色与推送常量存储（颜色恢复默认白）
+		impl->text_color[0] = 1.0f;
+		impl->text_color[1] = 1.0f;
+		impl->text_color[2] = 1.0f;
+		impl->text_color[3] = 1.0f;
+		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
 			for (size_t slot = 0; slot < impl->scene_ubos.size(); ++slot)
@@ -767,11 +773,18 @@ namespace engine
 			//若前置就绪
 			if (ready)
 			{
-				//把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号；长命资源，一次写满全部槽）
+				/*
+				把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号；长命资源，一次写满全部槽）
+				binding 0 = 该级源；binding 1 恒写目标组首项（场景目标），供双源片元（泛光叠加）采样原画面。
+				*/
 				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
 					for (std::size_t index = 0; index < targets.size(); ++index)
+					{
 						impl->pipeline.post_texture_bind(each, shared_sampler, targets[index].color_view,
 							static_cast<uint32_t>(index));
+						impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view,
+							static_cast<uint32_t>(index));
+					}
 				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线）
 				std::vector<uint64_t> stage_pipelines;
 				//链路径取注册链
@@ -871,6 +884,7 @@ namespace engine
 		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
 		impl->pending_items.clear();
 		impl->pending_instances.clear();
+		impl->pending_push_constants.clear();
 		/*
 		回读结果交付
 		若本帧请求回读但帧模块未产出像素（如窗口最小化 / 关闭请求而跳过渲染，
@@ -1093,7 +1107,7 @@ namespace engine
 	}
 
 	//绘制网格
-	bool Renderer::mesh_draw(Mesh_Handle handle, const float* transform)
+	bool Renderer::mesh_draw(Mesh_Handle handle, const float* transform, const float* color)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
@@ -1142,6 +1156,27 @@ namespace engine
 		item.instance_buffer = VK_NULL_HANDLE;
 		item.instance_offset = instance_offset;
 		item.instance_count = 1;
+		/*
+		可选颜色推送（文字着色）
+		矩阵已由实例缓冲承载，推送块前 64 字节仅用于占位（单位矩阵），后 16 字节为颜色；
+		存储于 Impl 的 deque（元素引用稳定），绘制项持其指针，直到 frame_render 消费。
+		*/
+		if (color != nullptr)
+		{
+			impl->pending_push_constants.emplace_back();
+			std::array<float, 20>& push = impl->pending_push_constants.back();
+			//前 64 字节 = 单位矩阵
+			push.fill(0.0f);
+			push[0] = 1.0f;
+			push[5] = 1.0f;
+			push[10] = 1.0f;
+			push[15] = 1.0f;
+			//后 16 字节 = 颜色
+			for (std::size_t index = 0; index < 4; ++index)
+				push[16 + index] = color[index];
+			item.push_constants = push.data();
+			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
+		}
 
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
@@ -2050,8 +2085,27 @@ namespace engine
 		transform[13] = 2.0f * pixel_y / screen_height - 1.0f;
 		transform[15] = 1.0f;
 
-		//登记绘制项（沿用既有网格绘制路径）
-		return mesh_draw(mesh, transform.data());
+		//登记绘制项（沿用既有网格绘制路径；文字颜色经推送常量下发）
+		return mesh_draw(mesh, transform.data(), impl->text_color);
+	}
+
+	//设置文字颜色（RGBA，逐分量钳制）
+	void Renderer::text_color_set(const float color[4])
+	{
+		//未初始化或出参为空则静默返回
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		//逐分量钳制后写入
+		for (std::size_t index = 0; index < 4; ++index)
+		{
+			float value = color[index];
+			//负值 / 非数归 0、大于 1 归 1
+			if (!(value >= 0.0f))
+				value = 0.0f;
+			else if (value > 1.0f)
+				value = 1.0f;
+			impl->text_color[index] = value;
+		}
 	}
 
 	//取该字体累计被跳过的码点数（诊断入口）
