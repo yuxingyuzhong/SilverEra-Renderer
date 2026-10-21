@@ -2722,6 +2722,8 @@ namespace engine
 		light_attenuation_set(scene.attenuation_mode);
 		//距离雾（第三十九轮：非法参数由 fog_set 整次忽略）
 		fog_set(scene.fog_color, scene.fog_density, scene.fog_start, scene.fog_end);
+		//环境光颜色（第四十一轮：非法分量由 ambient_color_set 整次忽略）
+		ambient_color_set(scene.ambient_color);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (scene.light_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", scene.light_count);

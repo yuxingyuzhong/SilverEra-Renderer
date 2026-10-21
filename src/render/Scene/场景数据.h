@@ -110,5 +110,7 @@ namespace engine
 		float fog_start = 1.0f;
 		//雾结束距离（世界单位；须大于起始）
 		float fog_end = 10.0f;
+		//环境光颜色（RGB，0..1；第四十一轮；默认白 = 与标量环境光等价）
+		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
 	};
 }
