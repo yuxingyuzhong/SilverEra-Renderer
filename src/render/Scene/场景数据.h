@@ -93,5 +93,10 @@ namespace engine
 		float spot_light_inner_deg[4] = { 15.0f, 15.0f, 15.0f, 15.0f };
 		//外锥角（度；须 ≤ 90）
 		float spot_light_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
+		/*
+		距离衰减模式（第三十七轮）
+		0 = 线性（默认）、1 = 平方反比；其它取值由 scene_apply 忽略并告警（保持门面当前模式）。
+		*/
+		uint32_t attenuation_mode = 0;
 	};
 }
