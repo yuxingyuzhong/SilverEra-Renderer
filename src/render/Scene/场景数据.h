@@ -116,6 +116,10 @@ namespace engine
 		float fill_color[3] = { 1.0f, 1.0f, 1.0f };
 		//补光强度（≥ 0；0 = 关闭）
 		float fill_intensity = 0.0f;
+		//方向光逐光高光缩放（第五十轮；1 = 跟随全局，0 = 不产生高光；0..100）
+		float directional_specular = 1.0f;
+		//补光逐光高光缩放（第五十轮；语义同 directional_specular）
+		float fill_specular = 1.0f;
 	};
 
 	/*
@@ -256,5 +260,8 @@ namespace engine
 		float fill_direction[3] = { 0.0f, 0.0f, -1.0f };
 		float fill_color[3] = { 1.0f, 1.0f, 1.0f };
 		float fill_intensity = 0.0f;
+		//方向光 / 补光的逐光高光缩放（第五十轮；语义见 Light_Data::directional_specular / fill_specular）
+		float directional_specular = 1.0f;
+		float fill_specular = 1.0f;
 	};
 }

@@ -542,11 +542,18 @@ namespace engine
 		*/
 		void ambient_ground_set(const float ground_color[3], float hemisphere);
 		/*
+		设置方向光的逐光高光缩放（第五十轮新增）
+		scale 为方向光高光缩放（0..100；1 = 跟随全局高光强度，0 = 方向光不产生高光）；
+		越界 / 非数即整次忽略并告警。
+		*/
+		void directional_specular_set(float scale);
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
-		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭）。
+		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
+		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。
 		补光只参与漫反射累加与高光取最大，与主方向光互不影响；任一参数非法即整次拒绝并告警。
 		*/
-		void light_fill_set(const float direction[3], const float color[3], float intensity);
+		void light_fill_set(const float direction[3], const float color[3], float intensity, float specular = 1.0f);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

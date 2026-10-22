@@ -23,7 +23,7 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 light_dir;
 	//rgb = 方向光颜色，w = 距离衰减模式（0 = 线性、1 = 平方反比；第三十六轮）
 	vec4 light_color;
-	//xyz = 相机世界位置，w 保留
+	//xyz = 相机世界位置，w = 方向光逐光高光缩放（第五十轮）
 	vec4 camera_pos;
 	//点光源位置（xyz）＋ 衰减半径（w），最多 4 个
 	vec4 point_pos_radius[4];
@@ -94,7 +94,7 @@ void main()
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl;
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)));
+			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w);
 		}
 		/*
 		补光（第四十七轮；第二盏方向光，强度为 0 视为关闭）
@@ -107,7 +107,7 @@ void main()
 			radiance += scene.fill_color.rgb * scene.fill_dir_intensity.w * fill_ndotl;
 			vec3 fill_halfway = normalize(fill_to_light + to_view);
 			float fill_spec_base = max(dot(normal, fill_halfway), 0.0);
-			specular = max(specular, pow(fill_spec_base, max(scene.light_common.z, 1.0)));
+			specular = max(specular, pow(fill_spec_base, max(scene.light_common.z, 1.0)) * scene.fill_color.w);
 		}
 		/*
 		点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）

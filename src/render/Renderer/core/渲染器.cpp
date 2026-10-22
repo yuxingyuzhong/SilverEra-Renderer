@@ -482,12 +482,13 @@ namespace engine
 				impl->light_color[0], impl->light_color[1], impl->light_color[2], static_cast<float>(impl->attenuation_mode),
 				0.0f, 0.0f, 0.0f, 0.0f,
 			};
-			//相机世界位置（镜面高光的视线方向来源）
+			//相机世界位置（镜面高光的视线方向来源）；位置在首帧前为默认机位，w = 方向光逐光高光缩放（第五十轮）
 			float camera_position[3] = {};
 			impl->camera.position_get(camera_position);
 			light_block[12] = camera_position[0];
 			light_block[13] = camera_position[1];
 			light_block[14] = camera_position[2];
+			light_block[15] = impl->directional_specular;
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 			{
 				logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
@@ -583,9 +584,9 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//写入初始补光颜色（offset 464、16 字节；第四十七轮）
+			//写入初始补光颜色（offset 464、16 字节；第四十七轮；w = 逐光高光缩放，第五十轮）
 			float fill_color_block[4] = {
-				impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], 0.0f,
+				impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], impl->fill_specular,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
 				fill_color_block, 16, 464))
@@ -854,6 +855,9 @@ namespace engine
 		impl->fill_color[1] = 1.0f;
 		impl->fill_color[2] = 1.0f;
 		impl->fill_intensity = 0.0f;
+		//逐光高光缩放恢复默认（第五十轮：均为 1）
+		impl->directional_specular = 1.0f;
+		impl->fill_specular = 1.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -1028,12 +1032,13 @@ namespace engine
 		scene_block[25] = impl->light_color[1];
 		scene_block[26] = impl->light_color[2];
 		scene_block[27] = static_cast<float>(impl->attenuation_mode);
-		//相机世界位置（镜面高光的视线方向来源）
+		//相机世界位置（镜面高光的视线方向来源）；w = 方向光逐光高光缩放（第五十轮）
 		float camera_position[3] = {};
 		impl->camera.position_get(camera_position);
 		scene_block[28] = camera_position[0];
 		scene_block[29] = camera_position[1];
 		scene_block[30] = camera_position[2];
+		scene_block[31] = impl->directional_specular;
 		//点光源：先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个 std140 数组一致）
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 		{
@@ -1080,10 +1085,11 @@ namespace engine
 		scene_block[113] = impl->fill_direction[1];
 		scene_block[114] = impl->fill_direction[2];
 		scene_block[115] = impl->fill_intensity;
-		//补光颜色（第四十七轮）
+		//补光颜色（第四十七轮）＋ 逐光高光缩放（第五十轮；w）
 		scene_block[116] = impl->fill_color[0];
 		scene_block[117] = impl->fill_color[1];
 		scene_block[118] = impl->fill_color[2];
+		scene_block[119] = impl->fill_specular;
 		//整块写入（单次驱动调用）
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 480, 0))
 		{
@@ -2959,8 +2965,10 @@ namespace engine
 		ambient_color_set(light.ambient_color);
 		//半球环境光（地面颜色 ＋ 混合强度；非法颜色由 ambient_ground_set 整次忽略）
 		ambient_ground_set(light.ambient_ground, light.ambient_hemisphere);
-		//补光（第二盏方向光；强度 0 = 关闭）
-		light_fill_set(light.fill_direction, light.fill_color, light.fill_intensity);
+		//补光（第二盏方向光；强度 0 = 关闭；第五十轮含逐光高光缩放）
+		light_fill_set(light.fill_direction, light.fill_color, light.fill_intensity, light.fill_specular);
+		//方向光逐光高光缩放（第五十轮；非法值由 setter 忽略）
+		directional_specular_set(light.directional_specular);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -2999,6 +3007,8 @@ namespace engine
 		}
 		light.ambient_hemisphere = scene.ambient_hemisphere;
 		light.fill_intensity = scene.fill_intensity;
+		light.directional_specular = scene.directional_specular;
+		light.fill_specular = scene.fill_specular;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -3380,18 +3390,19 @@ namespace engine
 		impl->ambient_ground[3] = blend;
 	}
 
-	//设置补光（第四十七轮新增；第二盏方向光）
-	void Renderer::light_fill_set(const float direction[3], const float color[3], float intensity)
+	//设置补光（第四十七轮新增；第二盏方向光；第五十轮支持逐光高光缩放）
+	void Renderer::light_fill_set(const float direction[3], const float color[3], float intensity, float specular)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || direction == nullptr || color == nullptr)
 			return;
 		/*
 		参数校验（口径同 light_set）
-		方向长度须非零、颜色各分量须落在 [0,1]、强度须非负且有限；任一非法即整次拒绝。
+		方向长度须非零、颜色各分量须落在 [0,1]、强度须非负且有限、高光缩放须落在 0..100；任一非法即整次拒绝。
 		*/
 		float length_squared = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
-		bool fill_valid = (length_squared > 1e-12f) && (intensity >= 0.0f) && (intensity <= 1e6f);
+		bool fill_valid = (length_squared > 1e-12f) && (intensity >= 0.0f) && (intensity <= 1e6f)
+			&& (specular >= 0.0f) && (specular <= 100.0f);
 		for (std::size_t index = 0; index < 3; ++index)
 			//颜色分量越界或非数即判非法
 			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
@@ -3399,7 +3410,7 @@ namespace engine
 		//若补光参数非法
 		if (!fill_valid)
 		{
-			logger.warn("渲染器:: 补光参数非法（强度 {}），整次拒绝", intensity);
+			logger.warn("渲染器:: 补光参数非法（强度 {}、高光缩放 {}），整次拒绝", intensity, specular);
 			return;
 		}
 		//归一化方向（内部恒存单位向量）
@@ -3410,6 +3421,22 @@ namespace engine
 			impl->fill_color[index] = color[index];
 		}
 		impl->fill_intensity = intensity;
+		impl->fill_specular = specular;
+	}
+
+	//设置方向光的逐光高光缩放（第五十轮新增）
+	void Renderer::directional_specular_set(float scale)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//缩放须落在 0..100（取反比较使 NaN 判非法）
+		if (!(scale >= 0.0f && scale <= 100.0f))
+		{
+			logger.warn("渲染器:: 方向光高光缩放非法（{}），整次忽略", scale);
+			return;
+		}
+		impl->directional_specular = scale;
 	}
 
 	//设置清屏色（RGBA）

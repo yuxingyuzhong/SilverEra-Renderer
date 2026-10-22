@@ -88,6 +88,9 @@ namespace engine
 		float fill_direction[3] = { 0.0f, 0.0f, -1.0f };
 		float fill_color[3] = { 1.0f, 1.0f, 1.0f };
 		float fill_intensity = 0.0f;
+		//方向光 / 补光的逐光高光缩放（第五十轮；1 = 跟随全局，0 = 不产生高光）
+		float directional_specular = 1.0f;
+		float fill_specular = 1.0f;
 		//镜面高光（第三十一轮；对全部光源生效）
 		float specular_intensity = 0.0f;
 		float specular_shininess = 16.0f;
