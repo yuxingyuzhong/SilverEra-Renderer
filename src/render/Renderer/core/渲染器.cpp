@@ -458,8 +458,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；432 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 432,
+			//创建场景 UBO（主机可见、统一缓冲用途；448 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色 ＋ 半球环境光；第四十七轮由 432 扩为 448）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 448,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -561,6 +561,14 @@ namespace engine
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
 			{
 				logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始半球环境光（offset 432、16 字节；第四十七轮）
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				impl->ambient_ground, 16, 432))
+			{
+				logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -811,6 +819,11 @@ namespace engine
 		impl->ambient_color[0] = 1.0f;
 		impl->ambient_color[1] = 1.0f;
 		impl->ambient_color[2] = 1.0f;
+		//半球环境光恢复默认（地面白、强度 0 = 关闭）
+		impl->ambient_ground[0] = 1.0f;
+		impl->ambient_ground[1] = 1.0f;
+		impl->ambient_ground[2] = 1.0f;
+		impl->ambient_ground[3] = 0.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -1045,6 +1058,13 @@ namespace engine
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
 		{
 			logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽半球环境光（offset 432、16 字节；第四十七轮）
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+			impl->ambient_ground, 16, 432))
+		{
+			logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2914,6 +2934,8 @@ namespace engine
 		fog_set(fog.color, fog.density, fog.start, fog.end);
 		//环境光颜色（非法分量由 ambient_color_set 整次忽略）
 		ambient_color_set(light.ambient_color);
+		//半球环境光（地面颜色 ＋ 混合强度；非法颜色由 ambient_ground_set 整次忽略）
+		ambient_ground_set(light.ambient_ground, light.ambient_hemisphere);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -2946,6 +2968,7 @@ namespace engine
 			light.direction[index] = scene.light_direction[index];
 			light.color[index] = scene.light_color[index];
 			light.ambient_color[index] = scene.ambient_color[index];
+			light.ambient_ground[index] = scene.ambient_ground[index];
 		}
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
@@ -2973,6 +2996,7 @@ namespace engine
 		light.specular_shininess = scene.specular_shininess;
 		light.spot_count = scene.spot_light_count;
 		light.attenuation_mode = scene.attenuation_mode;
+		light.ambient_hemisphere = scene.ambient_hemisphere;
 		//雾组
 		Fog_Data fog{};
 		for (std::size_t index = 0; index < 3; ++index)
@@ -3288,6 +3312,33 @@ namespace engine
 			}
 		for (std::size_t index = 0; index < 3; ++index)
 			impl->ambient_color[index] = color[index];
+	}
+
+	//设置半球环境光（第四十七轮新增）
+	void Renderer::ambient_ground_set(const float ground_color[3], float hemisphere)
+	{
+		//若尚未初始化或颜色指针为空
+		if (impl == nullptr || !impl->initialized || ground_color == nullptr)
+			return;
+		//颜色各分量须落在 [0,1]（取反比较使 NaN 判非法）
+		for (std::size_t index = 0; index < 3; ++index)
+			//分量越界或非数即整次忽略
+			if (!(ground_color[index] >= 0.0f && ground_color[index] <= 1.0f))
+			{
+				logger.warn("渲染器:: 半球环境光颜色非法（{}），整次忽略", ground_color[index]);
+				return;
+			}
+		//强度按 0..1 钳制（非数按 0 = 关闭处理）
+		float blend = 0.0f;
+		//仅有限值参与混合
+		if (hemisphere >= 0.0f && hemisphere <= 1.0f)
+			blend = hemisphere;
+		else if (hemisphere > 1.0f)
+			blend = 1.0f;
+		//写入地面颜色与混合强度
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->ambient_ground[index] = ground_color[index];
+		impl->ambient_ground[3] = blend;
 	}
 
 	//设置清屏色（RGBA）

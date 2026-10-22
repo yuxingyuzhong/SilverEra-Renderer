@@ -82,6 +82,8 @@ namespace engine
 		float light_ambient = 0.0f;
 		//环境光颜色（第四十轮；默认白，与引入该参数前一致）
 		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
+		//半球环境光（第四十七轮）：rgb = 地面颜色、w = 混合强度（0 = 关闭，只用 ambient_color）
+		float ambient_ground[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
 		//镜面高光（第三十一轮；对全部光源生效）
 		float specular_intensity = 0.0f;
 		float specular_shininess = 16.0f;

@@ -531,6 +531,14 @@ namespace engine
 		任一分量非法（越界 / 非数 / 空指针）即整次忽略并告警，保持既有颜色。
 		*/
 		void ambient_color_set(const float color[3]);
+		/*
+		设置半球环境光（第四十七轮新增）
+		ground_color 为「朝下方向的环境光颜色」（分量 0..1；朝上方向仍用 `ambient_color_set` 的颜色），
+		hemisphere 为混合强度（按 0..1 钳制；0 = 关闭，只用单一环境光颜色）。
+		法线朝上取 ambient_color、朝下取 ground_color，其间按法线 y 分量线性插值。
+		颜色任一分量非法（越界 / 非数 / 空指针）即整次忽略并告警；强度非数按 0 处理。
+		*/
+		void ambient_ground_set(const float ground_color[3], float hemisphere);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）

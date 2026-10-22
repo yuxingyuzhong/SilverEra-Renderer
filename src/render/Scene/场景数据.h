@@ -92,6 +92,16 @@ namespace engine
 		uint32_t attenuation_mode = 0;
 		//环境光颜色（RGB，0..1；默认白 = 与标量环境光等价）
 		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
+		/*
+		半球环境光（第四十七轮）
+		ambient_ground 为「朝下方向的环境光颜色」（朝上方向仍取 ambient_color）；
+		ambient_hemisphere 为半球混合强度（0 = 关闭，只用 ambient_color；1 = 按法线 y 分量在两组颜色间线性插值）。
+		默认 0 使既有画面逐字节不变。
+		*/
+		//环境光地面颜色（RGB，0..1）
+		float ambient_ground[3] = { 1.0f, 1.0f, 1.0f };
+		//半球混合强度（0..1；0 = 关闭）
+		float ambient_hemisphere = 0.0f;
 	};
 
 	/*
@@ -221,5 +231,8 @@ namespace engine
 		float fog_end = 10.0f;
 		//环境光颜色（RGB，0..1；第四十一轮；默认白 = 与标量环境光等价）
 		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
+		//环境光地面颜色与半球混合强度（第四十七轮；语义见 Light_Data::ambient_ground / ambient_hemisphere）
+		float ambient_ground[3] = { 1.0f, 1.0f, 1.0f };
+		float ambient_hemisphere = 0.0f;
 	};
 }

@@ -39,6 +39,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 fog_range;
 	//环境光颜色（rgb；第四十轮）
 	vec4 ambient_color;
+	//半球环境光（rgb = 地面颜色、w = 混合强度 0..1；第四十七轮）
+	vec4 ambient_ground;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -60,8 +62,23 @@ void main()
 		vec3 normal = normalize(in_normal);
 		//视线方向（相机 → 片元 的反向，即片元指向相机）
 		vec3 to_view = normalize(scene.camera_pos.xyz - in_world);
-		//环境光作为基底辐射度（颜色 × 强度；第四十轮引入颜色）
-			radiance = scene.ambient_color.rgb * scene.light_common.x;
+		/*
+		环境光作为基底辐射度（颜色 × 强度；第四十轮引入颜色；第四十七轮支持半球混合）
+		半球混合：法线朝上取 ambient_color、朝下取 ambient_ground.rgb，
+		按「法线 y 分量映射到 0..1」线性插值后再按 ambient_ground.w 与单一颜色混合；
+		w = 0 时退化为单一 ambient_color（既有画面逐字节不变）。
+		*/
+		vec3 ambient_rgb = scene.ambient_color.rgb;
+		//若启用半球环境光
+		if (scene.ambient_ground.w > 0.0)
+		{
+			//法线 y ∈ [-1, 1] 映射到 [0, 1]
+			float up_mix = clamp(normal.y * 0.5 + 0.5, 0.0, 1.0);
+			//地面 → 天顶插值，再与单一颜色按强度混合
+			vec3 hemisphere_rgb = mix(scene.ambient_ground.rgb, scene.ambient_color.rgb, up_mix);
+			ambient_rgb = mix(scene.ambient_color.rgb, hemisphere_rgb, scene.ambient_ground.w);
+		}
+		radiance = ambient_rgb * scene.light_common.x;
 		/*
 		方向光（强度为 0 视为关闭）
 		高光按 Blinn-Phong：H = normalize(L + V)，取各光源贡献的最大值（不做叠加，避免过曝）
