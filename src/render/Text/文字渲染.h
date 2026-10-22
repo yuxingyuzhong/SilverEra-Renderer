@@ -1,0 +1,93 @@
+#pragma once
+//预编译头
+#include "Application/Renderer/common/前置头文件包含.h"
+//网格数据（文字几何与绘制句柄；Vulkan-free）
+#include "Application/Renderer/src/render/Mesh/网格数据.h"
+//文字布局参数（Vulkan-free）：对齐方式与换行宽度
+#include "Application/Renderer/src/render/Text/文字布局数据.h"
+
+//游戏引擎命名空间
+namespace engine
+{
+	//字体上下文（前置声明；文字绘制按需查询 / 补烘字形）
+	class Font_Context;
+
+	/*
+	文字绘制宿主（由门面注入）
+	文字绘制子系统只持有「字体 ＋ 网格缓存 ＋ 颜色」，不直接触碰 Vulkan 资源；
+	管线登记、管线 / 纹理绑定、网格创建与归还、绘制项登记、目标尺寸查询均经本结构的回调完成。
+	*/
+	struct Text_Host
+	{
+		//回调上下文（门面传入自身）
+		void* user = nullptr;
+		//确保文字管线就绪（返回句柄；0 = 失败）
+		uint64_t (*pipeline_ensure)(void* user) = nullptr;
+		//绑定管线
+		void (*pipeline_bind)(void* user, uint64_t pipeline) = nullptr;
+		//绑定纹理（字形图集）
+		void (*texture_bind)(void* user, uint64_t texture) = nullptr;
+		//创建网格（上传文字几何）
+		bool (*mesh_create)(void* user, Mesh_Handle& mesh, const Mesh_Data& data) = nullptr;
+		//归还网格
+		void (*mesh_destroy)(void* user, Mesh_Handle mesh) = nullptr;
+		//登记绘制项（transform / color 语义同门面 mesh_draw）
+		bool (*mesh_draw)(void* user, Mesh_Handle mesh, const float* transform, const float* color) = nullptr;
+		//取当前绘制目标尺寸（像素）
+		void (*extent_get)(void* user, float& width, float& height) = nullptr;
+	};
+
+	/*
+	文字绘制子系统（第四十七轮下沉）
+	把原先门面 text_draw_layout 的六件事（字形补烘、管线、网格缓存、纹理绑定、像素→NDC 矩阵、绘制登记）
+	收在此处；门面只做一行转发。缓存键为（字体句柄, 文本, 布局五项）。
+	*/
+	class Text_Renderer
+	{
+	public:
+		//绑定字体模块与宿主回调（不持有资源；重复调用以最后一次为准）
+		void init(Font_Context& font, const Text_Host& host);
+		/*
+		按布局绘制文本（像素坐标，原点在绘制目标左上、Y 向下）
+		返回假：尚未绑定宿主 / 字体句柄无效 / 字形补烘失败 / 管线登记失败 /
+		        几何生成失败 / 网格创建失败 / 目标尺寸非法 / 绘制登记失败。
+		*/
+		bool draw_layout(uint64_t font, const std::string& text, float pixel_x, float pixel_y,
+			const Text_Layout& layout);
+		//设置文字颜色（逐分量钳制到 [0,1]；空指针忽略）
+		void color_set(const float color[4]);
+		//当前文字颜色（4 浮点，RGBA）
+		const float* color(void) const;
+		//文字管线句柄（0 = 尚未登记）
+		uint64_t pipeline_get(void) const;
+		//回填文字管线句柄（由宿主回调登记成功后调用）
+		void pipeline_set(uint64_t value);
+		//归还指定字体的全部缓存网格并移除记录
+		void font_meshes_destroy(uint64_t font);
+		//归还全部缓存网格并复位（管线句柄 / 颜色回到默认）
+		void shutdown(void);
+	private:
+		//字体模块（不持有）
+		Font_Context* font = nullptr;
+		//宿主回调
+		Text_Host host;
+		//文字管线句柄（0 = 尚未登记）
+		uint64_t pipeline = 0;
+		//文字颜色（RGBA；默认白）
+		float text_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
+		struct Record
+		{
+			//字体句柄
+			uint64_t font = 0;
+			//文本（UTF-8）
+			std::string text;
+			//布局（五项参与缓存键，避免同文本不同布局命中旧网格）
+			Text_Layout layout;
+			//网格句柄
+			Mesh_Handle mesh = 0;
+		};
+		//缓存集合
+		std::vector<Record> records;
+	};
+}

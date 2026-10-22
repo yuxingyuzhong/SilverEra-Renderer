@@ -642,6 +642,70 @@ namespace engine
 			shutdown();
 			return false;
 		}
+		/*
+		文字绘制宿主绑定（第四十七轮下沉）
+		文字绘制子系统只持网格缓存与文字颜色；字形补烘之外的 Vulkan 侧动作
+		（管线登记、管线 / 纹理绑定、网格创建与归还、绘制项登记、目标尺寸查询）经本组回调转交本门面。
+		回调均为无捕获 lambda（转函数指针），以 this 作上下文；生命周期不超过 Renderer。
+		*/
+		{
+			Text_Host text_host{};
+			text_host.user = this;
+			//确保文字管线就绪（懒登记：Alpha 混合档，与场景管线共享同一管线布局）
+			text_host.pipeline_ensure = [](void* user) -> uint64_t
+			{
+				Renderer* self = static_cast<Renderer*>(user);
+				//尚未初始化则无管线可登记
+				if (self->impl == nullptr || !self->impl->initialized)
+					return self->impl == nullptr ? 0 : self->impl->text.pipeline_get();
+				//已登记则直接返回
+				if (self->impl->text.pipeline_get() != 0)
+					return self->impl->text.pipeline_get();
+				uint64_t handle = 0;
+				//登记失败保持 0
+				if (!self->pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha))
+					return 0;
+				self->impl->text.pipeline_set(handle);
+				return handle;
+			};
+			//绑定文字管线
+			text_host.pipeline_bind = [](void* user, uint64_t pipeline)
+			{
+				static_cast<Renderer*>(user)->pipeline_bind_set(pipeline);
+			};
+			//绑定字形图集纹理
+			text_host.texture_bind = [](void* user, uint64_t texture)
+			{
+				static_cast<Renderer*>(user)->texture_bind_set(texture);
+			};
+			//创建文字网格
+			text_host.mesh_create = [](void* user, Mesh_Handle& mesh, const Mesh_Data& data) -> bool
+			{
+				return static_cast<Renderer*>(user)->impl->mesh.mesh_create(mesh, data);
+			};
+			//归还文字网格（网格模块未就绪时只丢弃句柄）
+			text_host.mesh_destroy = [](void* user, Mesh_Handle mesh)
+			{
+				Renderer* self = static_cast<Renderer*>(user);
+				//若网格模块仍有效
+				if (self->impl != nullptr && self->impl->mesh.valid())
+					self->impl->mesh.mesh_destroy(mesh);
+			};
+			//登记文字绘制项
+			text_host.mesh_draw = [](void* user, Mesh_Handle mesh, const float* transform, const float* color) -> bool
+			{
+				return static_cast<Renderer*>(user)->mesh_draw(mesh, transform, color);
+			};
+			//取当前绘制目标尺寸（像素）
+			text_host.extent_get = [](void* user, float& width, float& height)
+			{
+				Renderer* self = static_cast<Renderer*>(user);
+				width = static_cast<float>(self->extent_width());
+				height = static_cast<float>(self->extent_height());
+			};
+			//绑定字体模块与宿主回调
+			impl->text.init(impl->font, text_host);
+		}
 		//⑱ 相机：设置宽高比（取当前交换链尺寸）
 		{
 			VkExtent2D extent = impl->swapchain.extent_get();
@@ -689,14 +753,8 @@ namespace engine
 			return;
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		impl->frame.destroy();
-		//文本网格缓存依赖网格模块，须先归还网格
-		if (impl->mesh.valid())
-		{
-			for (auto& record : impl->text_meshes)
-				impl->mesh.mesh_destroy(record.mesh);
-		}
-		impl->text_meshes.clear();
-		impl->text_pipeline = 0;
+		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
+		impl->text.shutdown();
 		//网格缓冲依赖内存模块，须先于 memory 销毁
 		impl->mesh.destroy();
 		//字体图集纹理依赖纹理模块，须先归还
@@ -721,11 +779,6 @@ namespace engine
 		impl->ssaa_pipeline = 0;
 		impl->ssaa_factor = 1;
 		impl->ssaa_extent_failed = false;
-		//复位文字颜色与推送常量存储（颜色恢复默认白）
-		impl->text_color[0] = 1.0f;
-		impl->text_color[1] = 1.0f;
-		impl->text_color[2] = 1.0f;
-		impl->text_color[3] = 1.0f;
 		//复位逐级泛光参数覆盖与剔除观测
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
 			impl->post_stage_param_valid[stage] = false;
@@ -2600,19 +2653,7 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		//先清除该字体的文本网格缓存（网格模块就绪时归还网格）
-		for (auto it = impl->text_meshes.begin(); it != impl->text_meshes.end(); )
-		{
-			//非目标字体则前进
-			if (it->font != handle)
-			{
-				++it;
-				continue;
-			}
-			//归还网格并移除记录
-			if (impl->mesh.valid())
-				impl->mesh.mesh_destroy(it->mesh);
-			it = impl->text_meshes.erase(it);
-		}
+		impl->text.font_meshes_destroy(handle);
 		//归还字体（含图集纹理）
 		impl->font.font_destroy(handle);
 	}
@@ -2652,123 +2693,15 @@ namespace engine
 		return true;
 	}
 
-	//按布局绘制文本（像素坐标，原点在窗口左上、Y 向下）
+	//按布局绘制文本（像素坐标，原点在窗口左上、Y 向下）；第四十七轮下沉至 Text_Renderer
 	bool Renderer::text_draw_layout(uint64_t font, const std::string& text, float pixel_x, float pixel_y,
 		const Text_Layout& layout)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return false;
-		//取字体记录（可写：惰性补烘字形需修改记录）
-		Font_Record* record = impl->font.font_get_mutable(font);
-		if (record == nullptr)
-		{
-			logger.error("渲染器:: 文字绘制失败：字体句柄 {} 无效", font);
-			return false;
-		}
-		//空文本无可绘制项（视为成功）
-		if (text.empty())
-			return true;
-		/*
-		惰性补烘文本所需字形
-		加载时只烘焙 ASCII；非 ASCII 码点（如中文）在首次绘制遇到时补烘并追加进图集，
-		随后图集纹理被重建（旧纹理退役），故须先补烘再取几何 / 绑纹理。
-		*/
-		if (!impl->font.glyphs_ensure(*record, text))
-		{
-			logger.error("渲染器:: 文字字形补烘失败");
-			return false;
-		}
-
-		//懒登记文字管线（Alpha 混合档；与场景管线共享同一管线布局）
-		if (impl->text_pipeline == 0)
-		{
-			//登记结果句柄
-			uint64_t handle = 0;
-			if (!pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha))
-			{
-				logger.error("渲染器:: 文字管线登记失败");
-				return false;
-			}
-			impl->text_pipeline = handle;
-		}
-
-		/*
-		取 / 建 (字体, 文本, 布局) 网格
-		文字几何逐帧重建代价不必要，故按「字体句柄 ＋ 文本 ＋ 布局三项」缓存网格句柄；
-		布局必须参与缓存键，否则同一文本换布局后会命中旧网格（几何不更新）。
-		*/
-		Mesh_Handle mesh = 0;
-		for (const auto& item : impl->text_meshes)
-		{
-			//命中本字体与本文本
-			if (item.font != font || item.text != text)
-				continue;
-			//布局五项须完全一致
-			if (item.layout.max_width != layout.max_width
-				|| item.layout.line_height != layout.line_height
-				|| item.layout.align != layout.align
-				|| item.layout.tracking != layout.tracking
-				|| item.layout.first_line_indent != layout.first_line_indent)
-				continue;
-			mesh = item.mesh;
-			break;
-		}
-		//未命中则新建
-		if (mesh == 0)
-		{
-			//按布局生成文字几何（像素坐标，原点在文本左上角）
-			Mesh_Data data;
-			if (!Font_Context::text_layout_build(data, *record, text, layout))
-			{
-				logger.error("渲染器:: 文字几何生成失败（文本无可见字形）");
-				return false;
-			}
-			//上传为网格
-			if (!impl->mesh.mesh_create(mesh, data))
-			{
-				logger.error("渲染器:: 文字网格创建失败");
-				return false;
-			}
-			//登记缓存
-			Impl::Text_Mesh_Record item{};
-			item.font = font;
-			item.text = text;
-			item.layout = layout;
-			item.mesh = mesh;
-			impl->text_meshes.push_back(item);
-		}
-
-		//绑定文字管线与字形图集纹理（图集成为当前纹理，供 set1 采样）
-		pipeline_bind_set(impl->text_pipeline);
-		texture_bind_set(record->atlas_texture);
-
-		//屏幕尺寸（像素）
-		float screen_width = static_cast<float>(extent_width());
-		float screen_height = static_cast<float>(extent_height());
-		//尺寸非法则拒绝（避免除零）
-		if (screen_width <= 0.0f || screen_height <= 0.0f)
-		{
-			logger.error("渲染器:: 文字绘制失败：交换链尺寸非法");
-			return false;
-		}
-		/*
-		像素坐标 → NDC 的仿射矩阵（列主序）
-		x' = 2 / 屏宽 × px + (2 × pixel_x / 屏宽 − 1)；
-		y' = 2 / 屏高 × py + (2 × pixel_y / 屏高 − 1)。
-		坐标系口径：Vulkan 视口把 NDC y 映射为「向下递增」的帧缓冲行号，
-		故此处**不做 Y 翻转**即可让「像素行号 = 帧缓冲行号」，像素 (x, y) 与屏幕位置一一对应。
-		*/
-		std::array<float, 16> transform = {};
-		transform[0] = 2.0f / screen_width;
-		transform[5] = 2.0f / screen_height;
-		transform[10] = 1.0f;
-		transform[12] = 2.0f * pixel_x / screen_width - 1.0f;
-		transform[13] = 2.0f * pixel_y / screen_height - 1.0f;
-		transform[15] = 1.0f;
-
-		//登记绘制项（沿用既有网格绘制路径；文字颜色经推送常量下发）
-		return mesh_draw(mesh, transform.data(), impl->text_color);
+		//转发文字绘制子系统
+		return impl->text.draw_layout(font, text, pixel_x, pixel_y, layout);
 	}
 
 	//设置泛光参数（阈值 / 软膝 / 强度）
@@ -2865,17 +2798,8 @@ namespace engine
 		//未初始化或出参为空则静默返回
 		if (impl == nullptr || !impl->initialized || color == nullptr)
 			return;
-		//逐分量钳制后写入
-		for (std::size_t index = 0; index < 4; ++index)
-		{
-			float value = color[index];
-			//负值 / 非数归 0、大于 1 归 1
-			if (!(value >= 0.0f))
-				value = 0.0f;
-			else if (value > 1.0f)
-				value = 1.0f;
-			impl->text_color[index] = value;
-		}
+		//转发文字绘制子系统（逐分量钳制）
+		impl->text.color_set(color);
 	}
 
 	//取该字体累计被跳过的码点数（诊断入口）

@@ -20,6 +20,8 @@
 #include "Application/Renderer/src/render/RenderTarget/渲染目标.h"
 //字体模块（TTF → 字形图集；文字绘制取用）
 #include "Application/Renderer/src/render/Text/字体.h"
+//文字绘制子系统（网格缓存 / 文字颜色 / 管线句柄；第四十七轮下沉）
+#include "Application/Renderer/src/render/Text/文字渲染.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
 #include "Application/Renderer/src/render/Renderer/渲染器.h"
 //UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
@@ -228,10 +230,12 @@ namespace engine
 		bool ssaa_extent_failed = false;
 		//字体模块（TTF → 字形图集）
 		Font_Context font;
-		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）
-		uint64_t text_pipeline = 0;
-		//文字颜色（RGBA，默认白；由 text_color_set 更新，text_draw* 以推送常量下发）
-		float text_color[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		/*
+		文字绘制子系统（第四十七轮下沉）
+		持有文字管线句柄、文字颜色与「(字体, 文本, 布局) → 网格」缓存；
+		字形补烘 / 管线登记 / 纹理绑定 / 网格创建 / 绘制登记经宿主回调转交本实现体。
+		*/
+		Text_Renderer text;
 		/*
 		泛光参数（阈值 / 软膝 / 强度 / 保留；默认 0.6 / 0.1 / 1.0 / 0）
 		由 bloom_param_set 更新；后处理链各级以推送常量（offset 96）下发。
@@ -250,20 +254,6 @@ namespace engine
 		bool cull_enabled = true;
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 20>> pending_push_constants;
-		//文本网格缓存条目（(字体句柄, 文本, 布局) → 网格句柄；避免逐帧重建几何）
-		struct Text_Mesh_Record
-		{
-			//字体句柄
-			uint64_t font = 0;
-			//文本（UTF-8）
-			std::string text;
-			//布局（换行宽度 / 行高 / 对齐；参与缓存键，避免同文本不同布局命中旧网格）
-			Text_Layout layout;
-			//网格句柄
-			Mesh_Handle mesh = 0;
-		};
-		//文本网格集合
-		std::vector<Text_Mesh_Record> text_meshes;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
