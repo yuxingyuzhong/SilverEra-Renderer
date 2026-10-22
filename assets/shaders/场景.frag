@@ -101,17 +101,24 @@ float shadow_factor(vec3 world_pos)
 	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
 	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
 	float current = ndc.z - scene.shadow_params.y;
-	//遮蔽系数（软度低走单点，否则 3×3 邻域平均）
+	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
 	float factor;
-	if (scene.shadow_params.w < 0.5)
+	if (scene.shadow_params.w <= 0.0)
 		factor = shadow_compare(texel, current, size);
 	else
 	{
+		//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
+		float softness = clamp(scene.shadow_params.w, 0.0, 1.0);
+		int radius = softness <= 0.25 ? 1 : (softness <= 0.75 ? 2 : 3);
 		float sum = 0.0;
-		for (int offset_y = -1; offset_y <= 1; ++offset_y)
-			for (int offset_x = -1; offset_x <= 1; ++offset_x)
+		int samples = 0;
+		for (int offset_y = -radius; offset_y <= radius; ++offset_y)
+			for (int offset_x = -radius; offset_x <= radius; ++offset_x)
+			{
 				sum += shadow_compare(texel + ivec2(offset_x, offset_y), current, size);
-		factor = sum / 9.0;
+				++samples;
+			}
+		factor = sum / float(samples);
 	}
 	//按阴影强度在「无阴影」与「全遮蔽」之间插值
 	return mix(1.0, factor, clamp(scene.shadow_strength, 0.0, 1.0));
