@@ -76,18 +76,27 @@ float shadow_compare(ivec2 texel, float current, int size)
 }
 
 /*
-方向光阴影系数（第五十二轮；第五十三轮增软度与强度）
+方向光阴影系数（第五十二轮；第五十三轮增软度与强度；第五十九轮加法线偏移）
 shadow_params：x = 启用（> 0.5 生效）、y = 深度偏置、z = 阴影图边长（像素）、w = 软度（0 = 单点硬边、≥0.5 = 3×3 平均）。
 返回 0 = 完全遮蔽、1 = 完全受光；阴影图范围外或 w ≤ 0 时视为受光；
 最终按 scene.shadow_strength 在 1 与遮蔽系数之间插值（0 = 阴影无效、1 = 全遮蔽）。
 */
-float shadow_factor(vec3 world_pos)
+float shadow_factor(vec3 world_pos, vec3 normal)
 {
 	//未启用阴影
 	if (scene.shadow_params.x < 0.5)
 		return 1.0;
+	/*
+	法线偏移（第五十九轮）
+	沿片元法线推出一小段后再取阴影深度，抵消深度量化与掠射角造成的自阴影（shadow acne）；
+	偏移量 = 深度偏置 × 光源正交深度跨度（近 1、远 60 → 59），使世界量级与 NDC 偏置量一致；
+	法线为零向量（未提供法线）时不偏移，保持既有网格行为。
+	*/
+	vec3 sample_pos = world_pos;
+	if (length(normal) > 0.000001)
+		sample_pos += normalize(normal) * (scene.shadow_params.y * 59.0);
 	//光源空间裁剪坐标
-	vec4 light_clip = scene.light_view_proj * vec4(world_pos, 1.0);
+	vec4 light_clip = scene.light_view_proj * vec4(sample_pos, 1.0);
 	//位于光源背后
 	if (light_clip.w <= 0.000001)
 		return 1.0;
@@ -165,8 +174,8 @@ void main()
 		{
 			vec3 to_light = -scene.light_dir.xyz;
 			float ndotl = max(dot(normal, to_light), 0.0);
-			//方向光阴影系数（第五十二轮；未启用时恒 1）
-			float dir_shadow = shadow_factor(in_world);
+			//方向光阴影系数（第五十二轮；未启用时恒 1；第五十九轮传入法线做偏移）
+			float dir_shadow = shadow_factor(in_world, normal);
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
