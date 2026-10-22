@@ -797,14 +797,19 @@ namespace engine
 		impl->ssaa_extent_failed = false;
 		impl->initialized = true;
 		/*
-		⑳ 阴影资源（第五十二轮）
-		固定 1024×1024 阴影目标（颜色存打包深度）＋ 阴影管线（与场景管线共享管线布局，
+		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
+		阴影目标（颜色存打包深度，边长取 impl->shadow_size）＋ 阴影管线（与场景管线共享管线布局，
 		光源空间矩阵经推送常量下发）；并把阴影图写入各帧槽场景采样集的 binding 1。
 		默认关闭，故不改变既有画面。
 		*/
 		{
-			//① 阴影目标（固定 1024×1024，颜色存打包深度）
-			if (!render_target_create(impl->shadow_target, Impl::SHADOW_SIZE, Impl::SHADOW_SIZE))
+			/*
+			① 阴影目标（边长取配置值，颜色存打包深度）
+			颜色格式固定 R8G8B8A8_UNORM（第五十四轮修正）：交换链优先 sRGB，若沿用其格式，
+			打包深度的字节会被 sRGB 编码 / 解码破坏，导致片元读回深度失真并误判为全遮蔽（自阴影全黑）。
+			*/
+			if (!impl->render_target.target_create(impl->shadow_target, impl->shadow_size, impl->shadow_size,
+				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get()))
 			{
 				logger.error("渲染器:: 阴影目标创建失败");
 				shutdown();
@@ -1133,6 +1138,13 @@ namespace engine
 				Frame_Render_Item copy = item;
 				copy.pipeline = shadow_pipeline;
 				copy.layout = shadow_layout;
+				/*
+				实例缓冲指向阴影 pass 刚写入的槽
+				pending_items 中的 instance_buffer 恒为空（主 pass 稍后才填装），
+				若此处不指定，顶点属性 binding 1（实例模型矩阵）无缓冲，实例矩阵退化会让
+				所有几何塌到原点、阴影图只剩一点，表现为整幅画面全遮蔽。
+				*/
+				copy.instance_buffer = impl->instance_buffers[shadow_slot];
 				copy.scene_set = VK_NULL_HANDLE;
 				copy.sampler_set = VK_NULL_HANDLE;
 				copy.descriptor_set_count = 0;
@@ -1279,7 +1291,7 @@ namespace engine
 		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长；第五十三轮 w = 软度）
 		scene_block[152] = impl->shadow_enabled ? 1.0f : 0.0f;
 		scene_block[153] = impl->shadow_bias;
-		scene_block[154] = static_cast<float>(Impl::SHADOW_SIZE);
+		scene_block[154] = static_cast<float>(impl->shadow_size);
 		scene_block[155] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
 		scene_block[156] = impl->shadow_strength;
@@ -3177,6 +3189,8 @@ namespace engine
 		//阴影软度与强度（第五十三轮；非法值由 setter 整次忽略）
 		shadow_softness_set(light.shadow_softness);
 		shadow_strength_set(light.shadow_strength);
+		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
+		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -3221,6 +3235,7 @@ namespace engine
 		light.shadow_bias = scene.shadow_bias;
 		light.shadow_softness = scene.shadow_softness;
 		light.shadow_strength = scene.shadow_strength;
+		light.shadow_resolution = scene.shadow_resolution;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -3668,21 +3683,49 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		/*
-		首次开启时懒登记阴影管线
-		未启用阴影的进程不承担管线创建开销；登记失败则保持关闭并告警（不改变其余状态）。
-		*/
-		if (enabled && impl->shadow_pipeline == 0)
+	首次开启时懒登记阴影管线
+	未启用阴影的进程不承担管线创建开销；登记失败则保持关闭并告警（不改变其余状态）。
+	阴影目标为 R8G8B8A8_UNORM（见 init ⑳ ①），故该管线必须按同一颜色格式创建，
+	不能经公开 pipeline_load（它固定跟随交换链格式，sRGB 会破坏打包深度）。
+	*/
+	if (enabled && impl->shadow_pipeline == 0)
+	{
+		//加载阴影着色器模块
+		VkShaderModule shadow_vert = VK_NULL_HANDLE;
+		VkShaderModule shadow_frag = VK_NULL_HANDLE;
+		if (!impl->shader.module_load(shadow_vert, "阴影.vert.spv"))
 		{
-			uint64_t shadow_pipeline = 0;
-			if (!pipeline_load(shadow_pipeline, "阴影.vert.spv", "阴影.frag.spv", Blend_Mode::Opaque))
-			{
-				logger.error("渲染器:: 阴影管线登记失败，阴影保持关闭");
-				impl->shadow_enabled = false;
-				return;
-			}
-			impl->shadow_pipeline = shadow_pipeline;
+			logger.error("渲染器:: 阴影管线登记失败：顶点着色器加载失败，阴影保持关闭");
+			impl->shadow_enabled = false;
+			return;
 		}
-		impl->shadow_enabled = enabled;
+		if (!impl->shader.module_load(shadow_frag, "阴影.frag.spv"))
+		{
+			logger.error("渲染器:: 阴影管线登记失败：片元着色器加载失败，阴影保持关闭");
+			impl->shader.module_destroy(shadow_vert);
+			impl->shadow_enabled = false;
+			return;
+		}
+		//按阴影目标的 UNORM 颜色格式登记具名管线
+		uint64_t shadow_pipeline = 0;
+		if (!impl->pipeline.pipeline_register(shadow_pipeline, shadow_vert, shadow_frag,
+			Blend_Mode::Opaque, VK_FORMAT_R8G8B8A8_UNORM, true))
+		{
+			logger.error("渲染器:: 阴影管线登记失败：图形管线创建失败，阴影保持关闭");
+			impl->shader.module_destroy(shadow_vert);
+			impl->shader.module_destroy(shadow_frag);
+			impl->shadow_enabled = false;
+			return;
+		}
+		//记录具名管线（着色器模块所有权在门面，随 pipeline_unload / shutdown 回收）
+		Impl::Extra_Pipeline_Record record{};
+		record.handle = shadow_pipeline;
+		record.vert_module = shadow_vert;
+		record.frag_module = shadow_frag;
+		impl->extra_pipelines.push_back(record);
+		impl->shadow_pipeline = shadow_pipeline;
+	}
+	impl->shadow_enabled = enabled;
 	}
 
 	//阴影是否启用（第五十二轮）
@@ -3756,6 +3799,91 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->shadow_strength : 1.0f;
+	}
+
+	/*
+	设置阴影图分辨率（第五十四轮新增）
+	仅接受 512 / 1024 / 2048；切换时先等尽在途帧，再建新目标、重新绑定各帧槽 binding 1，
+	全部成功后才销毁旧目标（任一步失败均保持旧目标可用）。
+	*/
+	void Renderer::shadow_resolution_set(uint32_t resolution)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//仅接受三档边长
+		if (resolution != 512 && resolution != 1024 && resolution != 2048)
+		{
+			logger.warn("渲染器:: 阴影分辨率非法（{}），整次忽略（仅支持 512 / 1024 / 2048）", resolution);
+			return;
+		}
+		//与原值一致则无需重建
+		if (resolution == impl->shadow_size)
+			return;
+		//等尽在途帧，避免重建期间仍被采样
+		if (!impl->frame.frames_wait())
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：等待在途帧失败");
+			return;
+		}
+		//旧阴影图视图（失败回绑用）
+		VkImage old_image = VK_NULL_HANDLE;
+		VkImageView old_view = VK_NULL_HANDLE;
+		VkImageView old_depth_view = VK_NULL_HANDLE;
+		VkExtent2D old_extent{};
+		if (!impl->render_target.target_get(impl->shadow_target, old_image, old_view,
+			old_depth_view, old_extent))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：旧阴影图查询失败");
+			return;
+		}
+		//先建新目标（失败则旧目标原样保留）；颜色格式固定 UNORM，理由见 init ⑳ ①
+		uint64_t candidate = 0;
+		if (!impl->render_target.target_create(candidate, resolution, resolution,
+			VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get()))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：新阴影目标创建失败（保持 {}）", impl->shadow_size);
+			return;
+		}
+		//取新目标颜色视图与默认采样器
+		VkImage new_image = VK_NULL_HANDLE;
+		VkImageView new_view = VK_NULL_HANDLE;
+		VkImageView new_depth_view = VK_NULL_HANDLE;
+		VkExtent2D new_extent{};
+		VkImageView default_view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		if (!impl->render_target.target_get(candidate, new_image, new_view, new_depth_view, new_extent)
+			|| !impl->texture.texture_bind_get(impl->default_texture, default_view, sampler))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
+			impl->render_target.target_destroy(candidate);
+			return;
+		}
+		//逐帧槽改绑新阴影图
+		for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+		{
+			//若某槽绑定失败，则把已改绑的槽全部回绑旧图并放弃新目标
+			if (!impl->pipeline.shadow_bind(static_cast<uint32_t>(slot), sampler, new_view))
+			{
+				logger.error("渲染器:: 阴影分辨率切换失败：帧槽 {} 绑定失败，回绑旧阴影图", slot);
+				for (std::size_t revert = 0; revert <= slot; ++revert)
+					impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
+				impl->render_target.target_destroy(candidate);
+				return;
+			}
+		}
+		//全部改绑成功后销毁旧目标并更新状态
+		impl->render_target.target_destroy(impl->shadow_target);
+		impl->shadow_target = candidate;
+		impl->shadow_size = resolution;
+		logger.info("渲染器:: 阴影图分辨率已切换为 {}", resolution);
+	}
+
+	//当前阴影图分辨率（第五十四轮）
+	uint32_t Renderer::shadow_resolution(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->shadow_size : Impl::SHADOW_SIZE;
 	}
 
 	//设置清屏色（RGBA）

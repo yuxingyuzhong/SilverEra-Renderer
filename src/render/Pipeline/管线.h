@@ -40,6 +40,18 @@ namespace engine
 		VkShaderModule frag_module = VK_NULL_HANDLE;
 		//混合档（登记时确定）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
+		/*
+		颜色附件格式（第五十四轮新增）
+		VK_FORMAT_UNDEFINED = 跟随管线上下文的 config.color_format（既有行为）；
+		非未定义 = 该管线固定按此格式创建（阴影管线用 R8G8B8A8_UNORM 的阴影目标）。
+		*/
+		VkFormat color_format = VK_FORMAT_UNDEFINED;
+		/*
+		是否关闭背面剔除（第五十四轮新增）
+		阴影 pass 从光源视角观察，与相机视角的可见绕序相反；若沿用背面剔除，
+		朝光源的正面会被判为背面而整体剔除，阴影图将只剩清屏值。
+		*/
+		bool cull_none = false;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
 	};
@@ -77,7 +89,8 @@ namespace engine
 		句柄自 1 起递增且稳定不变；不改变当前激活管线；成功时写出句柄。
 		具名管线与默认管线共享同一管线布局与描述符集布局，仅允许「着色器对 + 混合档」不同。
 		*/
-		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque);
+		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -137,8 +150,9 @@ namespace engine
 		bool descriptor_layouts_create(void);
 		//管线布局创建（实现见 core/管线布局.cpp）
 		bool pipeline_layout_create(void);
-		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目）
-		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out);
+		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config）
+		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

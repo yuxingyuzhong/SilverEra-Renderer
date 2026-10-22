@@ -33,13 +33,14 @@ namespace engine
 		return nullptr;
 	}
 
-	//按当前配置格式与条目自身着色器 / 混合档创建图形管线
+	//按当前配置格式与条目自身着色器 / 混合档创建图形管线（条目可自带颜色格式覆盖）
 	bool Pipeline_Context::entry_pipeline_create(Pipeline_Entry& entry)
 	{
 		//创建结果（失败时保持空）
 		VkPipeline created = VK_NULL_HANDLE;
 		//若图形管线创建失败
-		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created))
+		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
+			entry.color_format, entry.cull_none))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -247,7 +248,8 @@ namespace engine
 	}
 
 	//登记具名图形管线
-	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
+	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
+		VkFormat color_format, bool cull_none)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -263,6 +265,8 @@ namespace engine
 		entry.vert_module = vert_module;
 		entry.frag_module = frag_module;
 		entry.blend_mode = blend_mode;
+		entry.color_format = color_format;
+		entry.cull_none = cull_none;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{

@@ -26,7 +26,8 @@ namespace engine
 	深度测试开 / 写开 / LESS；推送常量 mat4 模型矩阵。
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
-	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out)
+	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
+		VkFormat color_format, bool cull_none)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -97,13 +98,13 @@ namespace engine
 		viewport_state.viewportCount = 1;
 		viewport_state.scissorCount = 1;
 
-		//光栅化（填充模式、背面剔除、正面为逆时针）
+		//光栅化（填充模式、背面剔除可关、正面为逆时针）
 		VkPipelineRasterizationStateCreateInfo rasterization{};
 		rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
 		rasterization.depthClampEnable = VK_FALSE;
 		rasterization.rasterizerDiscardEnable = VK_FALSE;
 		rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-		rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterization.cullMode = cull_none ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
 		rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterization.depthBiasEnable = VK_FALSE;
 		rasterization.lineWidth = 1.0f;
@@ -161,11 +162,12 @@ namespace engine
 		dynamic_state.dynamicStateCount = 2;
 		dynamic_state.pDynamicStates = dynamic_states;
 
-		//动态渲染信息（颜色 / 深度附件格式，经 pNext 链入）
+		//动态渲染信息（颜色 / 深度附件格式，经 pNext 链入；颜色格式可被条目覆盖，见 Pipeline_Entry::color_format）
+		VkFormat attachment_color_format = color_format == VK_FORMAT_UNDEFINED ? config.color_format : color_format;
 		VkPipelineRenderingCreateInfo rendering_info{};
 		rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 		rendering_info.colorAttachmentCount = 1;
-		rendering_info.pColorAttachmentFormats = &config.color_format;
+		rendering_info.pColorAttachmentFormats = &attachment_color_format;
 		rendering_info.depthAttachmentFormat = config.depth_format;
 
 		//图形管线创建信息

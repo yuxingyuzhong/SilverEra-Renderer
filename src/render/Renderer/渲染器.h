@@ -572,6 +572,14 @@ namespace engine
 		//当前阴影强度（未初始化时为默认 1）
 		float shadow_strength(void) const;
 		/*
+		阴影图分辨率（第五十四轮新增）
+		仅支持 512 / 1024 / 2048（默认 1024）；切换会等尽在途帧、重建阴影目标并重新绑定各帧槽，
+		非法值整次忽略；降低分辨率可减少阴影 pass 的填充开销。
+		*/
+		void shadow_resolution_set(uint32_t resolution);
+		//当前阴影图分辨率（未初始化时为默认 1024）
+		uint32_t shadow_resolution(void) const;
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
 		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
 		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。

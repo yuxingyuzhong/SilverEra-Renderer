@@ -130,6 +130,8 @@ namespace engine
 		//阴影软度（第五十三轮；0 = 单点硬边、≥0.5 = 3×3 PCF；0..1）与强度（0 = 无效、1 = 全遮蔽）
 		float shadow_softness = 0.0f;
 		float shadow_strength = 1.0f;
+		//阴影图分辨率（第五十四轮；仅 512 / 1024 / 2048，默认 1024）
+		int shadow_resolution = 1024;
 	};
 
 	/*
@@ -283,5 +285,7 @@ namespace engine
 		//阴影软度与强度（第五十三轮；语义见 Light_Data::shadow_softness / shadow_strength）
 		float shadow_softness = 0.0f;
 		float shadow_strength = 1.0f;
+		//阴影图分辨率（第五十四轮；语义见 Light_Data::shadow_resolution）
+		int shadow_resolution = 1024;
 	};
 }

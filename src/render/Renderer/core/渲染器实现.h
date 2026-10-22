@@ -203,8 +203,10 @@ namespace engine
 		Ui_Channel_Context ui_channel;
 		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 		Render_Target_Context render_target;
-		//阴影图边长（第五十二轮；固定 1024，兼顾精度与开销）
+		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
 		static constexpr uint32_t SHADOW_SIZE = 1024;
+		//阴影图实际边长（第五十四轮；可配 512 / 1024 / 2048）
+		uint32_t shadow_size = SHADOW_SIZE;
 		//阴影管线句柄（第五十二轮；0 = 未登记）
 		uint64_t shadow_pipeline = 0;
 		//阴影目标句柄（第五十二轮；0 = 未创建）
