@@ -586,6 +586,13 @@ namespace engine
 		*/
 		uint64_t shadow_pass_count(void) const;
 		/*
+		读回阴影图（第五十七轮新增）
+		输出为阴影目标的 RGBA8 打包深度（非线性的可视深度值，空区域为全 0），
+		逐行自上而下紧排、无行填充；capacity 须不小于「边长 × 边长 × 4」。
+		仅阴影开启时可用；读回前会等尽在途帧，读回后颜色自动回到着色器可读布局。
+		*/
+		bool shadow_readback(uint8_t* pixels, uint32_t capacity, uint32_t* width_out, uint32_t* height_out);
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
 		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
 		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。

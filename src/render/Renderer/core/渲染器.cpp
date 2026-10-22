@@ -3958,6 +3958,20 @@ namespace engine
 		return impl != nullptr && impl->initialized ? impl->shadow_pass_count : 0;
 	}
 
+	//读回阴影图（第五十七轮新增）
+	bool Renderer::shadow_readback(uint8_t* pixels, uint32_t capacity, uint32_t* width_out, uint32_t* height_out)
+	{
+		//前置：已初始化、阴影已开启、阴影目标存在且参数齐备
+		if (impl == nullptr || !impl->initialized || !impl->shadow_enabled || impl->shadow_target == 0
+			|| pixels == nullptr || capacity == 0)
+			return false;
+		//等尽在途帧，避免与该目标的写入 / 采样冲突
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交渲染目标模块（同步拷贝并读回打包深度）
+		return impl->render_target.target_readback(impl->shadow_target, pixels, capacity, width_out, height_out);
+	}
+
 	//设置清屏色（RGBA）
 	void Renderer::clear_color_set(const float color[4])
 	{
