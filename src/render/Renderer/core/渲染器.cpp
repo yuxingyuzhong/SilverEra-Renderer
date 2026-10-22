@@ -30,6 +30,38 @@ namespace engine
 		}
 
 		/*
+		阴影输入签名（第五十五轮）
+		把光源空间矩阵、本帧实例矩阵（全部 float 位模式）、投影项数与阴影图边长混入 64 位 FNV-1a；
+		用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
+		*/
+		uint64_t shadow_signature_build(const float light_view_proj[16], const float* instances,
+			std::size_t instance_count, std::size_t shadow_item_count, uint32_t shadow_size)
+		{
+			//FNV-1a 偏移基
+			uint64_t hash = 1469598103934665603ull;
+			//逐 float 混入位模式
+			auto mix_float = [&hash](float value)
+			{
+				uint32_t bits = 0;
+				std::memcpy(&bits, &value, sizeof(bits));
+				hash ^= static_cast<uint64_t>(bits);
+				hash *= 1099511628211ull;
+			};
+			//光源空间矩阵
+			for (std::size_t index = 0; index < 16; ++index)
+				mix_float(light_view_proj[index]);
+			//实例矩阵（每项 16 个 float）
+			for (std::size_t index = 0; index < instance_count; ++index)
+				mix_float(instances[index]);
+			//投影项数与阴影图边长
+			hash ^= static_cast<uint64_t>(shadow_item_count);
+			hash *= 1099511628211ull;
+			hash ^= static_cast<uint64_t>(shadow_size);
+			hash *= 1099511628211ull;
+			return hash;
+		}
+
+		/*
 		视锥剔除（保守口径；第二十二轮新增）
 		把局部包围盒 8 个角经「model × view_proj」变换到裁剪空间，逐个测 6 个裁剪面；
 		**仅当 8 个角同时落在同一个面外**时判为「完全不可见」（返回真）；
@@ -868,6 +900,10 @@ namespace engine
 				render_target_destroy(impl->shadow_target);
 				impl->shadow_target = 0;
 			}
+			//阴影图已失效（第五十五轮）
+			impl->shadow_pass_ready = false;
+			impl->shadow_signature = 0;
+			impl->shadow_pass_count = 0;
 		}
 		impl->frame.destroy();
 		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
@@ -1098,82 +1134,109 @@ namespace engine
 			std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
 		}
 		/*
-		⑤b 阴影 pass（第五十二轮）
-		以光源视角把「参与投影的几何」渲染进 1024×1024 阴影目标（RGBA8 打包深度）；
+		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
+		以光源视角把「参与投影的几何」渲染进阴影目标（RGBA8 打包深度）；
 		该 pass 走独立的离屏提交（推进帧槽），故必须在取主 pass 帧槽之前完成；
 		随后等尽在途帧，保证主 pass 采样时阴影图已写完。
+		若本帧输入签名与上一帧完全一致则跳过整个 pass（阴影图原样复用），静态场景省一次离屏提交与等待。
 		*/
 		if (impl->shadow_enabled && impl->shadow_pipeline != 0 && impl->shadow_target != 0
 			&& !impl->pending_items.empty())
 		{
-			//阴影 pass 使用的帧槽（render_to_target 内部同样推进帧计数）
-			uint32_t shadow_slot = impl->frame.slot_index_get();
-			//等待该槽上一轮提交完成，再写实例缓冲
-			if (!impl->frame.slot_wait())
-			{
-				logger.error("渲染器:: 阴影 pass 等待帧槽失败");
-				return false;
-			}
-			//写入该槽实例缓冲（与主 pass 使用同一批模型矩阵）
-			if (!impl->pending_instances.empty())
-			{
-				VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
-				if (!impl->memory.buffer_write(impl->instance_buffers[shadow_slot],
-					impl->instance_allocations[shadow_slot], impl->pending_instances.data(), instance_bytes, 0))
-				{
-					logger.error("渲染器:: 阴影 pass 实例缓冲写入失败");
-					return false;
-				}
-			}
-			//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
-			std::vector<Frame_Render_Item> shadow_items;
-			shadow_items.reserve(impl->pending_items.size());
-			VkPipeline shadow_pipeline = impl->pipeline.pipeline_by_handle_get(impl->shadow_pipeline);
-			VkPipelineLayout shadow_layout = impl->pipeline.layout_get();
+			//本帧参与投影的项数
+			std::size_t shadow_item_count = 0;
 			for (const auto& item : impl->pending_items)
 			{
-				//文字等非投影项跳过
-				if (!item.cast_shadow)
-					continue;
-				Frame_Render_Item copy = item;
-				copy.pipeline = shadow_pipeline;
-				copy.layout = shadow_layout;
-				/*
-				实例缓冲指向阴影 pass 刚写入的槽
-				pending_items 中的 instance_buffer 恒为空（主 pass 稍后才填装），
-				若此处不指定，顶点属性 binding 1（实例模型矩阵）无缓冲，实例矩阵退化会让
-				所有几何塌到原点、阴影图只剩一点，表现为整幅画面全遮蔽。
-				*/
-				copy.instance_buffer = impl->instance_buffers[shadow_slot];
-				copy.scene_set = VK_NULL_HANDLE;
-				copy.sampler_set = VK_NULL_HANDLE;
-				copy.descriptor_set_count = 0;
-				copy.push_constants = impl->light_view_proj;
-				copy.push_constant_size = 64;
-				copy.push_constant_offset = 0;
-				shadow_items.push_back(copy);
+				//跳过文字等非投影项
+				if (item.cast_shadow)
+					++shadow_item_count;
 			}
-			//阴影目标附件
-			Frame_Render_Target shadow_target{};
-			if (!impl->render_target.target_get(impl->shadow_target, shadow_target.color_image,
-				shadow_target.color_view, shadow_target.depth_view, shadow_target.extent))
+			//本帧阴影输入签名（实例矩阵按 float 个数计；实例存储为连续 16 浮点数组）
+			const float* instance_floats = impl->pending_instances.empty()
+				? nullptr : impl->pending_instances.front().data();
+			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
+				instance_floats, impl->pending_instances.size() * 16,
+				shadow_item_count, impl->shadow_size);
+			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
+			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
 			{
-				logger.error("渲染器:: 阴影目标附件查询失败");
-				return false;
+				//阴影图复用，主 pass 直接采样
 			}
-			//阴影图清空为全 0（打包深度 0 = 最远）
-			const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			if (!impl->frame.render_to_target(shadow_target, shadow_items.data(),
-				static_cast<uint32_t>(shadow_items.size()), shadow_clear))
+			else if (shadow_item_count != 0)
 			{
-				logger.error("渲染器:: 阴影 pass 提交失败");
-				return false;
-			}
-			//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
-			if (!impl->frame.frames_wait())
-			{
-				logger.error("渲染器:: 阴影 pass 等待完成失败");
-				return false;
+				//阴影 pass 使用的帧槽（render_to_target 内部同样推进帧计数）
+				uint32_t shadow_slot = impl->frame.slot_index_get();
+				//等待该槽上一轮提交完成，再写实例缓冲
+				if (!impl->frame.slot_wait())
+				{
+					logger.error("渲染器:: 阴影 pass 等待帧槽失败");
+					return false;
+				}
+				//写入该槽实例缓冲（与主 pass 使用同一批模型矩阵）
+				if (!impl->pending_instances.empty())
+				{
+					VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					if (!impl->memory.buffer_write(impl->instance_buffers[shadow_slot],
+						impl->instance_allocations[shadow_slot], impl->pending_instances.data(), instance_bytes, 0))
+					{
+						logger.error("渲染器:: 阴影 pass 实例缓冲写入失败");
+						return false;
+					}
+				}
+				//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
+				std::vector<Frame_Render_Item> shadow_items;
+				shadow_items.reserve(shadow_item_count);
+				VkPipeline shadow_pipeline = impl->pipeline.pipeline_by_handle_get(impl->shadow_pipeline);
+				VkPipelineLayout shadow_layout = impl->pipeline.layout_get();
+				for (const auto& item : impl->pending_items)
+				{
+					//文字等非投影项跳过
+					if (!item.cast_shadow)
+						continue;
+					Frame_Render_Item copy = item;
+					copy.pipeline = shadow_pipeline;
+					copy.layout = shadow_layout;
+					/*
+					实例缓冲指向阴影 pass 刚写入的槽
+					pending_items 中的 instance_buffer 恒为空（主 pass 稍后才填装），
+					若此处不指定，顶点属性 binding 1（实例模型矩阵）无缓冲，实例矩阵退化会让
+					所有几何塌到原点、阴影图只剩一点，表现为整幅画面全遮蔽。
+					*/
+					copy.instance_buffer = impl->instance_buffers[shadow_slot];
+					copy.scene_set = VK_NULL_HANDLE;
+					copy.sampler_set = VK_NULL_HANDLE;
+					copy.descriptor_set_count = 0;
+					copy.push_constants = impl->light_view_proj;
+					copy.push_constant_size = 64;
+					copy.push_constant_offset = 0;
+					shadow_items.push_back(copy);
+				}
+				//阴影目标附件
+				Frame_Render_Target shadow_target{};
+				if (!impl->render_target.target_get(impl->shadow_target, shadow_target.color_image,
+					shadow_target.color_view, shadow_target.depth_view, shadow_target.extent))
+				{
+					logger.error("渲染器:: 阴影目标附件查询失败");
+					return false;
+				}
+				//阴影图清空为全 0（打包深度 0 = 最远）
+				const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				if (!impl->frame.render_to_target(shadow_target, shadow_items.data(),
+					static_cast<uint32_t>(shadow_items.size()), shadow_clear))
+				{
+					logger.error("渲染器:: 阴影 pass 提交失败");
+					return false;
+				}
+				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
+				if (!impl->frame.frames_wait())
+				{
+					logger.error("渲染器:: 阴影 pass 等待完成失败");
+					return false;
+				}
+				//记录本帧签名并标记阴影图可复用
+				impl->shadow_signature = shadow_signature;
+				impl->shadow_pass_ready = true;
+				++impl->shadow_pass_count;
 			}
 		}
 
@@ -3876,6 +3939,8 @@ namespace engine
 		impl->render_target.target_destroy(impl->shadow_target);
 		impl->shadow_target = candidate;
 		impl->shadow_size = resolution;
+		//新目标尚无有效内容，下一帧必须重绘阴影图
+		impl->shadow_pass_ready = false;
 		logger.info("渲染器:: 阴影图分辨率已切换为 {}", resolution);
 	}
 
@@ -3884,6 +3949,13 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->shadow_size : Impl::SHADOW_SIZE;
+	}
+
+	//累计实际执行的阴影 pass 次数（第五十五轮）
+	uint64_t Renderer::shadow_pass_count(void) const
+	{
+		//未初始化返回 0
+		return impl != nullptr && impl->initialized ? impl->shadow_pass_count : 0;
 	}
 
 	//设置清屏色（RGBA）

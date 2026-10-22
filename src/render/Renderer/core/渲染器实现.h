@@ -207,6 +207,12 @@ namespace engine
 		static constexpr uint32_t SHADOW_SIZE = 1024;
 		//阴影图实际边长（第五十四轮；可配 512 / 1024 / 2048）
 		uint32_t shadow_size = SHADOW_SIZE;
+		//上一帧阴影输入签名（第五十五轮；未就绪时为 0）
+		uint64_t shadow_signature = 0;
+		//上一帧阴影图是否可用（第五十五轮；重建目标 / 关闭时置假）
+		bool shadow_pass_ready = false;
+		//累计实际执行的阴影 pass 次数（第五十五轮；观测与测试）
+		uint64_t shadow_pass_count = 0;
 		//阴影管线句柄（第五十二轮；0 = 未登记）
 		uint64_t shadow_pipeline = 0;
 		//阴影目标句柄（第五十二轮；0 = 未创建）

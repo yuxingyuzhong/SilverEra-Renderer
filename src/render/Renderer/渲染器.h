@@ -580,6 +580,12 @@ namespace engine
 		//当前阴影图分辨率（未初始化时为默认 1024）
 		uint32_t shadow_resolution(void) const;
 		/*
+		累计实际执行的阴影 pass 次数（第五十五轮新增）
+		阴影 pass 采用「输入签名不变则复用上一帧阴影图」的按需重绘策略；
+		本查询供上层观测该策略的命中情况（静态场景下应显著低于帧数）。
+		*/
+		uint64_t shadow_pass_count(void) const;
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
 		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
 		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。
