@@ -64,6 +64,18 @@ namespace engine
 		void pipeline_set(uint64_t value);
 		//归还指定字体的全部缓存网格并移除记录
 		void font_meshes_destroy(uint64_t font);
+		/*
+		归还所有待销毁网格（第四十八轮）
+		缓存淘汰与字体卸载只把条目移入待销毁列表，实际 `mesh_destroy` 推迟到下一帧开始前调用本方法，
+		避免销毁本帧已登记绘制项仍引用的网格。
+		*/
+		void retired_flush(void);
+		/*
+		帧开始（第四十八轮）
+		推进内部帧时钟，并归还「退役帧 ＋ 在途帧数 < 当前帧」的待销毁网格（此时已无在途帧引用）；
+		overlap 为配置的在途帧数（最小按 1 处理）。
+		*/
+		void frame_begin(uint32_t overlap);
 		//归还全部缓存网格并复位（管线句柄 / 颜色回到默认）
 		void shutdown(void);
 	private:
@@ -86,8 +98,22 @@ namespace engine
 			Text_Layout layout;
 			//网格句柄
 			Mesh_Handle mesh = 0;
+			//最近使用序号（第四十八轮；用于缓存满时淘汰最久未用项）
+			uint64_t last_used = 0;
+			//退役帧号（第四十八轮；仅待销毁条目使用）
+			uint64_t retired_tick = 0;
 		};
 		//缓存集合
 		std::vector<Record> records;
+		//待销毁网格（第四十八轮：淘汰 / 卸载时先移入，待无在途帧引用后统一归还）
+		std::vector<Record> retired;
+		//最近使用序号发生器（第四十八轮）
+		uint64_t use_clock = 0;
+		//帧时钟（第四十八轮；每帧开始自增，用于判断待销毁网格是否已无在途引用）
+		uint64_t frame_clock = 0;
+		//在途帧数（第四十八轮）
+		uint32_t frame_overlap = 1;
+		//文本网格缓存条目上限（第四十八轮；超出即淘汰最久未用项，避免无界增长）
+		static constexpr uint32_t MESH_CACHE_MAX = 64;
 	};
 }

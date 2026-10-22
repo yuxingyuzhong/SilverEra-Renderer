@@ -62,24 +62,60 @@ namespace engine
 				++it;
 				continue;
 			}
-			//归还网格并移除记录
-			if (host.mesh_destroy != nullptr)
-				host.mesh_destroy(host.user, it->mesh);
+			//移入待销毁列表（网格可能仍被本帧绘制项引用，不立即归还）
+			retired.push_back(*it);
 			it = records.erase(it);
+		}
+		//该字体已随调用方销毁，待销毁项此刻可直接归还
+		retired_flush();
+	}
+
+	//归还所有待销毁网格
+	void Text_Renderer::retired_flush(void)
+	{
+		//宿主已解绑时无处归还，直接丢弃记录
+		if (host.mesh_destroy != nullptr)
+			for (const auto& record : retired)
+				host.mesh_destroy(host.user, record.mesh);
+		retired.clear();
+	}
+
+	//帧开始：推进帧时钟并归还已无在途引用的待销毁网格
+	void Text_Renderer::frame_begin(uint32_t overlap)
+	{
+		//在途帧数至少按 1 处理
+		frame_overlap = overlap < 1 ? 1 : overlap;
+		++frame_clock;
+		//宿主未就绪时无法归还，仅保留待销毁项
+		if (host.mesh_destroy == nullptr)
+			return;
+		//逐项检查（数量很小）
+		for (auto it = retired.begin(); it != retired.end(); )
+		{
+			//退役帧 ＋ 在途帧数 < 当前帧 → 已无在途帧引用
+			if (it->retired_tick + frame_overlap < frame_clock)
+			{
+				host.mesh_destroy(host.user, it->mesh);
+				it = retired.erase(it);
+				continue;
+			}
+			++it;
 		}
 	}
 
 	//归还全部网格并复位
 	void Text_Renderer::shutdown(void)
 	{
-		//归还全部缓存网格
-		for (auto& record : records)
-			//宿主已解绑时无处归还，直接丢弃记录
-			if (host.mesh_destroy != nullptr)
-				host.mesh_destroy(host.user, record.mesh);
+		//把缓存条目全部移入待销毁列表
+		for (const auto& record : records)
+			retired.push_back(record);
 		records.clear();
+		//统一归还（含此前淘汰的待销毁项）
+		retired_flush();
 		//复位管线句柄与颜色
 		pipeline = 0;
+		use_clock = 0;
+		frame_clock = 0;
 		for (std::size_t index = 0; index < 4; ++index)
 			text_color[index] = 1.0f;
 	}
@@ -136,7 +172,7 @@ namespace engine
 		布局必须参与缓存键，否则同一文本换布局后会命中旧网格（几何不更新）。
 		*/
 		Mesh_Handle mesh = 0;
-		for (const auto& item : records)
+		for (auto& item : records)
 		{
 			//命中本字体与本文本
 			if (item.font != font_handle || item.text != text)
@@ -149,6 +185,8 @@ namespace engine
 				|| item.layout.first_line_indent != layout.first_line_indent)
 				continue;
 			mesh = item.mesh;
+			//刷新最近使用序号（第四十八轮）
+			item.last_used = ++use_clock;
 			break;
 		}
 		//未命中则新建
@@ -173,6 +211,21 @@ namespace engine
 			item.text = text;
 			item.layout = layout;
 			item.mesh = mesh;
+			item.last_used = ++use_clock;
+			//若缓存已满，先淘汰最久未用项（第四十八轮：避免缓存随文本种类无界增长）
+			if (records.size() >= MESH_CACHE_MAX)
+			{
+				std::size_t oldest = 0;
+				for (std::size_t index = 1; index < records.size(); ++index)
+					//序号越小越久未用
+					if (records[index].last_used < records[oldest].last_used)
+						oldest = index;
+				//移入待销毁列表并记退役帧（待无在途帧引用后再归还，避免销毁本帧已登记的绘制项所引用网格）
+				Record stale = records[oldest];
+				stale.retired_tick = frame_clock;
+				retired.push_back(stale);
+				records.erase(records.begin() + static_cast<std::ptrdiff_t>(oldest));
+			}
 			records.push_back(item);
 		}
 

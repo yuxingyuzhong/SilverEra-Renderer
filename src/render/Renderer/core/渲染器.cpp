@@ -1003,118 +1003,89 @@ namespace engine
 		}
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
-		//写入该帧槽 UBO
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
-		{
-			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽光照块（offset 64、64 字节；第三十二轮：公共参数 ＋ 方向光 ＋ 颜色 ＋ 相机位置）
-		float light_block[16] = {
-			impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
-			impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
-			impl->light_color[0], impl->light_color[1], impl->light_color[2], static_cast<float>(impl->attenuation_mode),
-			0.0f, 0.0f, 0.0f, 0.0f,
-		};
+		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
+		impl->text.frame_begin(impl->config.frame_overlap);
+		/*
+		场景 UBO 整块写入（480 字节 = 120 浮点；第四十八轮由 7 次分段写入合并为单次 buffer_write）
+		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源、64 聚光参数、
+		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色。
+		*/
+		float scene_block[120] = {};
+		//视图 × 投影矩阵（列主序 16 浮点）
+		for (std::size_t index = 0; index < 16; ++index)
+			scene_block[index] = view_proj[index];
+		//光照公共块：环境光 / 高光强度 / 光泽度 / 点光源数量
+		scene_block[16] = impl->light_ambient;
+		scene_block[17] = impl->specular_intensity;
+		scene_block[18] = impl->specular_shininess;
+		scene_block[19] = static_cast<float>(impl->point_light_count);
+		//方向光方向 / 强度 / 颜色 / 衰减模式
+		scene_block[20] = impl->light_direction[0];
+		scene_block[21] = impl->light_direction[1];
+		scene_block[22] = impl->light_direction[2];
+		scene_block[23] = impl->light_intensity;
+		scene_block[24] = impl->light_color[0];
+		scene_block[25] = impl->light_color[1];
+		scene_block[26] = impl->light_color[2];
+		scene_block[27] = static_cast<float>(impl->attenuation_mode);
 		//相机世界位置（镜面高光的视线方向来源）
 		float camera_position[3] = {};
 		impl->camera.position_get(camera_position);
-		light_block[12] = camera_position[0];
-		light_block[13] = camera_position[1];
-		light_block[14] = camera_position[2];
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
-		{
-			logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽点光源数组（offset 128、128 字节；4 个槽位，未用槽位清零）
-		float point_block[32] = {};
+		scene_block[28] = camera_position[0];
+		scene_block[29] = camera_position[1];
+		scene_block[30] = camera_position[2];
+		//点光源：先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个 std140 数组一致）
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 		{
-			//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
-			const std::size_t base = static_cast<std::size_t>(light) * 4;
-			point_block[base + 0] = impl->point_lights[light].position[0];
-			point_block[base + 1] = impl->point_lights[light].position[1];
-			point_block[base + 2] = impl->point_lights[light].position[2];
-			point_block[base + 3] = impl->point_lights[light].radius;
-			point_block[16 + base + 0] = impl->point_lights[light].color[0];
-			point_block[16 + base + 1] = impl->point_lights[light].color[1];
-			point_block[16 + base + 2] = impl->point_lights[light].color[2];
-			point_block[16 + base + 3] = impl->point_lights[light].intensity;
+			const std::size_t base = 32 + static_cast<std::size_t>(light) * 4;
+			scene_block[base + 0] = impl->point_lights[light].position[0];
+			scene_block[base + 1] = impl->point_lights[light].position[1];
+			scene_block[base + 2] = impl->point_lights[light].position[2];
+			scene_block[base + 3] = impl->point_lights[light].radius;
+			scene_block[base + 16 + 0] = impl->point_lights[light].color[0];
+			scene_block[base + 16 + 1] = impl->point_lights[light].color[1];
+			scene_block[base + 16 + 2] = impl->point_lights[light].color[2];
+			scene_block[base + 16 + 3] = impl->point_lights[light].intensity;
 		}
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
-		{
-			logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		/*
-		写入该帧槽聚光参数（offset 256、128 字节；第三十四轮）
-		前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 保留」；
-		两个 std140 数组各自连续，故分两段排布。
-		*/
-		float spot_block[32] = {};
+		//聚光参数：前 16 浮点为「方向 ＋ 有效标志」，后 16 浮点为「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 保留」
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 		{
-			//槽内基址（每个槽 4 个浮点）
-			const std::size_t base = static_cast<std::size_t>(light) * 4;
-			spot_block[base + 0] = impl->point_lights[light].spot_direction[0];
-			spot_block[base + 1] = impl->point_lights[light].spot_direction[1];
-			spot_block[base + 2] = impl->point_lights[light].spot_direction[2];
-			spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
-			spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
-			spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
-			//z = 逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
-			spot_block[16 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+			const std::size_t base = 64 + static_cast<std::size_t>(light) * 4;
+			scene_block[base + 0] = impl->point_lights[light].spot_direction[0];
+			scene_block[base + 1] = impl->point_lights[light].spot_direction[1];
+			scene_block[base + 2] = impl->point_lights[light].spot_direction[2];
+			scene_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
+			scene_block[base + 16 + 0] = impl->point_lights[light].spot_inner_cos;
+			scene_block[base + 16 + 1] = impl->point_lights[light].spot_outer_cos;
+			scene_block[base + 16 + 2] = static_cast<float>(impl->point_lights[light].attenuation);
 		}
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
+		//雾参数（雾色 ＋ 密度 ＋ 区间）
+		scene_block[96] = impl->fog_color[0];
+		scene_block[97] = impl->fog_color[1];
+		scene_block[98] = impl->fog_color[2];
+		scene_block[99] = impl->fog_density;
+		scene_block[100] = impl->fog_start;
+		scene_block[101] = impl->fog_end;
+		//环境光颜色（第四十轮）
+		scene_block[104] = impl->ambient_color[0];
+		scene_block[105] = impl->ambient_color[1];
+		scene_block[106] = impl->ambient_color[2];
+		//半球环境光（第四十七轮：rgb = 地面色、w = 混合强度）
+		for (std::size_t index = 0; index < 4; ++index)
+			scene_block[108 + index] = impl->ambient_ground[index];
+		//补光方向与强度（第四十七轮）
+		scene_block[112] = impl->fill_direction[0];
+		scene_block[113] = impl->fill_direction[1];
+		scene_block[114] = impl->fill_direction[2];
+		scene_block[115] = impl->fill_intensity;
+		//补光颜色（第四十七轮）
+		scene_block[116] = impl->fill_color[0];
+		scene_block[117] = impl->fill_color[1];
+		scene_block[118] = impl->fill_color[2];
+		//整块写入（单次驱动调用）
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 480, 0))
 		{
-			logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽雾参数（offset 384、32 字节；第三十八轮）
-		float fog_block[8] = {
-			impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
-			impl->fog_start, impl->fog_end, 0.0f, 0.0f,
-		};
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
-		{
-			logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽环境光颜色（offset 416、16 字节；第四十轮）
-		float ambient_block[4] = {
-			impl->ambient_color[0], impl->ambient_color[1], impl->ambient_color[2], 0.0f,
-		};
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
-		{
-			logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽半球环境光（offset 432、16 字节；第四十七轮）
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-			impl->ambient_ground, 16, 432))
-		{
-			logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽补光方向与强度（offset 448、16 字节；第四十七轮）
-		float fill_dir_block[4] = {
-			impl->fill_direction[0], impl->fill_direction[1], impl->fill_direction[2], impl->fill_intensity,
-		};
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-			fill_dir_block, 16, 448))
-		{
-			logger.error("渲染器:: 场景补光方向写入失败（帧槽 {}）", slot);
-			return false;
-		}
-		//写入该帧槽补光颜色（offset 464、16 字节；第四十七轮）
-		float fill_color_block[4] = {
-			impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], 0.0f,
-		};
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-			fill_color_block, 16, 464))
-		{
-			logger.error("渲染器:: 场景补光颜色写入失败（帧槽 {}）", slot);
+			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
