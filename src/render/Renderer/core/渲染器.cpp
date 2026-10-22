@@ -462,8 +462,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；624 字节 = … ＋ 逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数；第五十二轮由 544 扩为 624）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 624,
+			//创建场景 UBO（主机可见、统一缓冲用途；640 字节 = … ＋ 逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数与强度；第五十三轮由 624 扩为 640）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 640,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -608,10 +608,12 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//写入初始阴影块（offset 544、80 字节；第五十二轮：光源空间矩阵 64 ＋ 阴影参数 16）
-			float shadow_init_block[20] = {};
+			//写入初始阴影块（offset 544、96 字节；第五十二轮：光源空间矩阵 64 ＋ 阴影参数 16；第五十三轮：阴影强度 4 ＋ 尾部圆整 12）
+			float shadow_init_block[24] = {};
+			//阴影强度默认 1（块内第 20 浮点 = offset 624）
+			shadow_init_block[20] = 1.0f;
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				shadow_init_block, 80, 544))
+				shadow_init_block, 96, 544))
 			{
 				logger.error("渲染器:: 场景阴影参数写入失败（帧槽 {}）", slot);
 				shutdown();
@@ -1184,12 +1186,12 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块写入（624 字节 = 156 浮点；第五十二轮由 544 扩为 624）
+		场景 UBO 整块写入（640 字节 = 160 浮点；第五十三轮由 624 扩为 640）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源、64 聚光参数、
 		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色、
-		120 逐盏光泽度、136 光源空间矩阵、152 阴影参数。
+		120 逐盏光泽度、136 光源空间矩阵、152 阴影参数（w = 软度）、156 阴影强度。
 		*/
-		float scene_block[156] = {};
+		float scene_block[160] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1274,12 +1276,15 @@ namespace engine
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[136 + index] = impl->light_view_proj[index];
-		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长、w 保留）
+		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长；第五十三轮 w = 软度）
 		scene_block[152] = impl->shadow_enabled ? 1.0f : 0.0f;
 		scene_block[153] = impl->shadow_bias;
 		scene_block[154] = static_cast<float>(Impl::SHADOW_SIZE);
-		//整块写入（单次驱动调用）
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 624, 0))
+		scene_block[155] = impl->shadow_softness;
+		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
+		scene_block[156] = impl->shadow_strength;
+		//整块写入（单次驱动调用；640 = 160 浮点，std140 结构体尾部按 16 字节圆整）
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 640, 0))
 		{
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
@@ -3169,6 +3174,9 @@ namespace engine
 		//方向光阴影开关与偏置（第五十二轮）
 		shadow_enable_set(light.shadow_enabled != 0);
 		shadow_bias_set(light.shadow_bias);
+		//阴影软度与强度（第五十三轮；非法值由 setter 整次忽略）
+		shadow_softness_set(light.shadow_softness);
+		shadow_strength_set(light.shadow_strength);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -3211,6 +3219,8 @@ namespace engine
 		light.fill_specular = scene.fill_specular;
 		light.shadow_enabled = scene.shadow_enabled;
 		light.shadow_bias = scene.shadow_bias;
+		light.shadow_softness = scene.shadow_softness;
+		light.shadow_strength = scene.shadow_strength;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -3702,6 +3712,50 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->shadow_bias : 0.003f;
+	}
+
+	//设置阴影软度（第五十三轮新增）
+	void Renderer::shadow_softness_set(float softness)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//软度须落在 0..1（取反比较使 NaN 判非法）
+		if (!(softness >= 0.0f && softness <= 1.0f))
+		{
+			logger.warn("渲染器:: 阴影软度非法（{}），整次忽略", softness);
+			return;
+		}
+		impl->shadow_softness = softness;
+	}
+
+	//当前阴影软度（第五十三轮）
+	float Renderer::shadow_softness(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->shadow_softness : 0.0f;
+	}
+
+	//设置阴影强度（第五十三轮新增）
+	void Renderer::shadow_strength_set(float strength)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//强度须落在 0..1（取反比较使 NaN 判非法）
+		if (!(strength >= 0.0f && strength <= 1.0f))
+		{
+			logger.warn("渲染器:: 阴影强度非法（{}），整次忽略", strength);
+			return;
+		}
+		impl->shadow_strength = strength;
+	}
+
+	//当前阴影强度（第五十三轮）
+	float Renderer::shadow_strength(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->shadow_strength : 1.0f;
 	}
 
 	//设置清屏色（RGBA）

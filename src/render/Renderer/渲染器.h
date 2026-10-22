@@ -561,6 +561,17 @@ namespace engine
 		//当前阴影深度偏置（未初始化时为默认 0.003）
 		float shadow_bias(void) const;
 		/*
+		阴影软度 / 强度（第五十三轮新增）
+		softness ∈ [0,1]：0 = 单点硬边，≥0.5 = 3×3 邻域 PCF 平均（越界 / 非数整次忽略，默认 0）；
+		strength ∈ [0,1]：0 = 阴影完全无效、1 = 全遮蔽（越界 / 非数整次忽略，默认 1）。
+		*/
+		void shadow_softness_set(float softness);
+		//当前阴影软度（未初始化时为默认 0）
+		float shadow_softness(void) const;
+		void shadow_strength_set(float strength);
+		//当前阴影强度（未初始化时为默认 1）
+		float shadow_strength(void) const;
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
 		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
 		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。

@@ -213,6 +213,10 @@ namespace engine
 		bool shadow_enabled = false;
 		//阴影深度偏置（第五十二轮）
 		float shadow_bias = 0.003f;
+		//阴影软度（第五十三轮；0 = 单点硬边，≥0.5 = 3×3 PCF 平均）
+		float shadow_softness = 0.0f;
+		//阴影强度（第五十三轮；0 = 阴影无效、1 = 全遮蔽）
+		float shadow_strength = 1.0f;
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）

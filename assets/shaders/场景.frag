@@ -51,18 +51,35 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	float point_shininess[4];
 	//光源空间视图投影矩阵（第五十二轮；配合 shadow_params 做方向光阴影）
 	mat4 light_view_proj;
-	//阴影参数（x = 启用 >0.5、y = 深度偏置、z = 阴影图边长（像素）、w 保留；第五十二轮）
+	//阴影参数（x = 启用 >0.5、y = 深度偏置、z = 阴影图边长（像素）、w = 软度 0..1；第五十二／五十三轮）
 	vec4 shadow_params;
+	//阴影强度（0 = 阴影无效、1 = 全遮蔽；第五十三轮）
+	float shadow_strength;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
 const int POINT_LIGHT_MAX = 4;
 
 /*
-方向光阴影系数（第五十二轮）
-shadow_params：x = 启用（> 0.5 生效）、y = 深度偏置、z = 阴影图边长（像素）。
-返回 0 = 完全遮蔽、1 = 完全受光；阴影图范围外或 w ≤ 0 时视为受光。
-深度在阴影 pass 中打包进 RGBA8（见 阴影.frag），此处解包后做单点比较。
+阴影深度比较（第五十三轮）
+在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
+*/
+float shadow_compare(ivec2 texel, float current, int size)
+{
+	//越界钳边
+	ivec2 clamped = clamp(texel, ivec2(0), ivec2(size - 1));
+	vec4 packed = texelFetch(shadow_map, clamped, 0);
+	//解包 32 位深度
+	float stored = dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+	//片元比阴影图记录更近则受光，否则遮蔽
+	return current <= stored ? 1.0 : 0.0;
+}
+
+/*
+方向光阴影系数（第五十二轮；第五十三轮增软度与强度）
+shadow_params：x = 启用（> 0.5 生效）、y = 深度偏置、z = 阴影图边长（像素）、w = 软度（0 = 单点硬边、≥0.5 = 3×3 平均）。
+返回 0 = 完全遮蔽、1 = 完全受光；阴影图范围外或 w ≤ 0 时视为受光；
+最终按 scene.shadow_strength 在 1 与遮蔽系数之间插值（0 = 阴影无效、1 = 全遮蔽）。
 */
 float shadow_factor(vec3 world_pos)
 {
@@ -82,13 +99,22 @@ float shadow_factor(vec3 world_pos)
 	int size = int(scene.shadow_params.z + 0.5);
 	//纹素坐标（最近点，避免插值得到无意义的打包字节）
 	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
-	vec4 packed = texelFetch(shadow_map, texel, 0);
-	//解包 32 位深度
-	float stored = dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
 	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
 	float current = ndc.z - scene.shadow_params.y;
-	//片元比阴影图记录更近则受光，否则遮蔽
-	return current <= stored ? 1.0 : 0.0;
+	//遮蔽系数（软度低走单点，否则 3×3 邻域平均）
+	float factor;
+	if (scene.shadow_params.w < 0.5)
+		factor = shadow_compare(texel, current, size);
+	else
+	{
+		float sum = 0.0;
+		for (int offset_y = -1; offset_y <= 1; ++offset_y)
+			for (int offset_x = -1; offset_x <= 1; ++offset_x)
+				sum += shadow_compare(texel + ivec2(offset_x, offset_y), current, size);
+		factor = sum / 9.0;
+	}
+	//按阴影强度在「无阴影」与「全遮蔽」之间插值
+	return mix(1.0, factor, clamp(scene.shadow_strength, 0.0, 1.0));
 }
 
 void main()

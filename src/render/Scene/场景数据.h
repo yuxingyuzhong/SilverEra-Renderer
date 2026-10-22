@@ -127,6 +127,9 @@ namespace engine
 		//方向光阴影开关（第五十二轮；0 = 关闭、1 = 开启）与深度偏置（0..0.05）
 		int shadow_enabled = 0;
 		float shadow_bias = 0.003f;
+		//阴影软度（第五十三轮；0 = 单点硬边、≥0.5 = 3×3 PCF；0..1）与强度（0 = 无效、1 = 全遮蔽）
+		float shadow_softness = 0.0f;
+		float shadow_strength = 1.0f;
 	};
 
 	/*
@@ -277,5 +280,8 @@ namespace engine
 		//方向光阴影开关与深度偏置（第五十二轮；语义见 Light_Data::shadow_enabled / shadow_bias）
 		int shadow_enabled = 0;
 		float shadow_bias = 0.003f;
+		//阴影软度与强度（第五十三轮；语义见 Light_Data::shadow_softness / shadow_strength）
+		float shadow_softness = 0.0f;
+		float shadow_strength = 1.0f;
 	};
 }
