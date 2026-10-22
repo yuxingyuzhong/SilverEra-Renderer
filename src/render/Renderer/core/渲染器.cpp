@@ -174,6 +174,105 @@ namespace engine
 		return post_mesh_ensure();
 	}
 
+	//确保 SSAA 降采样具名管线就绪（惰性登记）
+	bool Renderer::Impl::ssaa_pipeline_ensure(void)
+	{
+		//降采样具名管线尚未登记
+		if (ssaa_pipeline == 0)
+		{
+			//加载后处理顶点 / 降采样片元着色器模块
+			VkShaderModule vert_module = VK_NULL_HANDLE;
+			VkShaderModule frag_module = VK_NULL_HANDLE;
+			if (!shader.module_load(vert_module, "后处理.vert.spv"))
+			{
+				logger.error("渲染器:: SSAA 降采样顶点着色器加载失败");
+				return false;
+			}
+			if (!shader.module_load(frag_module, "降采样.frag.spv"))
+			{
+				logger.error("渲染器:: SSAA 降采样片元着色器加载失败");
+				shader.module_destroy(vert_module);
+				return false;
+			}
+			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
+			uint64_t registered = 0;
+			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque))
+			{
+				logger.error("渲染器:: SSAA 降采样管线登记失败");
+				shader.module_destroy(vert_module);
+				shader.module_destroy(frag_module);
+				return false;
+			}
+			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
+			ssaa_pipeline = registered;
+			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
+			logger.info("渲染器:: SSAA 降采样管线已登记（句柄 {}）", registered);
+		}
+		return true;
+	}
+
+	//销毁 SSAA 超采样目标（关闭时调用）
+	void Renderer::Impl::ssaa_targets_destroy(void)
+	{
+		//逐个销毁已建立的目标（句柄无效时内部忽略）
+		if (ssaa_scene_target != 0)
+			render_target.target_destroy(ssaa_scene_target);
+		if (ssaa_resolve_target != 0)
+			render_target.target_destroy(ssaa_resolve_target);
+		//句柄与建立参数一并清零
+		ssaa_scene_target = 0;
+		ssaa_resolve_target = 0;
+		ssaa_extent_width = 0;
+		ssaa_extent_height = 0;
+		ssaa_target_factor = 0;
+	}
+
+	//确保 SSAA 超采样目标就绪（场景目标 = 输出 × 倍率；解析目标 = 输出尺寸）
+	bool Renderer::Impl::ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor)
+	{
+		//尺寸无效或该尺寸已失败过则直接返回（避免逐帧重复尝试）
+		if (width == 0 || height == 0)
+			return false;
+		if (ssaa_extent_failed)
+			return false;
+		//尺寸与倍率均未变化且目标齐备则复用
+		if (ssaa_scene_target != 0 && ssaa_resolve_target != 0
+			&& ssaa_extent_width == width && ssaa_extent_height == height && ssaa_target_factor == factor)
+			return true;
+		//参数变化：等尽在途帧后销毁旧目标（避免释放仍在使用的附件）
+		if (ssaa_scene_target != 0 || ssaa_resolve_target != 0)
+		{
+			frame.frames_wait();
+			ssaa_targets_destroy();
+		}
+		//按交换链格式创建场景目标（N 倍）与解析目标（输出尺寸）
+		uint64_t scene = 0;
+		uint64_t resolve = 0;
+		if (!render_target.target_create(scene, width * factor, height * factor,
+			swapchain.format_get(), swapchain.depth_format_get()))
+		{
+			logger.warn("渲染器:: SSAA 场景目标创建失败（{}×{} ×{}），本帧回落", width, height, factor);
+			ssaa_extent_failed = true;
+			return false;
+		}
+		if (!render_target.target_create(resolve, width, height,
+			swapchain.format_get(), swapchain.depth_format_get()))
+		{
+			logger.warn("渲染器:: SSAA 解析目标创建失败（{}×{}），本帧回落", width, height);
+			render_target.target_destroy(scene);
+			ssaa_extent_failed = true;
+			return false;
+		}
+		//记录句柄与建立参数
+		ssaa_scene_target = scene;
+		ssaa_resolve_target = resolve;
+		ssaa_extent_width = width;
+		ssaa_extent_height = height;
+		ssaa_target_factor = factor;
+		logger.info("渲染器:: SSAA 目标已建立（{}×{} ×{}）", width, height, factor);
+		return true;
+	}
+
 	//构造（不创建任何 GPU 资源）
 	Renderer::Renderer(void)
 		: impl(new(std::nothrow) Impl())
@@ -572,6 +671,9 @@ namespace engine
 
 		//记录配置并标记初始化完成
 		impl->config = effective;
+		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
+		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
+		impl->ssaa_extent_failed = false;
 		impl->initialized = true;
 		logger.info("渲染器:: 初始化完成（校验层 {}）", impl->device.validation_get() ? "开" : "关");
 		return true;
@@ -608,6 +710,15 @@ namespace engine
 		impl->post_chain.clear();
 		impl->post_pipeline = 0;
 		impl->fullscreen_mesh = 0;
+		//复位 SSAA 状态（超采样目标已随渲染目标模块销毁，仅清句柄、倍率与失败标记）
+		impl->ssaa_scene_target = 0;
+		impl->ssaa_resolve_target = 0;
+		impl->ssaa_extent_width = 0;
+		impl->ssaa_extent_height = 0;
+		impl->ssaa_target_factor = 0;
+		impl->ssaa_pipeline = 0;
+		impl->ssaa_factor = 1;
+		impl->ssaa_extent_failed = false;
 		//复位文字颜色与推送常量存储（颜色恢复默认白）
 		impl->text_color[0] = 1.0f;
 		impl->text_color[1] = 1.0f;
@@ -933,6 +1044,42 @@ namespace engine
 			}
 		}
 		/*
+		SSAA 超采样准备（倍率 > 1）
+		与后处理 / 离屏路径互斥（优先级最低）：两者任一启用时本帧不走 SSAA。
+		就绪后追加一个单位实例供降采样全屏四边形使用；两 pass 的实际录制在下方分派段完成。
+		*/
+		bool ssaa_frame = false;
+		//降采样 pass 在本帧实例缓冲内的字节偏移
+		VkDeviceSize ssaa_instance_offset = 0;
+		//若启用 SSAA 且未走后处理 / 离屏路径
+		if (impl->ssaa_factor > 1 && impl->present_target == 0 && impl->active_target == 0)
+		{
+			//确保降采样管线 / 全屏网格 / 默认后处理管线 / 超采样目标就绪
+			if (impl->ssaa_pipeline_ensure() && impl->post_mesh_ensure() && impl->post_pipeline_ensure()
+				&& impl->ssaa_targets_ensure(width, height, impl->ssaa_factor))
+			{
+				//本帧实例存储须仍有空位（降采样全屏四边形再占一个实例）
+				if (impl->pending_instances.size() < impl->instance_capacity)
+				{
+					ssaa_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					impl->pending_instances.emplace_back();
+					std::array<float, 16>& identity = impl->pending_instances.back();
+					identity.fill(0.0f);
+					identity[0] = 1.0f;
+					identity[5] = 1.0f;
+					identity[10] = 1.0f;
+					identity[15] = 1.0f;
+					ssaa_frame = true;
+				}
+				//实例存储已满则回落
+				else
+					logger.warn("渲染器:: 本帧实例存储已满，SSAA 回落原路径");
+			}
+			//资源未就绪则回落原路径
+			else
+				logger.warn("渲染器:: SSAA 资源未就绪，本帧回落原路径");
+		}
+		/*
 		实例模型矩阵写入本帧槽实例缓冲
 		本帧登记的全部实例矩阵按登记顺序连续存放，故一次写入即可；
 		随后每个渲染项只携带「帧槽缓冲句柄 ＋ 字节偏移 ＋ 实例数」。
@@ -985,8 +1132,97 @@ namespace engine
 		三路共用同一批帧槽与帧计数轮转，且互斥（后处理优先于离屏，离屏优先于交换链）。
 		*/
 		bool offscreen = false;
+		/*
+		SSAA 路径：场景 → N 倍目标，降采样 → 解析目标，再默认后处理 → 交换链
+		两级后处理共用同一全屏几何与场景 UBO；目标按 targets[级序 % 2] 轮转，
+		故第 0 级取 N 倍场景目标、第 1 级取解析目标（与帧模块轮转规则一致）。
+		*/
+		if (ssaa_frame)
+		{
+			//两个目标：场景目标（N 倍）与解析目标（输出尺寸）
+			std::vector<Frame_Render_Target> targets(2);
+			//全屏四边形网格缓冲信息
+			VkBuffer mesh_buffer = VK_NULL_HANDLE;
+			VkDeviceSize mesh_index_offset = 0;
+			uint32_t mesh_index_count = 0;
+			//取两个目标的附件与全屏网格
+			bool ready = impl->render_target.target_get(impl->ssaa_scene_target, targets[0].color_image,
+				targets[0].color_view, targets[0].depth_view, targets[0].extent)
+				&& impl->render_target.target_get(impl->ssaa_resolve_target, targets[1].color_image,
+					targets[1].color_view, targets[1].depth_view, targets[1].extent)
+				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+			//取共享采样器（用于写后处理采样集）
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler shared_sampler = VK_NULL_HANDLE;
+			if (ready && !impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+			{
+				logger.error("渲染器:: SSAA 失败：共享采样器不可用");
+				ready = false;
+			}
+			//若前置就绪
+			if (ready)
+			{
+				//把两个目标写入各帧槽后处理采样集（下标 0 = 场景目标、1 = 解析目标）
+				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
+				{
+					impl->pipeline.post_texture_bind(each, shared_sampler, targets[0].color_view, 0);
+					impl->pipeline.post_texture_bind(each, shared_sampler, targets[1].color_view, 1);
+					impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view, 0);
+					impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view, 1);
+				}
+				//两级管线：0 = 降采样（N 倍 → 输出），1 = 默认后处理（输出 → 交换链）
+				uint64_t stage_pipelines[2] = { impl->ssaa_pipeline, impl->post_pipeline };
+				std::vector<Frame_Render_Item> post_items;
+				bool items_ready = true;
+				for (uint32_t index = 0; index < 2; ++index)
+				{
+					//本级图形管线（失效即整帧回落）
+					VkPipeline stage_pipeline = impl->pipeline.pipeline_by_handle_get(stage_pipelines[index]);
+					if (stage_pipeline == VK_NULL_HANDLE)
+					{
+						items_ready = false;
+						break;
+					}
+					//本级绘制项（全屏四边形 ＋ 本级管线 ＋ set0 场景 UBO / set1 对应源采样集）
+					Frame_Render_Item post_item{};
+					post_item.pipeline = stage_pipeline;
+					post_item.layout = impl->pipeline.layout_get();
+					post_item.scene_set = impl->pipeline.scene_set_get(slot);
+					post_item.sampler_set = impl->pipeline.post_set_get(slot, index);
+					post_item.descriptor_set_count = 2;
+					post_item.vertex_buffer = mesh_buffer;
+					post_item.index_buffer = mesh_buffer;
+					post_item.index_offset = mesh_index_offset;
+					post_item.index_count = mesh_index_count;
+					post_item.instance_buffer = impl->instance_buffers[slot];
+					post_item.instance_offset = ssaa_instance_offset;
+					post_item.instance_count = 1;
+					post_items.push_back(post_item);
+				}
+				//若两级绘制项齐备
+				if (items_ready)
+				{
+					offscreen = true;
+					//场景 pass ＋ 降采样 ＋ 默认后处理 ＋ 呈现
+					if (!impl->frame.render_chain_present(impl->swapchain, targets.data(), 2,
+						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
+						post_items.data(), static_cast<uint32_t>(post_items.size()),
+						clear_color, rebuild_needed, readback_ptr))
+					{
+						logger.error("渲染器:: SSAA 帧渲染失败");
+						return false;
+					}
+				}
+				//含失效管线则回落原路径
+				else
+					logger.warn("渲染器:: SSAA 管线失效，本帧回落原路径");
+			}
+			//前置不完整则回落原路径
+			else
+				logger.warn("渲染器:: SSAA 前置不完整，本帧回落原路径");
+		}
 		//若走同帧多 pass 后处理路径
-		if (post_frame)
+		if (!offscreen && post_frame)
 		{
 			/*
 			中间目标组
@@ -1266,6 +1502,32 @@ namespace engine
 			return false;
 		//交换链图像具备传输源用法才可回读
 		return impl->swapchain.color_transfer_src_get();
+	}
+
+	//设置超采样抗锯齿倍率（SSAA）
+	void Renderer::ssaa_factor_set(uint32_t factor)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//钳制到 1..4（0 视为关闭）
+		uint32_t clamped = factor < 1 ? 1 : (factor > 4 ? 4 : factor);
+		//同值重复设置为空操作
+		if (clamped == impl->ssaa_factor)
+			return;
+		impl->ssaa_factor = clamped;
+		//倍率变化：清失败标记，下一次 frame_render 按需重建目标
+		impl->ssaa_extent_failed = false;
+		logger.info("渲染器:: SSAA 倍率已设为 {}（下一帧生效）", clamped);
+	}
+
+	//当前超采样倍率
+	uint32_t Renderer::ssaa_factor(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 1;
+		return impl->ssaa_factor;
 	}
 
 	//是否支持采样器各向异性过滤

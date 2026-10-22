@@ -44,6 +44,8 @@ namespace engine
 		bool validation = true;
 		//窗口是否隐藏（无头用例用；仍创建真实窗口与表面）
 		bool hidden = false;
+		//超采样抗锯齿倍率（1 = 关闭；2..4 = N×N SSAA；默认 1 保持既有画面逐字节不变）
+		uint32_t ssaa_factor = 1;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 	};
@@ -142,6 +144,15 @@ namespace engine
 		bool gpu_timestamp_supported(void) const;
 		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
 		bool readback_supported(void) const;
+		/*
+		设置超采样抗锯齿倍率（SSAA；1 = 关闭，2..4 = N×N 超采样）
+		取值按 1..4 钳制；自下一次 frame_render 起生效（内部按需重建超采样目标）。
+		仅在「未设置同帧后处理呈现目标且未设置本帧离屏目标」时启用，优先顺序：后处理/离屏 > SSAA。
+		未初始化时静默忽略。
+		*/
+		void ssaa_factor_set(uint32_t factor);
+		//当前超采样倍率（未初始化时为 1）
+		uint32_t ssaa_factor(void) const;
 		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
 		bool sampler_anisotropy_supported(void) const;
 		//采样器最大各向异性倍数（设备上限；未初始化或未启用该特性时为 1）

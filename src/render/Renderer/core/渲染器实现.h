@@ -53,6 +53,18 @@ namespace engine
 		bool post_pipeline_ensure(void);
 		//确保既有单级默认后处理所需资源就绪（默认后处理管线 ＋ 全屏网格）
 		bool post_resources_ensure(void);
+		/*
+		确保 SSAA 降采样具名管线就绪（惰性登记）
+		着色器对为 后处理.vert / 降采样.frag（不透明档）；模块由本实现体持有，随 extra_pipelines 统一销毁。
+		*/
+		bool ssaa_pipeline_ensure(void);
+		/*
+		确保 SSAA 超采样目标就绪（场景目标 = 输出 × 倍率；解析目标 = 输出尺寸）
+		倍率或输出尺寸变化时先等尽在途帧、销毁旧目标再重建；创建失败置 ssaa_extent_failed 并由调用方回落。
+		*/
+		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
+		//销毁 SSAA 超采样目标（关闭时调用；句柄清零）
+		void ssaa_targets_destroy(void);
 		//配置（init 成功后生效）
 		Renderer_Config config;
 		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
@@ -197,6 +209,21 @@ namespace engine
 		uint64_t post_pipeline = 0;
 		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）
 		Mesh_Handle fullscreen_mesh = 0;
+		/*
+		SSAA 超采样状态（倍率钳制 1..4；1 = 关闭）
+		scene_target 为输出 × 倍率的场景目标，resolve_target 为输出尺寸的解析目标；
+		extent_* / target_factor 记录建立时的参数，变化即重建；extent_failed 避免逐帧重复失败尝试。
+		*/
+		uint32_t ssaa_factor = 1;
+		uint64_t ssaa_scene_target = 0;
+		uint64_t ssaa_resolve_target = 0;
+		uint32_t ssaa_extent_width = 0;
+		uint32_t ssaa_extent_height = 0;
+		uint32_t ssaa_target_factor = 0;
+		//SSAA 降采样具名管线句柄（0 = 尚未登记）
+		uint64_t ssaa_pipeline = 0;
+		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
+		bool ssaa_extent_failed = false;
 		//字体模块（TTF → 字形图集）
 		Font_Context font;
 		//文字管线句柄（0 = 尚未登记；首次 text_draw 时懒登记，Alpha 混合档）
