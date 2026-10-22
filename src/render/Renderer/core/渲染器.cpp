@@ -531,6 +531,8 @@ namespace engine
 				spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
 				spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
 				spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
+				//z = 逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
+				spot_block[16 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
 			}
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
 			{
@@ -951,7 +953,7 @@ namespace engine
 		}
 		/*
 		写入该帧槽聚光参数（offset 256、128 字节；第三十四轮）
-		前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦」；
+		前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 保留」；
 		两个 std140 数组各自连续，故分两段排布。
 		*/
 		float spot_block[32] = {};
@@ -965,6 +967,8 @@ namespace engine
 			spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
 			spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
 			spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
+			//z = 逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
+			spot_block[16 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
 		}
 		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
 		{
@@ -2965,7 +2969,8 @@ namespace engine
 				break;
 			else
 				light_add_point(scene.point_light_position[index], scene.point_light_color[index],
-					scene.point_light_radius[index], scene.point_light_intensity[index], scene.light_ambient);
+					scene.point_light_radius[index], scene.point_light_intensity[index], scene.light_ambient,
+					scene.point_light_attenuation[index]);
 		/*
 		聚光灯组（第三十五轮）
 		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条并告警，
@@ -2978,7 +2983,8 @@ namespace engine
 			else
 				light_add_spot(scene.spot_light_position[index], scene.spot_light_direction[index],
 					scene.spot_light_color[index], scene.spot_light_radius[index], scene.spot_light_intensity[index],
-					scene.spot_light_inner_deg[index], scene.spot_light_outer_deg[index], scene.light_ambient);
+					scene.spot_light_inner_deg[index], scene.spot_light_outer_deg[index], scene.light_ambient,
+					scene.spot_light_attenuation[index]);
 		specular_set(scene.specular_intensity, scene.specular_shininess);
 		//距离衰减模式（第三十七轮：非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(scene.attenuation_mode);
@@ -3076,8 +3082,9 @@ namespace engine
 		impl->light_intensity = 0.0f;
 	}
 
-	//追加一个点光源（第三十二轮新增）
-	bool Renderer::light_add_point(const float position[3], const float color[3], float radius, float intensity, float ambient)
+	//追加一个点光源（第三十二轮新增；第四十六轮支持逐光源衰减模式）
+	bool Renderer::light_add_point(const float position[3], const float color[3], float radius, float intensity,
+		float ambient, uint32_t attenuation)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
@@ -3118,6 +3125,8 @@ namespace engine
 		}
 		light.radius = radius;
 		light.intensity = intensity;
+		//逐光源衰减模式（大于 2 按 2 处理；0 = 跟随全局）
+		light.attenuation = attenuation > 2 ? 2 : attenuation;
 		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
 		light.is_spot = false;
 		impl->point_light_count += 1;
@@ -3125,9 +3134,9 @@ namespace engine
 		return true;
 	}
 
-	//追加一个聚光灯（第三十四轮新增）
+	//追加一个聚光灯（第三十四轮新增；第四十六轮支持逐光源衰减模式）
 	bool Renderer::light_add_spot(const float position[3], const float direction[3], const float color[3],
-		float radius, float intensity, float inner_deg, float outer_deg, float ambient)
+		float radius, float intensity, float inner_deg, float outer_deg, float ambient, uint32_t attenuation)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
@@ -3175,6 +3184,8 @@ namespace engine
 		}
 		light.radius = radius;
 		light.intensity = intensity;
+		//逐光源衰减模式（大于 2 按 2 处理；0 = 跟随全局）
+		light.attenuation = attenuation > 2 ? 2 : attenuation;
 		light.is_spot = true;
 		//锥角转余弦（度 → 弧度；内角更小故其余弦更大）
 		constexpr float degrees_to_radians = 0.017453292519943295f;

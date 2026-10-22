@@ -472,19 +472,24 @@ namespace engine
 		追加一个点光源（第三十二轮新增；最多 4 个，按登记顺序累加）
 		不清空既有光源；超出上限、参数非法（空指针 / 半径非正 / 颜色越界 / 强度或环境光越界）时
 		返回假并告警，既有光源保持不变。ambient 为全局环境光（多次调用取最后一次的合法值）。
+		attenuation 为**逐光源距离衰减模式**（第四十六轮新增）：0 = 跟随全局（默认）、1 = 线性、2 = 平方反比；
+		取值大于 2 时按 2 处理。
 		*/
-		bool light_add_point(const float position[3], const float color[3], float radius, float intensity, float ambient);
+		bool light_add_point(const float position[3], const float color[3], float radius, float intensity,
+			float ambient, uint32_t attenuation = 0);
 		/*
 		追加一个聚光灯（第三十四轮新增；与点光源同槽、共用 4 盏上限）
 		direction 为**光传播方向**（从光源指向被照区域，长度须非零，内部归一化）；
 		inner_deg / outer_deg 为内 / 外锥角（度）：须满足 0 < inner_deg < outer_deg ≤ 90，
 		锥内照度不衰减、锥外为 0、两者之间按 smoothstep 平滑过渡。
-		position / radius / color / intensity / ambient 语义同 `light_add_point`。
+		position / radius / color / intensity / ambient 语义同 `light_add_point`；
+		attenuation 语义同 `light_add_point`（0 = 跟随全局、1 = 线性、2 = 平方反比）。
 		任一参数非法（空指针 / 方向退化 / 半径非正 / 颜色越界 / 锥角非法）或已满 4 盏时
 		返回假并告警，既有光源保持不变。
 		*/
 		bool light_add_spot(const float position[3], const float direction[3], const float color[3],
-			float radius, float intensity, float inner_deg, float outer_deg, float ambient);
+			float radius, float intensity, float inner_deg, float outer_deg, float ambient,
+			uint32_t attenuation = 0);
 		/*
 		清空全部点光源并恢复方向光默认强度（第三十二轮新增）
 		方向 / 颜色 / 环境光保持既有值；清空后画面回到「仅方向光」。

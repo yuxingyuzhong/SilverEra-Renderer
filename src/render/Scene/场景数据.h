@@ -64,6 +64,11 @@ namespace engine
 		float point_light_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
 		//点光源强度（≥ 0）
 		float point_light_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		/*
+		点光源逐盏衰减模式（第四十六轮）
+		0 = 跟随全局（attenuation_mode）、1 = 线性、2 = 平方反比；其它取值按 2 处理。
+		*/
+		uint32_t point_light_attenuation[4] = {};
 		//镜面高光强度（≥ 0；0 = 关闭）
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
@@ -93,6 +98,8 @@ namespace engine
 		float spot_light_inner_deg[4] = { 15.0f, 15.0f, 15.0f, 15.0f };
 		//外锥角（度；须 ≤ 90）
 		float spot_light_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
+		//聚光灯逐盏衰减模式（第四十六轮；语义同 point_light_attenuation）
+		uint32_t spot_light_attenuation[4] = {};
 		/*
 		距离衰减模式（第三十七轮）
 		0 = 线性（默认）、1 = 平方反比；其它取值由 scene_apply 忽略并告警（保持门面当前模式）。

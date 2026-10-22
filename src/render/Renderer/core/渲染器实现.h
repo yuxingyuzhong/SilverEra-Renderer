@@ -111,6 +111,8 @@ namespace engine
 			float color[3] = { 1.0f, 1.0f, 1.0f };
 			//强度（≥ 0）
 			float intensity = 1.0f;
+			//逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
+			uint32_t attenuation = 0;
 			/*
 			聚光灯附加参数（第三十四轮）
 			普通点光源的 is_spot 恒假；聚光灯在此基础上额外乘锥形衰减：

@@ -31,7 +31,7 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_color_intensity[4];
 	//聚光灯方向（xyz = 光传播方向）＋ 有效标志（w > 0.5 表示该槽为聚光灯；第三十四轮）
 	vec4 point_spot_dir[4];
-	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；第三十四轮）
+	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；z = 逐光源衰减模式、w 保留；第三十四 / 四十六轮）
 	vec4 point_spot_cone[4];
 	//雾色（rgb）＋ 密度（w；0 = 关闭；第三十八轮）
 	vec4 fog_color_density;
@@ -89,16 +89,21 @@ void main()
 			//避免零距离除零
 			vec3 to_light = distance > 0.000001 ? offset / distance : vec3(0.0, 0.0, 1.0);
 			/*
-			距离衰减（第三十六轮可切换模式）
-			mode 0（默认）：线性，距离达到半径时降为 0；mode 1：平方反比 1/(1+(d/r)²)，不设硬截断；
-			半径为 0 时两种模式均视为无衰减。模式随 light_color.w 逐帧下发，点光源与聚光灯共用。
+			距离衰减（第三十六轮可切换模式；第四十六轮支持逐光源覆盖）
+			逐光源模式存于 point_spot_cone.z：0 = 跟随全局（light_color.w）、1 = 线性、2 = 平方反比；
+			线性模式在距离达到半径时降为 0，平方反比为 1/(1+(d/r)²) 且不设硬截断；
+			半径为 0 时两种模式均视为无衰减。
 			*/
 			float radius = scene.point_pos_radius[index].w;
 			float attenuation = 1.0;
 			if (radius > 0.000001)
 			{
 				float normalized = distance / radius;
-				attenuation = scene.light_color.w > 0.5
+				//逐光源模式（0 = 跟随全局；全局 0 = 线性、1 = 平方反比，映射到 1 / 2）
+				int mode = int(scene.point_spot_cone[index].z + 0.5);
+				if (mode == 0)
+					mode = scene.light_color.w > 0.5 ? 2 : 1;
+				attenuation = mode == 2
 					? 1.0 / (1.0 + normalized * normalized)
 					: clamp(1.0 - normalized, 0.0, 1.0);
 			}
