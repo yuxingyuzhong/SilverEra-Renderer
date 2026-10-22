@@ -447,6 +447,14 @@ namespace engine
 		*/
 		void scene_apply(const Scene_Data& scene);
 		/*
+		应用场景描述（三组入参；第四十七轮新增）
+		等价于把 camera / light / fog 三组分别提交：相机五项与清屏色、方向光与环境光、
+		点 / 聚光灯组与高光 / 衰减模式 / 环境光颜色、距离雾。
+		校验规则与 `scene_apply(const Scene_Data&)` 完全一致：相机参数非法即整次拒绝；
+		单条光源非法只跳过该条；清屏色与雾参数按各 setter 的钳制 / 忽略规则处理。
+		*/
+		void scene_apply(const Camera_Data& camera, const Light_Data& light, const Fog_Data& fog);
+		/*
 		设置清屏色（RGBA）
 		各分量钳制到 [0,1] 后生效（负 / 非数归 0、大于 1 归 1）；自下一次 frame_render 起生效；
 		未初始化或指针为空时静默返回。

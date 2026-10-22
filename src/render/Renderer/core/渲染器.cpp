@@ -2923,81 +2923,141 @@ namespace engine
 		impl->camera.near_far_set(near_plane, far_plane);
 	}
 
-	//应用场景描述（相机五项 ＋ 清屏色）
-	void Renderer::scene_apply(const Scene_Data& scene)
+	//应用场景描述（三组入参；第四十七轮）
+	void Renderer::scene_apply(const Camera_Data& camera, const Light_Data& light, const Fog_Data& fog)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
 		/*
-		参数校验（处置 R-FACADE-10）
+		相机参数校验（处置 R-FACADE-10）
 		视场角须落在 (0, π)、近平面须为正、远平面须大于近平面；任一非法即整次拒绝，
-		保持既有相机与清屏色不变（避免把非法值交给投影矩阵导致画面异常 / 除零）。
-		用「取反比较」写法使 NaN 同样被判为非法。
+		保持既有相机与清屏色不变。用「取反比较」写法使 NaN 同样被判为非法。
 		*/
-		bool scene_valid = (scene.fov > 0.0f) && (scene.fov < 3.14159265f)
-			&& (scene.near_plane > 0.0f) && (scene.far_plane > scene.near_plane)
+		bool camera_valid = (camera.fov > 0.0f) && (camera.fov < 3.14159265f)
+			&& (camera.near_plane > 0.0f) && (camera.far_plane > camera.near_plane)
 			//正交模式额外要求垂直可见高度为正（否则投影矩阵退化）
-			&& (!scene.ortho || scene.ortho_height > 0.0f);
-		//若场景描述非法
-		if (!scene_valid)
+			&& (!camera.ortho || camera.ortho_height > 0.0f);
+		//若相机参数非法
+		if (!camera_valid)
 		{
-			logger.warn("渲染器:: 场景描述非法（视场角 {}、近平面 {}、远平面 {}），整次拒绝",
-				scene.fov, scene.near_plane, scene.far_plane);
+			logger.warn("渲染器:: 场景相机非法（视场角 {}、近平面 {}、远平面 {}），整次拒绝",
+				camera.fov, camera.near_plane, camera.far_plane);
 			return;
 		}
 		//相机位置 / 注视点
-		impl->camera.position_set(scene.position[0], scene.position[1], scene.position[2]);
-		impl->camera.target_set(scene.target[0], scene.target[1], scene.target[2]);
+		impl->camera.position_set(camera.position[0], camera.position[1], camera.position[2]);
+		impl->camera.target_set(camera.target[0], camera.target[1], camera.target[2]);
 		//视场角与近远平面
-		impl->camera.fov_set(scene.fov);
-		impl->camera.near_far_set(scene.near_plane, scene.far_plane);
+		impl->camera.fov_set(camera.fov);
+		impl->camera.near_far_set(camera.near_plane, camera.far_plane);
 		//投影模式（正交 / 透视；高度合法性已在上方整体校验）
-		impl->camera.ortho_set(scene.ortho, scene.ortho_height);
+		impl->camera.ortho_set(camera.ortho, camera.ortho_height);
 		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
-		clear_color_set(scene.clear_color);
+		clear_color_set(camera.clear_color);
 		//光照（统一走 light_set：非法参数由后者整次拒绝）
-		light_set(scene.light_direction, scene.light_color, scene.light_intensity, scene.light_ambient);
+		light_set(light.direction, light.color, light.intensity, light.ambient);
 		/*
-		点光源组与镜面高光（第三十三轮）
+		点光源组与镜面高光
 		先按方向光重置点光源（light_set 已清空），再逐条追加；单条非法只跳过该条并告警，
-		数量超过上限（4）的部分同样忽略，不影响方向光与其余点光源。
+		数量超过上限（4）的部分同样忽略。
 		*/
-		for (uint32_t index = 0; index < scene.light_count; ++index)
+		for (uint32_t index = 0; index < light.point_count; ++index)
 			//超过上限的部分不再登记
 			if (index >= 4)
 				break;
 			else
-				light_add_point(scene.point_light_position[index], scene.point_light_color[index],
-					scene.point_light_radius[index], scene.point_light_intensity[index], scene.light_ambient,
-					scene.point_light_attenuation[index]);
+				light_add_point(light.point_position[index], light.point_color[index],
+					light.point_radius[index], light.point_intensity[index], light.ambient,
+					light.point_attenuation[index]);
 		/*
-		聚光灯组（第三十五轮）
-		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条并告警，
-		不影响方向光与已登记的其余光源。
+		聚光灯组
+		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
 		*/
-		for (uint32_t index = 0; index < scene.spot_light_count; ++index)
+		for (uint32_t index = 0; index < light.spot_count; ++index)
 			//超过上限的部分不再登记
 			if (index >= 4)
 				break;
 			else
-				light_add_spot(scene.spot_light_position[index], scene.spot_light_direction[index],
-					scene.spot_light_color[index], scene.spot_light_radius[index], scene.spot_light_intensity[index],
-					scene.spot_light_inner_deg[index], scene.spot_light_outer_deg[index], scene.light_ambient,
-					scene.spot_light_attenuation[index]);
-		specular_set(scene.specular_intensity, scene.specular_shininess);
-		//距离衰减模式（第三十七轮：非法值由 light_attenuation_set 拒绝并保持当前模式）
-		light_attenuation_set(scene.attenuation_mode);
-		//距离雾（第三十九轮：非法参数由 fog_set 整次忽略）
-		fog_set(scene.fog_color, scene.fog_density, scene.fog_start, scene.fog_end);
-		//环境光颜色（第四十一轮：非法分量由 ambient_color_set 整次忽略）
-		ambient_color_set(scene.ambient_color);
+				light_add_spot(light.spot_position[index], light.spot_direction[index],
+					light.spot_color[index], light.spot_radius[index], light.spot_intensity[index],
+					light.spot_inner_deg[index], light.spot_outer_deg[index], light.ambient,
+					light.spot_attenuation[index]);
+		specular_set(light.specular_intensity, light.specular_shininess);
+		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
+		light_attenuation_set(light.attenuation_mode);
+		//距离雾（非法参数由 fog_set 整次忽略）
+		fog_set(fog.color, fog.density, fog.start, fog.end);
+		//环境光颜色（非法分量由 ambient_color_set 整次忽略）
+		ambient_color_set(light.ambient_color);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
-		if (scene.light_count > 4)
-			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", scene.light_count);
+		if (light.point_count > 4)
+			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
 		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 4 盏上限）
-		if (scene.spot_light_count > 4)
-			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 4，仅登记前 4 盏（与点光源共用上限）", scene.spot_light_count);
+		if (light.spot_count > 4)
+			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 4，仅登记前 4 盏（与点光源共用上限）", light.spot_count);
+	}
+
+	//应用场景描述（兼容扁平聚合；内部拆成三组后转发）
+	void Renderer::scene_apply(const Scene_Data& scene)
+	{
+		//相机组
+		Camera_Data camera{};
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			camera.position[index] = scene.position[index];
+			camera.target[index] = scene.target[index];
+		}
+		camera.fov = scene.fov;
+		camera.near_plane = scene.near_plane;
+		camera.far_plane = scene.far_plane;
+		camera.ortho = scene.ortho;
+		camera.ortho_height = scene.ortho_height;
+		for (std::size_t index = 0; index < 4; ++index)
+			camera.clear_color[index] = scene.clear_color[index];
+		//光照组
+		Light_Data light{};
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			light.direction[index] = scene.light_direction[index];
+			light.color[index] = scene.light_color[index];
+			light.ambient_color[index] = scene.ambient_color[index];
+		}
+		light.intensity = scene.light_intensity;
+		light.ambient = scene.light_ambient;
+		light.point_count = scene.light_count;
+		for (uint32_t index = 0; index < 4; ++index)
+		{
+			for (std::size_t each = 0; each < 3; ++each)
+			{
+				light.point_position[index][each] = scene.point_light_position[index][each];
+				light.point_color[index][each] = scene.point_light_color[index][each];
+				light.spot_position[index][each] = scene.spot_light_position[index][each];
+				light.spot_direction[index][each] = scene.spot_light_direction[index][each];
+				light.spot_color[index][each] = scene.spot_light_color[index][each];
+			}
+			light.point_radius[index] = scene.point_light_radius[index];
+			light.point_intensity[index] = scene.point_light_intensity[index];
+			light.point_attenuation[index] = scene.point_light_attenuation[index];
+			light.spot_radius[index] = scene.spot_light_radius[index];
+			light.spot_intensity[index] = scene.spot_light_intensity[index];
+			light.spot_inner_deg[index] = scene.spot_light_inner_deg[index];
+			light.spot_outer_deg[index] = scene.spot_light_outer_deg[index];
+			light.spot_attenuation[index] = scene.spot_light_attenuation[index];
+		}
+		light.specular_intensity = scene.specular_intensity;
+		light.specular_shininess = scene.specular_shininess;
+		light.spot_count = scene.spot_light_count;
+		light.attenuation_mode = scene.attenuation_mode;
+		//雾组
+		Fog_Data fog{};
+		for (std::size_t index = 0; index < 3; ++index)
+			fog.color[index] = scene.fog_color[index];
+		fog.density = scene.fog_density;
+		fog.start = scene.fog_start;
+		fog.end = scene.fog_end;
+		//转发三组入参
+		scene_apply(camera, light, fog);
 	}
 
 	//设置方向光与环境光（第二十九轮新增）
