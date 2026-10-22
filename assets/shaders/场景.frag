@@ -41,6 +41,10 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 ambient_color;
 	//半球环境光（rgb = 地面颜色、w = 混合强度 0..1；第四十七轮）
 	vec4 ambient_ground;
+	//补光方向（xyz = 光传播方向）＋ 强度（w；0 = 关闭；第四十七轮）
+	vec4 fill_dir_intensity;
+	//补光颜色（rgb；第四十七轮）
+	vec4 fill_color;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -91,6 +95,19 @@ void main()
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
 			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)));
+		}
+		/*
+		补光（第四十七轮；第二盏方向光，强度为 0 视为关闭）
+		只与方向光做漫反射累加；高光同样取最大值（不与主光叠加，避免过曝）。
+		*/
+		if (scene.fill_dir_intensity.w > 0.0)
+		{
+			vec3 fill_to_light = -scene.fill_dir_intensity.xyz;
+			float fill_ndotl = max(dot(normal, fill_to_light), 0.0);
+			radiance += scene.fill_color.rgb * scene.fill_dir_intensity.w * fill_ndotl;
+			vec3 fill_halfway = normalize(fill_to_light + to_view);
+			float fill_spec_base = max(dot(normal, fill_halfway), 0.0);
+			specular = max(specular, pow(fill_spec_base, max(scene.light_common.z, 1.0)));
 		}
 		/*
 		点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）

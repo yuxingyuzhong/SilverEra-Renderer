@@ -458,8 +458,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；448 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色 ＋ 半球环境光；第四十七轮由 432 扩为 448）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 448,
+			//创建场景 UBO（主机可见、统一缓冲用途；480 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色 ＋ 半球环境光 ＋ 补光方向 / 颜色；第四十七轮由 432 扩为 480）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 480,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -569,6 +569,28 @@ namespace engine
 				impl->ambient_ground, 16, 432))
 			{
 				logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始补光方向与强度（offset 448、16 字节；第四十七轮）
+			float fill_dir_block[4] = {
+				impl->fill_direction[0], impl->fill_direction[1], impl->fill_direction[2], impl->fill_intensity,
+			};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				fill_dir_block, 16, 448))
+			{
+				logger.error("渲染器:: 场景补光方向写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始补光颜色（offset 464、16 字节；第四十七轮）
+			float fill_color_block[4] = {
+				impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], 0.0f,
+			};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				fill_color_block, 16, 464))
+			{
+				logger.error("渲染器:: 场景补光颜色写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -824,6 +846,14 @@ namespace engine
 		impl->ambient_ground[1] = 1.0f;
 		impl->ambient_ground[2] = 1.0f;
 		impl->ambient_ground[3] = 0.0f;
+		//补光恢复默认（朝 -Z、白、强度 0 = 关闭）
+		impl->fill_direction[0] = 0.0f;
+		impl->fill_direction[1] = 0.0f;
+		impl->fill_direction[2] = -1.0f;
+		impl->fill_color[0] = 1.0f;
+		impl->fill_color[1] = 1.0f;
+		impl->fill_color[2] = 1.0f;
+		impl->fill_intensity = 0.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -1065,6 +1095,26 @@ namespace engine
 			impl->ambient_ground, 16, 432))
 		{
 			logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽补光方向与强度（offset 448、16 字节；第四十七轮）
+		float fill_dir_block[4] = {
+			impl->fill_direction[0], impl->fill_direction[1], impl->fill_direction[2], impl->fill_intensity,
+		};
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+			fill_dir_block, 16, 448))
+		{
+			logger.error("渲染器:: 场景补光方向写入失败（帧槽 {}）", slot);
+			return false;
+		}
+		//写入该帧槽补光颜色（offset 464、16 字节；第四十七轮）
+		float fill_color_block[4] = {
+			impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], 0.0f,
+		};
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+			fill_color_block, 16, 464))
+		{
+			logger.error("渲染器:: 场景补光颜色写入失败（帧槽 {}）", slot);
 			return false;
 		}
 		/*
@@ -2936,6 +2986,8 @@ namespace engine
 		ambient_color_set(light.ambient_color);
 		//半球环境光（地面颜色 ＋ 混合强度；非法颜色由 ambient_ground_set 整次忽略）
 		ambient_ground_set(light.ambient_ground, light.ambient_hemisphere);
+		//补光（第二盏方向光；强度 0 = 关闭）
+		light_fill_set(light.fill_direction, light.fill_color, light.fill_intensity);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -2969,7 +3021,11 @@ namespace engine
 			light.color[index] = scene.light_color[index];
 			light.ambient_color[index] = scene.ambient_color[index];
 			light.ambient_ground[index] = scene.ambient_ground[index];
+			light.fill_direction[index] = scene.fill_direction[index];
+			light.fill_color[index] = scene.fill_color[index];
 		}
+		light.ambient_hemisphere = scene.ambient_hemisphere;
+		light.fill_intensity = scene.fill_intensity;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -2996,7 +3052,6 @@ namespace engine
 		light.specular_shininess = scene.specular_shininess;
 		light.spot_count = scene.spot_light_count;
 		light.attenuation_mode = scene.attenuation_mode;
-		light.ambient_hemisphere = scene.ambient_hemisphere;
 		//雾组
 		Fog_Data fog{};
 		for (std::size_t index = 0; index < 3; ++index)
@@ -3339,6 +3394,38 @@ namespace engine
 		for (std::size_t index = 0; index < 3; ++index)
 			impl->ambient_ground[index] = ground_color[index];
 		impl->ambient_ground[3] = blend;
+	}
+
+	//设置补光（第四十七轮新增；第二盏方向光）
+	void Renderer::light_fill_set(const float direction[3], const float color[3], float intensity)
+	{
+		//若尚未初始化或任一指针为空
+		if (impl == nullptr || !impl->initialized || direction == nullptr || color == nullptr)
+			return;
+		/*
+		参数校验（口径同 light_set）
+		方向长度须非零、颜色各分量须落在 [0,1]、强度须非负且有限；任一非法即整次拒绝。
+		*/
+		float length_squared = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
+		bool fill_valid = (length_squared > 1e-12f) && (intensity >= 0.0f) && (intensity <= 1e6f);
+		for (std::size_t index = 0; index < 3; ++index)
+			//颜色分量越界或非数即判非法
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				fill_valid = false;
+		//若补光参数非法
+		if (!fill_valid)
+		{
+			logger.warn("渲染器:: 补光参数非法（强度 {}），整次拒绝", intensity);
+			return;
+		}
+		//归一化方向（内部恒存单位向量）
+		float inverse_length = 1.0f / std::sqrt(length_squared);
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			impl->fill_direction[index] = direction[index] * inverse_length;
+			impl->fill_color[index] = color[index];
+		}
+		impl->fill_intensity = intensity;
 	}
 
 	//设置清屏色（RGBA）

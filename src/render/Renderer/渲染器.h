@@ -539,6 +539,12 @@ namespace engine
 		颜色任一分量非法（越界 / 非数 / 空指针）即整次忽略并告警；强度非数按 0 处理。
 		*/
 		void ambient_ground_set(const float ground_color[3], float hemisphere);
+		/*
+		设置补光（第四十七轮新增；第二盏方向光）
+		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭）。
+		补光只参与漫反射累加与高光取最大，与主方向光互不影响；任一参数非法即整次拒绝并告警。
+		*/
+		void light_fill_set(const float direction[3], const float color[3], float intensity);
 
 		/*
 		UI 通道（供上层接入 ImGui Vulkan 后端）
