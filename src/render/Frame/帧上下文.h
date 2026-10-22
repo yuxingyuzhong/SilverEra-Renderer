@@ -109,6 +109,8 @@ namespace engine
 		由门面写入，帧模块随「源 / 宿尺寸」一并推送（offset 96）。
 		*/
 		float post_params[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		//是否参与阴影投影（第五十二轮；文字绘制项为假，场景几何为真）
+		bool cast_shadow = true;
 	};
 
 	/*

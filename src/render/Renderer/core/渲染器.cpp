@@ -5,6 +5,10 @@
 #include "src/render/Renderer/core/结果检查.h"
 //std::nothrow
 #include <new>
+//glm 数学库（第五十二轮：光源空间视图投影矩阵）
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 //游戏引擎命名空间
 namespace engine
@@ -458,8 +462,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；544 字节 = … ＋ 补光颜色 ＋ 4 盏逐盏光泽度；第五十一轮由 480 扩为 544）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 544,
+			//创建场景 UBO（主机可见、统一缓冲用途；624 字节 = … ＋ 逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数；第五十二轮由 544 扩为 624）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 624,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -601,6 +605,15 @@ namespace engine
 				shininess_block, 64, 480))
 			{
 				logger.error("渲染器:: 场景逐盏光泽度写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始阴影块（offset 544、80 字节；第五十二轮：光源空间矩阵 64 ＋ 阴影参数 16）
+			float shadow_init_block[20] = {};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				shadow_init_block, 80, 544))
+			{
+				logger.error("渲染器:: 场景阴影参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -781,6 +794,44 @@ namespace engine
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
 		impl->initialized = true;
+		/*
+		⑳ 阴影资源（第五十二轮）
+		固定 1024×1024 阴影目标（颜色存打包深度）＋ 阴影管线（与场景管线共享管线布局，
+		光源空间矩阵经推送常量下发）；并把阴影图写入各帧槽场景采样集的 binding 1。
+		默认关闭，故不改变既有画面。
+		*/
+		{
+			//① 阴影目标（固定 1024×1024，颜色存打包深度）
+			if (!render_target_create(impl->shadow_target, Impl::SHADOW_SIZE, Impl::SHADOW_SIZE))
+			{
+				logger.error("渲染器:: 阴影目标创建失败");
+				shutdown();
+				return false;
+			}
+			//② 把阴影图写入各帧槽场景采样集的 binding 1（管线在首次开启阴影时懒登记）
+			VkImage shadow_image = VK_NULL_HANDLE;
+			VkImageView shadow_view = VK_NULL_HANDLE;
+			VkImageView shadow_depth_view = VK_NULL_HANDLE;
+			VkExtent2D shadow_extent{};
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler sampler = VK_NULL_HANDLE;
+			if (!impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
+				shadow_depth_view, shadow_extent)
+				|| !impl->texture.texture_bind_get(impl->default_texture, default_view, sampler))
+			{
+				logger.error("渲染器:: 阴影图绑定失败：资源查询失败");
+				shutdown();
+				return false;
+			}
+			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+				//把阴影图写入该帧槽场景采样集的 binding 1
+				if (!impl->pipeline.shadow_bind(static_cast<uint32_t>(slot), sampler, shadow_view))
+				{
+					logger.error("渲染器:: 阴影图绑定失败（帧槽 {}）", slot);
+					shutdown();
+					return false;
+				}
+		}
 		logger.info("渲染器:: 初始化完成（校验层 {}）", impl->device.validation_get() ? "开" : "关");
 		return true;
 	}
@@ -792,6 +843,25 @@ namespace engine
 		if (impl == nullptr)
 			return;
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
+		/*
+		阴影资源（第五十二轮）
+		须先于渲染目标与管线模块销毁：阴影管线为门面具名管线（着色器模块所有权在门面）。
+		*/
+		if (impl->initialized)
+		{
+			//归还阴影管线
+			if (impl->shadow_pipeline != 0)
+			{
+				pipeline_unload(impl->shadow_pipeline);
+				impl->shadow_pipeline = 0;
+			}
+			//归还阴影目标
+			if (impl->shadow_target != 0)
+			{
+				render_target_destroy(impl->shadow_target);
+				impl->shadow_target = 0;
+			}
+		}
 		impl->frame.destroy();
 		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
 		impl->text.shutdown();
@@ -999,6 +1069,101 @@ namespace engine
 		}
 
 		/*
+		⑤a 光源空间矩阵（第五十二轮）
+		无论阴影是否开启都先算好并写入 UBO，使开关切换可即时生效。
+		以方向光传播方向构造正交视锥（覆盖以原点为中心、半径 12 的场景）；
+		投影与相机同口径做 Y 翻转；方向与世界上方平行时改用 X 轴作上向量，避免 lookAt 退化。
+		*/
+		{
+			glm::vec3 light_dir(impl->light_direction[0], impl->light_direction[1], impl->light_direction[2]);
+			//方向退化时取默认传播方向
+			if (glm::dot(light_dir, light_dir) < 1e-12f)
+				light_dir = glm::vec3(0.0f, 0.0f, -1.0f);
+			light_dir = glm::normalize(light_dir);
+			//上向量与光向平行时改用 X 轴
+			glm::vec3 up = glm::abs(light_dir.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+			//光源机位位于场景中心的「逆光向」一侧
+			glm::vec3 eye = -light_dir * 20.0f;
+			glm::mat4 light_view = glm::lookAt(eye, glm::vec3(0.0f), up);
+			glm::mat4 light_proj = glm::ortho(-12.0f, 12.0f, -12.0f, 12.0f, 1.0f, 60.0f);
+			light_proj[1][1] *= -1.0f;
+			glm::mat4 light_vp = light_proj * light_view;
+			std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
+		}
+		/*
+		⑤b 阴影 pass（第五十二轮）
+		以光源视角把「参与投影的几何」渲染进 1024×1024 阴影目标（RGBA8 打包深度）；
+		该 pass 走独立的离屏提交（推进帧槽），故必须在取主 pass 帧槽之前完成；
+		随后等尽在途帧，保证主 pass 采样时阴影图已写完。
+		*/
+		if (impl->shadow_enabled && impl->shadow_pipeline != 0 && impl->shadow_target != 0
+			&& !impl->pending_items.empty())
+		{
+			//阴影 pass 使用的帧槽（render_to_target 内部同样推进帧计数）
+			uint32_t shadow_slot = impl->frame.slot_index_get();
+			//等待该槽上一轮提交完成，再写实例缓冲
+			if (!impl->frame.slot_wait())
+			{
+				logger.error("渲染器:: 阴影 pass 等待帧槽失败");
+				return false;
+			}
+			//写入该槽实例缓冲（与主 pass 使用同一批模型矩阵）
+			if (!impl->pending_instances.empty())
+			{
+				VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+				if (!impl->memory.buffer_write(impl->instance_buffers[shadow_slot],
+					impl->instance_allocations[shadow_slot], impl->pending_instances.data(), instance_bytes, 0))
+				{
+					logger.error("渲染器:: 阴影 pass 实例缓冲写入失败");
+					return false;
+				}
+			}
+			//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
+			std::vector<Frame_Render_Item> shadow_items;
+			shadow_items.reserve(impl->pending_items.size());
+			VkPipeline shadow_pipeline = impl->pipeline.pipeline_by_handle_get(impl->shadow_pipeline);
+			VkPipelineLayout shadow_layout = impl->pipeline.layout_get();
+			for (const auto& item : impl->pending_items)
+			{
+				//文字等非投影项跳过
+				if (!item.cast_shadow)
+					continue;
+				Frame_Render_Item copy = item;
+				copy.pipeline = shadow_pipeline;
+				copy.layout = shadow_layout;
+				copy.scene_set = VK_NULL_HANDLE;
+				copy.sampler_set = VK_NULL_HANDLE;
+				copy.descriptor_set_count = 0;
+				copy.push_constants = impl->light_view_proj;
+				copy.push_constant_size = 64;
+				copy.push_constant_offset = 0;
+				shadow_items.push_back(copy);
+			}
+			//阴影目标附件
+			Frame_Render_Target shadow_target{};
+			if (!impl->render_target.target_get(impl->shadow_target, shadow_target.color_image,
+				shadow_target.color_view, shadow_target.depth_view, shadow_target.extent))
+			{
+				logger.error("渲染器:: 阴影目标附件查询失败");
+				return false;
+			}
+			//阴影图清空为全 0（打包深度 0 = 最远）
+			const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			if (!impl->frame.render_to_target(shadow_target, shadow_items.data(),
+				static_cast<uint32_t>(shadow_items.size()), shadow_clear))
+			{
+				logger.error("渲染器:: 阴影 pass 提交失败");
+				return false;
+			}
+			//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
+			if (!impl->frame.frames_wait())
+			{
+				logger.error("渲染器:: 阴影 pass 等待完成失败");
+				return false;
+			}
+		}
+
+		/*
 		⑤ 取本帧帧槽序号（与帧模块内部一致），把相机视图 × 投影写入该槽 UBO 并绑定 set0；
 		再为待绘制项填装 set0 / set1 描述符集（descriptor_set_count = 2）。
 		推送常量恒为列主序 16 浮点模型矩阵（mesh_draw 已写入对应的 pending_transforms 存储）。
@@ -1019,11 +1184,12 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块写入（544 字节 = 136 浮点；第四十八轮由 7 次分段写入合并为单次 buffer_write，第五十一轮扩为 544）
+		场景 UBO 整块写入（624 字节 = 156 浮点；第五十二轮由 544 扩为 624）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源、64 聚光参数、
-		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色、120 逐盏光泽度。
+		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色、
+		120 逐盏光泽度、136 光源空间矩阵、152 阴影参数。
 		*/
-		float scene_block[136] = {};
+		float scene_block[156] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1102,8 +1268,18 @@ namespace engine
 		//逐盏光泽度（第五十一轮；std140 float[4] 每盏占 16 字节 → 偏移 120 + light × 4）
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 			scene_block[120 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
+		/*
+		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
+		写入 UBO 供场景片元解包比较；阴影关闭时字段保留但不参与计算。
+		*/
+		for (std::size_t index = 0; index < 16; ++index)
+			scene_block[136 + index] = impl->light_view_proj[index];
+		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长、w 保留）
+		scene_block[152] = impl->shadow_enabled ? 1.0f : 0.0f;
+		scene_block[153] = impl->shadow_bias;
+		scene_block[154] = static_cast<float>(Impl::SHADOW_SIZE);
 		//整块写入（单次驱动调用）
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 544, 0))
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 624, 0))
 		{
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
@@ -1839,6 +2015,8 @@ namespace engine
 		item.instance_buffer = VK_NULL_HANDLE;
 		item.instance_offset = instance_offset;
 		item.instance_count = 1;
+		//阴影投影标记（第五十二轮：文字绘制不参与投影）
+		item.cast_shadow = !impl->in_text_draw;
 		/*
 		可选颜色推送（文字着色）
 		矩阵已由实例缓冲承载，推送块前 64 字节仅用于占位（单位矩阵），后 16 字节为颜色；
@@ -1941,6 +2119,8 @@ namespace engine
 		item.instance_buffer = VK_NULL_HANDLE;
 		item.instance_offset = instance_offset;
 		item.instance_count = count;
+		//阴影投影标记（第五十二轮：文字绘制不参与投影）
+		item.cast_shadow = !impl->in_text_draw;
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
@@ -2761,8 +2941,13 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return false;
+		//标记进入文字绘制（第五十二轮：文字网格不参与阴影投影）
+		impl->in_text_draw = true;
 		//转发文字绘制子系统
-		return impl->text.draw_layout(font, text, pixel_x, pixel_y, layout);
+		const bool drawn = impl->text.draw_layout(font, text, pixel_x, pixel_y, layout);
+		//恢复场景绘制标记
+		impl->in_text_draw = false;
+		return drawn;
 	}
 
 	//设置泛光参数（阈值 / 软膝 / 强度）
@@ -2981,6 +3166,9 @@ namespace engine
 		light_fill_set(light.fill_direction, light.fill_color, light.fill_intensity, light.fill_specular);
 		//方向光逐光高光缩放（第五十轮；非法值由 setter 忽略）
 		directional_specular_set(light.directional_specular);
+		//方向光阴影开关与偏置（第五十二轮）
+		shadow_enable_set(light.shadow_enabled != 0);
+		shadow_bias_set(light.shadow_bias);
 		//若点光源数量超过上限则告警（已登记前 4 盏）
 		if (light.point_count > 4)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
@@ -3021,6 +3209,8 @@ namespace engine
 		light.fill_intensity = scene.fill_intensity;
 		light.directional_specular = scene.directional_specular;
 		light.fill_specular = scene.fill_specular;
+		light.shadow_enabled = scene.shadow_enabled;
+		light.shadow_bias = scene.shadow_bias;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -3459,6 +3649,59 @@ namespace engine
 			return;
 		}
 		impl->directional_specular = scale;
+	}
+
+	//开关方向光阴影（第五十二轮新增）
+	void Renderer::shadow_enable_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		/*
+		首次开启时懒登记阴影管线
+		未启用阴影的进程不承担管线创建开销；登记失败则保持关闭并告警（不改变其余状态）。
+		*/
+		if (enabled && impl->shadow_pipeline == 0)
+		{
+			uint64_t shadow_pipeline = 0;
+			if (!pipeline_load(shadow_pipeline, "阴影.vert.spv", "阴影.frag.spv", Blend_Mode::Opaque))
+			{
+				logger.error("渲染器:: 阴影管线登记失败，阴影保持关闭");
+				impl->shadow_enabled = false;
+				return;
+			}
+			impl->shadow_pipeline = shadow_pipeline;
+		}
+		impl->shadow_enabled = enabled;
+	}
+
+	//阴影是否启用（第五十二轮）
+	bool Renderer::shadow_enabled(void) const
+	{
+		//未初始化一律按关闭处理
+		return impl != nullptr && impl->initialized && impl->shadow_enabled;
+	}
+
+	//设置阴影深度偏置（第五十二轮）
+	void Renderer::shadow_bias_set(float bias)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//偏置须落在 0..0.05（取反比较使 NaN 判非法）
+		if (!(bias >= 0.0f && bias <= 0.05f))
+		{
+			logger.warn("渲染器:: 阴影深度偏置非法（{}），整次忽略", bias);
+			return;
+		}
+		impl->shadow_bias = bias;
+	}
+
+	//当前阴影深度偏置（第五十二轮）
+	float Renderer::shadow_bias(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->shadow_bias : 0.003f;
 	}
 
 	//设置清屏色（RGBA）

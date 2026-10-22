@@ -203,6 +203,20 @@ namespace engine
 		Ui_Channel_Context ui_channel;
 		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 		Render_Target_Context render_target;
+		//阴影图边长（第五十二轮；固定 1024，兼顾精度与开销）
+		static constexpr uint32_t SHADOW_SIZE = 1024;
+		//阴影管线句柄（第五十二轮；0 = 未登记）
+		uint64_t shadow_pipeline = 0;
+		//阴影目标句柄（第五十二轮；0 = 未创建）
+		uint64_t shadow_target = 0;
+		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
+		bool shadow_enabled = false;
+		//阴影深度偏置（第五十二轮）
+		float shadow_bias = 0.003f;
+		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
+		float light_view_proj[16] = {};
+		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）
+		bool in_text_draw = false;
 		//本帧渲染目标句柄（0 = 直接渲染到交换链）
 		uint64_t active_target = 0;
 		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）

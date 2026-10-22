@@ -451,11 +451,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 544 字节：… ＋ 环境光颜色 ＋ 半球环境光 ＋ 补光方向 / 颜色 ＋ 4 盏逐盏光泽度；第五十一轮由 480 扩为 544）
+		//缓冲描述（场景 UBO 624 字节：… ＋ 4 盏逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数；第五十二轮由 544 扩为 624）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 544;
+		buffer_info.range = 624;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -489,21 +489,50 @@ namespace engine
 		image_info.imageView = view;
 		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		//描述符写（set 1 binding 0 与 binding 1 同视图：保证双源片元也有已写描述符）
-		VkWriteDescriptorSet writes[2]{};
-		for (uint32_t each = 0; each < 2; ++each)
-		{
-			writes[each].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			writes[each].dstSet = sampler_sets[slot];
-			writes[each].dstBinding = each;
-			writes[each].dstArrayElement = 0;
-			writes[each].descriptorCount = 1;
-			writes[each].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			writes[each].pImageInfo = &image_info;
-		}
+		//描述符写（set 1 binding 0；binding 1 专用于阴影图，见 shadow_bind）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sampler_sets[slot];
+		write.dstBinding = 0;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
 
 		//更新描述符集
-		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽的场景采样器集写阴影图（set 1 binding 1）
+	bool Pipeline_Context::shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//前置：设备、目标集、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 阴影图绑定参数不完整");
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 1）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sampler_sets[slot];
+		write.dstBinding = 1;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 		return true;
 	}
 

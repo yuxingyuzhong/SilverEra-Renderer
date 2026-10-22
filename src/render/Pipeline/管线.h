@@ -118,8 +118,13 @@ namespace engine
 		VkDescriptorSet post_set_get(uint32_t slot, uint32_t index = 0) const;
 		//向第 slot 帧槽写场景 UBO（set 0）
 		bool scene_bind(uint32_t slot, VkBuffer ubo_buffer);
-		//向第 slot 帧槽写采样器（set 1）
+		//向第 slot 帧槽写采样器（set 1 binding 0；binding 1 由 shadow_bind 独立维护）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
+		/*
+		向第 slot 帧槽的场景采样器集写阴影图（set 1 binding 1；第五十二轮）
+		场景片元以 binding 1 采样阴影图；后处理集的 binding 1 由 post_scene_bind 独立维护。
+		*/
+		bool shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 		//向第 slot 帧槽的后处理采样器集写采样器（set 1 binding 0；index ∈ [0, POST_SET_PER_SLOT)）
 		bool post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		/*

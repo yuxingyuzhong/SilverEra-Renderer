@@ -124,6 +124,9 @@ namespace engine
 		float directional_specular = 1.0f;
 		//补光逐光高光缩放（第五十轮；语义同 directional_specular）
 		float fill_specular = 1.0f;
+		//方向光阴影开关（第五十二轮；0 = 关闭、1 = 开启）与深度偏置（0..0.05）
+		int shadow_enabled = 0;
+		float shadow_bias = 0.003f;
 	};
 
 	/*
@@ -271,5 +274,8 @@ namespace engine
 		//方向光 / 补光的逐光高光缩放（第五十轮；语义见 Light_Data::directional_specular / fill_specular）
 		float directional_specular = 1.0f;
 		float fill_specular = 1.0f;
+		//方向光阴影开关与深度偏置（第五十二轮；语义见 Light_Data::shadow_enabled / shadow_bias）
+		int shadow_enabled = 0;
+		float shadow_bias = 0.003f;
 	};
 }

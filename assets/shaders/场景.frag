@@ -12,6 +12,8 @@ layout(location = 0) out vec4 out_color;
 
 //反照率贴图（描述符集 1）：线性过滤 ＋ 重复寻址
 layout(set = 1, binding = 0) uniform sampler2D albedo;
+//阴影图（第五十二轮；set 1 binding 1，RGBA8 打包 32 位深度，以 texelFetch 读取规避插值）
+layout(set = 1, binding = 1) uniform sampler2D shadow_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -47,10 +49,47 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 fill_color;
 	//逐盏高光光泽度（std140：每盏占 16 字节；0 = 跟随全局；第五十一轮）
 	float point_shininess[4];
+	//光源空间视图投影矩阵（第五十二轮；配合 shadow_params 做方向光阴影）
+	mat4 light_view_proj;
+	//阴影参数（x = 启用 >0.5、y = 深度偏置、z = 阴影图边长（像素）、w 保留；第五十二轮）
+	vec4 shadow_params;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
 const int POINT_LIGHT_MAX = 4;
+
+/*
+方向光阴影系数（第五十二轮）
+shadow_params：x = 启用（> 0.5 生效）、y = 深度偏置、z = 阴影图边长（像素）。
+返回 0 = 完全遮蔽、1 = 完全受光；阴影图范围外或 w ≤ 0 时视为受光。
+深度在阴影 pass 中打包进 RGBA8（见 阴影.frag），此处解包后做单点比较。
+*/
+float shadow_factor(vec3 world_pos)
+{
+	//未启用阴影
+	if (scene.shadow_params.x < 0.5)
+		return 1.0;
+	//光源空间裁剪坐标
+	vec4 light_clip = scene.light_view_proj * vec4(world_pos, 1.0);
+	//位于光源背后
+	if (light_clip.w <= 0.000001)
+		return 1.0;
+	vec3 ndc = light_clip.xyz / light_clip.w;
+	vec2 uv = ndc.xy * 0.5 + 0.5;
+	//阴影图外一律受光（避免边界拉伸）
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+		return 1.0;
+	int size = int(scene.shadow_params.z + 0.5);
+	//纹素坐标（最近点，避免插值得到无意义的打包字节）
+	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
+	vec4 packed = texelFetch(shadow_map, texel, 0);
+	//解包 32 位深度
+	float stored = dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
+	float current = ndc.z - scene.shadow_params.y;
+	//片元比阴影图记录更近则受光，否则遮蔽
+	return current <= stored ? 1.0 : 0.0;
+}
 
 void main()
 {
@@ -93,10 +132,12 @@ void main()
 		{
 			vec3 to_light = -scene.light_dir.xyz;
 			float ndotl = max(dot(normal, to_light), 0.0);
-			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl;
+			//方向光阴影系数（第五十二轮；未启用时恒 1）
+			float dir_shadow = shadow_factor(in_world);
+			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w);
+			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w * dir_shadow);
 		}
 		/*
 		补光（第四十七轮；第二盏方向光，强度为 0 视为关闭）

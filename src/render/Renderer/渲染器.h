@@ -549,6 +549,18 @@ namespace engine
 		*/
 		void directional_specular_set(float scale);
 		/*
+		方向光阴影开关 / 深度偏置（第五十二轮新增）
+		开启后每帧以方向光视角把场景几何渲染进 1024×1024 阴影图（RGBA8 打包 32 位深度），
+		主 pass 按「光源空间深度比较」对方向光漫反射与高光做遮蔽；默认关闭（既有画面逐字节不变）。
+		*/
+		void shadow_enable_set(bool enabled);
+		//阴影是否启用（未初始化时为假）
+		bool shadow_enabled(void) const;
+		//设置阴影深度偏置（0..0.05；越界 / 非数整次忽略）
+		void shadow_bias_set(float bias);
+		//当前阴影深度偏置（未初始化时为默认 0.003）
+		float shadow_bias(void) const;
+		/*
 		设置补光（第四十七轮新增；第二盏方向光）
 		direction 为光传播方向（长度须非零，内部归一化），color 为颜色（分量 0..1），intensity 为强度（0 = 关闭），
 		specular 为逐光高光缩放（第五十轮新增；0..100，1 = 跟随全局，0 = 该光不产生高光）。
