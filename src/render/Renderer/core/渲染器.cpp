@@ -1058,6 +1058,8 @@ namespace engine
 			scene_block[base + 16 + 0] = impl->point_lights[light].spot_inner_cos;
 			scene_block[base + 16 + 1] = impl->point_lights[light].spot_outer_cos;
 			scene_block[base + 16 + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+			//w = 逐盏高光缩放（第四十九轮）
+			scene_block[base + 16 + 3] = impl->point_lights[light].specular_scale;
 		}
 		//雾参数（雾色 ＋ 密度 ＋ 区间）
 		scene_block[96] = impl->fog_color[0];
@@ -2934,7 +2936,7 @@ namespace engine
 			else
 				light_add_point(light.point_position[index], light.point_color[index],
 					light.point_radius[index], light.point_intensity[index], light.ambient,
-					light.point_attenuation[index]);
+					light.point_attenuation[index], light.point_specular[index]);
 		/*
 		聚光灯组
 		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
@@ -2947,7 +2949,7 @@ namespace engine
 				light_add_spot(light.spot_position[index], light.spot_direction[index],
 					light.spot_color[index], light.spot_radius[index], light.spot_intensity[index],
 					light.spot_inner_deg[index], light.spot_outer_deg[index], light.ambient,
-					light.spot_attenuation[index]);
+					light.spot_attenuation[index], light.spot_specular[index]);
 		specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(light.attenuation_mode);
@@ -3013,11 +3015,13 @@ namespace engine
 			light.point_radius[index] = scene.point_light_radius[index];
 			light.point_intensity[index] = scene.point_light_intensity[index];
 			light.point_attenuation[index] = scene.point_light_attenuation[index];
+			light.point_specular[index] = scene.point_light_specular[index];
 			light.spot_radius[index] = scene.spot_light_radius[index];
 			light.spot_intensity[index] = scene.spot_light_intensity[index];
 			light.spot_inner_deg[index] = scene.spot_light_inner_deg[index];
 			light.spot_outer_deg[index] = scene.spot_light_outer_deg[index];
 			light.spot_attenuation[index] = scene.spot_light_attenuation[index];
+			light.spot_specular[index] = scene.spot_light_specular[index];
 		}
 		light.specular_intensity = scene.specular_intensity;
 		light.specular_shininess = scene.specular_shininess;
@@ -3116,9 +3120,9 @@ namespace engine
 		impl->light_intensity = 0.0f;
 	}
 
-	//追加一个点光源（第三十二轮新增；第四十六轮支持逐光源衰减模式）
+	//追加一个点光源（第三十二轮新增；第四十六轮支持逐光源衰减模式；第四十九轮支持逐盏高光缩放）
 	bool Renderer::light_add_point(const float position[3], const float color[3], float radius, float intensity,
-		float ambient, uint32_t attenuation)
+		float ambient, uint32_t attenuation, float specular)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
@@ -3128,7 +3132,9 @@ namespace engine
 		任一非法或已满即返回假并告警，既有光源保持不变。
 		*/
 		bool light_valid = (radius > 0.0f) && (radius <= 1e6f) && (intensity >= 0.0f) && (intensity <= 1e6f)
-			&& (ambient >= 0.0f) && (ambient <= 1.0f);
+			&& (ambient >= 0.0f) && (ambient <= 1.0f)
+			//逐盏高光缩放须落在 0..100（第四十九轮）
+			&& (specular >= 0.0f) && (specular <= 100.0f);
 		//位置须为有限值
 		for (std::size_t index = 0; index < 3; ++index)
 			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
@@ -3161,6 +3167,8 @@ namespace engine
 		light.intensity = intensity;
 		//逐光源衰减模式（大于 2 按 2 处理；0 = 跟随全局）
 		light.attenuation = attenuation > 2 ? 2 : attenuation;
+		//逐盏高光缩放（第四十九轮）
+		light.specular_scale = specular;
 		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
 		light.is_spot = false;
 		impl->point_light_count += 1;
@@ -3168,9 +3176,10 @@ namespace engine
 		return true;
 	}
 
-	//追加一个聚光灯（第三十四轮新增；第四十六轮支持逐光源衰减模式）
+	//追加一个聚光灯（第三十四轮新增；第四十六轮支持逐光源衰减模式；第四十九轮支持逐盏高光缩放）
 	bool Renderer::light_add_spot(const float position[3], const float direction[3], const float color[3],
-		float radius, float intensity, float inner_deg, float outer_deg, float ambient, uint32_t attenuation)
+		float radius, float intensity, float inner_deg, float outer_deg, float ambient, uint32_t attenuation,
+		float specular)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
@@ -3184,7 +3193,9 @@ namespace engine
 		bool light_valid = (direction_length_squared > 1e-12f) && (radius > 0.0f) && (radius <= 1e6f)
 			&& (intensity >= 0.0f) && (intensity <= 1e6f)
 			&& (ambient >= 0.0f) && (ambient <= 1.0f)
-			&& (inner_deg > 0.0f) && (inner_deg < outer_deg) && (outer_deg <= 90.0f);
+			&& (inner_deg > 0.0f) && (inner_deg < outer_deg) && (outer_deg <= 90.0f)
+			//逐盏高光缩放须落在 0..100（第四十九轮）
+			&& (specular >= 0.0f) && (specular <= 100.0f);
 		//位置须为有限值
 		for (std::size_t index = 0; index < 3; ++index)
 			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
@@ -3220,6 +3231,8 @@ namespace engine
 		light.intensity = intensity;
 		//逐光源衰减模式（大于 2 按 2 处理；0 = 跟随全局）
 		light.attenuation = attenuation > 2 ? 2 : attenuation;
+		//逐盏高光缩放（第四十九轮）
+		light.specular_scale = specular;
 		light.is_spot = true;
 		//锥角转余弦（度 → 弧度；内角更小故其余弦更大）
 		constexpr float degrees_to_radians = 0.017453292519943295f;

@@ -62,6 +62,8 @@ namespace engine
 		float point_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//点光源逐盏衰减模式（0 跟随全局 / 1 线性 / 2 平方反比；>2 按 2）
 		uint32_t point_attenuation[4] = {};
+		//点光源逐盏高光缩放（第四十九轮；1 = 跟随全局，0 = 该灯不产生高光；0..100）
+		float point_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//镜面高光强度（≥ 0；0 = 关闭）
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
@@ -88,6 +90,8 @@ namespace engine
 		float spot_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
 		//聚光灯逐盏衰减模式（语义同 point_attenuation）
 		uint32_t spot_attenuation[4] = {};
+		//聚光灯逐盏高光缩放（第四十九轮；语义同 point_specular）
+		float spot_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//全局距离衰减模式（0 = 线性、1 = 平方反比）
 		uint32_t attenuation_mode = 0;
 		//环境光颜色（RGB，0..1；默认白 = 与标量环境光等价）
@@ -191,6 +195,8 @@ namespace engine
 		0 = 跟随全局（attenuation_mode）、1 = 线性、2 = 平方反比；其它取值按 2 处理。
 		*/
 		uint32_t point_light_attenuation[4] = {};
+		//点光源逐盏高光缩放（第四十九轮；语义见 Light_Data::point_specular）
+		float point_light_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//镜面高光强度（≥ 0；0 = 关闭）
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
@@ -222,6 +228,8 @@ namespace engine
 		float spot_light_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
 		//聚光灯逐盏衰减模式（第四十六轮；语义同 point_light_attenuation）
 		uint32_t spot_light_attenuation[4] = {};
+		//聚光灯逐盏高光缩放（第四十九轮；语义同 point_light_specular）
+		float spot_light_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		/*
 		距离衰减模式（第三十七轮）
 		0 = 线性（默认）、1 = 平方反比；其它取值由 scene_apply 忽略并告警（保持门面当前模式）。

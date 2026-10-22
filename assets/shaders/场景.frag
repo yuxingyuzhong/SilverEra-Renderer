@@ -31,7 +31,7 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_color_intensity[4];
 	//聚光灯方向（xyz = 光传播方向）＋ 有效标志（w > 0.5 表示该槽为聚光灯；第三十四轮）
 	vec4 point_spot_dir[4];
-	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；z = 逐光源衰减模式、w 保留；第三十四 / 四十六轮）
+	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；z = 逐光源衰减模式、w = 逐盏高光缩放；第三十四 / 四十六 / 四十九轮）
 	vec4 point_spot_cone[4];
 	//雾色（rgb）＋ 密度（w；0 = 关闭；第三十八轮）
 	vec4 fog_color_density;
@@ -160,7 +160,8 @@ void main()
 			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * attenuation * cone);
+			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * attenuation * cone
+				* scene.point_spot_cone[index].w);
 		}
 	}
 	//最终颜色：反照率 × 累加辐射度 ＋ 高光（强度由 light_common.y 统一缩放），钳制到 [0,1]
