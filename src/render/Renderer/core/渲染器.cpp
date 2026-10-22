@@ -458,8 +458,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；480 字节 = mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色 ＋ 半球环境光 ＋ 补光方向 / 颜色；第四十七轮由 432 扩为 480）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 480,
+			//创建场景 UBO（主机可见、统一缓冲用途；544 字节 = … ＋ 补光颜色 ＋ 4 盏逐盏光泽度；第五十一轮由 480 扩为 544）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 544,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -592,6 +592,15 @@ namespace engine
 				fill_color_block, 16, 464))
 			{
 				logger.error("渲染器:: 场景补光颜色写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始逐盏光泽度（offset 480、64 字节；第五十一轮：4 盏，std140 每盏占 16 字节）
+			float shininess_block[16] = {};
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				shininess_block, 64, 480))
+			{
+				logger.error("渲染器:: 场景逐盏光泽度写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -1010,11 +1019,11 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块写入（480 字节 = 120 浮点；第四十八轮由 7 次分段写入合并为单次 buffer_write）
+		场景 UBO 整块写入（544 字节 = 136 浮点；第四十八轮由 7 次分段写入合并为单次 buffer_write，第五十一轮扩为 544）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源、64 聚光参数、
-		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色。
+		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色、120 逐盏光泽度。
 		*/
-		float scene_block[120] = {};
+		float scene_block[136] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1090,8 +1099,11 @@ namespace engine
 		scene_block[117] = impl->fill_color[1];
 		scene_block[118] = impl->fill_color[2];
 		scene_block[119] = impl->fill_specular;
+		//逐盏光泽度（第五十一轮；std140 float[4] 每盏占 16 字节 → 偏移 120 + light × 4）
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+			scene_block[120 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		//整块写入（单次驱动调用）
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 480, 0))
+		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 544, 0))
 		{
 			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 			return false;
@@ -2942,7 +2954,7 @@ namespace engine
 			else
 				light_add_point(light.point_position[index], light.point_color[index],
 					light.point_radius[index], light.point_intensity[index], light.ambient,
-					light.point_attenuation[index], light.point_specular[index]);
+					light.point_attenuation[index], light.point_specular[index], light.point_shininess[index]);
 		/*
 		聚光灯组
 		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
@@ -2955,7 +2967,7 @@ namespace engine
 				light_add_spot(light.spot_position[index], light.spot_direction[index],
 					light.spot_color[index], light.spot_radius[index], light.spot_intensity[index],
 					light.spot_inner_deg[index], light.spot_outer_deg[index], light.ambient,
-					light.spot_attenuation[index], light.spot_specular[index]);
+					light.spot_attenuation[index], light.spot_specular[index], light.spot_shininess[index]);
 		specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(light.attenuation_mode);
@@ -3026,12 +3038,14 @@ namespace engine
 			light.point_intensity[index] = scene.point_light_intensity[index];
 			light.point_attenuation[index] = scene.point_light_attenuation[index];
 			light.point_specular[index] = scene.point_light_specular[index];
+			light.point_shininess[index] = scene.point_light_shininess[index];
 			light.spot_radius[index] = scene.spot_light_radius[index];
 			light.spot_intensity[index] = scene.spot_light_intensity[index];
 			light.spot_inner_deg[index] = scene.spot_light_inner_deg[index];
 			light.spot_outer_deg[index] = scene.spot_light_outer_deg[index];
 			light.spot_attenuation[index] = scene.spot_light_attenuation[index];
 			light.spot_specular[index] = scene.spot_light_specular[index];
+			light.spot_shininess[index] = scene.spot_light_shininess[index];
 		}
 		light.specular_intensity = scene.specular_intensity;
 		light.specular_shininess = scene.specular_shininess;
@@ -3130,9 +3144,9 @@ namespace engine
 		impl->light_intensity = 0.0f;
 	}
 
-	//追加一个点光源（第三十二轮新增；第四十六轮支持逐光源衰减模式；第四十九轮支持逐盏高光缩放）
+	//追加一个点光源（第三十二轮新增；第四十六轮逐光源衰减；第四十九轮逐盏高光缩放；第五十一轮逐盏光泽度）
 	bool Renderer::light_add_point(const float position[3], const float color[3], float radius, float intensity,
-		float ambient, uint32_t attenuation, float specular)
+		float ambient, uint32_t attenuation, float specular, float shininess)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
@@ -3144,7 +3158,9 @@ namespace engine
 		bool light_valid = (radius > 0.0f) && (radius <= 1e6f) && (intensity >= 0.0f) && (intensity <= 1e6f)
 			&& (ambient >= 0.0f) && (ambient <= 1.0f)
 			//逐盏高光缩放须落在 0..100（第四十九轮）
-			&& (specular >= 0.0f) && (specular <= 100.0f);
+			&& (specular >= 0.0f) && (specular <= 100.0f)
+			//逐盏光泽度须为 0（跟随全局）或 1..1000（第五十一轮）
+			&& (shininess == 0.0f || (shininess >= 1.0f && shininess <= 1000.0f));
 		//位置须为有限值
 		for (std::size_t index = 0; index < 3; ++index)
 			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
@@ -3179,6 +3195,8 @@ namespace engine
 		light.attenuation = attenuation > 2 ? 2 : attenuation;
 		//逐盏高光缩放（第四十九轮）
 		light.specular_scale = specular;
+		//逐盏光泽度（第五十一轮）
+		light.shininess = shininess;
 		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
 		light.is_spot = false;
 		impl->point_light_count += 1;
@@ -3186,10 +3204,10 @@ namespace engine
 		return true;
 	}
 
-	//追加一个聚光灯（第三十四轮新增；第四十六轮支持逐光源衰减模式；第四十九轮支持逐盏高光缩放）
+	//追加一个聚光灯（第三十四轮新增；第四十六轮逐光源衰减；第四十九轮逐盏高光缩放；第五十一轮逐盏光泽度）
 	bool Renderer::light_add_spot(const float position[3], const float direction[3], const float color[3],
 		float radius, float intensity, float inner_deg, float outer_deg, float ambient, uint32_t attenuation,
-		float specular)
+		float specular, float shininess)
 	{
 		//若尚未初始化或任一指针为空
 		if (impl == nullptr || !impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
@@ -3205,7 +3223,9 @@ namespace engine
 			&& (ambient >= 0.0f) && (ambient <= 1.0f)
 			&& (inner_deg > 0.0f) && (inner_deg < outer_deg) && (outer_deg <= 90.0f)
 			//逐盏高光缩放须落在 0..100（第四十九轮）
-			&& (specular >= 0.0f) && (specular <= 100.0f);
+			&& (specular >= 0.0f) && (specular <= 100.0f)
+			//逐盏光泽度须为 0（跟随全局）或 1..1000（第五十一轮）
+			&& (shininess == 0.0f || (shininess >= 1.0f && shininess <= 1000.0f));
 		//位置须为有限值
 		for (std::size_t index = 0; index < 3; ++index)
 			if (!(position[index] >= -1e6f && position[index] <= 1e6f))
@@ -3243,6 +3263,8 @@ namespace engine
 		light.attenuation = attenuation > 2 ? 2 : attenuation;
 		//逐盏高光缩放（第四十九轮）
 		light.specular_scale = specular;
+		//逐盏光泽度（第五十一轮）
+		light.shininess = shininess;
 		light.is_spot = true;
 		//锥角转余弦（度 → 弧度；内角更小故其余弦更大）
 		constexpr float degrees_to_radians = 0.017453292519943295f;

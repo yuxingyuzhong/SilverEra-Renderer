@@ -45,6 +45,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 fill_dir_intensity;
 	//补光颜色（rgb；第四十七轮）
 	vec4 fill_color;
+	//逐盏高光光泽度（std140：每盏占 16 字节；0 = 跟随全局；第五十一轮）
+	float point_shininess[4];
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
@@ -160,7 +162,11 @@ void main()
 			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
 			vec3 halfway = normalize(to_light + to_view);
 			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * attenuation * cone
+			//逐盏光泽度（第五十一轮：0 = 跟随全局光泽度）
+			float shininess = scene.point_shininess[index] > 0.0
+				? scene.point_shininess[index]
+				: max(scene.light_common.z, 1.0);
+			specular = max(specular, pow(spec_base, shininess) * attenuation * cone
 				* scene.point_spot_cone[index].w);
 		}
 	}

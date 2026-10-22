@@ -451,11 +451,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 480 字节：mat4 ＋ 光照公共块 ＋ 方向光 ＋ 相机位置 ＋ 4 个点光源 ＋ 4 组聚光参数 ＋ 雾参数 ＋ 环境光颜色 ＋ 半球环境光 ＋ 补光方向 / 颜色；第四十七轮由 432 扩为 480）
+		//缓冲描述（场景 UBO 544 字节：… ＋ 环境光颜色 ＋ 半球环境光 ＋ 补光方向 / 颜色 ＋ 4 盏逐盏光泽度；第五十一轮由 480 扩为 544）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 480;
+		buffer_info.range = 544;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
