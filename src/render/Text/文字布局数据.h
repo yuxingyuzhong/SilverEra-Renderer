@@ -45,5 +45,11 @@ namespace engine
 		只对第一行生效，其余行为 0。
 		*/
 		float first_line_indent = 0.0f;
+		/*
+		行距倍数（第六十三轮新增；1 = 单倍行距，即按 line_height 逐行下移）
+		实际行间步进 = line_height × line_spacing；合法区间 (0, 8]，越界或非数按 1 处理；
+		只改变纵向排布，不影响换行判定、行宽与对齐。
+		*/
+		float line_spacing = 1.0f;
 	};
 }

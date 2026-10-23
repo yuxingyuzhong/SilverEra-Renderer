@@ -177,12 +177,13 @@ namespace engine
 			//命中本字体与本文本
 			if (item.font != font_handle || item.text != text)
 				continue;
-			//布局五项须完全一致
+			//布局六项须完全一致
 			if (item.layout.max_width != layout.max_width
 				|| item.layout.line_height != layout.line_height
 				|| item.layout.align != layout.align
 				|| item.layout.tracking != layout.tracking
-				|| item.layout.first_line_indent != layout.first_line_indent)
+				|| item.layout.first_line_indent != layout.first_line_indent
+				|| item.layout.line_spacing != layout.line_spacing)
 				continue;
 			mesh = item.mesh;
 			//刷新最近使用序号（第四十八轮）

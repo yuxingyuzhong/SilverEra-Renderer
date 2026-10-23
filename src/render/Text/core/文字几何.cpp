@@ -162,6 +162,12 @@ namespace engine
 		//行距（0 表取字体像素高度）
 		float line_height = layout.line_height > 0.0f
 			? layout.line_height : static_cast<float>(record.pixel_height);
+		/*
+		行距倍数（第六十三轮）
+		合法区间 (0, 8]；越界 / 非数按 1（单倍）处理，保证既有布局不变。
+		*/
+		float line_spacing = (layout.line_spacing > 0.0f && layout.line_spacing <= 8.0f)
+			? layout.line_spacing : 1.0f;
 		//换行宽度上限（0 表不换行）
 		float max_width = layout.max_width > 0.0f ? layout.max_width : 0.0f;
 		//字距（计入行宽，故参与换行与对齐）
@@ -216,8 +222,8 @@ namespace engine
 		{
 			//本行字形
 			const std::vector<const Font_Glyph*>& line = lines[line_index];
-			//本行顶部相对文本原点的纵向偏移
-			float line_top = static_cast<float>(line_index) * line_height;
+			//本行顶部相对文本原点的纵向偏移（第六十三轮起按 line_spacing 拉伸行间步进）
+			float line_top = static_cast<float>(line_index) * line_height * line_spacing;
 			//本行起始笔位（左对齐为 0；居中 / 右对齐按 max_width 平移，负值钳到 0）
 			float pen_x = 0.0f;
 			//仅在设定换行宽度时对齐才有基准
