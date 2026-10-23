@@ -184,6 +184,12 @@ namespace engine
 		非法参数整次拒绝（句柄置 0 并告警）。侧面法线径向，上下端盖法线朝 ±Y。
 		*/
 		bool mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
+		/*
+		加载程序化圆环（第六十七轮新增）
+		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
+		*/
+		bool mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
+			uint32_t major_segments, uint32_t minor_segments);
 		//卸载网格
 		void mesh_unload(Mesh_Handle handle);
 		/*

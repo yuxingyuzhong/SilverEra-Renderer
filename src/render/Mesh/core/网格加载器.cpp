@@ -206,4 +206,59 @@ namespace engine
 		add_cap(-half_height, -1.0f);
 		return data;
 	}
+
+	/*
+	生成圆环（第六十七轮）
+	major_radius 环半径、minor_radius 管半径；双分段 >= 3 兜底；
+	顶点 (major+1) × (minor+1)（接缝复制），法线朝外，UV = (u, v) 归一化参数。
+	*/
+	Mesh_Data Mesh_Context::torus_generate(float major_radius, float minor_radius,
+		uint32_t major_segments, uint32_t minor_segments)
+	{
+		//分段数兜底
+		if (major_segments < 3)
+			major_segments = 3;
+		if (minor_segments < 3)
+			minor_segments = 3;
+		Mesh_Data data;
+		//逐环绕角（u）与管周角（v）生成顶点
+		for (uint32_t major = 0; major <= major_segments; ++major)
+		{
+			float u = static_cast<float>(major) / static_cast<float>(major_segments);
+			float u_angle = 6.2831853f * u;
+			float cos_u = std::cos(u_angle);
+			float sin_u = std::sin(u_angle);
+			for (uint32_t minor = 0; minor <= minor_segments; ++minor)
+			{
+				float v = static_cast<float>(minor) / static_cast<float>(minor_segments);
+				float v_angle = 6.2831853f * v;
+				float cos_v = std::cos(v_angle);
+				float sin_v = std::sin(v_angle);
+				//管截面中心到环心的半径
+				float ring_radius = major_radius + minor_radius * cos_v;
+				data.vertices.push_back({
+					{ ring_radius * cos_u, minor_radius * sin_v, ring_radius * sin_u },
+					{ u, v },
+					{ cos_v * cos_u, sin_v, cos_v * sin_u },
+				});
+			}
+		}
+		//每格两三角形（外向绕序）
+		const uint32_t stride = minor_segments + 1;
+		for (uint32_t major = 0; major < major_segments; ++major)
+		{
+			for (uint32_t minor = 0; minor < minor_segments; ++minor)
+			{
+				uint32_t a = major * stride + minor;
+				uint32_t b = a + stride;
+				data.indices.push_back(a);
+				data.indices.push_back(a + 1);
+				data.indices.push_back(b);
+				data.indices.push_back(a + 1);
+				data.indices.push_back(b + 1);
+				data.indices.push_back(b);
+			}
+		}
+		return data;
+	}
 }

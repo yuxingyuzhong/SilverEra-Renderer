@@ -97,6 +97,13 @@ namespace engine
 		侧面法线径向，上下端盖法线朝 ±Y。
 		*/
 		static Mesh_Data cylinder_generate(float radius, float height, uint32_t segments);
+		/*
+		生成圆环（第六十七轮新增）
+		major_radius 环半径、minor_radius 管半径；major_segments / minor_segments 双分段（>= 3）；
+		顶点 (major+1) × (minor+1)（接缝复制），法线朝外，UV 覆盖整面。
+		*/
+		static Mesh_Data torus_generate(float major_radius, float minor_radius,
+			uint32_t major_segments, uint32_t minor_segments);
 	private:
 		//内存模块（缓冲创建与上传在此完成）
 		Memory_Context* memory = nullptr;

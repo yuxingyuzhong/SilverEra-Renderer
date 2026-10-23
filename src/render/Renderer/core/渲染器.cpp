@@ -2171,6 +2171,24 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
 	}
 
+	//按程序化圆环加载网格（第六十七轮新增）
+	bool Renderer::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
+		uint32_t major_segments, uint32_t minor_segments)
+	{
+		//前置：已初始化、双半径为正（非数亦拒）、双分段在区间内
+		if (impl == nullptr || !impl->initialized || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
+			|| major_segments < 3 || major_segments > 128 || minor_segments < 3 || minor_segments > 128)
+		{
+			logger.warn("渲染器:: 圆环参数非法（环半径 {}、管半径 {}、环分段 {}、管分段 {}）",
+				major_radius, minor_radius, major_segments, minor_segments);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::torus_generate(major_radius, minor_radius,
+			major_segments, minor_segments));
+	}
+
 	bool Renderer::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
 	{
 		//若尚未初始化
