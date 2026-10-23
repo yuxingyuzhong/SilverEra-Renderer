@@ -488,14 +488,14 @@ namespace engine
 		bool light_add_point(const float position[3], const float color[3], float radius, float intensity,
 			float ambient, uint32_t attenuation = 0, float specular = 1.0f, float shininess = 0.0f);
 		/*
-		追加一个聚光灯（第三十四轮新增；与点光源同槽、共用 4 盏上限）
+		追加一个聚光灯（第三十四轮新增；与点光源同槽、共用 8 盏上限（第六十二轮扩为 8））
 		direction 为**光传播方向**（从光源指向被照区域，长度须非零，内部归一化）；
 		inner_deg / outer_deg 为内 / 外锥角（度）：须满足 0 < inner_deg < outer_deg ≤ 90，
 		锥内照度不衰减、锥外为 0、两者之间按 smoothstep 平滑过渡。
 		position / radius / color / intensity / ambient 语义同 `light_add_point`；
 		attenuation 语义同 `light_add_point`（0 = 跟随全局、1 = 线性、2 = 平方反比）。
 		specular 语义同 `light_add_point`（逐盏高光缩放，0..100）；shininess 语义同 `light_add_point`（逐盏光泽度，0..1000）。
-		任一参数非法（空指针 / 方向退化 / 半径非正 / 颜色越界 / 锥角非法）或已满 4 盏时
+		任一参数非法（空指针 / 方向退化 / 半径非正 / 颜色越界 / 锥角非法）或已满 8 盏时
 		返回假并告警，既有光源保持不变。
 		*/
 		bool light_add_spot(const float position[3], const float direction[3], const float color[3],

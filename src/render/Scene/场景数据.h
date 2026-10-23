@@ -51,51 +51,51 @@ namespace engine
 		//点光源数量（0..4）
 		uint32_t point_count = 0;
 		//点光源位置（世界坐标）
-		float point_position[4][3] = {};
+		float point_position[8][3] = {};
 		//点光源颜色（RGB，0..1）
-		float point_color[4][3] = {
+		float point_color[8][3] = {
 			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
 		};
 		//点光源线性衰减半径（> 0）
-		float point_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		float point_radius[8] = { 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f };
 		//点光源强度（≥ 0）
-		float point_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float point_intensity[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//点光源逐盏衰减模式（0 跟随全局 / 1 线性 / 2 平方反比；>2 按 2）
-		uint32_t point_attenuation[4] = {};
+		uint32_t point_attenuation[8] = {};
 		//点光源逐盏高光缩放（第四十八轮；1 = 跟随全局，0 = 该灯不产生高光；0..100）
-		float point_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float point_specular[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//点光源逐盏高光光泽度（第五十一轮；0 = 跟随全局，>0 为该灯自身光泽度 1..1000）
-		float point_shininess[4] = {};
+		float point_shininess[8] = {};
 		//镜面高光强度（≥ 0；0 = 关闭）
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
 		float specular_shininess = 16.0f;
-		//聚光灯数量（0..4；与点光源共用 4 盏上限）
+		//聚光灯数量（0..8；与点光源共用 8 盏上限（第六十二轮扩为 8））
 		uint32_t spot_count = 0;
 		//聚光灯位置（世界坐标）
-		float spot_position[4][3] = {};
+		float spot_position[8][3] = {};
 		//聚光灯传播方向（从光源指向被照区域；长度须非零）
-		float spot_direction[4][3] = {
+		float spot_direction[8][3] = {
 			{ 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f },
 		};
 		//聚光灯颜色（RGB，0..1）
-		float spot_color[4][3] = {
+		float spot_color[8][3] = {
 			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
 		};
 		//聚光灯线性衰减半径（> 0）
-		float spot_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		float spot_radius[8] = { 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f };
 		//聚光灯强度（≥ 0）
-		float spot_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_intensity[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//内锥角（度；须满足 0 < 内角 < 外角）
-		float spot_inner_deg[4] = { 15.0f, 15.0f, 15.0f, 15.0f };
+		float spot_inner_deg[8] = { 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f };
 		//外锥角（度；须 ≤ 90）
-		float spot_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
+		float spot_outer_deg[8] = { 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f };
 		//聚光灯逐盏衰减模式（语义同 point_attenuation）
-		uint32_t spot_attenuation[4] = {};
+		uint32_t spot_attenuation[8] = {};
 		//聚光灯逐盏高光缩放（第四十八轮；语义同 point_specular）
-		float spot_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_specular[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//聚光灯逐盏高光光泽度（第五十一轮；语义同 point_shininess）
-		float spot_shininess[4] = {};
+		float spot_shininess[8] = {};
 		//全局距离衰减模式（0 = 线性、1 = 平方反比）
 		uint32_t attenuation_mode = 0;
 		//环境光颜色（RGB，0..1；默认白 = 与标量环境光等价）
@@ -197,59 +197,59 @@ namespace engine
 		//点光源数量（0..4；超出 4 的部分由 scene_apply 忽略并告警）
 		uint32_t light_count = 0;
 		//点光源位置（世界坐标；仅前 light_count 项有效）
-		float point_light_position[4][3] = {};
+		float point_light_position[8][3] = {};
 		//点光源颜色（RGB，0..1）
-		float point_light_color[4][3] = {
+		float point_light_color[8][3] = {
 			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
 		};
 		//点光源线性衰减半径（> 0）
-		float point_light_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		float point_light_radius[8] = { 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f };
 		//点光源强度（≥ 0）
-		float point_light_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float point_light_intensity[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		/*
 		点光源逐盏衰减模式（第四十六轮）
 		0 = 跟随全局（attenuation_mode）、1 = 线性、2 = 平方反比；其它取值按 2 处理。
 		*/
-		uint32_t point_light_attenuation[4] = {};
+		uint32_t point_light_attenuation[8] = {};
 		//点光源逐盏高光缩放（第四十八轮；语义见 Light_Data::point_specular）
-		float point_light_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float point_light_specular[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//点光源逐盏高光光泽度（第五十一轮；语义见 Light_Data::point_shininess）
-		float point_light_shininess[4] = {};
+		float point_light_shininess[8] = {};
 		//镜面高光强度（≥ 0；0 = 关闭）
 		float specular_intensity = 0.0f;
 		//镜面高光光泽度（≥ 1）
 		float specular_shininess = 16.0f;
 		/*
 		聚光灯组（第三十五轮）
-		与点光源组共用 4 盏上限：`scene_apply` 先登记点光源、再登记聚光灯，超出部分忽略；
+		与点光源组共用 8 盏上限（第六十二轮扩为 8）：`scene_apply` 先登记点光源、再登记聚光灯，超出部分忽略；
 		默认 0 盏 —— 与引入聚光灯前画面一致。
 		*/
 		//聚光灯数量（0..4）
 		uint32_t spot_light_count = 0;
 		//聚光灯位置（世界坐标；仅前 spot_light_count 项有效）
-		float spot_light_position[4][3] = {};
+		float spot_light_position[8][3] = {};
 		//聚光灯传播方向（从光源指向被照区域；长度须非零）
-		float spot_light_direction[4][3] = {
+		float spot_light_direction[8][3] = {
 			{ 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f, -1.0f },
 		};
 		//聚光灯颜色（RGB，0..1）
-		float spot_light_color[4][3] = {
+		float spot_light_color[8][3] = {
 			{ 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f, 1.0f },
 		};
 		//聚光灯线性衰减半径（> 0）
-		float spot_light_radius[4] = { 5.0f, 5.0f, 5.0f, 5.0f };
+		float spot_light_radius[8] = { 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f, 5.0f };
 		//聚光灯强度（≥ 0）
-		float spot_light_intensity[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_light_intensity[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//内锥角（度；须满足 0 < 内角 < 外角）
-		float spot_light_inner_deg[4] = { 15.0f, 15.0f, 15.0f, 15.0f };
+		float spot_light_inner_deg[8] = { 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f, 15.0f };
 		//外锥角（度；须 ≤ 90）
-		float spot_light_outer_deg[4] = { 30.0f, 30.0f, 30.0f, 30.0f };
+		float spot_light_outer_deg[8] = { 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 30.0f };
 		//聚光灯逐盏衰减模式（第四十六轮；语义同 point_light_attenuation）
-		uint32_t spot_light_attenuation[4] = {};
+		uint32_t spot_light_attenuation[8] = {};
 		//聚光灯逐盏高光缩放（第四十八轮；语义同 point_light_specular）
-		float spot_light_specular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_light_specular[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//聚光灯逐盏高光光泽度（第五十一轮；语义同 point_light_shininess）
-		float spot_light_shininess[4] = {};
+		float spot_light_shininess[8] = {};
 		/*
 		距离衰减模式（第三十七轮）
 		0 = 线性（默认）、1 = 平方反比；其它取值由 scene_apply 忽略并告警（保持门面当前模式）。

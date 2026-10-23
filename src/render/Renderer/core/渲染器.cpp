@@ -494,8 +494,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；640 字节 = … ＋ 逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数与强度；第五十三轮由 624 扩为 640）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 640,
+			//创建场景 UBO（主机可见、统一缓冲用途；第六十二轮由 640 扩为 960 字节：8 盏点光源 / 聚光参数 ＋ 逐盏光泽度）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 960,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -531,8 +531,8 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//写入初始点光源数组（offset 128、128 字节；4 个槽位，未用槽位清零）
-			float point_block[32] = {};
+			//写入初始点光源数组（offset 128、256 字节；8 个槽位，未用槽位清零；第六十二轮扩为 8 盏）
+			float point_block[64] = {};
 			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 			{
 				//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
@@ -541,23 +541,24 @@ namespace engine
 				point_block[base + 1] = impl->point_lights[light].position[1];
 				point_block[base + 2] = impl->point_lights[light].position[2];
 				point_block[base + 3] = impl->point_lights[light].radius;
-				point_block[16 + base + 0] = impl->point_lights[light].color[0];
-				point_block[16 + base + 1] = impl->point_lights[light].color[1];
-				point_block[16 + base + 2] = impl->point_lights[light].color[2];
-				point_block[16 + base + 3] = impl->point_lights[light].intensity;
+				//颜色段起点 = 8 盏位置（32 浮点）之后
+				point_block[32 + base + 0] = impl->point_lights[light].color[0];
+				point_block[32 + base + 1] = impl->point_lights[light].color[1];
+				point_block[32 + base + 2] = impl->point_lights[light].color[2];
+				point_block[32 + base + 3] = impl->point_lights[light].intensity;
 			}
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 128, 128))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 256, 128))
 			{
 				logger.error("渲染器:: 场景点光源写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
 			/*
-			写入初始聚光参数（offset 256、128 字节；第三十四轮）
-			前 64 字节为 4 个「方向 ＋ 有效标志」，后 64 字节为 4 组「内锥余弦 ＋ 外锥余弦」；
+			写入初始聚光参数（offset 384、256 字节；第三十四轮；第六十二轮扩为 8 盏）
+			前 128 字节为 8 个「方向 ＋ 有效标志」，后 128 字节为 8 组「内锥余弦 ＋ 外锥余弦」；
 			两个 std140 数组各自连续，故分两段排布。
 			*/
-			float spot_block[32] = {};
+			float spot_block[64] = {};
 			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 			{
 				//槽内基址（每个槽 4 个浮点）
@@ -566,86 +567,87 @@ namespace engine
 				spot_block[base + 1] = impl->point_lights[light].spot_direction[1];
 				spot_block[base + 2] = impl->point_lights[light].spot_direction[2];
 				spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
-				spot_block[16 + base + 0] = impl->point_lights[light].spot_inner_cos;
-				spot_block[16 + base + 1] = impl->point_lights[light].spot_outer_cos;
+				//锥参数段起点 = 8 盏方向（32 浮点）之后
+				spot_block[32 + base + 0] = impl->point_lights[light].spot_inner_cos;
+				spot_block[32 + base + 1] = impl->point_lights[light].spot_outer_cos;
 				//z = 逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
-				spot_block[16 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+				spot_block[32 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
 			}
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 128, 256))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 256, 384))
 			{
 				logger.error("渲染器:: 场景聚光参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
 			/*
-			写入初始雾参数（offset 384、32 字节；第三十八轮）
+			写入初始雾参数（offset 640、32 字节；第三十八轮）
 			前 16 字节 = 雾色 rgb ＋ 密度 w；后 16 字节 = 起始距离 x ＋ 结束距离 y。
 			*/
 			float fog_block[8] = {
 				impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
 				impl->fog_start, impl->fog_end, 0.0f, 0.0f,
 			};
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 384))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 640))
 			{
 				logger.error("渲染器:: 场景雾参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始环境光颜色（offset 416、16 字节；第四十轮）
+			//写入初始环境光颜色（offset 672、16 字节；第四十轮）
 			float ambient_block[4] = {
 				impl->ambient_color[0], impl->ambient_color[1], impl->ambient_color[2], 0.0f,
 			};
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 416))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 672))
 			{
 				logger.error("渲染器:: 场景环境光颜色写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始半球环境光（offset 432、16 字节；第四十七轮）
+			//写入初始半球环境光（offset 688、16 字节；第四十七轮）
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				impl->ambient_ground, 16, 432))
+				impl->ambient_ground, 16, 688))
 			{
 				logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始补光方向与强度（offset 448、16 字节；第四十七轮）
+			//写入初始补光方向与强度（offset 704、16 字节；第四十七轮）
 			float fill_dir_block[4] = {
 				impl->fill_direction[0], impl->fill_direction[1], impl->fill_direction[2], impl->fill_intensity,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				fill_dir_block, 16, 448))
+				fill_dir_block, 16, 704))
 			{
 				logger.error("渲染器:: 场景补光方向写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始补光颜色（offset 464、16 字节；第四十七轮；w = 逐光高光缩放，第五十轮）
+			//写入初始补光颜色（offset 720、16 字节；第四十七轮；w = 逐光高光缩放，第五十轮）
 			float fill_color_block[4] = {
 				impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], impl->fill_specular,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				fill_color_block, 16, 464))
+				fill_color_block, 16, 720))
 			{
 				logger.error("渲染器:: 场景补光颜色写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始逐盏光泽度（offset 480、64 字节；第五十一轮：4 盏，std140 每盏占 16 字节）
-			float shininess_block[16] = {};
+			//写入初始逐盏光泽度（offset 736、128 字节；第五十一轮；第六十二轮扩为 8 盏，std140 每盏占 16 字节）
+			float shininess_block[32] = {};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				shininess_block, 64, 480))
+				shininess_block, 128, 736))
 			{
 				logger.error("渲染器:: 场景逐盏光泽度写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
-			//写入初始阴影块（offset 544、96 字节；第五十二轮：光源空间矩阵 64 ＋ 阴影参数 16；第五十三轮：阴影强度 4 ＋ 尾部圆整 12）
+			//写入初始阴影块（offset 864、96 字节；第五十二轮：光源空间矩阵 64 ＋ 阴影参数 16；第五十三轮：阴影强度 4 ＋ 尾部圆整 12）
 			float shadow_init_block[24] = {};
-			//阴影强度默认 1（块内第 20 浮点 = offset 624）
+			//阴影强度默认 1（块内第 20 浮点 = offset 944）
 			shadow_init_block[20] = 1.0f;
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				shadow_init_block, 96, 544))
+				shadow_init_block, 96, 864))
 			{
 				logger.error("渲染器:: 场景阴影参数写入失败（帧槽 {}）", slot);
 				shutdown();
@@ -1270,12 +1272,12 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块写入（640 字节 = 160 浮点；第五十三轮由 624 扩为 640）
-		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源、64 聚光参数、
-		96 雾参数、104 环境光颜色、108 半球环境光、112 补光方向与强度、116 补光颜色、
-		120 逐盏光泽度、136 光源空间矩阵、152 阴影参数（w = 软度）、156 阴影强度。
+		场景 UBO 整块组装（960 字节 = 240 浮点；第六十二轮由 640 扩为 960：点光源 / 聚光扩为 8 盏）
+		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
+		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
+		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度。
 		*/
-		float scene_block[160] = {};
+		float scene_block[240] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1308,100 +1310,102 @@ namespace engine
 			scene_block[base + 1] = impl->point_lights[light].position[1];
 			scene_block[base + 2] = impl->point_lights[light].position[2];
 			scene_block[base + 3] = impl->point_lights[light].radius;
-			scene_block[base + 16 + 0] = impl->point_lights[light].color[0];
-			scene_block[base + 16 + 1] = impl->point_lights[light].color[1];
-			scene_block[base + 16 + 2] = impl->point_lights[light].color[2];
-			scene_block[base + 16 + 3] = impl->point_lights[light].intensity;
+			//颜色段起点 = 8 盏位置（32 浮点）之后
+			scene_block[base + 32 + 0] = impl->point_lights[light].color[0];
+			scene_block[base + 32 + 1] = impl->point_lights[light].color[1];
+			scene_block[base + 32 + 2] = impl->point_lights[light].color[2];
+			scene_block[base + 32 + 3] = impl->point_lights[light].intensity;
 		}
-		//聚光参数：前 16 浮点为「方向 ＋ 有效标志」，后 16 浮点为「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 保留」
+		//聚光参数：前 32 浮点为「方向 ＋ 有效标志」（8 盏），后 32 浮点为「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 逐盏高光缩放」
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
 		{
-			const std::size_t base = 64 + static_cast<std::size_t>(light) * 4;
+			const std::size_t base = 96 + static_cast<std::size_t>(light) * 4;
 			scene_block[base + 0] = impl->point_lights[light].spot_direction[0];
 			scene_block[base + 1] = impl->point_lights[light].spot_direction[1];
 			scene_block[base + 2] = impl->point_lights[light].spot_direction[2];
 			scene_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
-			scene_block[base + 16 + 0] = impl->point_lights[light].spot_inner_cos;
-			scene_block[base + 16 + 1] = impl->point_lights[light].spot_outer_cos;
-			scene_block[base + 16 + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+			//锥参数段起点 = 8 盏方向（32 浮点）之后
+			scene_block[base + 32 + 0] = impl->point_lights[light].spot_inner_cos;
+			scene_block[base + 32 + 1] = impl->point_lights[light].spot_outer_cos;
+			scene_block[base + 32 + 2] = static_cast<float>(impl->point_lights[light].attenuation);
 			//w = 逐盏高光缩放（第四十九轮）
-			scene_block[base + 16 + 3] = impl->point_lights[light].specular_scale;
+			scene_block[base + 32 + 3] = impl->point_lights[light].specular_scale;
 		}
-		//雾参数（雾色 ＋ 密度 ＋ 区间）
-		scene_block[96] = impl->fog_color[0];
-		scene_block[97] = impl->fog_color[1];
-		scene_block[98] = impl->fog_color[2];
-		scene_block[99] = impl->fog_density;
-		scene_block[100] = impl->fog_start;
-		scene_block[101] = impl->fog_end;
+		//雾参数（雾色 ＋ 密度 ＋ 区间；第六十二轮起点后移 64 浮点）
+		scene_block[160] = impl->fog_color[0];
+		scene_block[161] = impl->fog_color[1];
+		scene_block[162] = impl->fog_color[2];
+		scene_block[163] = impl->fog_density;
+		scene_block[164] = impl->fog_start;
+		scene_block[165] = impl->fog_end;
 		//环境光颜色（第四十轮）
-		scene_block[104] = impl->ambient_color[0];
-		scene_block[105] = impl->ambient_color[1];
-		scene_block[106] = impl->ambient_color[2];
+		scene_block[168] = impl->ambient_color[0];
+		scene_block[169] = impl->ambient_color[1];
+		scene_block[170] = impl->ambient_color[2];
 		//半球环境光（第四十七轮：rgb = 地面色、w = 混合强度）
 		for (std::size_t index = 0; index < 4; ++index)
-			scene_block[108 + index] = impl->ambient_ground[index];
+			scene_block[172 + index] = impl->ambient_ground[index];
 		//补光方向与强度（第四十七轮）
-		scene_block[112] = impl->fill_direction[0];
-		scene_block[113] = impl->fill_direction[1];
-		scene_block[114] = impl->fill_direction[2];
-		scene_block[115] = impl->fill_intensity;
+		scene_block[176] = impl->fill_direction[0];
+		scene_block[177] = impl->fill_direction[1];
+		scene_block[178] = impl->fill_direction[2];
+		scene_block[179] = impl->fill_intensity;
 		//补光颜色（第四十七轮）＋ 逐光高光缩放（第五十轮；w）
-		scene_block[116] = impl->fill_color[0];
-		scene_block[117] = impl->fill_color[1];
-		scene_block[118] = impl->fill_color[2];
-		scene_block[119] = impl->fill_specular;
-		//逐盏光泽度（第五十一轮；std140 float[4] 每盏占 16 字节 → 偏移 120 + light × 4）
+		scene_block[180] = impl->fill_color[0];
+		scene_block[181] = impl->fill_color[1];
+		scene_block[182] = impl->fill_color[2];
+		scene_block[183] = impl->fill_specular;
+		//逐盏光泽度（第五十一轮；第六十二轮扩为 8 盏，std140 float[8] 每盏占 16 字节 → 偏移 184 + light × 4）
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
-			scene_block[120 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
+			scene_block[184 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		/*
 		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
 		写入 UBO 供场景片元解包比较；阴影关闭时字段保留但不参与计算。
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
-			scene_block[136 + index] = impl->light_view_proj[index];
+			scene_block[216 + index] = impl->light_view_proj[index];
 		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长；第五十三轮 w = 软度）
-		scene_block[152] = impl->shadow_enabled ? 1.0f : 0.0f;
-		scene_block[153] = impl->shadow_bias;
-		scene_block[154] = static_cast<float>(impl->shadow_size);
-		scene_block[155] = impl->shadow_softness;
+		scene_block[232] = impl->shadow_enabled ? 1.0f : 0.0f;
+		scene_block[233] = impl->shadow_bias;
+		scene_block[234] = static_cast<float>(impl->shadow_size);
+		scene_block[235] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
-		scene_block[156] = impl->shadow_strength;
+		scene_block[236] = impl->shadow_strength;
 		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 160 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的 240 浮点，按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 640 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 960 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 160)
+		if (impl->scene_block_cache.size() != scene_slot_count * 240)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 160, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * 240, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		//本帧槽缓存段（160 浮点）
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 160;
+		//本帧槽缓存段（240 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 240;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 640, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 960, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 640;
+			uploaded_bytes = 960;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 160 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = 240 / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -1447,7 +1451,7 @@ namespace engine
 			}
 		}
 		//更新该帧槽缓存（与已写入内容一致）
-		for (std::size_t index = 0; index < 160; ++index)
+		for (std::size_t index = 0; index < 240; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -3380,11 +3384,11 @@ namespace engine
 		/*
 		点光源组与镜面高光
 		先按方向光重置点光源（light_set 已清空），再逐条追加；单条非法只跳过该条并告警，
-		数量超过上限（4）的部分同样忽略。
+		数量超过上限（第六十二轮起 8）的部分同样忽略。
 		*/
 		for (uint32_t index = 0; index < light.point_count; ++index)
 			//超过上限的部分不再登记
-			if (index >= 4)
+			if (index >= Impl::POINT_LIGHT_MAX)
 				break;
 			else
 				light_add_point(light.point_position[index], light.point_color[index],
@@ -3392,11 +3396,11 @@ namespace engine
 					light.point_attenuation[index], light.point_specular[index], light.point_shininess[index]);
 		/*
 		聚光灯组
-		在点光源之后逐条追加；两类光源共用 4 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
+		在点光源之后逐条追加；两类光源共用 8 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
 		*/
 		for (uint32_t index = 0; index < light.spot_count; ++index)
 			//超过上限的部分不再登记
-			if (index >= 4)
+			if (index >= Impl::POINT_LIGHT_MAX)
 				break;
 			else
 				light_add_spot(light.spot_position[index], light.spot_direction[index],
@@ -3424,12 +3428,14 @@ namespace engine
 		shadow_strength_set(light.shadow_strength);
 		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
-		//若点光源数量超过上限则告警（已登记前 4 盏）
-		if (light.point_count > 4)
-			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 4，仅登记前 4 盏", light.point_count);
-		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 4 盏上限）
-		if (light.spot_count > 4)
-			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 4，仅登记前 4 盏（与点光源共用上限）", light.spot_count);
+		//若点光源数量超过上限则告警（已登记前 8 盏）
+		if (light.point_count > Impl::POINT_LIGHT_MAX)
+			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
+				light.point_count, Impl::POINT_LIGHT_MAX, Impl::POINT_LIGHT_MAX);
+		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 8 盏上限）
+		if (light.spot_count > Impl::POINT_LIGHT_MAX)
+			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 {}，仅登记前 {} 盏（与点光源共用上限）",
+				light.spot_count, Impl::POINT_LIGHT_MAX, Impl::POINT_LIGHT_MAX);
 	}
 
 	//应用场景描述（兼容扁平聚合；内部拆成三组后转发）

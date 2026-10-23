@@ -142,8 +142,8 @@ namespace engine
 			//外锥角余弦（cos(外角)；锥外为 0）
 			float spot_outer_cos = 0.0f;
 		};
-		//点光源数量上限（与着色器循环上限一致）
-		static constexpr uint32_t POINT_LIGHT_MAX = 4;
+		//点光源数量上限（与着色器循环上限一致；第六十二轮由 4 扩为 8）
+		static constexpr uint32_t POINT_LIGHT_MAX = 8;
 		//点光源数组与当前数量
 		Point_Light point_lights[POINT_LIGHT_MAX];
 		uint32_t point_light_count = 0;

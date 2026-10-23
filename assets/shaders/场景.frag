@@ -27,14 +27,14 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 light_color;
 	//xyz = 相机世界位置，w = 方向光逐光高光缩放（第五十轮）
 	vec4 camera_pos;
-	//点光源位置（xyz）＋ 衰减半径（w），最多 4 个
-	vec4 point_pos_radius[4];
-	//点光源颜色（rgb）＋ 强度（w），最多 4 个
-	vec4 point_color_intensity[4];
+	//点光源位置（xyz）＋ 衰减半径（w），最多 8 个（第六十二轮由 4 扩为 8）
+	vec4 point_pos_radius[8];
+	//点光源颜色（rgb）＋ 强度（w），最多 8 个
+	vec4 point_color_intensity[8];
 	//聚光灯方向（xyz = 光传播方向）＋ 有效标志（w > 0.5 表示该槽为聚光灯；第三十四轮）
-	vec4 point_spot_dir[4];
+	vec4 point_spot_dir[8];
 	//聚光灯内外锥角余弦（x = 内锥、y = 外锥；z = 逐光源衰减模式、w = 逐盏高光缩放；第三十四 / 四十六 / 四十九轮）
-	vec4 point_spot_cone[4];
+	vec4 point_spot_cone[8];
 	//雾色（rgb）＋ 密度（w；0 = 关闭；第三十八轮）
 	vec4 fog_color_density;
 	//雾距离区间（x = 起始、y = 结束；第三十八轮）
@@ -47,8 +47,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 fill_dir_intensity;
 	//补光颜色（rgb；第四十七轮）
 	vec4 fill_color;
-	//逐盏高光光泽度（std140：每盏占 16 字节；0 = 跟随全局；第五十一轮）
-	float point_shininess[4];
+	//逐盏高光光泽度（std140：每盏占 16 字节；0 = 跟随全局；第五十一轮；第六十二轮扩为 8 盏）
+	float point_shininess[8];
 	//光源空间视图投影矩阵（第五十二轮；配合 shadow_params 做方向光阴影）
 	mat4 light_view_proj;
 	//阴影参数（x = 启用 >0.5、y = 深度偏置、z = 阴影图边长（像素）、w = 软度 0..1；第五十二／五十三轮）
@@ -57,8 +57,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	float shadow_strength;
 } scene;
 
-//点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致）
-const int POINT_LIGHT_MAX = 4;
+//点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
+const int POINT_LIGHT_MAX = 8;
 
 /*
 阴影深度比较（第五十三轮）

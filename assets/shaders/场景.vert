@@ -34,10 +34,10 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 light_color;
 	//xyz = 相机世界位置，w 保留
 	vec4 camera_pos;
-	//点光源位置（xyz）＋ 衰减半径（w），最多 4 个
-	vec4 point_pos_radius[4];
-	//点光源颜色（rgb）＋ 强度（w），最多 4 个
-	vec4 point_color_intensity[4];
+	//点光源位置（xyz）＋ 衰减半径（w），最多 8 个（第六十二轮扩为 8；仅片元使用）
+	vec4 point_pos_radius[8];
+	//点光源颜色（rgb）＋ 强度（w），最多 8 个
+	vec4 point_color_intensity[8];
 } scene;
 
 void main()
