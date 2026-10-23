@@ -306,6 +306,16 @@ namespace engine
 		std::vector<uint8_t> scene_block_cached;
 		//累计场景 UBO 上传字节数（第六十轮；仅供 scene_upload_bytes 观测，不随帧重置）
 		uint64_t scene_upload_bytes = 0;
+		/*
+		实例缓冲上传缓存（第六十一轮）
+		逐帧槽保存上次写入的实例矩阵（帧槽数 × instance_capacity × 16 浮点）与已写入实例数；
+		instance_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。
+		*/
+		std::vector<float> instance_block_cache;
+		std::vector<uint32_t> instance_block_count;
+		std::vector<uint8_t> instance_block_cached;
+		//累计实例缓冲上传字节数（第六十一轮；仅供 instance_upload_bytes 观测，不随帧重置）
+		uint64_t instance_upload_bytes = 0;
 		//实例缓冲（长度 = 在途帧数，主机可见，逐帧写入本帧全部实例模型矩阵）
 		std::vector<VkBuffer> instance_buffers;
 		//实例缓冲内存（与 instance_buffers 一一对应）

@@ -1182,6 +1182,15 @@ namespace engine
 						logger.error("渲染器:: 阴影 pass 实例缓冲写入失败");
 						return false;
 					}
+					/*
+					使该帧槽的实例缓存失效（第六十一轮）
+					阴影 pass 直接整块写入该槽缓冲，绕过了按需写入的缓存；
+					主 pass 之后若复用该槽，须以完整写入重建缓存，避免按旧缓存跳过必要更新。
+					*/
+					if (impl->instance_block_cached.size() > shadow_slot)
+						impl->instance_block_cached[shadow_slot] = 0;
+					//累计阴影 pass 的实例上传字节
+					impl->instance_upload_bytes += static_cast<uint64_t>(instance_bytes);
 				}
 				//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
 				std::vector<Frame_Render_Item> shadow_items;
@@ -1541,13 +1550,95 @@ namespace engine
 		{
 			//本帧实例矩阵总字节数（一个实例 = 16 浮点 = 64 字节）
 			VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
-			//写入本帧槽实例缓冲
-			if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
-				impl->pending_instances.data(), instance_bytes, 0))
+			/*
+			实例缓冲按需写入（第六十一轮）
+			逐帧槽缓存上次写入的实例矩阵，按「一个实例 = 64 字节」为比较单元；
+			连续变化实例合并为一段逐段写入；首次访问该帧槽整块写入本帧全部实例。
+			写入内容与整块写逐字节一致，故画面不变。
+			*/
+			const std::size_t cache_slot_count = impl->instance_buffers.size();
+			const std::size_t cache_slot_floats = static_cast<std::size_t>(impl->instance_capacity) * 16;
+			//若缓存规模与帧槽 / 容量不一致则重建
+			if (impl->instance_block_cache.size() != cache_slot_count * cache_slot_floats)
 			{
-				logger.error("渲染器:: 实例缓冲写入失败（帧槽 {}）", slot);
-				return false;
+				impl->instance_block_cache.assign(cache_slot_count * cache_slot_floats, 0.0f);
+				impl->instance_block_count.assign(cache_slot_count, 0);
+				impl->instance_block_cached.assign(cache_slot_count, 0);
 			}
+			//本帧槽缓存段
+			float* instance_cache = impl->instance_block_cache.data() + static_cast<std::size_t>(slot) * cache_slot_floats;
+			//上次已写入的实例数
+			const uint32_t cached_count = impl->instance_block_count[slot];
+			//本帧实例数
+			const std::size_t instance_count = impl->pending_instances.size();
+			//本帧实际上传字节数
+			std::size_t uploaded_bytes = 0;
+			//若该帧槽尚未建立缓存
+			if (impl->instance_block_cached[slot] == 0)
+			{
+				//整块写入
+				if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
+					impl->pending_instances.data(), instance_bytes, 0))
+				{
+					logger.error("渲染器:: 实例缓冲写入失败（帧槽 {}）", slot);
+					return false;
+				}
+				uploaded_bytes = static_cast<std::size_t>(instance_bytes);
+			}
+			else
+			{
+				//当前变化段的起始实例与是否处于段内
+				std::size_t run_start = 0;
+				bool in_run = false;
+				//逐实例扫描并合并连续变化区间
+				for (std::size_t index = 0; index < instance_count; ++index)
+				{
+					//超出上次缓存长度的实例一律视为变化
+					bool changed = index >= cached_count;
+					//未超出则逐浮点比较
+					for (std::size_t offset = 0; !changed && offset < 16; ++offset)
+						if (impl->pending_instances[index][offset] != instance_cache[index * 16 + offset])
+							changed = true;
+					//若变化段遇到未变化实例则收束并写入
+					if (!changed && in_run)
+					{
+						const std::size_t segment_bytes = (index - run_start) * 64;
+						if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
+							impl->pending_instances.data() + run_start, segment_bytes, run_start * 64))
+						{
+							logger.error("渲染器:: 实例缓冲分段写入失败（帧槽 {}）", slot);
+							return false;
+						}
+						uploaded_bytes += segment_bytes;
+						in_run = false;
+					}
+					//若未在段内且该实例变化则开启新段
+					if (changed && !in_run)
+					{
+						run_start = index;
+						in_run = true;
+					}
+				}
+				//收尾：最后一段延伸到本帧实例末尾
+				if (in_run)
+				{
+					const std::size_t segment_bytes = (instance_count - run_start) * 64;
+					if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
+						impl->pending_instances.data() + run_start, segment_bytes, run_start * 64))
+					{
+						logger.error("渲染器:: 实例缓冲分段写入失败（帧槽 {}）", slot);
+						return false;
+					}
+					uploaded_bytes += segment_bytes;
+				}
+			}
+			//更新该帧槽缓存（与已写入内容一致）
+			for (std::size_t index = 0; index < instance_count * 16; ++index)
+				instance_cache[index] = impl->pending_instances[index / 16][index % 16];
+			impl->instance_block_count[slot] = static_cast<uint32_t>(instance_count);
+			impl->instance_block_cached[slot] = 1;
+			//累计上传字节（观测用）
+			impl->instance_upload_bytes += uploaded_bytes;
 		}
 
 		//为本帧待绘制项填装描述符集与实例缓冲句柄
@@ -4042,6 +4133,13 @@ namespace engine
 	{
 		//未初始化返回 0
 		return impl != nullptr && impl->initialized ? impl->scene_upload_bytes : 0;
+	}
+
+	//累计实例缓冲上传字节数（第六十一轮新增）
+	uint64_t Renderer::instance_upload_bytes(void) const
+	{
+		//未初始化返回 0
+		return impl != nullptr && impl->initialized ? impl->instance_upload_bytes : 0;
 	}
 
 	//读回阴影图（第五十七轮新增）

@@ -592,6 +592,12 @@ namespace engine
 		*/
 		uint64_t scene_upload_bytes(void) const;
 		/*
+		累计实例缓冲上传字节数（第六十一轮新增）
+		实例缓冲现按「一个实例 = 64 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
+		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。
+		*/
+		uint64_t instance_upload_bytes(void) const;
+		/*
 		读回阴影图（第五十七轮新增）
 		输出为阴影目标的 RGBA8 打包深度（非线性的可视深度值，空区域为全 0），
 		逐行自上而下紧排、无行填充；capacity 须不小于「边长 × 边长 × 4」。
