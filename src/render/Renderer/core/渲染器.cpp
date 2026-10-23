@@ -1381,9 +1381,10 @@ namespace engine
 		scene_block[235] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
 		scene_block[236] = impl->shadow_strength;
-		//PBR-lite 参数（第六十四轮：x = 启用、y = 粗糙度缩放）
+		//PBR-lite 参数（第六十四轮：x = 启用、y = 粗糙度缩放；第六十五轮 z = 金属度）
 		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
 		scene_block[241] = impl->pbr_roughness;
+		scene_block[242] = impl->pbr_metallic;
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的 244 浮点，按 16 字节（4 浮点）单元比较；
@@ -3444,6 +3445,8 @@ namespace engine
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
+		//PBR 金属度（第六十五轮；非法值由 setter 整次忽略）
+		pbr_metallic_set(light.pbr_metallic);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -3494,6 +3497,8 @@ namespace engine
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
+		//PBR 金属度（第六十五轮）
+		light.pbr_metallic = scene.pbr_metallic;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -4196,6 +4201,28 @@ namespace engine
 	{
 		//未初始化返回默认 1
 		return impl != nullptr && impl->initialized ? impl->pbr_roughness : 1.0f;
+	}
+
+	//PBR 金属度（第六十五轮新增）
+	void Renderer::pbr_metallic_set(float metallic)
+	{
+		//未初始化静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//合法区间 0..1；越界或非数整次忽略
+		if (!(metallic >= 0.0f && metallic <= 1.0f))
+		{
+			logger.warn("渲染器:: PBR 金属度 {} 越界（0..1），已忽略", metallic);
+			return;
+		}
+		impl->pbr_metallic = metallic;
+	}
+
+	//当前 PBR 金属度（第六十五轮新增）
+	float Renderer::pbr_metallic(void) const
+	{
+		//未初始化返回默认 0
+		return impl != nullptr && impl->initialized ? impl->pbr_metallic : 0.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）

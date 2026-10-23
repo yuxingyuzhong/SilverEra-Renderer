@@ -135,6 +135,8 @@ namespace engine
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;
+		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属）
+		float pbr_metallic = 0.0f;
 	};
 
 	/*
@@ -293,5 +295,7 @@ namespace engine
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；语义见 Light_Data::pbr_enabled / pbr_roughness）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;
+		//PBR 金属度（第六十五轮；语义见 Light_Data::pbr_metallic）
+		float pbr_metallic = 0.0f;
 	};
 }

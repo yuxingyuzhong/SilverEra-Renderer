@@ -607,6 +607,13 @@ namespace engine
 		//当前 PBR-lite 粗糙度缩放（未初始化时为默认 1）
 		float pbr_roughness(void) const;
 		/*
+		PBR 金属度（第六十五轮新增；合法 0..1，越界整次忽略；默认 0）
+		PBR 开启时 F0 由 0.04 向反照率插值，漫反射按 (1 − metallic) 做能量守恒；关闭时不生效。
+		*/
+		void pbr_metallic_set(float metallic);
+		//当前 PBR 金属度（未初始化时为默认 0）
+		float pbr_metallic(void) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 64 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

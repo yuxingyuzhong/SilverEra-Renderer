@@ -231,6 +231,8 @@ namespace engine
 		*/
 		bool pbr_enabled = false;
 		float pbr_roughness = 1.0f;
+		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属；默认 0）
+		float pbr_metallic = 0.0f;
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）
