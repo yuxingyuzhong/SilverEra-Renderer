@@ -297,6 +297,15 @@ namespace engine
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
 		std::vector<VmaAllocation> scene_ubo_allocs;
+		/*
+		场景 UBO 上传缓存（第六十轮）
+		逐帧槽保存上一次已写入的 160 浮点（每个槽一段），用于按变化区间写入；
+		scene_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。
+		*/
+		std::vector<float> scene_block_cache;
+		std::vector<uint8_t> scene_block_cached;
+		//累计场景 UBO 上传字节数（第六十轮；仅供 scene_upload_bytes 观测，不随帧重置）
+		uint64_t scene_upload_bytes = 0;
 		//实例缓冲（长度 = 在途帧数，主机可见，逐帧写入本帧全部实例模型矩阵）
 		std::vector<VkBuffer> instance_buffers;
 		//实例缓冲内存（与 instance_buffers 一一对应）

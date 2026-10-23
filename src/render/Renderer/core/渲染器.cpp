@@ -1358,12 +1358,91 @@ namespace engine
 		scene_block[155] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
 		scene_block[156] = impl->shadow_strength;
-		//整块写入（单次驱动调用；640 = 160 浮点，std140 结构体尾部按 16 字节圆整）
-		if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 640, 0))
+		/*
+		场景 UBO 按需写入（第六十轮）
+		逐帧槽缓存上一次写入的 160 浮点，按 16 字节（4 浮点）单元比较；
+		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
+		首次访问某帧槽（缓存未建立）仍整块写入 640 字节，保证内容完整。
+		写入内容与整块写逐字节一致，故画面不变。
+		*/
+		const std::size_t scene_slot_count = impl->scene_ubos.size();
+		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
+		if (impl->scene_block_cache.size() != scene_slot_count * 160)
 		{
-			logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
-			return false;
+			impl->scene_block_cache.assign(scene_slot_count * 160, 0.0f);
+			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
+		//本帧槽缓存段（160 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 160;
+		//本帧实际上传字节数
+		std::size_t uploaded_bytes = 0;
+		//若该帧槽尚未建立缓存
+		if (impl->scene_block_cached[slot] == 0)
+		{
+			//整块写入（与既有行为一致）
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 640, 0))
+			{
+				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
+				return false;
+			}
+			uploaded_bytes = 640;
+		}
+		else
+		{
+			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
+			constexpr std::size_t UNIT_FLOATS = 4;
+			constexpr std::size_t UNIT_BYTES = 16;
+			constexpr std::size_t UNIT_COUNT = 160 / UNIT_FLOATS;
+			//当前变化段的起始单元与是否处于段内
+			std::size_t run_start = 0;
+			bool in_run = false;
+			//逐单元扫描并合并连续变化区间
+			for (std::size_t unit = 0; unit < UNIT_COUNT; ++unit)
+			{
+				//该单元是否有任一浮点变化（非数视为变化，保证安全上传）
+				bool changed = false;
+				for (std::size_t offset = 0; offset < UNIT_FLOATS; ++offset)
+					if (scene_block[unit * UNIT_FLOATS + offset] != slot_cache[unit * UNIT_FLOATS + offset])
+						changed = true;
+				//若变化段遇到未变化单元则收束并写入
+				if (!changed && in_run)
+				{
+					const std::size_t segment_bytes = (unit - run_start) * UNIT_BYTES;
+					if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+						scene_block + run_start * UNIT_FLOATS, segment_bytes, run_start * UNIT_BYTES))
+					{
+						logger.error("渲染器:: 场景 UBO 分段写入失败（帧槽 {}）", slot);
+						return false;
+					}
+					uploaded_bytes += segment_bytes;
+					in_run = false;
+				}
+				//若未在段内且该单元变化则开启新段
+				if (changed && !in_run)
+				{
+					run_start = unit;
+					in_run = true;
+				}
+			}
+			//收尾：最后一段延伸到末尾
+			if (in_run)
+			{
+				const std::size_t segment_bytes = (UNIT_COUNT - run_start) * UNIT_BYTES;
+				if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+					scene_block + run_start * UNIT_FLOATS, segment_bytes, run_start * UNIT_BYTES))
+				{
+					logger.error("渲染器:: 场景 UBO 分段写入失败（帧槽 {}）", slot);
+					return false;
+				}
+				uploaded_bytes += segment_bytes;
+			}
+		}
+		//更新该帧槽缓存（与已写入内容一致）
+		for (std::size_t index = 0; index < 160; ++index)
+			slot_cache[index] = scene_block[index];
+		impl->scene_block_cached[slot] = 1;
+		//累计上传字节（观测用）
+		impl->scene_upload_bytes += uploaded_bytes;
 		/*
 		本帧槽 set0 无需重写
 		各帧槽的场景 UBO 缓冲句柄自 init 起恒定不变，set0 已在 init 时一次性写入；
@@ -3956,6 +4035,13 @@ namespace engine
 	{
 		//未初始化返回 0
 		return impl != nullptr && impl->initialized ? impl->shadow_pass_count : 0;
+	}
+
+	//累计场景 UBO 上传字节数（第六十轮新增）
+	uint64_t Renderer::scene_upload_bytes(void) const
+	{
+		//未初始化返回 0
+		return impl != nullptr && impl->initialized ? impl->scene_upload_bytes : 0;
 	}
 
 	//读回阴影图（第五十七轮新增）
