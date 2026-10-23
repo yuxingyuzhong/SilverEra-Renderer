@@ -172,6 +172,18 @@ namespace engine
 		失败返回假，句柄保持无效（0）。
 		*/
 		bool mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data);
+		/*
+		加载程序化球体（第六十六轮新增）
+		radius 为正；slices 经度分段 3..128、stacks 纬度分段 2..64；
+		非法参数整次拒绝（句柄置 0 并告警）。法线朝外，UV 覆盖整球。
+		*/
+		bool mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks);
+		/*
+		加载程序化圆柱（第六十六轮新增）
+		radius / height 为正（沿 Y 轴、中心在原点）；segments 圆周分段 3..128；
+		非法参数整次拒绝（句柄置 0 并告警）。侧面法线径向，上下端盖法线朝 ±Y。
+		*/
+		bool mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
 		//卸载网格
 		void mesh_unload(Mesh_Handle handle);
 		/*

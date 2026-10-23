@@ -2141,7 +2141,36 @@ namespace engine
 		return impl->platform.window_size_set(width, height);
 	}
 
-	//加载网格
+	//按程序化球体加载网格（第六十六轮新增）
+	bool Renderer::mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks)
+	{
+		//前置：已初始化、半径为正（非数亦拒）、分段数在区间内
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
+			|| slices < 3 || slices > 128 || stacks < 2 || stacks > 64)
+		{
+			logger.warn("渲染器:: 球体参数非法（半径 {}、经度 {}、纬度 {}）", radius, slices, stacks);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::sphere_generate(radius, slices, stacks));
+	}
+
+	//按程序化圆柱加载网格（第六十六轮新增）
+	bool Renderer::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
+	{
+		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+			|| segments < 3 || segments > 128)
+		{
+			logger.warn("渲染器:: 圆柱参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
+	}
+
 	bool Renderer::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
 	{
 		//若尚未初始化

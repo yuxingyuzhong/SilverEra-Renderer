@@ -85,6 +85,18 @@ namespace engine
 		static Mesh_Data triangle_generate(void);
 		//生成轴对齐立方体（边长 2*half_extent；24 顶点 / 36 索引）
 		static Mesh_Data cube_generate(float half_extent);
+		/*
+		生成 UV 球体（第六十六轮新增）
+		radius 半径；slices 经度分段（>= 3）、stacks 纬度分段（>= 2）；
+		顶点 (stacks+1) × (slices+1)（末列与首列重合以保留 UV 接缝），法线 = 归一化位置。
+		*/
+		static Mesh_Data sphere_generate(float radius, uint32_t slices, uint32_t stacks);
+		/*
+		生成带端盖圆柱（第六十六轮新增）
+		radius 半径、height 总高（沿 Y 轴、中心在原点）；segments 圆周分段（>= 3）；
+		侧面法线径向，上下端盖法线朝 ±Y。
+		*/
+		static Mesh_Data cylinder_generate(float radius, float height, uint32_t segments);
 	private:
 		//内存模块（缓冲创建与上传在此完成）
 		Memory_Context* memory = nullptr;
