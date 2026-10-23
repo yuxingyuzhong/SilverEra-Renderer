@@ -6,7 +6,7 @@ layout(location = 1) in vec2 in_uv;
 //法线（第二十九轮新增；零向量表示未提供，由片元按朝向相机处理）
 layout(location = 2) in vec3 in_normal;
 /*
-实例属性：模型矩阵（4 列 vec4，按实例步进，步长 64）
+实例属性：模型矩阵（4 列 vec4，按实例步进；第六十八轮起步长 80，后 16 字节为逐物体材质）
 模型矩阵统一由「实例缓冲」承载（不再经推送常量）；实例数为 1 时即逐次绘制的等价路径，
 故本渲染层只有一条绘制路径，不存在「非实例 / 实例」两套语义。
 */
@@ -14,6 +14,12 @@ layout(location = 3) in vec4 in_model_0;
 layout(location = 4) in vec4 in_model_1;
 layout(location = 5) in vec4 in_model_2;
 layout(location = 6) in vec4 in_model_3;
+/*
+逐物体材质（第六十八轮；按实例步进，步长 80 的第 64..79 字节）
+x = 粗糙度缩放、y = 金属度、z = 覆盖标志（> 0.5 时覆盖全局 pbr_params）、w 保留
+零向量表示不覆盖，片元着色器回落场景 UBO 的全局参数，故默认画面不变。
+*/
+layout(location = 7) in vec4 in_material;
 
 //传递给片元着色器的纹理坐标
 layout(location = 0) out vec2 out_uv;
@@ -21,6 +27,8 @@ layout(location = 0) out vec2 out_uv;
 layout(location = 1) out vec3 out_normal;
 //传递给片元着色器的世界空间位置（第三十一轮：点光源与镜面高光需要）
 layout(location = 2) out vec3 out_world;
+//传递给片元着色器的逐物体材质（整实例恒定，用 flat 避免边缘插值把覆盖标志抹成半值）
+layout(location = 3) flat out vec4 out_material;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -50,5 +58,7 @@ void main()
 	out_world = world.xyz;
 	//法线经模型矩阵线性部分变换（不做逆转置；非等比缩放下为近似）
 	out_normal = mat3(model) * in_normal;
+	//逐物体材质原样下传（整实例恒定）
+	out_material = in_material;
 	gl_Position = scene.view_proj * world;
 }

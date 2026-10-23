@@ -185,6 +185,12 @@ namespace engine
 		*/
 		bool mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
 		/*
+		加载程序化圆锥（第六十八轮新增）
+		radius / height 为正（沿 Y 轴、中心在原点、锥尖朝 +Y）；segments 圆周分段 3..128；
+		非法参数整次拒绝（句柄置 0 并告警）。侧面法线按锥面斜率倾斜，底面端盖法线朝 -Y。
+		*/
+		bool mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
+		/*
 		加载程序化圆环（第六十七轮新增）
 		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
 		*/
@@ -263,10 +269,29 @@ namespace engine
 		void material_unload(Material_Handle handle);
 		/*
 		设置后续绘制所用材质
-		等价于 pipeline_bind_set(材质管线) ＋ 按材质纹理绑定（失败 / 为零回落内置默认白纹理）。
-		handle 为 0 或无效句柄时回落「默认场景管线 ＋ 内置默认白纹理」。
+		等价于 pipeline_bind_set(材质管线) ＋ 按材质纹理绑定（失败 / 为零回落内置默认白纹理）；
+		同时按材质的 pbr_override 设置 / 清除逐物体 PBR 覆盖（第六十八轮）。
+		handle 为 0 或无效句柄时回落「默认场景管线 ＋ 内置默认白纹理」并清除逐物体 PBR 覆盖。
 		*/
 		void material_bind_set(Material_Handle handle);
+		/*
+		设置逐物体 PBR 材质（第六十八轮）
+		设置后，后续 mesh_draw / mesh_draw_instanced 的实例属性携带该材质：
+		粗糙度缩放与金属度按物体生效（全局 pbr_params 仍须启用，PBR 未启用时本覆盖不参与）。
+		roughness 合法域 (0.05, 4]、metallic 合法域 [0, 1]；越界 / 非数整次拒绝并返回假（状态不变）。
+		*/
+		bool material_pbr_set(float roughness, float metallic);
+		/*
+		清除逐物体 PBR 材质（第六十八轮）
+		后续绘制回落到场景 UBO 的全局 pbr_params；未设置时为空操作。
+		*/
+		void material_pbr_clear(void);
+		//当前是否启用逐物体 PBR 材质覆盖（第六十八轮）
+		bool material_pbr_active(void) const;
+		//当前逐物体材质粗糙度缩放（未启用时为 1；第六十八轮）
+		float material_pbr_roughness(void) const;
+		//当前逐物体材质金属度（未启用时为 0；第六十八轮）
+		float material_pbr_metallic(void) const;
 
 		/*
 		设置后续绘制所用混合档（Opaque / Alpha）
@@ -633,7 +658,7 @@ namespace engine
 		float pbr_metallic(void) const;
 		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
-		实例缓冲现按「一个实例 = 64 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
+		实例缓冲现按「一个实例 = 80 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。
 		*/
 		uint64_t instance_upload_bytes(void) const;

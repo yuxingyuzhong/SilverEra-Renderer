@@ -24,6 +24,8 @@ namespace engine
 	          （混合档在 pipeline_load 登记时已确定）。
 	texture：纹理句柄。为 0 时回落内置默认白纹理。
 	blend：混合档。仅当 pipeline == 0 时生效。
+	逐物体 PBR（第六十八轮）：pbr_override 为真时，该材质绑定的后续绘制按本材质的
+	粗糙度缩放 / 金属度着色（随实例属性下发），否则沿用场景 UBO 的全局 pbr_params。
 	注意：采样器为纹理模块共享并烘焙进各帧槽 set1，故材质不携带采样器状态；
 	      采样器状态仍由渲染器门面 texture_sampler_state_set 全局控制。
 	*/
@@ -35,5 +37,11 @@ namespace engine
 		uint64_t texture = 0;
 		//混合档（仅 pipeline == 0 时生效）
 		Blend_Mode blend = Blend_Mode::Opaque;
+		//是否覆盖全局 PBR 参数（第六十八轮；false 时沿用场景全局参数）
+		bool pbr_override = false;
+		//逐物体材质粗糙度缩放（合法域 (0.05, 4]；仅 pbr_override 为真时生效）
+		float pbr_roughness = 1.0f;
+		//逐物体材质金属度（合法域 [0, 1]；仅 pbr_override 为真时生效）
+		float pbr_metallic = 0.0f;
 	};
 }

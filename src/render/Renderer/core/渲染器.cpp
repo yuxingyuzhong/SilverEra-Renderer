@@ -669,9 +669,9 @@ namespace engine
 				shutdown();
 				return false;
 			}
-			//创建该帧槽的实例缓冲（主机可见、顶点缓冲用途；容量 = instance_capacity 个模型矩阵）
+			//创建该帧槽的实例缓冲（主机可见、顶点缓冲用途；容量 = instance_capacity 个实例，一个实例 80 字节）
 			if (!impl->memory.buffer_create(impl->instance_buffers[slot], impl->instance_allocations[slot],
-				static_cast<VkDeviceSize>(impl->instance_capacity) * 64, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true))
+				static_cast<VkDeviceSize>(impl->instance_capacity) * INSTANCE_STRIDE_BYTES, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 实例缓冲创建失败（帧槽 {}）", slot);
 				shutdown();
@@ -949,6 +949,10 @@ namespace engine
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
 		impl->cull_enabled = true;
+		//逐物体 PBR 材质恢复默认（不覆盖全局，第六十八轮）
+		impl->material_pbr_active = false;
+		impl->material_pbr_roughness = 1.0f;
+		impl->material_pbr_metallic = 0.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -1162,11 +1166,11 @@ namespace engine
 				if (item.cast_shadow)
 					++shadow_item_count;
 			}
-			//本帧阴影输入签名（实例矩阵按 float 个数计；实例存储为连续 16 浮点数组）
+			//本帧阴影输入签名（实例矩阵按 float 个数计；实例存储为连续 20 浮点数组）
 			const float* instance_floats = impl->pending_instances.empty()
 				? nullptr : impl->pending_instances.front().data();
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				instance_floats, impl->pending_instances.size() * 16,
+				instance_floats, impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
 				shadow_item_count, impl->shadow_size);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
 			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
@@ -1186,7 +1190,7 @@ namespace engine
 				//写入该槽实例缓冲（与主 pass 使用同一批模型矩阵）
 				if (!impl->pending_instances.empty())
 				{
-					VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
 					if (!impl->memory.buffer_write(impl->instance_buffers[shadow_slot],
 						impl->instance_allocations[shadow_slot], impl->pending_instances.data(), instance_bytes, 0))
 					{
@@ -1506,10 +1510,10 @@ namespace engine
 				//若资源就绪
 				if (resources_ready)
 				{
-					//追加单位矩阵（列主序）并记录其字节偏移
-					post_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					//追加单位矩阵（列主序；材质四浮点为零 = 不覆盖全局 PBR）并记录其字节偏移
+					post_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
 					impl->pending_instances.emplace_back();
-					std::array<float, 16>& identity = impl->pending_instances.back();
+					std::array<float, INSTANCE_FLOAT_COUNT>& identity = impl->pending_instances.back();
 					identity.fill(0.0f);
 					identity[0] = 1.0f;
 					identity[5] = 1.0f;
@@ -1541,9 +1545,9 @@ namespace engine
 				//本帧实例存储须仍有空位（降采样全屏四边形再占一个实例）
 				if (impl->pending_instances.size() < impl->instance_capacity)
 				{
-					ssaa_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+					ssaa_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
 					impl->pending_instances.emplace_back();
-					std::array<float, 16>& identity = impl->pending_instances.back();
+					std::array<float, INSTANCE_FLOAT_COUNT>& identity = impl->pending_instances.back();
 					identity.fill(0.0f);
 					identity[0] = 1.0f;
 					identity[5] = 1.0f;
@@ -1566,16 +1570,16 @@ namespace engine
 		*/
 		if (!impl->pending_instances.empty())
 		{
-			//本帧实例矩阵总字节数（一个实例 = 16 浮点 = 64 字节）
-			VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * 64;
+			//本帧实例属性总字节数（一个实例 = 20 浮点 = 80 字节）
+			VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
 			/*
 			实例缓冲按需写入（第六十一轮）
-			逐帧槽缓存上次写入的实例矩阵，按「一个实例 = 64 字节」为比较单元；
+			逐帧槽缓存上次写入的实例属性，按「一个实例 = 80 字节」为比较单元；
 			连续变化实例合并为一段逐段写入；首次访问该帧槽整块写入本帧全部实例。
 			写入内容与整块写逐字节一致，故画面不变。
 			*/
 			const std::size_t cache_slot_count = impl->instance_buffers.size();
-			const std::size_t cache_slot_floats = static_cast<std::size_t>(impl->instance_capacity) * 16;
+			const std::size_t cache_slot_floats = static_cast<std::size_t>(impl->instance_capacity) * INSTANCE_FLOAT_COUNT;
 			//若缓存规模与帧槽 / 容量不一致则重建
 			if (impl->instance_block_cache.size() != cache_slot_count * cache_slot_floats)
 			{
@@ -1614,15 +1618,15 @@ namespace engine
 					//超出上次缓存长度的实例一律视为变化
 					bool changed = index >= cached_count;
 					//未超出则逐浮点比较
-					for (std::size_t offset = 0; !changed && offset < 16; ++offset)
-						if (impl->pending_instances[index][offset] != instance_cache[index * 16 + offset])
+					for (std::size_t offset = 0; !changed && offset < INSTANCE_FLOAT_COUNT; ++offset)
+						if (impl->pending_instances[index][offset] != instance_cache[index * INSTANCE_FLOAT_COUNT + offset])
 							changed = true;
 					//若变化段遇到未变化实例则收束并写入
 					if (!changed && in_run)
 					{
-						const std::size_t segment_bytes = (index - run_start) * 64;
+						const std::size_t segment_bytes = (index - run_start) * INSTANCE_STRIDE_BYTES;
 						if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
-							impl->pending_instances.data() + run_start, segment_bytes, run_start * 64))
+							impl->pending_instances.data() + run_start, segment_bytes, run_start * INSTANCE_STRIDE_BYTES))
 						{
 							logger.error("渲染器:: 实例缓冲分段写入失败（帧槽 {}）", slot);
 							return false;
@@ -1640,9 +1644,9 @@ namespace engine
 				//收尾：最后一段延伸到本帧实例末尾
 				if (in_run)
 				{
-					const std::size_t segment_bytes = (instance_count - run_start) * 64;
+					const std::size_t segment_bytes = (instance_count - run_start) * INSTANCE_STRIDE_BYTES;
 					if (!impl->memory.buffer_write(impl->instance_buffers[slot], impl->instance_allocations[slot],
-						impl->pending_instances.data() + run_start, segment_bytes, run_start * 64))
+						impl->pending_instances.data() + run_start, segment_bytes, run_start * INSTANCE_STRIDE_BYTES))
 					{
 						logger.error("渲染器:: 实例缓冲分段写入失败（帧槽 {}）", slot);
 						return false;
@@ -1651,8 +1655,8 @@ namespace engine
 				}
 			}
 			//更新该帧槽缓存（与已写入内容一致）
-			for (std::size_t index = 0; index < instance_count * 16; ++index)
-				instance_cache[index] = impl->pending_instances[index / 16][index % 16];
+			for (std::size_t index = 0; index < instance_count * INSTANCE_FLOAT_COUNT; ++index)
+				instance_cache[index] = impl->pending_instances[index / INSTANCE_FLOAT_COUNT][index % INSTANCE_FLOAT_COUNT];
 			impl->instance_block_count[slot] = static_cast<uint32_t>(instance_count);
 			impl->instance_block_cached[slot] = 1;
 			//累计上传字节（观测用）
@@ -2171,6 +2175,21 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
 	}
 
+	//按程序化圆锥加载网格（第六十八轮新增）
+	bool Renderer::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
+	{
+		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+			|| segments < 3 || segments > 128)
+		{
+			logger.warn("渲染器:: 圆锥参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::cone_generate(radius, height, segments));
+	}
+
 	//按程序化圆环加载网格（第六十七轮新增）
 	bool Renderer::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
 		uint32_t major_segments, uint32_t minor_segments)
@@ -2221,19 +2240,19 @@ namespace engine
 		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
-	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个），返回首个实例的字节偏移
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
-	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, 16>>& store,
-		const float* transforms, uint32_t count)
+	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
+		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic)
 	{
-		//首个实例的字节偏移（追加前的元素个数 × 64）
-		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * 64;
+		//首个实例的字节偏移（追加前的元素个数 × 80）
+		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
 		//逐实例追加
 		for (uint32_t instance = 0; instance < count; ++instance)
 		{
 			//新实例的矩阵存储
 			store.emplace_back();
-			std::array<float, 16>& target = store.back();
+			std::array<float, INSTANCE_FLOAT_COUNT>& target = store.back();
 			//transforms 为空则整批用单位矩阵
 			if (transforms == nullptr)
 			{
@@ -2253,6 +2272,15 @@ namespace engine
 				for (uint32_t element = 0; element < 16; ++element)
 					target[element] = transforms[static_cast<size_t>(instance) * 16 + element];
 			}
+			/*
+			逐物体材质（第六十八轮）
+			覆盖标志置于第 2 分量（z）：0 = 不覆盖，片元着色器回落场景 UBO 的全局 PBR 参数；
+			故未调用 material_pbr_set 的绘制项与旧版逐字节一致。
+			*/
+			target[INSTANCE_MATERIAL_OFFSET + 0] = material_active ? roughness : 0.0f;
+			target[INSTANCE_MATERIAL_OFFSET + 1] = material_active ? metallic : 0.0f;
+			target[INSTANCE_MATERIAL_OFFSET + 2] = material_active ? 1.0f : 0.0f;
+			target[INSTANCE_MATERIAL_OFFSET + 3] = 0.0f;
 		}
 		return offset;
 	}
@@ -2309,8 +2337,9 @@ namespace engine
 			logger.error("渲染器:: 本帧实例矩阵存储已满（容量 {}），绘制被拒", impl->instance_capacity);
 			return false;
 		}
-		//追加本项模型矩阵并取其在本帧实例缓冲内的字节偏移
-		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1);
+		//追加本项模型矩阵与材质并取其在本帧实例缓冲内的字节偏移
+		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1,
+			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic);
 
 		/*
 		组装待绘制项
@@ -2414,8 +2443,9 @@ namespace engine
 				impl->instance_capacity - static_cast<uint32_t>(impl->pending_instances.size()));
 			return false;
 		}
-		//追加本批模型矩阵并取首个实例在本帧实例缓冲内的字节偏移
-		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count);
+		//追加本批模型矩阵与材质并取首个实例在本帧实例缓冲内的字节偏移
+		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count,
+			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic);
 
 		/*
 		组装待绘制项
@@ -2793,6 +2823,23 @@ namespace engine
 		Impl::Material_Record record{};
 		record.pipeline = data.pipeline;
 		record.texture = data.texture;
+		/*
+		逐物体 PBR（第六十八轮）
+		与非数 / 越界字段一律按「不覆盖」处理，避免把非法参数写进实例属性；
+		合法域：粗糙度 (0.05, 4]、金属度 [0, 1]。
+		*/
+		record.pbr_override = data.pbr_override
+			&& data.pbr_roughness > 0.05f && data.pbr_roughness <= 4.0f
+			&& data.pbr_metallic >= 0.0f && data.pbr_metallic <= 1.0f;
+		if (record.pbr_override)
+		{
+			record.pbr_roughness = data.pbr_roughness;
+			record.pbr_metallic = data.pbr_metallic;
+		}
+		//若声明覆盖但参数非法则告警（按不覆盖登记，保持默认画面）
+		if (data.pbr_override && !record.pbr_override)
+			logger.warn("渲染器:: 材质 PBR 参数非法（粗糙度 {}、金属度 {}），按不覆盖登记",
+				data.pbr_roughness, data.pbr_metallic);
 		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
 		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
 		{
@@ -2863,11 +2910,12 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
-		//句柄为零则回落「默认场景管线 ＋ 内置默认白纹理」
+		//句柄为零则回落「默认场景管线 ＋ 内置默认白纹理」并清除逐物体 PBR 覆盖
 		if (handle == 0)
 		{
 			pipeline_bind_set(0);
 			texture_bind_set(0);
+			material_pbr_clear();
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -2876,6 +2924,7 @@ namespace engine
 			logger.warn("渲染器:: 材质句柄 {} 无效，回落默认管线与默认纹理", handle);
 			pipeline_bind_set(0);
 			texture_bind_set(0);
+			material_pbr_clear();
 			return;
 		}
 		//取目标记录
@@ -2883,6 +2932,83 @@ namespace engine
 		//绑定材质管线与纹理（管线句柄未登记 / 纹理句柄无效时各自内部回落默认）
 		pipeline_bind_set(record.pipeline);
 		texture_bind_set(record.texture);
+		//按记录的 PBR 覆盖标志设置 / 清除逐物体材质（第六十八轮）
+		if (record.pbr_override)
+			impl->material_pbr_active = true;
+		else
+			impl->material_pbr_active = false;
+		impl->material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
+		impl->material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
+	}
+
+	/*
+	设置逐物体 PBR 材质（第六十八轮）
+	粗糙度合法域 (0.05, 4]、金属度合法域 [0, 1]；任一项越界 / 非数则整次拒绝（状态不变）。
+	设置只影响**之后登记**的绘制项（实例属性在 mesh_draw 时写入），与绑定类接口的吸附语义一致。
+	*/
+	bool Renderer::material_pbr_set(float roughness, float metallic)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 设置逐物体材质失败：尚未初始化");
+			return false;
+		}
+		//参数合法性校验（NaN 比较恒假，故也被拒绝）
+		if (!(roughness > 0.05f && roughness <= 4.0f))
+		{
+			logger.warn("渲染器:: 逐物体材质粗糙度 {} 越界（合法域 (0.05, 4]），已忽略", roughness);
+			return false;
+		}
+		if (!(metallic >= 0.0f && metallic <= 1.0f))
+		{
+			logger.warn("渲染器:: 逐物体材质金属度 {} 越界（合法域 [0, 1]），已忽略", metallic);
+			return false;
+		}
+		//写入吸附状态
+		impl->material_pbr_active = true;
+		impl->material_pbr_roughness = roughness;
+		impl->material_pbr_metallic = metallic;
+		return true;
+	}
+
+	//清除逐物体 PBR 材质（第六十八轮）
+	void Renderer::material_pbr_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//回落全局参数
+		impl->material_pbr_active = false;
+		impl->material_pbr_roughness = 1.0f;
+		impl->material_pbr_metallic = 0.0f;
+	}
+
+	//当前是否启用逐物体 PBR 材质覆盖（第六十八轮）
+	bool Renderer::material_pbr_active(void) const
+	{
+		//未初始化视为未启用
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->material_pbr_active;
+	}
+
+	//当前逐物体材质粗糙度缩放（第六十八轮）
+	float Renderer::material_pbr_roughness(void) const
+	{
+		//未初始化返回默认 1
+		if (impl == nullptr || !impl->initialized)
+			return 1.0f;
+		return impl->material_pbr_roughness;
+	}
+
+	//当前逐物体材质金属度（第六十八轮）
+	float Renderer::material_pbr_metallic(void) const
+	{
+		//未初始化返回默认 0
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->material_pbr_metallic;
 	}
 
 	//创建离屏渲染目标

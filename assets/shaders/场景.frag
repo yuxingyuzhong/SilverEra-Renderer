@@ -6,6 +6,8 @@ layout(location = 0) in vec2 in_uv;
 layout(location = 1) in vec3 in_normal;
 //来自顶点着色器的世界空间位置（第三十一轮）
 layout(location = 2) in vec3 in_world;
+//逐物体材质（第六十八轮；x = 粗糙度缩放、y = 金属度、z = 覆盖标志、w 保留）
+layout(location = 3) flat in vec4 in_material;
 
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -63,23 +65,41 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 const int POINT_LIGHT_MAX = 8;
 
 /*
-PBR-lite 粗糙度换算（第六十四轮）
-由 Blinn-Phong 光泽度换算 GGX 粗糙度：roughness = sqrt(2 / (shininess + 2))，
-再乘全局缩放 pbr_params.y 并钳到 [0.03, 1]。
+逐物体 PBR 粗糙度缩放（第六十八轮）
+覆盖标志有效时取实例属性（钳到合法域），否则沿用场景 UBO 的全局 pbr_params.y。
 */
-float pbr_roughness(float shininess)
+float material_roughness_scale()
 {
-	float roughness = sqrt(2.0 / (max(shininess, 1.0) + 2.0));
-	return clamp(roughness * max(scene.pbr_params.y, 0.05), 0.03, 1.0);
+	return in_material.z > 0.5 ? clamp(in_material.x, 0.05, 4.0) : max(scene.pbr_params.y, 0.05);
 }
 
 /*
-PBR-lite 菲涅尔基色（第六十五轮）
-金属度（pbr_params.z，0..1）把 F0 从介电 0.04 插值到反照率色；金属表面镜面带基色。
+逐物体金属度（第六十八轮）
+覆盖标志有效时取实例属性（钳到 0..1），否则沿用场景 UBO 的全局 pbr_params.z。
 */
-vec3 pbr_f0(vec3 albedo)
+float material_metallic()
 {
-	return mix(vec3(0.04), albedo, clamp(scene.pbr_params.z, 0.0, 1.0));
+	return in_material.z > 0.5 ? clamp(in_material.y, 0.0, 1.0) : clamp(scene.pbr_params.z, 0.0, 1.0);
+}
+
+/*
+PBR-lite 粗糙度换算（第六十四轮；第六十八轮增加逐物体缩放入参）
+由 Blinn-Phong 光泽度换算 GGX 粗糙度：roughness = sqrt(2 / (shininess + 2))，
+再乘缩放入参并钳到 [0.03, 1]。
+*/
+float pbr_roughness(float shininess, float scale)
+{
+	float roughness = sqrt(2.0 / (max(shininess, 1.0) + 2.0));
+	return clamp(roughness * max(scale, 0.05), 0.03, 1.0);
+}
+
+/*
+PBR-lite 菲涅尔基色（第六十五轮；第六十八轮金属度改为入参）
+金属度（0..1）把 F0 从介电 0.04 插值到反照率色；金属表面镜面带基色。
+*/
+vec3 pbr_f0(vec3 albedo, float metallic)
+{
+	return mix(vec3(0.04), albedo, clamp(metallic, 0.0, 1.0));
 }
 
 /*
@@ -230,7 +250,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0)), pbr_f0(albedo_color.rgb))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale()),
+					pbr_f0(albedo_color.rgb, material_metallic()))
 					* scene.camera_pos.w * dir_shadow * scene.light_dir.w);
 			else
 			{
@@ -251,7 +272,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, fill_to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0)), pbr_f0(albedo_color.rgb))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale()),
+					pbr_f0(albedo_color.rgb, material_metallic()))
 					* scene.fill_color.w * scene.fill_dir_intensity.w);
 			else
 			{
@@ -315,8 +337,9 @@ void main()
 				: max(scene.light_common.z, 1.0);
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
-				specular = max(specular, ggx_specular(normal, to_view, to_light, pbr_roughness(shininess),
-					pbr_f0(albedo_color.rgb)) * attenuation * cone * scene.point_spot_cone[index].w
+				specular = max(specular, ggx_specular(normal, to_view, to_light,
+					pbr_roughness(shininess, material_roughness_scale()),
+					pbr_f0(albedo_color.rgb, material_metallic())) * attenuation * cone * scene.point_spot_cone[index].w
 					* scene.point_color_intensity[index].w);
 			else
 			{
@@ -329,10 +352,11 @@ void main()
 	}
 	/*
 	最终颜色：反照率 × 累加辐射度 × 漫反射权重 ＋ 镜面（强度由 light_common.y 统一缩放），钳制到 [0,1]
-	漫反射权重（第六十五轮）：PBR 开启时按金属度做能量守恒（1 − metallic），关闭时恒 1。
+	漫反射权重（第六十五轮）：PBR 开启时按金属度做能量守恒（1 − metallic），关闭时恒 1；
+	金属度来源由 material_metallic() 决定（第六十八轮：逐物体覆盖或全局）。
 	*/
 	float diffuse_weight = scene.pbr_params.x > 0.5
-		? clamp(1.0 - scene.pbr_params.z, 0.0, 1.0) : 1.0;
+		? clamp(1.0 - material_metallic(), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y;
 	/*
 	距离雾（第三十八轮；密度 0 = 关闭）

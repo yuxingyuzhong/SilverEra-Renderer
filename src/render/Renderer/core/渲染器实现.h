@@ -173,13 +173,19 @@ namespace engine
 		Pipeline_Context pipeline;
 		//具名管线集合（默认场景管线不在内）
 		std::vector<Extra_Pipeline_Record> extra_pipelines;
-		//材质记录（管线 ＋ 纹理；有效标记用于句柄槽复用）
+		//材质记录（管线 ＋ 纹理 ＋ 逐物体 PBR；有效标记用于句柄槽复用）
 		struct Material_Record
 		{
 			//图形管线句柄（0 = 默认场景管线）
 			uint64_t pipeline = 0;
 			//纹理句柄（0 = 内置默认白纹理）
 			uint64_t texture = 0;
+			//是否覆盖全局 PBR 参数（第六十八轮；false 时沿用场景 UBO 的 pbr_params）
+			bool pbr_override = false;
+			//逐物体材质粗糙度缩放（0.05..4；仅 pbr_override 为真时生效）
+			float pbr_roughness = 1.0f;
+			//逐物体材质金属度（0..1；仅 pbr_override 为真时生效）
+			float pbr_metallic = 0.0f;
 			//记录是否有效
 			bool valid = false;
 		};
@@ -316,7 +322,7 @@ namespace engine
 		uint64_t scene_upload_bytes = 0;
 		/*
 		实例缓冲上传缓存（第六十一轮）
-		逐帧槽保存上次写入的实例矩阵（帧槽数 × instance_capacity × 16 浮点）与已写入实例数；
+		逐帧槽保存上次写入的实例属性（帧槽数 × instance_capacity × 20 浮点）与已写入实例数；
 		instance_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。
 		*/
 		std::vector<float> instance_block_cache;
@@ -328,7 +334,7 @@ namespace engine
 		std::vector<VkBuffer> instance_buffers;
 		//实例缓冲内存（与 instance_buffers 一一对应）
 		std::vector<VmaAllocation> instance_allocations;
-		//每帧槽实例缓冲容量（模型矩阵个数；一个实例 = 16 浮点 = 64 字节）
+		//每帧槽实例缓冲容量（实例个数）
 		uint32_t instance_capacity = 256;
 		//内置默认白纹理句柄
 		uint64_t default_texture = 0;
@@ -340,14 +346,24 @@ namespace engine
 		VkImageView bound_view = VK_NULL_HANDLE;
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
+		/*
+		逐物体 PBR 材质吸附状态（第六十八轮）
+		material_pbr_set 之后，后续 mesh_draw / mesh_draw_instanced 的实例属性携带该材质；
+		material_pbr_clear（或 material_bind_set 绑定无覆盖的材质）回落到场景 UBO 的全局 pbr_params。
+		*/
+		bool material_pbr_active = false;
+		//逐物体材质粗糙度缩放（0.05..4）
+		float material_pbr_roughness = 1.0f;
+		//逐物体材质金属度（0..1）
+		float material_pbr_metallic = 0.0f;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule frag_module = VK_NULL_HANDLE;
 		//待绘制项（由 mesh_draw 逐次登记，frame_render 消费后清空；同帧可登记多个网格）
 		std::vector<Frame_Render_Item> pending_items;
-		//本帧待绘制的实例模型矩阵（列主序 16 浮点 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
-		std::vector<std::array<float, 16>> pending_instances;
+		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
+		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 		//是否已初始化
 		bool initialized = false;
 		//已呈现帧数

@@ -208,6 +208,80 @@ namespace engine
 	}
 
 	/*
+	生成圆锥（第六十八轮）
+	底面半径 radius、总高 height，沿 Y 轴、中心在原点、锥尖朝 +Y；
+	侧面两圈（底面 / 锥尖，接缝复制列）法线按锥面斜率倾斜，底面端盖法线朝 -Y。
+	*/
+	Mesh_Data Mesh_Context::cone_generate(float radius, float height, uint32_t segments)
+	{
+		//分段数兜底
+		if (segments < 3)
+			segments = 3;
+		Mesh_Data data;
+		//半高
+		float half_height = height * 0.5f;
+		/*
+		锥面法线（侧面）
+		曲面参数化 p(t, θ) = ((1−t)·r·cosθ, −h/2 + t·h, (1−t)·r·sinθ)，
+		切向分别沿「高度」与「圆周」，叉积即法线 ∝ (h·cosθ, r, h·sinθ)；
+		故上分量为底面半径、径向上分量为总高。
+		*/
+		float normal_radial = height;
+		float normal_up = radius;
+		float normal_length = std::sqrt(normal_radial * normal_radial + normal_up * normal_up);
+		//侧面：底面一圈 + 锥尖一圈（末列与首列重合以保留 UV 接缝）
+		for (uint32_t ring = 0; ring < 2; ++ring)
+		{
+			float y = (ring == 0) ? -half_height : half_height;
+			float v = (ring == 0) ? 0.0f : 1.0f;
+			//锥尖圈的圆周半径为 0
+			float ring_radius = (ring == 0) ? radius : 0.0f;
+			for (uint32_t index = 0; index <= segments; ++index)
+			{
+				float u = static_cast<float>(index) / static_cast<float>(segments);
+				float theta = 6.2831853f * u;
+				float nx = std::cos(theta);
+				float nz = std::sin(theta);
+				data.vertices.push_back({ { ring_radius * nx, y, ring_radius * nz }, { u, v },
+					{ nx * normal_radial / normal_length, normal_up / normal_length, nz * normal_radial / normal_length } });
+			}
+		}
+		/*
+		侧面索引（外向绕序）
+		锥尖一圈各列位置重合，故每段只有一枚三角形（底面 i → 锥尖 i → 底面 i+1），
+		与圆柱侧面首个三角形同序，保证背面剔除下可见。
+		*/
+		const uint32_t stride = segments + 1;
+		for (uint32_t index = 0; index < segments; ++index)
+		{
+			data.indices.push_back(index);
+			data.indices.push_back(stride + index);
+			data.indices.push_back(index + 1);
+		}
+		//底面端盖（法线朝 -Y；中心顶点 ＋ 扇形）
+		uint32_t center = static_cast<uint32_t>(data.vertices.size());
+		data.vertices.push_back({ { 0.0f, -half_height, 0.0f }, { 0.5f, 0.5f }, { 0.0f, -1.0f, 0.0f } });
+		uint32_t start = static_cast<uint32_t>(data.vertices.size());
+		for (uint32_t index = 0; index <= segments; ++index)
+		{
+			float u = static_cast<float>(index) / static_cast<float>(segments);
+			float theta = 6.2831853f * u;
+			float nx = std::cos(theta);
+			float nz = std::sin(theta);
+			data.vertices.push_back({ { radius * nx, -half_height, radius * nz },
+				{ 0.5f + 0.5f * nx, 0.5f + 0.5f * nz }, { 0.0f, -1.0f, 0.0f } });
+		}
+		//扇形索引（底面朝向 -Y，顺序排列）
+		for (uint32_t index = 0; index < segments; ++index)
+		{
+			data.indices.push_back(center);
+			data.indices.push_back(start + index);
+			data.indices.push_back(start + index + 1);
+		}
+		return data;
+	}
+
+	/*
 	生成圆环（第六十七轮）
 	major_radius 环半径、minor_radius 管半径；双分段 >= 3 兜底；
 	顶点 (major+1) × (minor+1)（接缝复制），法线朝外，UV = (u, v) 归一化参数。

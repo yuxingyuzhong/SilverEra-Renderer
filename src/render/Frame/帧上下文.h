@@ -94,7 +94,7 @@ namespace engine
 		uint32_t index_count = 0;
 		//实例缓冲（模型矩阵来源；渲染层统一走实例路径，故所有绘制项均须给出）
 		VkBuffer instance_buffer = VK_NULL_HANDLE;
-		//实例区在实例缓冲内的字节偏移（一个实例 = 16 浮点 = 64 字节）
+		//实例区在实例缓冲内的字节偏移（一个实例 = 20 浮点 = 80 字节）
 		VkDeviceSize instance_offset = 0;
 		//实例数（1 = 等价于逐次绘制；0 表该项不完整，会被录制时跳过）
 		uint32_t instance_count = 0;
