@@ -455,11 +455,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 960 字节：… ＋ 8 盏逐盏光泽度 ＋ 光源空间矩阵 ＋ 阴影参数与强度；第六十二轮由 640 扩为 960）
+		//缓冲描述（场景 UBO 976 字节：… ＋ 阴影参数与强度 ＋ PBR-lite 参数；第六十四轮由 960 扩为 976）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 960;
+		buffer_info.range = 976;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};

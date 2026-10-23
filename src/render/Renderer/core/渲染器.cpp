@@ -494,8 +494,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；第六十二轮由 640 扩为 960 字节：8 盏点光源 / 聚光参数 ＋ 逐盏光泽度）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 960,
+			//创建场景 UBO（主机可见、统一缓冲用途；第六十四轮由 960 扩为 976 字节：追加 PBR-lite 参数 vec4）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 976,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -650,6 +650,15 @@ namespace engine
 				shadow_init_block, 96, 864))
 			{
 				logger.error("渲染器:: 场景阴影参数写入失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			//写入初始 PBR-lite 参数（offset 960、16 字节；第六十四轮：默认关闭、粗糙度缩放 1）
+			float pbr_init_block[4] = { 0.0f, 1.0f, 0.0f, 0.0f };
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				pbr_init_block, 16, 960))
+			{
+				logger.error("渲染器:: 场景 PBR 参数写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -1272,12 +1281,13 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块组装（960 字节 = 240 浮点；第六十二轮由 640 扩为 960：点光源 / 聚光扩为 8 盏）
+		场景 UBO 整块组装（976 字节 = 244 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
 		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
-		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度。
+		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度、
+		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）。
 		*/
-		float scene_block[240] = {};
+		float scene_block[244] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1371,41 +1381,44 @@ namespace engine
 		scene_block[235] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
 		scene_block[236] = impl->shadow_strength;
+		//PBR-lite 参数（第六十四轮：x = 启用、y = 粗糙度缩放）
+		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
+		scene_block[241] = impl->pbr_roughness;
 		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 240 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的 244 浮点，按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 960 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 976 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 240)
+		if (impl->scene_block_cache.size() != scene_slot_count * 244)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 240, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * 244, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		//本帧槽缓存段（240 浮点）
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 240;
+		//本帧槽缓存段（244 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 244;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 960, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 976, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 960;
+			uploaded_bytes = 976;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 240 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = 244 / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -1451,7 +1464,7 @@ namespace engine
 			}
 		}
 		//更新该帧槽缓存（与已写入内容一致）
-		for (std::size_t index = 0; index < 240; ++index)
+		for (std::size_t index = 0; index < 244; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -3428,6 +3441,9 @@ namespace engine
 		shadow_strength_set(light.shadow_strength);
 		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
+		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
+		pbr_enable_set(light.pbr_enabled != 0);
+		pbr_roughness_set(light.pbr_roughness);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -3475,10 +3491,13 @@ namespace engine
 		light.shadow_softness = scene.shadow_softness;
 		light.shadow_strength = scene.shadow_strength;
 		light.shadow_resolution = scene.shadow_resolution;
+		//PBR-lite 镜面（第六十四轮）
+		light.pbr_enabled = scene.pbr_enabled;
+		light.pbr_roughness = scene.pbr_roughness;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
-		for (uint32_t index = 0; index < 4; ++index)
+		for (uint32_t index = 0; index < Impl::POINT_LIGHT_MAX; ++index)
 		{
 			for (std::size_t each = 0; each < 3; ++each)
 			{
@@ -4139,6 +4158,44 @@ namespace engine
 	{
 		//未初始化返回 0
 		return impl != nullptr && impl->initialized ? impl->scene_upload_bytes : 0;
+	}
+
+	//PBR-lite 镜面开关（第六十四轮新增）
+	void Renderer::pbr_enable_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->pbr_enabled = enabled;
+	}
+
+	//PBR-lite 是否启用（第六十四轮新增）
+	bool Renderer::pbr_enabled(void) const
+	{
+		//未初始化返回默认假
+		return impl != nullptr && impl->initialized ? impl->pbr_enabled : false;
+	}
+
+	//PBR-lite 粗糙度缩放（第六十四轮新增）
+	void Renderer::pbr_roughness_set(float scale)
+	{
+		//未初始化静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//合法区间 0.05..4；越界或非数整次忽略
+		if (!(scale >= 0.05f && scale <= 4.0f))
+		{
+			logger.warn("渲染器:: PBR 粗糙度缩放 {} 越界（0.05..4），已忽略", scale);
+			return;
+		}
+		impl->pbr_roughness = scale;
+	}
+
+	//当前 PBR-lite 粗糙度缩放（第六十四轮新增）
+	float Renderer::pbr_roughness(void) const
+	{
+		//未初始化返回默认 1
+		return impl != nullptr && impl->initialized ? impl->pbr_roughness : 1.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）

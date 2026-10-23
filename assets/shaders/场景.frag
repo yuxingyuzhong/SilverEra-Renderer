@@ -55,10 +55,51 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 shadow_params;
 	//阴影强度（0 = 阴影无效、1 = 全遮蔽；第五十三轮）
 	float shadow_strength;
+	//PBR-lite 参数（第六十四轮；x = 启用 > 0.5、y = 粗糙度缩放（默认 1）、z/w 保留）
+	vec4 pbr_params;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
 const int POINT_LIGHT_MAX = 8;
+
+/*
+PBR-lite 粗糙度换算（第六十四轮）
+由 Blinn-Phong 光泽度换算 GGX 粗糙度：roughness = sqrt(2 / (shininess + 2))，
+再乘全局缩放 pbr_params.y 并钳到 [0.03, 1]。
+*/
+float pbr_roughness(float shininess)
+{
+	float roughness = sqrt(2.0 / (max(shininess, 1.0) + 2.0));
+	return clamp(roughness * max(scene.pbr_params.y, 0.05), 0.03, 1.0);
+}
+
+/*
+GGX 镜面反射（第六十四轮）
+分布项 GGX（α = roughness²）、几何项 Smith-Schlick、菲涅尔项 Schlick（F0 = 0.04）；
+返回已含 1 / (4·N·L·N·V) 的镜面值（可大于 1，由上层强度钳制）。
+*/
+float ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness)
+{
+	float ndotl = max(dot(normal, to_light), 0.0);
+	float ndotv = max(dot(normal, to_view), 0.0);
+	//任一侧背光则无镜面
+	if (ndotl <= 0.0 || ndotv <= 0.0)
+		return 0.0;
+	vec3 halfway = normalize(to_light + to_view);
+	float ndoth = max(dot(normal, halfway), 0.0);
+	float vdoth = max(dot(to_view, halfway), 0.0);
+	float alpha = roughness * roughness;
+	float alpha2 = alpha * alpha;
+	float denominator = ndoth * ndoth * (alpha2 - 1.0) + 1.0;
+	//法线分布（GGX）
+	float distribution = alpha2 / (3.14159265 * denominator * denominator);
+	//几何遮蔽（Smith-Schlick 近似）
+	float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+	float geometry = (ndotl / (ndotl * (1.0 - k) + k)) * (ndotv / (ndotv * (1.0 - k) + k));
+	//菲涅尔（Schlick，介电 F0 = 0.04）
+	float fresnel = 0.04 + 0.96 * pow(1.0 - vdoth, 5.0);
+	return distribution * geometry * fresnel / (4.0 * ndotl * ndotv);
+}
 
 /*
 阴影深度比较（第五十三轮）
@@ -177,9 +218,17 @@ void main()
 			//方向光阴影系数（第五十二轮；未启用时恒 1；第五十九轮传入法线做偏移）
 			float dir_shadow = shadow_factor(in_world, normal);
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
-			vec3 halfway = normalize(to_light + to_view);
-			float spec_base = max(dot(normal, halfway), 0.0);
-			specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w * dir_shadow);
+			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
+			if (scene.pbr_params.x > 0.5)
+				specular = max(specular, ggx_specular(normal, to_view, to_light,
+					pbr_roughness(max(scene.light_common.z, 1.0)))
+					* scene.camera_pos.w * dir_shadow * scene.light_dir.w);
+			else
+			{
+				vec3 halfway = normalize(to_light + to_view);
+				float spec_base = max(dot(normal, halfway), 0.0);
+				specular = max(specular, pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w * dir_shadow);
+			}
 		}
 		/*
 		补光（第四十七轮；第二盏方向光，强度为 0 视为关闭）
@@ -190,9 +239,17 @@ void main()
 			vec3 fill_to_light = -scene.fill_dir_intensity.xyz;
 			float fill_ndotl = max(dot(normal, fill_to_light), 0.0);
 			radiance += scene.fill_color.rgb * scene.fill_dir_intensity.w * fill_ndotl;
-			vec3 fill_halfway = normalize(fill_to_light + to_view);
-			float fill_spec_base = max(dot(normal, fill_halfway), 0.0);
-			specular = max(specular, pow(fill_spec_base, max(scene.light_common.z, 1.0)) * scene.fill_color.w);
+			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
+			if (scene.pbr_params.x > 0.5)
+				specular = max(specular, ggx_specular(normal, to_view, fill_to_light,
+					pbr_roughness(max(scene.light_common.z, 1.0)))
+					* scene.fill_color.w * scene.fill_dir_intensity.w);
+			else
+			{
+				vec3 fill_halfway = normalize(fill_to_light + to_view);
+				float fill_spec_base = max(dot(normal, fill_halfway), 0.0);
+				specular = max(specular, pow(fill_spec_base, max(scene.light_common.z, 1.0)) * scene.fill_color.w);
+			}
 		}
 		/*
 		点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）
@@ -243,14 +300,22 @@ void main()
 			radiance += scene.point_color_intensity[index].rgb * scene.point_color_intensity[index].w
 				* ndotl * attenuation * cone;
 			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
-			vec3 halfway = normalize(to_light + to_view);
-			float spec_base = max(dot(normal, halfway), 0.0);
 			//逐盏光泽度（第五十一轮：0 = 跟随全局光泽度）
 			float shininess = scene.point_shininess[index] > 0.0
 				? scene.point_shininess[index]
 				: max(scene.light_common.z, 1.0);
-			specular = max(specular, pow(spec_base, shininess) * attenuation * cone
-				* scene.point_spot_cone[index].w);
+			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
+			if (scene.pbr_params.x > 0.5)
+				specular = max(specular, ggx_specular(normal, to_view, to_light, pbr_roughness(shininess))
+					* attenuation * cone * scene.point_spot_cone[index].w
+					* scene.point_color_intensity[index].w);
+			else
+			{
+				vec3 halfway = normalize(to_light + to_view);
+				float spec_base = max(dot(normal, halfway), 0.0);
+				specular = max(specular, pow(spec_base, shininess) * attenuation * cone
+					* scene.point_spot_cone[index].w);
+			}
 		}
 	}
 	//最终颜色：反照率 × 累加辐射度 ＋ 高光（强度由 light_common.y 统一缩放），钳制到 [0,1]

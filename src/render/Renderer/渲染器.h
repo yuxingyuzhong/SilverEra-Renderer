@@ -592,6 +592,21 @@ namespace engine
 		*/
 		uint64_t scene_upload_bytes(void) const;
 		/*
+		PBR-lite 镜面开关（第六十四轮新增）
+		开启后四类光源的高光改用 GGX（粗糙度由逐盏光泽度换算），关闭时沿用 Blinn-Phong；
+		默认关闭，故既有画面逐字节不变。
+		*/
+		void pbr_enable_set(bool enabled);
+		//PBR-lite 是否启用（未初始化时为默认 false）
+		bool pbr_enabled(void) const;
+		/*
+		PBR-lite 粗糙度缩放（第六十四轮新增；合法 0.05..4，越界整次忽略）
+		最终粗糙度 = clamp(sqrt(2 / (shininess + 2)) × 缩放, 0.03, 1)；默认 1。
+		*/
+		void pbr_roughness_set(float scale);
+		//当前 PBR-lite 粗糙度缩放（未初始化时为默认 1）
+		float pbr_roughness(void) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 64 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

@@ -225,6 +225,12 @@ namespace engine
 		float shadow_softness = 0.0f;
 		//阴影强度（第五十三轮；0 = 阴影无效、1 = 全遮蔽）
 		float shadow_strength = 1.0f;
+		/*
+		PBR-lite 镜面开关与粗糙度缩放（第六十四轮）
+		关闭时完全沿用 Blinn-Phong（画面逐字节不变）；粗糙度缩放默认 1（合法 0.05..4）。
+		*/
+		bool pbr_enabled = false;
+		float pbr_roughness = 1.0f;
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）

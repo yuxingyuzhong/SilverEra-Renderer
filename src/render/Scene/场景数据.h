@@ -132,6 +132,9 @@ namespace engine
 		float shadow_strength = 1.0f;
 		//阴影图分辨率（第五十四轮；仅 512 / 1024 / 2048，默认 1024）
 		int shadow_resolution = 1024;
+		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
+		int pbr_enabled = 0;
+		float pbr_roughness = 1.0f;
 	};
 
 	/*
@@ -287,5 +290,8 @@ namespace engine
 		float shadow_strength = 1.0f;
 		//阴影图分辨率（第五十四轮；语义见 Light_Data::shadow_resolution）
 		int shadow_resolution = 1024;
+		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；语义见 Light_Data::pbr_enabled / pbr_roughness）
+		int pbr_enabled = 0;
+		float pbr_roughness = 1.0f;
 	};
 }
