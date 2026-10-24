@@ -2201,6 +2201,21 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
 	}
 
+	//按程序化圆盘加载网格（第八十三轮新增）
+	bool Renderer::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
+	{
+		//前置：已初始化、半径为正（非数亦拒）、分段在区间内
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
+			|| segments < 3 || segments > 256)
+		{
+			logger.warn("渲染器:: 圆盘参数非法（半径 {}、分段 {}）", radius, segments);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::disc_generate(radius, segments));
+	}
+
 	//按程序化胶囊加载网格（第六十九轮新增）
 	bool Renderer::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
 		uint32_t segments, uint32_t rings)
@@ -3794,6 +3809,33 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->text.mesh_cache_hits();
+	}
+
+	//设置文本网格缓存条目上限（第八十四轮）
+	void Renderer::text_cache_capacity_set(uint32_t capacity)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->text.mesh_cache_capacity_set(capacity);
+	}
+
+	//文本网格缓存条目上限（第八十四轮）
+	uint32_t Renderer::text_cache_capacity(void) const
+	{
+		//未初始化则视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->text.mesh_cache_capacity();
+	}
+
+	//当前文本网格缓存条目数（第八十四轮）
+	uint32_t Renderer::text_cache_size(void) const
+	{
+		//未初始化则视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->text.mesh_cache_size();
 	}
 
 	//文字网格缓存未命中次数（第七十五轮）

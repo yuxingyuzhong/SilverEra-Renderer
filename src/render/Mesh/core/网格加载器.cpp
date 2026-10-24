@@ -229,6 +229,44 @@ namespace engine
 	}
 
 	/*
+	生成圆盘（第八十三轮）
+	XY 平面上的实心圆，中心在原点、法线朝 +Z；中心顶点 ＋ (segments+1) 个圆周顶点（末点重合以保留 UV 接缝）；
+	三角扇索引，从 +Z 方向观察为逆时针。
+	*/
+	Mesh_Data Mesh_Context::disc_generate(float radius, uint32_t segments)
+	{
+		//分段数兜底
+		if (segments < 3)
+			segments = 3;
+		Mesh_Data data;
+		//圆周顶点数（含接缝复制点）
+		data.vertices.reserve(static_cast<std::size_t>(segments) + 2);
+		//中心顶点（UV 在圆心）
+		data.vertices.push_back({ { 0.0f, 0.0f, 0.0f }, { 0.5f, 0.5f }, { 0.0f, 0.0f, 1.0f } });
+		//圆周顶点（末点与首点重合）
+		for (uint32_t index = 0; index <= segments; ++index)
+		{
+			//本顶点极角
+			float angle = 6.28318530718f * static_cast<float>(index) / static_cast<float>(segments);
+			float cosine = std::cos(angle);
+			float sine = std::sin(angle);
+			data.vertices.push_back({
+				{ radius * cosine, radius * sine, 0.0f },
+				{ 0.5f + 0.5f * cosine, 0.5f - 0.5f * sine },
+				{ 0.0f, 0.0f, 1.0f } });
+		}
+		//三角扇（中心 → 相邻两圆周点）
+		data.indices.reserve(static_cast<std::size_t>(segments) * 3);
+		for (uint32_t index = 0; index < segments; ++index)
+		{
+			data.indices.push_back(0);
+			data.indices.push_back(1 + index);
+			data.indices.push_back(2 + index);
+		}
+		return data;
+	}
+
+	/*
 	生成胶囊（第六十九轮）
 	中段圆柱 ＋ 上下半球；总高 = height + 2 × radius，沿 Y 轴、中心在原点；
 	环表自北向南排列（上半球 → 下赤道 → 下半球），法线朝外、接缝 UV、外向绕序与球体一致。

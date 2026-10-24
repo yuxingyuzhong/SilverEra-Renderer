@@ -115,6 +115,12 @@ namespace engine
 		*/
 		static Mesh_Data plane_generate(float width, float height);
 		/*
+		生成圆盘（第八十三轮新增）
+		radius 半径、segments 圆周分段（>= 3）；XY 平面上的实心圆，中心在原点、法线朝 +Z；
+		中心顶点 ＋ 圆周顶点（末点与首点重合以保留 UV 接缝），三角扇索引。
+		*/
+		static Mesh_Data disc_generate(float radius, uint32_t segments);
+		/*
 		生成圆环（第六十七轮新增）
 		major_radius 环半径、minor_radius 管半径；major_segments / minor_segments 双分段（>= 3）；
 		顶点 (major+1) × (minor+1)（接缝复制），法线朝外，UV 覆盖整面。

@@ -210,6 +210,12 @@ namespace engine
 		*/
 		bool mesh_plane_load(Mesh_Handle& handle_out, float width, float height);
 		/*
+		加载程序化圆盘（第八十三轮新增）
+		radius 为正、segments 圆周分段 3..256；非法参数整次拒绝（句柄置 0 并告警）。
+		圆盘位于 XY 平面、中心在原点、法线朝 +Z，外向（从 +Z 观察逆时针）绕序。
+		*/
+		bool mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments);
+		/*
 		加载程序化圆环（第六十七轮新增）
 		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
 		*/
@@ -549,6 +555,15 @@ namespace engine
 		*/
 		uint64_t text_cache_hits(void) const;
 		uint64_t text_cache_misses(void) const;
+		/*
+		文本网格缓存条目上限（第八十四轮新增）
+		capacity 钳到 [1, 1024]（0 按 1）；缩容时立即淘汰最久未用项（网格延迟到无在途帧引用后归还）。
+		默认 64。未初始化时 set 静默忽略、get 返回 0。
+		*/
+		void text_cache_capacity_set(uint32_t capacity);
+		uint32_t text_cache_capacity(void) const;
+		//当前文本网格缓存条目数（第八十四轮新增；只读诊断，未初始化为 0）
+		uint32_t text_cache_size(void) const;
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

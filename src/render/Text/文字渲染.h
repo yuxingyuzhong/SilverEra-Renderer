@@ -82,6 +82,15 @@ namespace engine
 		uint64_t mesh_cache_hits(void) const { return cache_hits; }
 		//文本网格缓存未命中次数（第七十五轮；自 init 起累计）
 		uint64_t mesh_cache_misses(void) const { return cache_misses; }
+		/*
+		设置文本网格缓存条目上限（第八十四轮）
+		钳到 [1, 1024]；缩小时立即把最久未用项移入待销毁列表（待无在途帧引用后归还）。
+		*/
+		void mesh_cache_capacity_set(uint32_t capacity);
+		//当前文本网格缓存条目上限（默认 64）
+		uint32_t mesh_cache_capacity(void) const { return mesh_cache_max; }
+		//当前文本网格缓存条目数（只读诊断）
+		uint32_t mesh_cache_size(void) const { return static_cast<uint32_t>(records.size()); }
 	private:
 		//字体模块（不持有）
 		Font_Context* font = nullptr;
@@ -117,8 +126,8 @@ namespace engine
 		uint64_t frame_clock = 0;
 		//在途帧数（第四十八轮）
 		uint32_t frame_overlap = 1;
-		//文本网格缓存条目上限（第四十八轮；超出即淘汰最久未用项，避免无界增长）
-		static constexpr uint32_t MESH_CACHE_MAX = 64;
+		//文本网格缓存条目上限（第四十八轮默认 64；第八十四轮改为可配，超出即淘汰最久未用项）
+		uint32_t mesh_cache_max = 64;
 		//缓存命中次数（第七十五轮）
 		uint64_t cache_hits = 0;
 		//缓存未命中次数（第七十五轮）

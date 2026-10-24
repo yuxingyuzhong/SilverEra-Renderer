@@ -218,7 +218,7 @@ namespace engine
 			item.mesh = mesh;
 			item.last_used = ++use_clock;
 			//若缓存已满，先淘汰最久未用项（第四十八轮：避免缓存随文本种类无界增长）
-			if (records.size() >= MESH_CACHE_MAX)
+			if (records.size() >= mesh_cache_max)
 			{
 				std::size_t oldest = 0;
 				for (std::size_t index = 1; index < records.size(); ++index)
@@ -265,5 +265,35 @@ namespace engine
 
 		//登记绘制项（沿用既有网格绘制路径；文字颜色经推送常量下发）
 		return host.mesh_draw(host.user, mesh, transform.data(), text_color);
+	}
+
+	/*
+	设置文本网格缓存条目上限（第八十四轮）
+	钳到 [1, 1024]；缩容时立即把最久未用项移入待销毁列表（退役帧记为当前帧，
+	待「退役帧 ＋ 在途帧数 < 当前帧」后再真正归还），保证条目数不超过新上限。
+	*/
+	void Text_Renderer::mesh_cache_capacity_set(uint32_t capacity)
+	{
+		//钳到合法区间
+		if (capacity < 1)
+			capacity = 1;
+		if (capacity > 1024)
+			capacity = 1024;
+		mesh_cache_max = capacity;
+		//缩容：逐条淘汰最久未用项
+		while (records.size() > mesh_cache_max)
+		{
+			//找最久未用项
+			std::size_t oldest = 0;
+			for (std::size_t index = 1; index < records.size(); ++index)
+				//序号越小越久未用
+				if (records[index].last_used < records[oldest].last_used)
+					oldest = index;
+			//移入待销毁列表并记退役帧
+			Record stale = records[oldest];
+			stale.retired_tick = frame_clock;
+			retired.push_back(stale);
+			records.erase(records.begin() + static_cast<std::ptrdiff_t>(oldest));
+		}
 	}
 }
