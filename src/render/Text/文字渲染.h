@@ -114,6 +114,8 @@ namespace engine
 			Text_Layout layout;
 			//网格句柄
 			Mesh_Handle mesh = 0;
+			//布局指纹（第九十五轮；插入时一次算出，查找时先比指纹再逐字段确认）
+			uint64_t layout_fingerprint = 0;
 			//最近使用序号（第四十八轮；用于缓存满时淘汰最久未用项）
 			uint64_t last_used = 0;
 			//退役帧号（第四十八轮；仅待销毁条目使用）

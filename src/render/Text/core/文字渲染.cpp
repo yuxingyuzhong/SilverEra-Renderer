@@ -6,6 +6,33 @@
 
 namespace engine
 {
+	namespace
+	{
+		//布局指纹（第九十五轮）：把六个标量按位混合成 64 位
+		uint64_t layout_fingerprint_of(const Text_Layout& layout)
+		{
+			auto mix = [](uint64_t hash, uint32_t value)
+			{
+				hash ^= static_cast<uint64_t>(value) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+				return hash;
+			};
+			uint32_t bits = 0;
+			uint64_t hash = 0;
+			std::memcpy(&bits, &layout.max_width, sizeof(bits));
+			hash = mix(hash, bits);
+			std::memcpy(&bits, &layout.line_height, sizeof(bits));
+			hash = mix(hash, bits);
+			hash = mix(hash, static_cast<uint32_t>(layout.align));
+			std::memcpy(&bits, &layout.tracking, sizeof(bits));
+			hash = mix(hash, bits);
+			std::memcpy(&bits, &layout.first_line_indent, sizeof(bits));
+			hash = mix(hash, bits);
+			std::memcpy(&bits, &layout.line_spacing, sizeof(bits));
+			hash = mix(hash, bits);
+			return hash;
+		}
+	}
+
 	//绑定字体模块与宿主回调
 	void Text_Renderer::init(Font_Context& font, const Text_Host& host)
 	{
@@ -189,6 +216,9 @@ namespace engine
 			//命中本字体与本文本
 			if (item.font != font_handle || item.text != text)
 				continue;
+			//指纹不一致直接跳过（第九十五轮；命中后仍逐字段确认以排除碰撞）
+			if (item.layout_fingerprint != layout_fingerprint_of(layout))
+				continue;
 			//布局六项须完全一致
 			if (item.layout.max_width != layout.max_width
 				|| item.layout.line_height != layout.line_height
@@ -227,6 +257,8 @@ namespace engine
 			item.font = font_handle;
 			item.text = text;
 			item.layout = layout;
+			//插入时一次算出布局指纹（第九十五轮）
+			item.layout_fingerprint = layout_fingerprint_of(layout);
 			item.mesh = mesh;
 			item.last_used = ++use_clock;
 			//若缓存已满，先淘汰最久未用项（第四十八轮：避免缓存随文本种类无界增长）
