@@ -374,7 +374,13 @@ void main()
 	按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度 混合雾色；
 	雾前的照度与雾后的混合都在线性空间完成，最后统一钳制。
 	*/
-	vec3 final_rgb = lit;
+	/*
+	逐物体自发光（第七十轮）
+	实例材质第 4 分量（w）为自发光强度（默认 0 = 无自发光），叠加在受光结果之上；
+	0 时表达式恒为 0，默认画面逐字节不变。
+	*/
+	vec3 emissive_rgb = albedo_color.rgb * clamp(in_material.w, 0.0, 8.0);
+	vec3 final_rgb = lit + emissive_rgb;
 	if (scene.fog_color_density.w > 0.0)
 	{
 		float view_distance = length(scene.camera_pos.xyz - in_world);

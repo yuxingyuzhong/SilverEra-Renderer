@@ -316,6 +316,16 @@ namespace engine
 		bool material_tint_active(void) const;
 		//读取当前逐物体色调（四个分量写入 out；未启用时为全 1；第六十九轮）
 		void material_tint_get(float out[4]) const;
+		/*
+		设置逐物体自发光强度（第七十轮）
+		设置后，后续绘制的实例属性携带自发光，片元着色器在受光结果上叠加 `反照率 × emissive`；
+		合法域 [0, 8]，越界 / 非数整次拒绝并返回假。默认 0（无自发光，画面逐字节不变）。
+		*/
+		bool material_emissive_set(float emissive);
+		//清除逐物体自发光（回落 0；第七十轮）
+		void material_emissive_clear(void);
+		//当前逐物体自发光强度（未初始化返回 0；第七十轮）
+		float material_emissive(void) const;
 
 		/*
 		设置后续绘制所用混合档（Opaque / Alpha）

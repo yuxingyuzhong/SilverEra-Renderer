@@ -190,6 +190,8 @@ namespace engine
 			bool tint_override = false;
 			//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
 			float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+			//逐物体自发光强度（第七十轮；0 = 无自发光）
+			float emissive = 0.0f;
 			//记录是否有效
 			bool valid = false;
 		};
@@ -369,6 +371,8 @@ namespace engine
 		bool material_tint_active = false;
 		//逐物体反照率色调（RGBA，各分量 0..1）
 		float material_tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效，无需覆盖标志）
+		float material_emissive = 0.0f;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

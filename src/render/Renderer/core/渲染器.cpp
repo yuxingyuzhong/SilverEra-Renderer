@@ -960,6 +960,8 @@ namespace engine
 		impl->material_tint_active = false;
 		for (std::size_t index = 0; index < 4; ++index)
 			impl->material_tint[index] = 1.0f;
+		//逐物体自发光恢复默认（0，第七十轮）
+		impl->material_emissive = 0.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -2267,7 +2269,8 @@ namespace engine
 	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
-		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic)
+		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
+		float emissive)
 	{
 		//首个实例的字节偏移（追加前的元素个数 × 80）
 		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
@@ -2304,7 +2307,8 @@ namespace engine
 			target[INSTANCE_MATERIAL_OFFSET + 0] = material_active ? roughness : 0.0f;
 			target[INSTANCE_MATERIAL_OFFSET + 1] = material_active ? metallic : 0.0f;
 			target[INSTANCE_MATERIAL_OFFSET + 2] = material_active ? 1.0f : 0.0f;
-			target[INSTANCE_MATERIAL_OFFSET + 3] = 0.0f;
+			//第 4 分量为自发光强度（第七十轮；恒生效，0 = 无自发光）
+			target[INSTANCE_MATERIAL_OFFSET + 3] = emissive;
 		}
 		return offset;
 	}
@@ -2363,7 +2367,8 @@ namespace engine
 		}
 		//追加本项模型矩阵与材质并取其在本帧实例缓冲内的字节偏移
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1,
-			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic);
+			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
+			impl->material_emissive);
 
 		/*
 		组装待绘制项
@@ -2477,7 +2482,8 @@ namespace engine
 		}
 		//追加本批模型矩阵与材质并取首个实例在本帧实例缓冲内的字节偏移
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count,
-			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic);
+			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
+			impl->material_emissive);
 
 		/*
 		组装待绘制项
@@ -2904,6 +2910,13 @@ namespace engine
 		if (data.tint_override && !record.tint_override)
 			logger.warn("渲染器:: 材质色调非法（{} / {} / {} / {}），按不覆盖登记",
 				data.tint[0], data.tint[1], data.tint[2], data.tint[3]);
+		/*
+		逐物体自发光（第七十轮）
+		合法域 [0, 8]；越界 / 非数按 0（无自发光）登记，不把脏值写进实例属性。
+		*/
+		record.emissive = (data.emissive >= 0.0f && data.emissive <= 8.0f) ? data.emissive : 0.0f;
+		if (!(data.emissive >= 0.0f && data.emissive <= 8.0f))
+			logger.warn("渲染器:: 材质自发光 {} 越界（合法域 [0, 8]），按 0 登记", data.emissive);
 		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
 		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
 		{
@@ -2981,6 +2994,7 @@ namespace engine
 			texture_bind_set(0);
 			material_pbr_clear();
 			material_tint_clear();
+			material_emissive_clear();
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -2991,6 +3005,7 @@ namespace engine
 			texture_bind_set(0);
 			material_pbr_clear();
 			material_tint_clear();
+			material_emissive_clear();
 			return;
 		}
 		//取目标记录
@@ -3009,6 +3024,8 @@ namespace engine
 		impl->material_tint_active = record.tint_override;
 		for (std::size_t index = 0; index < 4; ++index)
 			impl->material_tint[index] = record.tint_override ? record.tint[index] : 1.0f;
+		//同步逐物体自发光（第七十轮）
+		impl->material_emissive = record.emissive;
 	}
 
 	/*
@@ -3147,6 +3164,46 @@ namespace engine
 		}
 		for (std::size_t index = 0; index < 4; ++index)
 			out[index] = impl->material_tint[index];
+	}
+
+	/*
+	设置逐物体自发光强度（第七十轮）
+	合法域 [0, 8]；越界 / 非数整次拒绝（状态不变）。自发光恒生效，无需覆盖标志。
+	*/
+	bool Renderer::material_emissive_set(float emissive)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 设置自发光失败：尚未初始化");
+			return false;
+		}
+		//合法性校验（NaN 比较恒假，故也被拒绝）
+		if (!(emissive >= 0.0f && emissive <= 8.0f))
+		{
+			logger.warn("渲染器:: 自发光 {} 越界（合法域 [0, 8]），已忽略", emissive);
+			return false;
+		}
+		impl->material_emissive = emissive;
+		return true;
+	}
+
+	//清除逐物体自发光（第七十轮）
+	void Renderer::material_emissive_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->material_emissive = 0.0f;
+	}
+
+	//当前逐物体自发光强度（第七十轮）
+	float Renderer::material_emissive(void) const
+	{
+		//未初始化返回默认 0
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->material_emissive;
 	}
 
 	//创建离屏渲染目标

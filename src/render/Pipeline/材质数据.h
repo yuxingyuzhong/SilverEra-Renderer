@@ -47,5 +47,7 @@ namespace engine
 		bool tint_override = false;
 		//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
 		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效）
+		float emissive = 0.0f;
 	};
 }
