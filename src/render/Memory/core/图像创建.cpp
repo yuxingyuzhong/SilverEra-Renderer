@@ -6,10 +6,12 @@ namespace engine
 	/*
 	创建图像
 	布局固定为 VK_IMAGE_TILING_OPTIMAL（设备本地、供采样），初始布局为未定义；
-	层数 / 采样数固定为 1；**级数由调用方给出**（默认 1，即无 mip 链；> 1 时须再调 image_generate_mips）。
+	层数固定为 1；**级数由调用方给出**（默认 1，即无 mip 链；> 1 时须再调 image_generate_mips）；
+	采样数由调用方给出（第九十六轮；默认 1，MSAA 附件传 2/4/8）。
 	*/
 	bool Memory_Context::image_create(VkImage& image_out, VmaAllocation& alloc_out,
-		uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mip_levels)
+		uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage,
+		uint32_t mip_levels, VkSampleCountFlagBits samples)
 	{
 		//前置：分配器与逻辑设备必须就绪
 		if (!valid())
@@ -32,7 +34,7 @@ namespace engine
 		image_info.extent = { width, height, 1 };
 		image_info.mipLevels = mip_levels;
 		image_info.arrayLayers = 1;
-		image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+		image_info.samples = samples;
 		image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
 		image_info.usage = usage;
 		image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -53,7 +55,8 @@ namespace engine
 			return false;
 		}
 
-		logger.info("图像创建:: 图像已建立（{}x{}，mip 级数 {}）", width, height, mip_levels);
+		logger.info("图像创建:: 图像已建立（{}x{}，mip 级数 {}，采样数 {}）", width, height, mip_levels,
+			static_cast<int32_t>(samples));
 		return true;
 	}
 

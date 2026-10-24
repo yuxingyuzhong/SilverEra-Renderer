@@ -42,6 +42,14 @@ namespace engine
 		std::vector<VmaAllocation> depth_allocations;
 		//旧深度图像视图
 		std::vector<VkImageView> depth_views;
+		//旧 MSAA 颜色图像 / 内存 / 视图（第九十六轮；未启用时为空）
+		std::vector<VkImage> msaa_color_images;
+		std::vector<VmaAllocation> msaa_color_allocations;
+		std::vector<VkImageView> msaa_color_views;
+		//旧 MSAA 深度图像 / 内存 / 视图（第九十六轮；未启用时为空）
+		std::vector<VkImage> msaa_depth_images;
+		std::vector<VmaAllocation> msaa_depth_allocations;
+		std::vector<VkImageView> msaa_depth_views;
 	};
 
 	/*
@@ -115,6 +123,17 @@ namespace engine
 		VkFormat depth_format_get(void) const;
 		//交换链图像是否具备传输源用法（像素回读的前提）
 		bool color_transfer_src_get(void) const;
+		/*
+		MSAA 采样数（第九十六轮）
+		set 须在 build / rebuild 之前调用；1 = 关闭（不创建多重采样附件）。
+		*/
+		void sample_count_set(uint32_t count);
+		uint32_t sample_count_get(void) const;
+		//指定交换链索引的 MSAA 颜色图像 / 视图（关闭时为 0）
+		VkImage msaa_color_image_get(uint32_t index) const;
+		VkImageView msaa_color_view_get(uint32_t index) const;
+		//指定交换链索引的 MSAA 深度图像视图（关闭时为 0）
+		VkImageView msaa_depth_view_get(uint32_t index) const;
 	private:
 		/*
 		创建交换链与图像视图、图像可用信号量（实现见 core/交换链重建.cpp）
@@ -138,6 +157,10 @@ namespace engine
 		bool depth_resources_create(void);
 		//销毁深度图像与视图（实现见 core/交换链重建.cpp）
 		void depth_resources_destroy(void);
+		//创建 MSAA 颜色 / 深度附件（第九十六轮；sample_count > 1 时调用；实现见 core/交换链重建.cpp）
+		bool msaa_resources_create(void);
+		//销毁 MSAA 颜色 / 深度附件（第九十六轮；实现见 core/交换链重建.cpp）
+		void msaa_resources_destroy(void);
 		//深度图像一次性布局转换（UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL；实现见 core/交换链重建.cpp）
 		bool depth_transition(void);
 		//查询表面能力（实现见 core/交换链查询.cpp）
@@ -173,6 +196,8 @@ namespace engine
 		bool depth_initialized = false;
 		//交换链图像是否具备传输源用法（像素回读前提；建链时按表面能力确定）
 		bool color_transfer_src = false;
+		//MSAA 采样数（第九十六轮；1 = 关闭）
+		uint32_t sample_count = 1;
 		//交换链范围
 		VkExtent2D extent = { 0, 0 };
 		//交换链图像
@@ -189,5 +214,13 @@ namespace engine
 		std::vector<VmaAllocation> depth_allocations;
 		//深度图像视图
 		std::vector<VkImageView> depth_views;
+		//MSAA 颜色图像 / 内存 / 视图（第九十六轮；每交换链图像一张；关闭时为空）
+		std::vector<VkImage> msaa_color_images;
+		std::vector<VmaAllocation> msaa_color_allocations;
+		std::vector<VkImageView> msaa_color_views;
+		//MSAA 深度图像 / 内存 / 视图（第九十六轮；每交换链图像一张；关闭时为空）
+		std::vector<VkImage> msaa_depth_images;
+		std::vector<VmaAllocation> msaa_depth_allocations;
+		std::vector<VkImageView> msaa_depth_views;
 	};
 }

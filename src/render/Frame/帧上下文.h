@@ -121,12 +121,20 @@ namespace engine
 	*/
 	struct Frame_Render_Target
 	{
-		//颜色图像（作颜色附件与像素回读来源）
+		//颜色图像（作颜色附件与像素回读来源；MSAA 开启时同时作为解析目标）
 		VkImage color_image = VK_NULL_HANDLE;
 		//颜色图像视图
 		VkImageView color_view = VK_NULL_HANDLE;
-		//深度图像视图
+		//深度图像视图（MSAA 开启时为单采样深度，不参与主 pass）
 		VkImageView depth_view = VK_NULL_HANDLE;
+		/*
+		MSAA 附件（第九十六轮；sample_count > 1 时有效）
+		颜色 pass 写入多重采样附件，结束时解析（resolve）到 color_view；深度用多重采样附件。
+		*/
+		VkImage msaa_color_image = VK_NULL_HANDLE;
+		VkImageView msaa_color_view = VK_NULL_HANDLE;
+		VkImageView msaa_depth_view = VK_NULL_HANDLE;
+		uint32_t sample_count = 1;
 		//渲染范围
 		VkExtent2D extent = { 0, 0 };
 	};
@@ -344,7 +352,9 @@ namespace engine
 			VkImageView depth_view, VkExtent2D extent,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
-			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
+			VkImage msaa_image = VK_NULL_HANDLE, VkImageView msaa_color_view = VK_NULL_HANDLE,
+			VkImageView msaa_depth_view = VK_NULL_HANDLE, uint32_t sample_count = 1);
 		/*
 		录制「渲染到离屏目标」的命令缓冲（实现见 core/命令录制.cpp）
 		颜色进入布局为 SHADER_READ_ONLY_OPTIMAL，故先转入 COLOR_ATTACHMENT_OPTIMAL；
@@ -366,7 +376,9 @@ namespace engine
 			const Frame_Render_Target* targets, uint32_t target_count,
 			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
 			uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
-			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
+			VkImage swapchain_msaa_image = VK_NULL_HANDLE, VkImageView swapchain_msaa_color_view = VK_NULL_HANDLE,
+			VkImageView swapchain_msaa_depth_view = VK_NULL_HANDLE, uint32_t swapchain_sample_count = 1);
 		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。

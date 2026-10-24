@@ -29,6 +29,8 @@ namespace engine
 		VkFormat depth_format = VK_FORMAT_UNDEFINED;
 		//在途帧数（描述符集按帧槽分配）
 		uint32_t frame_overlap = 2;
+		//多重采样数（第九十六轮；1 = 关闭，2/4/8 = MSAA；所有跟随配置的管线按此烘焙）
+		uint32_t sample_count = 1;
 	};
 
 	/*
@@ -59,6 +61,12 @@ namespace engine
 		朝光源的正面会被判为背面而整体剔除，阴影图将只剩清屏值。
 		*/
 		bool cull_none = false;
+		/*
+		采样数覆盖（第九十六轮）
+		0 = 跟随管线上下文的 config.sample_count（主场景 / 后处理管线）；
+		非 0 = 该管线固定按此采样数创建（阴影管线固定 1，其目标为单采样）。
+		*/
+		uint32_t sample_count = 0;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
 	};
@@ -97,17 +105,18 @@ namespace engine
 		具名管线与默认管线共享同一管线布局与描述符集布局，仅允许「着色器对 + 混合档」不同。
 		*/
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
-			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false);
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
 		void pipeline_release(uint64_t handle);
 		/*
-		按新颜色 / 深度格式重建全部已登记图形管线
-		颜色 / 深度格式被烘焙进 VkPipelineRenderingCreateInfo，交换链换格式后所有管线都必须重建；
-		着色器模块与各自混合档保留；格式未变时为空操作（无等待、无重建开销）。
+		按新颜色 / 深度格式与采样数重建全部已登记图形管线
+		颜色 / 深度格式被烘焙进 VkPipelineRenderingCreateInfo、采样数被烘焙进 VkPipelineMultisampleStateCreateInfo，
+		交换链换格式或 MSAA 采样数变化后所有管线都必须重建；
+		着色器模块与各自混合档保留；三者均未变时为空操作（无等待、无重建开销）。
 		*/
-		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format);
+		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format, uint32_t sample_count = 1);
 		//重建句柄 0 默认管线的混合档（供门面 blend_mode_set；无默认管线时为空操作）
 		bool pipeline_default_blend_set(Blend_Mode blend_mode);
 		//句柄是否已登记
@@ -157,9 +166,9 @@ namespace engine
 		bool descriptor_layouts_create(void);
 		//管线布局创建（实现见 core/管线布局.cpp）
 		bool pipeline_layout_create(void);
-		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config）
+		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config，sample_count 为 0 时跟随 config）
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false);
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

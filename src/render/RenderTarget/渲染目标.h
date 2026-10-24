@@ -35,6 +35,23 @@ namespace engine
 		VmaAllocation depth_alloc = VK_NULL_HANDLE;
 		//深度图像视图
 		VkImageView depth_view = VK_NULL_HANDLE;
+		/*
+		MSAA 附件（第九十六轮；sample_count > 1 时有效，关闭时为空）
+		颜色 / 深度均按 sample_count 采样，渲染结束时颜色解析（resolve）到上面的单采样颜色图像。
+		*/
+		VkImage msaa_color_image = VK_NULL_HANDLE;
+		VmaAllocation msaa_color_alloc = VK_NULL_HANDLE;
+		VkImageView msaa_color_view = VK_NULL_HANDLE;
+		VkImage msaa_depth_image = VK_NULL_HANDLE;
+		VmaAllocation msaa_depth_alloc = VK_NULL_HANDLE;
+		VkImageView msaa_depth_view = VK_NULL_HANDLE;
+		//颜色 / 深度格式（重建采样数时复用）
+		VkFormat color_format = VK_FORMAT_UNDEFINED;
+		VkFormat depth_format = VK_FORMAT_UNDEFINED;
+		//采样数（1 = 关闭）
+		uint32_t sample_count = 1;
+		//是否跟随上下文的默认采样数（假 = 固定采样数，如阴影目标固定 1）
+		bool follow_sample_count = true;
 		//渲染目标范围（像素）
 		VkExtent2D extent = { 0, 0 };
 		//记录是否有效
@@ -71,9 +88,18 @@ namespace engine
 		颜色图像具备「颜色附件 ＋ 采样 ＋ 传输源」用法，深度图像具备「深度附件」用法；
 		创建完成后执行一次布局转换，使颜色进入 SHADER_READ_ONLY、深度进入 DEPTH_ATTACHMENT。
 		成功写出句柄（≥ 1）；失败返回假且句柄保持 0，不留下半初始化资源。
+		sample_count（第九十六轮）：0 = 跟随上下文默认采样数；非 0 = 该目标固定按此采样数创建。
 		*/
 		bool target_create(uint64_t& handle_out, uint32_t width, uint32_t height,
-			VkFormat color_format, VkFormat depth_format);
+			VkFormat color_format, VkFormat depth_format, uint32_t sample_count = 0);
+		/*
+		设置上下文默认采样数（第九十六轮）
+		变化时重建全部「跟随默认采样数」的目标（句柄保持不变）；固定采样数的目标不受影响。
+		失败返回假（此时已重建的目标可能处于新采样数，调用方应回退到旧值重试）。
+		*/
+		bool sample_count_set(uint32_t count);
+		//当前上下文默认采样数
+		uint32_t sample_count_get(void) const;
 		//销毁渲染目标（句柄无效则忽略）
 		void target_destroy(uint64_t handle);
 		/*
@@ -87,6 +113,9 @@ namespace engine
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;
 		//取渲染目标尺寸（第七十七轮新增；句柄无效返回假且出参归零）
 		bool target_extent_get(uint64_t handle, VkExtent2D& extent_out) const;
+		//取目标 MSAA 附件与采样数（第九十六轮；关闭 MSAA 时图像 / 视图为空且采样数为 1）
+		bool target_msaa_get(uint64_t handle, VkImage& msaa_color_image_out, VkImageView& msaa_color_view_out,
+			VkImageView& msaa_depth_view_out, uint32_t& sample_count_out) const;
 		/*
 		读回渲染目标的颜色图像到主机缓冲（第二十六轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下、无行填充），capacity 须不小于 宽×高×4；
@@ -119,8 +148,11 @@ namespace engine
 			uint32_t* width_out, uint32_t* height_out);
 		//确保一次性命令池与栅栏就绪（首次创建，之后复用）
 		bool transient_resources_ensure(void);
-		//一次性布局转换：颜色 UNDEFINED → SHADER_READ_ONLY、深度 UNDEFINED → DEPTH_ATTACHMENT
-		bool target_transition(VkImage color_image, VkImage depth_image);
+		//一次性布局转换：颜色 UNDEFINED → SHADER_READ_ONLY、深度 UNDEFINED → DEPTH_ATTACHMENT（含 MSAA 附件）
+		bool target_transition(Render_Target_Record& record);
+		//创建 / 销毁记录的 MSAA 附件（第九十六轮）
+		bool record_msaa_create(Render_Target_Record& record);
+		void record_msaa_destroy(Render_Target_Record& record);
 		//归还单个记录的图像与视图（内存模块就绪时；不触碰 valid 标记）
 		void record_resources_destroy(Render_Target_Record& record);
 	private:
@@ -132,6 +164,8 @@ namespace engine
 		VkQueue graphics_queue = VK_NULL_HANDLE;
 		//内存模块（图像创建 / 销毁）
 		Memory_Context* memory = nullptr;
+		//默认采样数（第九十六轮；1 = 关闭）
+		uint32_t sample_count = 1;
 		//一次性命令池（布局转换用；跨多个目标复用）
 		VkCommandPool transient_pool = VK_NULL_HANDLE;
 		//一次性完成栅栏（布局转换用；跨多个目标复用）

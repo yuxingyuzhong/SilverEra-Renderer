@@ -175,6 +175,19 @@ namespace engine
 		depth_images.clear();
 		depth_allocations.clear();
 		depth_views.clear();
+		//移出 MSAA 颜色 / 深度附件（第九十六轮）
+		old_out.msaa_color_images = std::move(msaa_color_images);
+		old_out.msaa_color_allocations = std::move(msaa_color_allocations);
+		old_out.msaa_color_views = std::move(msaa_color_views);
+		old_out.msaa_depth_images = std::move(msaa_depth_images);
+		old_out.msaa_depth_allocations = std::move(msaa_depth_allocations);
+		old_out.msaa_depth_views = std::move(msaa_depth_views);
+		msaa_color_images.clear();
+		msaa_color_allocations.clear();
+		msaa_color_views.clear();
+		msaa_depth_images.clear();
+		msaa_depth_allocations.clear();
+		msaa_depth_views.clear();
 		//复位派生状态（新链建立时重新确定；深度首次转换标志须复位以令新深度图像重新转换）
 		format = VK_FORMAT_UNDEFINED;
 		extent = { 0, 0 };
@@ -199,6 +212,13 @@ namespace engine
 		depth_images = std::move(old_in.depth_images);
 		depth_allocations = std::move(old_in.depth_allocations);
 		depth_views = std::move(old_in.depth_views);
+		//恢复 MSAA 颜色 / 深度附件（第九十六轮）
+		msaa_color_images = std::move(old_in.msaa_color_images);
+		msaa_color_allocations = std::move(old_in.msaa_color_allocations);
+		msaa_color_views = std::move(old_in.msaa_color_views);
+		msaa_depth_images = std::move(old_in.msaa_depth_images);
+		msaa_depth_allocations = std::move(old_in.msaa_depth_allocations);
+		msaa_depth_views = std::move(old_in.msaa_depth_views);
 	}
 
 	//销毁交换链侧全部资源
@@ -220,6 +240,8 @@ namespace engine
 				vkDestroySemaphore(device, semaphore, nullptr);
 		//销毁深度图像与视图（随交换链一并重建，U5）
 		depth_resources_destroy();
+		//销毁 MSAA 颜色 / 深度附件（第九十六轮）
+		msaa_resources_destroy();
 		//销毁图像视图
 		for (VkImageView view : image_views)
 			//若句柄有效
@@ -337,5 +359,47 @@ namespace engine
 	bool Swapchain_Context::color_transfer_src_get(void) const
 	{
 		return color_transfer_src;
+	}
+
+	//设置 MSAA 采样数（钳制到 1 / 2 / 4 / 8）
+	void Swapchain_Context::sample_count_set(uint32_t count)
+	{
+		//仅接受 2 的幂且不超过 8 的采样数，其余按 1 处理
+		if (count != 2 && count != 4 && count != 8)
+			count = 1;
+		sample_count = count;
+	}
+
+	//当前 MSAA 采样数
+	uint32_t Swapchain_Context::sample_count_get(void) const
+	{
+		return sample_count;
+	}
+
+	//指定索引的 MSAA 颜色图像
+	VkImage Swapchain_Context::msaa_color_image_get(uint32_t index) const
+	{
+		//越界或未启用则返回空句柄
+		if (index >= msaa_color_images.size())
+			return VK_NULL_HANDLE;
+		return msaa_color_images[index];
+	}
+
+	//指定索引的 MSAA 颜色视图
+	VkImageView Swapchain_Context::msaa_color_view_get(uint32_t index) const
+	{
+		//越界或未启用则返回空句柄
+		if (index >= msaa_color_views.size())
+			return VK_NULL_HANDLE;
+		return msaa_color_views[index];
+	}
+
+	//指定索引的 MSAA 深度视图
+	VkImageView Swapchain_Context::msaa_depth_view_get(uint32_t index) const
+	{
+		//越界或未启用则返回空句柄
+		if (index >= msaa_depth_views.size())
+			return VK_NULL_HANDLE;
+		return msaa_depth_views[index];
 	}
 }

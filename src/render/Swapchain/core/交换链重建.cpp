@@ -187,6 +187,9 @@ namespace engine
 		//创建深度图像与视图并完成首帧前的一次布局转换
 		if (!depth_resources_create())
 			return false;
+		//创建 MSAA 颜色 / 深度附件（第九十六轮；采样数为 1 时为空操作）
+		if (!msaa_resources_create())
+			return false;
 
 		return true;
 	}
@@ -293,6 +296,102 @@ namespace engine
 	}
 
 	/*
+	创建 MSAA 颜色 / 深度附件（第九十六轮）
+	每交换链图像一张：颜色（交换链格式）与深度（所选深度格式）均按 sample_count 采样；
+	用于场景 / 后处理 pass 的多重采样附件，渲染结束时解析（resolve）到交换链单采样图像。
+	采样数为 1 时为空操作。
+	*/
+	bool Swapchain_Context::msaa_resources_create(void)
+	{
+		//先清空旧附件（重建路径已由析出流程移走，此处仅防御）
+		msaa_resources_destroy();
+		//关闭 MSAA 时无附件可建
+		if (sample_count <= 1)
+			return true;
+		//前置：内存模块与深度格式必须齐备
+		if (memory == nullptr || !memory->valid())
+		{
+			logger.error("交换链:: 内存上下文不可用，无法创建 MSAA 附件");
+			return false;
+		}
+		if (depth_format == VK_FORMAT_UNDEFINED && !depth_format_select())
+			return false;
+
+		//采样标志（钳制后的值）
+		VkSampleCountFlagBits samples = static_cast<VkSampleCountFlagBits>(sample_count);
+		//附件数量 = 交换链图像数
+		uint32_t count = static_cast<uint32_t>(images.size());
+		msaa_color_images.assign(count, VK_NULL_HANDLE);
+		msaa_color_allocations.assign(count, VK_NULL_HANDLE);
+		msaa_color_views.assign(count, VK_NULL_HANDLE);
+		msaa_depth_images.assign(count, VK_NULL_HANDLE);
+		msaa_depth_allocations.assign(count, VK_NULL_HANDLE);
+		msaa_depth_views.assign(count, VK_NULL_HANDLE);
+
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			//MSAA 颜色附件（仅颜色附件用途；结果解析到交换链图像）
+			if (!memory->image_create(msaa_color_images[index], msaa_color_allocations[index],
+				extent.width, extent.height, format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 1, samples))
+				return false;
+			//MSAA 颜色视图
+			if (!memory->image_view_create(msaa_color_views[index], msaa_color_images[index], format,
+				VK_IMAGE_ASPECT_COLOR_BIT))
+				return false;
+			//MSAA 深度附件
+			if (!memory->image_create(msaa_depth_images[index], msaa_depth_allocations[index],
+				extent.width, extent.height, depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1, samples))
+				return false;
+			//MSAA 深度视图
+			if (!memory->image_view_create(msaa_depth_views[index], msaa_depth_images[index], depth_format,
+				VK_IMAGE_ASPECT_DEPTH_BIT))
+				return false;
+		}
+
+		/*
+		MSAA 深度附件一次性布局转换（UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL）
+		深度附件必须以深度附件布局进入动态渲染；此处复用统一转换流程（单采样深度重复转入无害）。
+		*/
+		if (!depth_transition())
+		{
+			logger.error("交换链:: MSAA 深度附件布局转换失败");
+			return false;
+		}
+
+		logger.info("交换链:: MSAA 附件已建立（{} 张，采样数 {}，颜色格式 {}，深度格式 {}）",
+			count, sample_count, static_cast<int32_t>(format), static_cast<int32_t>(depth_format));
+		return true;
+	}
+
+	//销毁 MSAA 颜色 / 深度附件
+	void Swapchain_Context::msaa_resources_destroy(void)
+	{
+		//内存模块就绪时归还图像与视图
+		if (memory != nullptr)
+		{
+			for (std::size_t index = 0; index < msaa_depth_views.size(); ++index)
+			{
+				//归还 MSAA 深度视图与图像
+				memory->image_view_destroy(msaa_depth_views[index]);
+				memory->image_destroy(msaa_depth_images[index], msaa_depth_allocations[index]);
+			}
+			for (std::size_t index = 0; index < msaa_color_views.size(); ++index)
+			{
+				//归还 MSAA 颜色视图与图像
+				memory->image_view_destroy(msaa_color_views[index]);
+				memory->image_destroy(msaa_color_images[index], msaa_color_allocations[index]);
+			}
+		}
+		//清空容器
+		msaa_color_views.clear();
+		msaa_color_images.clear();
+		msaa_color_allocations.clear();
+		msaa_depth_views.clear();
+		msaa_depth_images.clear();
+		msaa_depth_allocations.clear();
+	}
+
+	/*
 	深度图像一次性布局转换
 	UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL：srcStage=TOP_OF_PIPE、srcAccess=0、
 	dstStage=EARLY|LATE_FRAGMENT_TESTS、dstAccess=DEPTH_STENCIL_ATTACHMENT_WRITE（U5）。
@@ -334,8 +433,10 @@ namespace engine
 		begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "交换链:: 深度转换开始录制");
 
-		//逐张深度图像转换布局
-		for (VkImage depth_image : depth_images)
+		//逐张深度图像转换布局（含 MSAA 深度附件；第九十六轮）
+		vector<VkImage> transition_images = depth_images;
+		transition_images.insert(transition_images.end(), msaa_depth_images.begin(), msaa_depth_images.end());
+		for (VkImage depth_image : transition_images)
 		{
 			//布局转换屏障（UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL）
 			VkImageMemoryBarrier barrier{};

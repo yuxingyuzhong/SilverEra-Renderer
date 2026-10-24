@@ -46,6 +46,8 @@ namespace engine
 		bool hidden = false;
 		//超采样抗锯齿倍率（1 = 关闭；2..4 = N×N SSAA；默认 1 保持既有画面逐字节不变）
 		uint32_t ssaa_factor = 1;
+		//多重采样抗锯齿采样数（第九十六轮；1 = 关闭，2/4/8 = MSAA；默认 1 保持既有画面逐字节不变）
+		uint32_t msaa_samples = 1;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 	};
@@ -165,6 +167,15 @@ namespace engine
 		void ssaa_factor_set(uint32_t factor);
 		//当前超采样倍率（未初始化时为 1）
 		uint32_t ssaa_factor(void) const;
+		/*
+		设置多重采样抗锯齿采样数（MSAA；第九十六轮）
+		仅接受 2 / 4 / 8（1 = 关闭；其余请求按 1 处理），并按设备对当前颜色 / 深度格式的支持上限钳制；
+		自调用后下一次 frame_render 起生效（内部重建交换链 MSAA 附件、全部渲染目标与全部图形管线）。
+		与 SSAA 可叠加（两者互不替代）；未初始化时静默忽略。
+		*/
+		void msaa_samples_set(uint32_t samples);
+		//当前 MSAA 采样数（未初始化或关闭时为 1）
+		uint32_t msaa_samples(void) const;
 		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
 		bool sampler_anisotropy_supported(void) const;
 		//采样器最大各向异性倍数（设备上限；未初始化或未启用该特性时为 1）

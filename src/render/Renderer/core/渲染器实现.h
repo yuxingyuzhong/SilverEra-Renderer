@@ -285,6 +285,8 @@ namespace engine
 		uint32_t ssaa_target_factor = 0;
 		//SSAA 降采样具名管线句柄（0 = 尚未登记）
 		uint64_t ssaa_pipeline = 0;
+		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
+		uint32_t msaa_samples = 1;
 		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
 		bool ssaa_extent_failed = false;
 		//字体模块（TTF → 字形图集）

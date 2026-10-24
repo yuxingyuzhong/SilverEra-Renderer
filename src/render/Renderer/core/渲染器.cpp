@@ -125,6 +125,39 @@ namespace engine
 		return "0.1.0";
 	}
 
+	/*
+	查询颜色 / 深度格式共同支持的最大 MSAA 采样数（第九十六轮）
+	按 8 → 4 → 2 依次探测两种格式的「最优平铺 ＋ 对应附件用途」图像属性；
+	返回不超过 requested 的最高支持值；均不支持则返回 1（关闭）。
+	*/
+	static uint32_t msaa_supported_max(VkPhysicalDevice physical_device, VkFormat color_format,
+		VkFormat depth_format, uint32_t requested)
+	{
+		//颜色格式属性（含其支持的采样数位集）
+		VkImageFormatProperties color_properties{};
+		if (vkGetPhysicalDeviceImageFormatProperties(physical_device, color_format, VK_IMAGE_TYPE_2D,
+			VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 0, &color_properties) != VK_SUCCESS)
+			return 1;
+		//深度格式属性（含其支持的采样数位集）
+		VkImageFormatProperties depth_properties{};
+		if (vkGetPhysicalDeviceImageFormatProperties(physical_device, depth_format, VK_IMAGE_TYPE_2D,
+			VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0, &depth_properties) != VK_SUCCESS)
+			return 1;
+		//候选采样数（自高到低；两种格式须同时支持）
+		const uint32_t candidates[3] = { 8, 4, 2 };
+		for (uint32_t candidate : candidates)
+		{
+			//超过请求值则跳过
+			if (candidate > requested)
+				continue;
+			VkSampleCountFlagBits samples = static_cast<VkSampleCountFlagBits>(candidate);
+			//颜色与深度格式均须支持该采样数
+			if ((color_properties.sampleCounts & samples) != 0 && (depth_properties.sampleCounts & samples) != 0)
+				return candidate;
+		}
+		return 1;
+	}
+
 	//重建交换链并把旧资源压入帧延迟销毁队列
 	bool Renderer::Impl::swapchain_rebuild_deferred(uint32_t width, uint32_t height)
 	{
@@ -414,7 +447,8 @@ namespace engine
 			swapchain_width = effective.width;
 			swapchain_height = effective.height;
 		}
-		//⑦ 交换链（深度图像依赖内存模块，故传入 memory）
+		//⑦ 交换链（深度图像依赖内存模块，故传入 memory；首次建链固定单采样，待格式确定后再择定 MSAA）
+		impl->swapchain.sample_count_set(1);
 		if (!impl->swapchain.build(impl->device.physical_device_get(), impl->memory, impl->device.device_get(),
 			impl->platform.surface_get(), impl->device.graphics_family_get(), impl->device.present_family_get(),
 			swapchain_width, swapchain_height, effective.vsync))
@@ -422,6 +456,39 @@ namespace engine
 			logger.error("渲染器:: 交换链创建失败");
 			shutdown();
 			return false;
+		}
+		/*
+		MSAA 采样数择定（第九十六轮）
+		交换链格式已确定，按设备对「颜色 ＋ 深度」两种格式的共同支持上限钳制请求值；
+		请求 > 1 时重建一次交换链以建立多重采样附件（初始化期一次性开销）。
+		*/
+		{
+			//请求值归一（仅接受 2 / 4 / 8，其余按 1）
+			uint32_t requested_samples = effective.msaa_samples;
+			if (requested_samples != 2 && requested_samples != 4 && requested_samples != 8)
+				requested_samples = 1;
+			//按设备支持钳制
+			uint32_t chosen_samples = msaa_supported_max(impl->device.physical_device_get(),
+				impl->swapchain.format_get(), impl->swapchain.depth_format_get(), requested_samples);
+			//请求未被完全满足时告警
+			if (requested_samples > 1 && chosen_samples < requested_samples)
+				logger.warn("渲染器:: 请求 MSAA {}× 不被支持，降级为 {}×", requested_samples, chosen_samples);
+			//若启用 MSAA：重建交换链以建立多重采样附件
+			if (chosen_samples > 1)
+			{
+				impl->swapchain.sample_count_set(chosen_samples);
+				impl->swapchain.destroy();
+				if (!impl->swapchain.build(impl->device.physical_device_get(), impl->memory, impl->device.device_get(),
+					impl->platform.surface_get(), impl->device.graphics_family_get(), impl->device.present_family_get(),
+					swapchain_width, swapchain_height, effective.vsync))
+				{
+					logger.error("渲染器:: 交换链 MSAA 附件创建失败");
+					shutdown();
+					return false;
+				}
+			}
+			impl->msaa_samples = impl->swapchain.sample_count_get();
+			logger.info("渲染器:: MSAA 采样数 {}", impl->msaa_samples);
 		}
 		/*
 		钳制在途帧数
@@ -472,6 +539,7 @@ namespace engine
 			pipeline_config.color_format = impl->swapchain.format_get();
 			pipeline_config.depth_format = impl->swapchain.depth_format_get();
 			pipeline_config.frame_overlap = effective.frame_overlap;
+			pipeline_config.sample_count = impl->msaa_samples;
 			if (!impl->pipeline.build(impl->device.device_get(), pipeline_config))
 			{
 				logger.error("渲染器:: 管线基础设施创建失败");
@@ -736,6 +804,8 @@ namespace engine
 			shutdown();
 			return false;
 		}
+		//渲染目标默认采样数与交换链一致（离屏 / 后处理目标随 MSAA 建立多重采样附件）
+		impl->render_target.sample_count_set(impl->msaa_samples);
 		//⑰ 字体：记录纹理模块（字形图集经纹理模块上传与销毁）
 		if (!impl->font.build(impl->texture))
 		{
@@ -841,6 +911,8 @@ namespace engine
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
+		//记录生效的 MSAA 采样数（已按设备支持钳制）
+		impl->config.msaa_samples = impl->msaa_samples;
 		impl->initialized = true;
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
@@ -854,8 +926,9 @@ namespace engine
 			颜色格式固定 R8G8B8A8_UNORM（第五十四轮修正）：交换链优先 sRGB，若沿用其格式，
 			打包深度的字节会被 sRGB 编码 / 解码破坏，导致片元读回深度失真并误判为全遮蔽（自阴影全黑）。
 			*/
+			//阴影目标固定单采样（第九十六轮；与阴影管线一致，不随 MSAA 变化）
 			if (!impl->render_target.target_create(impl->shadow_target, impl->shadow_size, impl->shadow_size,
-				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get()))
+				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				logger.error("渲染器:: 阴影目标创建失败");
 				shutdown();
@@ -946,6 +1019,8 @@ namespace engine
 		impl->ssaa_pipeline = 0;
 		impl->ssaa_factor = 1;
 		impl->ssaa_extent_failed = false;
+		//复位 MSAA 采样数（第九十六轮）
+		impl->msaa_samples = 1;
 		//复位逐级泛光参数覆盖与剔除观测
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
 			impl->post_stage_param_valid[stage] = false;
@@ -1121,7 +1196,7 @@ namespace engine
 				if (!impl->swapchain_rebuild_deferred(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->msaa_samples))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 				rebuilt = true;
 			}
@@ -1725,6 +1800,10 @@ namespace engine
 				targets[0].color_view, targets[0].depth_view, targets[0].extent)
 				&& impl->render_target.target_get(impl->ssaa_resolve_target, targets[1].color_image,
 					targets[1].color_view, targets[1].depth_view, targets[1].extent)
+				&& impl->render_target.target_msaa_get(impl->ssaa_scene_target, targets[0].msaa_color_image,
+					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
+				&& impl->render_target.target_msaa_get(impl->ssaa_resolve_target, targets[1].msaa_color_image,
+					targets[1].msaa_color_view, targets[1].msaa_depth_view, targets[1].sample_count)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//取共享采样器（用于写后处理采样集）
 			VkImageView default_view = VK_NULL_HANDLE;
@@ -1812,11 +1891,15 @@ namespace engine
 			//场景目标与全屏网格均就绪才可走该路径
 			bool ready = impl->render_target.target_get(impl->present_target, targets[0].color_image,
 				targets[0].color_view, targets[0].depth_view, targets[0].extent)
+				&& impl->render_target.target_msaa_get(impl->present_target, targets[0].msaa_color_image,
+					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//逐个取额外中间目标附件
 			for (std::size_t each = 1; ready && each < targets.size(); ++each)
 				ready = impl->render_target.target_get(impl->present_extra[each - 1], targets[each].color_image,
-					targets[each].color_view, targets[each].depth_view, targets[each].extent);
+					targets[each].color_view, targets[each].depth_view, targets[each].extent)
+					&& impl->render_target.target_msaa_get(impl->present_extra[each - 1], targets[each].msaa_color_image,
+						targets[each].msaa_color_view, targets[each].msaa_depth_view, targets[each].sample_count);
 			/*
 			目标尺寸预检（第十七轮放宽）
 			后处理片元按「源 / 宿尺寸」推送做像素映射，故目标**不再要求等于交换链范围**；
@@ -1941,7 +2024,9 @@ namespace engine
 			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
 			Frame_Render_Target target{};
 			if (impl->render_target.target_get(impl->active_target, target.color_image, target.color_view,
-				target.depth_view, target.extent))
+				target.depth_view, target.extent)
+				&& impl->render_target.target_msaa_get(impl->active_target, target.msaa_color_image,
+					target.msaa_color_view, target.msaa_depth_view, target.sample_count))
 			{
 				offscreen = true;
 				//渲染到离屏目标（不取交换链图像、不呈现）
@@ -2001,7 +2086,7 @@ namespace engine
 				if (!impl->swapchain_rebuild_deferred(width, height))
 					logger.warn("渲染器:: 交换链重建失败（下一帧再试）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get()))
+				if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(), impl->swapchain.depth_format_get(), impl->msaa_samples))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 			}
 		}
@@ -2121,6 +2206,87 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 1;
 		return impl->ssaa_factor;
+	}
+
+	/*
+	设置 MSAA 采样数（第九十六轮）
+	请求值按设备支持钳制后立即生效：等尽在途帧 → 重建交换链 MSAA 附件 → 重建全部渲染目标
+	（句柄保持）→ 重建全部图形管线。失败时回退交换链采样数并保持原值。
+	*/
+	void Renderer::msaa_samples_set(uint32_t samples)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//请求值归一（仅接受 2 / 4 / 8，其余按 1）
+		if (samples != 2 && samples != 4 && samples != 8)
+			samples = 1;
+		//按设备对当前颜色 / 深度格式的支持钳制
+		uint32_t supported = msaa_supported_max(impl->device.physical_device_get(),
+			impl->swapchain.format_get(), impl->swapchain.depth_format_get(), samples);
+		//若请求不被支持则降级
+		if (supported < samples)
+			logger.warn("渲染器:: 请求 MSAA {}× 不被支持，降级为 {}×", samples, supported);
+		samples = supported;
+		//同值重复设置为空操作
+		if (samples == impl->msaa_samples)
+			return;
+		//等尽在途帧，确保旧附件不再被引用
+		if (!impl->frame.frames_wait())
+		{
+			logger.error("渲染器:: MSAA 切换失败：等待在途帧失败");
+			return;
+		}
+		uint32_t previous = impl->msaa_samples;
+		//重建交换链 MSAA 附件（尺寸不变；旧资源进延迟销毁队列）
+		VkExtent2D extent = impl->swapchain.extent_get();
+		impl->swapchain.sample_count_set(samples);
+		if (extent.width != 0 && extent.height != 0)
+		{
+			if (!impl->swapchain_rebuild_deferred(extent.width, extent.height))
+			{
+				logger.error("渲染器:: MSAA 切换失败：交换链重建失败，保持 {}×", previous);
+				impl->swapchain.sample_count_set(previous);
+				return;
+			}
+		}
+		//重建跟随默认采样数的渲染目标（句柄不变）
+		if (!impl->render_target.sample_count_set(samples))
+		{
+			logger.warn("渲染器:: MSAA 切换时部分渲染目标重建失败");
+		}
+		//重建全部图形管线（采样数被烘焙进管线状态）
+		if (!impl->pipeline.pipeline_rebuild(impl->swapchain.format_get(),
+			impl->swapchain.depth_format_get(), samples))
+		{
+			logger.warn("渲染器:: MSAA 切换时图形管线重建失败");
+		}
+		impl->msaa_samples = samples;
+		impl->config.msaa_samples = samples;
+		/*
+		当前绑定视图可能指向被重建目标的旧视图（已销毁），统一回落到默认白纹理；
+		各帧槽后处理采样集在每帧渲染前按当前目标重写，无需在此处理。
+		*/
+		{
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler default_sampler = VK_NULL_HANDLE;
+			if (impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler))
+			{
+				impl->bound_view = default_view;
+				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					impl->pipeline.texture_bind(slot, default_sampler, default_view);
+			}
+		}
+		logger.info("渲染器:: MSAA 采样数已设为 {}×（下一帧生效）", impl->msaa_samples);
+	}
+
+	//当前 MSAA 采样数
+	uint32_t Renderer::msaa_samples(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 1;
+		return impl->msaa_samples;
 	}
 
 	//是否支持采样器各向异性过滤
@@ -3468,6 +3634,17 @@ namespace engine
 		depth.image_allocation = record.depth_alloc;
 		depth.view = record.depth_view;
 		entry.memory_resources.push_back(depth);
+		//MSAA 颜色 / 深度附件（第九十六轮；未启用时句柄为空，释放时自动跳过）
+		Deferred_Memory_Resource msaa_color{};
+		msaa_color.image = record.msaa_color_image;
+		msaa_color.image_allocation = record.msaa_color_alloc;
+		msaa_color.view = record.msaa_color_view;
+		entry.memory_resources.push_back(msaa_color);
+		Deferred_Memory_Resource msaa_depth{};
+		msaa_depth.image = record.msaa_depth_image;
+		msaa_depth.image_allocation = record.msaa_depth_alloc;
+		msaa_depth.view = record.msaa_depth_view;
+		entry.memory_resources.push_back(msaa_depth);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
 		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
@@ -4607,8 +4784,9 @@ namespace engine
 		}
 		//按阴影目标的 UNORM 颜色格式登记具名管线
 		uint64_t shadow_pipeline = 0;
+		//阴影目标固定单采样（第九十六轮），故该管线采样数固定 1，不跟随 MSAA
 		if (!impl->pipeline.pipeline_register(shadow_pipeline, shadow_vert, shadow_frag,
-			Blend_Mode::Opaque, VK_FORMAT_R8G8B8A8_UNORM, true))
+			Blend_Mode::Opaque, VK_FORMAT_R8G8B8A8_UNORM, true, 1))
 		{
 			logger.error("渲染器:: 阴影管线登记失败：图形管线创建失败，阴影保持关闭");
 			impl->shader.module_destroy(shadow_vert);
@@ -4738,8 +4916,9 @@ namespace engine
 		}
 		//先建新目标（失败则旧目标原样保留）；颜色格式固定 UNORM，理由见 init ⑳ ①
 		uint64_t candidate = 0;
+		//阴影目标固定单采样（第九十六轮）
 		if (!impl->render_target.target_create(candidate, resolution, resolution,
-			VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get()))
+			VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影目标创建失败（保持 {}）", impl->shadow_size);
 			return;

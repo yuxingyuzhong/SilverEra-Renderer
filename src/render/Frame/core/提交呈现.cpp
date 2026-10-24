@@ -155,7 +155,9 @@ namespace engine
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
 			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target,
-			slot.timestamp_pool);
+			slot.timestamp_pool,
+			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
+			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
 
 		/*
 		取本帧呈现完成信号量
@@ -457,7 +459,9 @@ namespace engine
 		command_record_chain_present(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),
 			targets, target_count, items, item_count, post_items, post_count, clear_color,
-			readback_target, slot.timestamp_pool);
+			readback_target, slot.timestamp_pool,
+			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
+			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
 
 		//取本帧呈现完成信号量（按交换链图像持有）
 		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);

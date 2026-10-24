@@ -27,7 +27,7 @@ namespace engine
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-		VkFormat color_format, bool cull_none)
+		VkFormat color_format, bool cull_none, uint32_t sample_count)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -114,10 +114,17 @@ namespace engine
 		rasterization.depthBiasEnable = VK_FALSE;
 		rasterization.lineWidth = 1.0f;
 
-		//多重采样（关闭）
+		/*
+		多重采样（第九十六轮）
+		采样数 = 条目覆盖值（非 0）或上下文配置值；须与动态渲染颜色 / 深度附件的采样数一致。
+		*/
+		uint32_t effective_samples = sample_count != 0 ? sample_count : config.sample_count;
+		//采样数兜底为 1
+		if (effective_samples == 0)
+			effective_samples = 1;
 		VkPipelineMultisampleStateCreateInfo multisample{};
 		multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-		multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(effective_samples);
 		multisample.sampleShadingEnable = VK_FALSE;
 
 		//深度 / 模板（深度测试开、写开、LESS）

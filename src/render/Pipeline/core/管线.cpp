@@ -40,7 +40,7 @@ namespace engine
 		VkPipeline created = VK_NULL_HANDLE;
 		//若图形管线创建失败
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
-			entry.color_format, entry.cull_none))
+			entry.color_format, entry.cull_none, entry.sample_count))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -249,7 +249,7 @@ namespace engine
 
 	//登记具名图形管线
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
-		VkFormat color_format, bool cull_none)
+		VkFormat color_format, bool cull_none, uint32_t sample_count)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -267,6 +267,7 @@ namespace engine
 		entry.blend_mode = blend_mode;
 		entry.color_format = color_format;
 		entry.cull_none = cull_none;
+		entry.sample_count = sample_count;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{
@@ -320,24 +321,29 @@ namespace engine
 		}
 	}
 
-	//按新颜色 / 深度格式重建全部已登记图形管线
-	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format)
+	//按新颜色 / 深度格式与采样数重建全部已登记图形管线
+	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format, uint32_t sample_count)
 	{
 		//无任何条目则无需处理
 		if (pipelines.empty())
 			return true;
-		//格式均未变则无需重建（空操作）
-		if (config.color_format == color_format && config.depth_format == depth_format)
+		//采样数兜底为 1
+		if (sample_count == 0)
+			sample_count = 1;
+		//格式与采样数均未变则无需重建（空操作）
+		if (config.color_format == color_format && config.depth_format == depth_format
+			&& config.sample_count == sample_count)
 			return true;
 
-		logger.info("管线:: 全部图形管线重建（颜色 {}，深度 {}）",
-			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format));
+		logger.info("管线:: 全部图形管线重建（颜色 {}，深度 {}，采样数 {}）",
+			static_cast<int32_t>(color_format), static_cast<int32_t>(depth_format), sample_count);
 		//等待设备空闲，确保旧管线不再被在途帧引用
 		if (!vk_result_check(vkDeviceWaitIdle(device), "vkDeviceWaitIdle（管线重建）"))
 			return false;
-		//更新配置中的格式
+		//更新配置中的格式与采样数
 		config.color_format = color_format;
 		config.depth_format = depth_format;
+		config.sample_count = sample_count;
 		//逐条目按新格式重建（着色器与各自混合档保留）
 		for (Pipeline_Entry& entry : pipelines)
 		{

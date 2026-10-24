@@ -49,6 +49,19 @@ namespace engine
 				if (index < entry.resources.depth_images.size() && index < entry.resources.depth_allocations.size())
 					memory->image_destroy(entry.resources.depth_images[index], entry.resources.depth_allocations[index]);
 			}
+			//旧 MSAA 颜色 / 深度附件（第九十六轮；逐张成对归还）
+			for (std::size_t index = 0; index < entry.resources.msaa_color_views.size(); ++index)
+			{
+				memory->image_view_destroy(entry.resources.msaa_color_views[index]);
+				if (index < entry.resources.msaa_color_images.size() && index < entry.resources.msaa_color_allocations.size())
+					memory->image_destroy(entry.resources.msaa_color_images[index], entry.resources.msaa_color_allocations[index]);
+			}
+			for (std::size_t index = 0; index < entry.resources.msaa_depth_views.size(); ++index)
+			{
+				memory->image_view_destroy(entry.resources.msaa_depth_views[index]);
+				if (index < entry.resources.msaa_depth_images.size() && index < entry.resources.msaa_depth_allocations.size())
+					memory->image_destroy(entry.resources.msaa_depth_images[index], entry.resources.msaa_depth_allocations[index]);
+			}
 		}
 		//销毁旧图像视图
 		for (VkImageView view : entry.resources.image_views)

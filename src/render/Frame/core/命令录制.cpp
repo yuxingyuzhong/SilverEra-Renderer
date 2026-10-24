@@ -102,7 +102,8 @@ namespace engine
 	void Frame_Context::command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 		VkImageView depth_view, VkExtent2D extent,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool,
+		VkImage msaa_image, VkImageView msaa_color_view, VkImageView msaa_depth_view, uint32_t sample_count)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -143,10 +144,33 @@ namespace engine
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-		//颜色附件信息（清屏后保留）
+		/*
+		MSAA 颜色附件布局转换（第九十六轮；仅采样数 > 1）
+		多重采样颜色图像内容逐帧丢弃（loadOp CLEAR），故 oldLayout 用 UNDEFINED；
+		解析目标（交换链图像）已在上方转入 COLOR_ATTACHMENT_OPTIMAL。
+		*/
+		if (sample_count > 1 && msaa_image != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier msaa_barrier{};
+			msaa_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			msaa_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			msaa_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			msaa_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			msaa_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			msaa_barrier.image = msaa_image;
+			msaa_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			msaa_barrier.srcAccessMask = 0;
+			msaa_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &msaa_barrier);
+		}
+
+		//颜色附件信息（清屏后保留；MSAA 时写入多重采样附件并解析到 image_view）
 		VkRenderingAttachmentInfo color_attachment{};
 		color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		color_attachment.imageView = image_view;
+		color_attachment.imageView = sample_count > 1 ? msaa_color_view : image_view;
 		color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -154,15 +178,22 @@ namespace engine
 		color_attachment.clearValue.color.float32[1] = clear_color[1];
 		color_attachment.clearValue.color.float32[2] = clear_color[2];
 		color_attachment.clearValue.color.float32[3] = clear_color[3];
+		//MSAA：声明解析目标（单采样交换链图像）与平均解析
+		if (sample_count > 1)
+		{
+			color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+			color_attachment.resolveImageView = image_view;
+			color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
 
 		/*
 		深度附件信息
 		深度图像由交换链模块持有，布局已在交换链重建时统一转为 DEPTH_ATTACHMENT_OPTIMAL，
-		故此处不再逐帧转换，仅作清屏（深度 1.0，模板 0）后保留。
+		故此处不再逐帧转换，仅作清屏（深度 1.0，模板 0）后保留；MSAA 时用多重采样深度附件。
 		*/
 		VkRenderingAttachmentInfo depth_attachment{};
 		depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		depth_attachment.imageView = depth_view;
+		depth_attachment.imageView = sample_count > 1 ? msaa_depth_view : depth_view;
 		depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 		depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -211,11 +242,55 @@ namespace engine
 		ImGui 管线的 PipelineRenderingCreateInfo 必须与本通道附件格式相容）。
 		回调返回后本通道仍处于开启状态。
 		*/
-		if (ui_callback != nullptr && ui_callback->fn != nullptr)
+		//单采样：UI 与场景共用同一动态渲染通道；MSAA：留到解析完成后另起单采样通道
+		if (sample_count <= 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
 			ui_callback->fn(command_buffer, ui_callback->user_data);
 
-		//结束场景动态渲染
+		//结束场景动态渲染（MSAA 时此处完成解析到交换链图像）
 		vkCmdEndRendering(command_buffer);
+
+		/*
+		UI 阶段（MSAA；第九十六轮）
+		UI 管线为单采样（ImGui 后端按 MSAASamples=1 创建），故解析完成后以「加载后保留」的
+		单采样通道绘制 UI；通道仅含颜色附件（UI 不使用深度）。
+		*/
+		if (sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
+		{
+			//解析写入 → 下一通道读取 / 写入的依赖屏障（同布局）
+			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.image = image;
+			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+			//UI 颜色附件（单采样交换链图像；载入解析结果）
+			VkRenderingAttachmentInfo ui_color{};
+			ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			ui_color.imageView = image_view;
+			ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+			//UI 渲染信息（无深度附件）
+			VkRenderingInfo ui_rendering{};
+			ui_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			ui_rendering.renderArea.offset = { 0, 0 };
+			ui_rendering.renderArea.extent = extent;
+			ui_rendering.layerCount = 1;
+			ui_rendering.colorAttachmentCount = 1;
+			ui_rendering.pColorAttachments = &ui_color;
+
+			//进入 UI 通道并恢复视口 / 裁剪（上层 UI 后端按当前动态状态绘制）
+			vkCmdBeginRendering(command_buffer, &ui_rendering);
+			vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+			ui_callback->fn(command_buffer, ui_callback->user_data);
+			vkCmdEndRendering(command_buffer);
+		}
 
 		/*
 		像素回读（可选）
@@ -337,10 +412,28 @@ namespace engine
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-		//颜色附件信息（清屏后保留）
+		/*
+		MSAA 颜色附件布局转换（第九十六轮；仅采样数 > 1）
+		多重采样附件内容逐帧丢弃，oldLayout 用 UNDEFINED；解析目标（target.color_image）
+		已在上方转入 COLOR_ATTACHMENT_OPTIMAL。
+		*/
+		if (target.sample_count > 1 && target.msaa_color_view != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier msaa_barrier = barrier;
+			msaa_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			msaa_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			msaa_barrier.srcAccessMask = 0;
+			msaa_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &msaa_barrier);
+		}
+
+		//颜色附件信息（清屏后保留；MSAA 时写入多重采样附件并解析到目标颜色图像）
 		VkRenderingAttachmentInfo color_attachment{};
 		color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		color_attachment.imageView = target.color_view;
+		color_attachment.imageView = target.sample_count > 1 ? target.msaa_color_view : target.color_view;
 		color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -348,11 +441,18 @@ namespace engine
 		color_attachment.clearValue.color.float32[1] = clear_color[1];
 		color_attachment.clearValue.color.float32[2] = clear_color[2];
 		color_attachment.clearValue.color.float32[3] = clear_color[3];
+		//MSAA：解析到目标单采样颜色图像
+		if (target.sample_count > 1)
+		{
+			color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+			color_attachment.resolveImageView = target.color_view;
+			color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
 
-		//深度附件信息（清屏后保留；目标深度在帧间恒为深度附件布局）
+		//深度附件信息（清屏后保留；目标深度在帧间恒为深度附件布局；MSAA 时用多重采样深度）
 		VkRenderingAttachmentInfo depth_attachment{};
 		depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		depth_attachment.imageView = target.depth_view;
+		depth_attachment.imageView = target.sample_count > 1 ? target.msaa_depth_view : target.depth_view;
 		depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 		depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -393,12 +493,55 @@ namespace engine
 		frame_recorded = Recorded_Counts{};
 		frame_recorded = items_record(command_buffer, items, item_count);
 
-		//UI 阶段（可选；与交换链路径同一时机——场景 pass 内、结束动态渲染之前）
-		if (ui_callback != nullptr && ui_callback->fn != nullptr)
+		//单采样：UI 与场景共用同一通道；MSAA：留到解析完成后另起单采样通道
+		if (target.sample_count <= 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
 			ui_callback->fn(command_buffer, ui_callback->user_data);
 
-		//结束场景动态渲染
+		//结束场景动态渲染（MSAA 时此处完成解析到目标颜色图像）
 		vkCmdEndRendering(command_buffer);
+
+		/*
+		UI 阶段（MSAA；第九十六轮）
+		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；
+		通道仅含颜色附件（UI 不使用深度）。
+		*/
+		if (target.sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
+		{
+			//解析写入 → 下一通道读取 / 写入的依赖屏障（同布局）
+			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			barrier.image = target.color_image;
+			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+			//UI 颜色附件（载入解析结果）
+			VkRenderingAttachmentInfo ui_color{};
+			ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			ui_color.imageView = target.color_view;
+			ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+			//UI 渲染信息（无深度附件）
+			VkRenderingInfo ui_rendering{};
+			ui_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			ui_rendering.renderArea.offset = { 0, 0 };
+			ui_rendering.renderArea.extent = target.extent;
+			ui_rendering.layerCount = 1;
+			ui_rendering.colorAttachmentCount = 1;
+			ui_rendering.pColorAttachments = &ui_color;
+
+			//进入 UI 通道并恢复视口 / 裁剪
+			vkCmdBeginRendering(command_buffer, &ui_rendering);
+			vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+			ui_callback->fn(command_buffer, ui_callback->user_data);
+			vkCmdEndRendering(command_buffer);
+		}
 
 		//若请求回读：颜色附件 → 传输源，拷贝到回读缓冲，再转到着色器可读
 		if (readback_buffer != VK_NULL_HANDLE)
@@ -472,7 +615,9 @@ namespace engine
 		VkImageView swapchain_view, VkImageView swapchain_depth_view, VkExtent2D swapchain_extent,
 		const Frame_Render_Target* targets, uint32_t target_count,
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
-		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool)
+		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool,
+		VkImage swapchain_msaa_image, VkImageView swapchain_msaa_color_view,
+		VkImageView swapchain_msaa_depth_view, uint32_t swapchain_sample_count)
 	{
 		//场景目标（目标组首项）
 		const Frame_Render_Target& scene_target = targets[0];
@@ -518,10 +663,28 @@ namespace engine
 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-		//场景 pass · 颜色附件信息（清屏后保留）
+		/*
+		场景 pass · MSAA 颜色附件布局转换（第九十六轮；仅采样数 > 1）
+		多重采样附件内容逐帧丢弃，oldLayout 用 UNDEFINED；解析目标（场景目标颜色图像）已在上方转入颜色附件布局。
+		*/
+		if (scene_target.sample_count > 1 && scene_target.msaa_color_view != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier msaa_barrier = barrier;
+			msaa_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			msaa_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			msaa_barrier.image = scene_target.msaa_color_image;
+			msaa_barrier.srcAccessMask = 0;
+			msaa_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &msaa_barrier);
+		}
+
+		//场景 pass · 颜色附件信息（清屏后保留；MSAA 时写入多重采样附件并解析到场景目标）
 		VkRenderingAttachmentInfo scene_color{};
 		scene_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		scene_color.imageView = scene_target.color_view;
+		scene_color.imageView = scene_target.sample_count > 1 ? scene_target.msaa_color_view : scene_target.color_view;
 		scene_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		scene_color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		scene_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -529,11 +692,18 @@ namespace engine
 		scene_color.clearValue.color.float32[1] = clear_color[1];
 		scene_color.clearValue.color.float32[2] = clear_color[2];
 		scene_color.clearValue.color.float32[3] = clear_color[3];
+		//MSAA：解析到场景目标单采样颜色图像
+		if (scene_target.sample_count > 1)
+		{
+			scene_color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+			scene_color.resolveImageView = scene_target.color_view;
+			scene_color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
 
-		//场景 pass · 深度附件信息（场景目标深度在帧间恒为深度附件布局，逐帧清屏）
+		//场景 pass · 深度附件信息（场景目标深度在帧间恒为深度附件布局，逐帧清屏；MSAA 时用多重采样深度）
 		VkRenderingAttachmentInfo scene_depth{};
 		scene_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		scene_depth.imageView = scene_target.depth_view;
+		scene_depth.imageView = scene_target.sample_count > 1 ? scene_target.msaa_depth_view : scene_target.depth_view;
 		scene_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 		scene_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		scene_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -631,6 +801,29 @@ namespace engine
 					0, 0, nullptr, 0, nullptr, 1, &barrier);
 			}
 
+			/*
+			本级宿 MSAA 参数（第九十六轮）
+			末级宿为交换链（用交换链 MSAA 附件）；非末级宿为中间目标（用目标自带 MSAA 附件）。
+			*/
+			VkImage stage_msaa_image = last_stage ? swapchain_msaa_image : dest.msaa_color_image;
+			VkImageView stage_msaa_color = last_stage ? swapchain_msaa_color_view : dest.msaa_color_view;
+			VkImageView stage_msaa_depth = last_stage ? swapchain_msaa_depth_view : dest.msaa_depth_view;
+			uint32_t stage_sample_count = last_stage ? swapchain_sample_count : dest.sample_count;
+			//本级宿 MSAA 颜色附件布局转换（内容逐帧丢弃，oldLayout 用 UNDEFINED）
+			if (stage_sample_count > 1 && stage_msaa_image != VK_NULL_HANDLE)
+			{
+				VkImageMemoryBarrier msaa_barrier = barrier;
+				msaa_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				msaa_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				msaa_barrier.image = stage_msaa_image;
+				msaa_barrier.srcAccessMask = 0;
+				msaa_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				vkCmdPipelineBarrier(command_buffer,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					0, 0, nullptr, 0, nullptr, 1, &msaa_barrier);
+			}
+
 			//本级宿范围（末级取交换链范围，否则取中间目标范围）
 			VkExtent2D stage_extent = last_stage ? swapchain_extent : dest.extent;
 			//本级源目标（第 stage 级读第 stage % 目标数 个中间目标）
@@ -652,10 +845,11 @@ namespace engine
 			stage_item.push_constant_size = static_cast<uint32_t>(sizeof(stage_uniform));
 			stage_item.push_constant_offset = 80;
 
-			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定）
+			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定；MSAA 时解析到宿单采样颜色）
 			VkRenderingAttachmentInfo stage_color{};
 			stage_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			stage_color.imageView = last_stage ? swapchain_view : dest.color_view;
+			stage_color.imageView = stage_sample_count > 1 ? stage_msaa_color
+				: (last_stage ? swapchain_view : dest.color_view);
 			stage_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			stage_color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			stage_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -663,11 +857,19 @@ namespace engine
 			stage_color.clearValue.color.float32[1] = clear_color[1];
 			stage_color.clearValue.color.float32[2] = clear_color[2];
 			stage_color.clearValue.color.float32[3] = clear_color[3];
+			//MSAA：解析到宿单采样颜色视图
+			if (stage_sample_count > 1)
+			{
+				stage_color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+				stage_color.resolveImageView = last_stage ? swapchain_view : dest.color_view;
+				stage_color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			}
 
-			//本级深度附件信息（末级取交换链深度，否则取中间目标深度；逐帧清屏）
+			//本级深度附件信息（末级取交换链深度，否则取中间目标深度；逐帧清屏；MSAA 时用多重采样深度）
 			VkRenderingAttachmentInfo stage_depth{};
 			stage_depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			stage_depth.imageView = last_stage ? swapchain_depth_view : dest.depth_view;
+			stage_depth.imageView = stage_sample_count > 1 ? stage_msaa_depth
+				: (last_stage ? swapchain_depth_view : dest.depth_view);
 			stage_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 			stage_depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			stage_depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

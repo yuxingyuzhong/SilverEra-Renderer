@@ -63,9 +63,11 @@ namespace engine
 		创建图像
 		布局固定 VK_IMAGE_TILING_OPTIMAL；usage 须含 VK_IMAGE_USAGE_TRANSFER_DST_BIT
 		才能经 upload_image 写入像素。
+		samples 为采样数（第九十六轮；默认 1，2/4/8 供 MSAA 附件使用）。
 		*/
 		bool image_create(VkImage& image_out, VmaAllocation& alloc_out,
-			uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mip_levels = 1);
+			uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage,
+			uint32_t mip_levels = 1, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
 		//销毁图像（图像与它的内存一起归还）
 		void image_destroy(VkImage image, VmaAllocation alloc);
 		//创建图像视图（二维、单层、单 mip）

@@ -73,10 +73,11 @@ namespace engine
 	/*
 	一次性布局转换
 	颜色：UNDEFINED → SHADER_READ_ONLY_OPTIMAL（dstStage = FRAGMENT_SHADER、dstAccess = SHADER_READ）；
-	深度：UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL（dstStage = EARLY|LATE_FRAGMENT_TESTS、dstAccess = 深度写入）。
-	两条屏障共用 srcStage = TOP_OF_PIPE、dstStage 取两者并集，一次提交完成。
+	深度：UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL（dstStage = EARLY|LATE_FRAGMENT_TESTS、dstAccess = 深度写入）；
+	MSAA 颜色（第九十六轮）：UNDEFINED → COLOR_ATTACHMENT_OPTIMAL；MSAA 深度：UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL。
+	各屏障共用 srcStage = TOP_OF_PIPE、dstStage 取并集，一次提交完成。
 	*/
-	bool Render_Target_Context::target_transition(VkImage color_image, VkImage depth_image)
+	bool Render_Target_Context::target_transition(Render_Target_Record& record)
 	{
 		//重置命令池（连带回收上次分配的命令缓冲）
 		if (!vk_result_check(vkResetCommandPool(device, transient_pool, 0), "渲染目标:: 重置转换命令池"))
@@ -106,7 +107,7 @@ namespace engine
 		color_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		color_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		color_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		color_barrier.image = color_image;
+		color_barrier.image = record.color_image;
 		color_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 		color_barrier.srcAccessMask = 0;
 		color_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
@@ -118,17 +119,41 @@ namespace engine
 		depth_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 		depth_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		depth_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		depth_barrier.image = depth_image;
+		depth_barrier.image = record.depth_image;
 		depth_barrier.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
 		depth_barrier.srcAccessMask = 0;
 		depth_barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-		//一次提交两条屏障（srcStage = 顶部管线；dstStage 取两者并集）
-		VkImageMemoryBarrier barriers[2] = { color_barrier, depth_barrier };
+		//屏障集合（基础两条 ＋ MSAA 两条）
+		VkImageMemoryBarrier barriers[4] = { color_barrier, depth_barrier, {}, {} };
+		uint32_t barrier_count = 2;
+		//若启用 MSAA
+		if (record.sample_count > 1)
+		{
+			//MSAA 颜色屏障（未定义 → 颜色附件）
+			VkImageMemoryBarrier msaa_color_barrier{};
+			msaa_color_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			msaa_color_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			msaa_color_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			msaa_color_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			msaa_color_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			msaa_color_barrier.image = record.msaa_color_image;
+			msaa_color_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			msaa_color_barrier.srcAccessMask = 0;
+			msaa_color_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+			barriers[barrier_count++] = msaa_color_barrier;
+			//MSAA 深度屏障（未定义 → 深度附件）
+			VkImageMemoryBarrier msaa_depth_barrier = depth_barrier;
+			msaa_depth_barrier.image = record.msaa_depth_image;
+			barriers[barrier_count++] = msaa_depth_barrier;
+		}
+
+		//一次提交全部屏障（srcStage = 顶部管线；dstStage 取各目的阶段并集）
 		vkCmdPipelineBarrier(command_buffer,
 			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-			0, 0, nullptr, 0, nullptr, 2, barriers);
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+				| VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+			0, 0, nullptr, 0, nullptr, barrier_count, barriers);
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "渲染目标:: 结束转换录制");
@@ -150,7 +175,7 @@ namespace engine
 
 	//创建渲染目标
 	bool Render_Target_Context::target_create(uint64_t& handle_out, uint32_t width, uint32_t height,
-		VkFormat color_format, VkFormat depth_format)
+		VkFormat color_format, VkFormat depth_format, uint32_t sample_count)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -166,9 +191,19 @@ namespace engine
 		if (!transient_resources_ensure())
 			return false;
 
-		//待落地记录（全部创建成功且转换完成才登记）
+		/*
+		采样数解析（第九十六轮）
+		0 = 跟随上下文默认采样数（follow = true）；非 0 = 固定值（follow = false，如阴影目标）。
+		*/
 		Render_Target_Record record{};
 		record.extent = { width, height };
+		record.color_format = color_format;
+		record.depth_format = depth_format;
+		record.follow_sample_count = (sample_count == 0);
+		record.sample_count = sample_count == 0 ? this->sample_count : sample_count;
+		//固定采样数兜底（仅接受 2 / 4 / 8，其余按 1）
+		if (record.sample_count != 2 && record.sample_count != 4 && record.sample_count != 8)
+			record.sample_count = 1;
 		//创建颜色图像（颜色附件 ＋ 采样 ＋ 传输源）
 		if (!memory->image_create(record.color_image, record.color_alloc, width, height, color_format,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
@@ -198,8 +233,15 @@ namespace engine
 			record_resources_destroy(record);
 			return false;
 		}
-		//一次性布局转换（颜色 → 着色器可读；深度 → 深度附件）
-		if (!target_transition(record.color_image, record.depth_image))
+		//创建 MSAA 附件（第九十六轮；采样数为 1 时为空操作）
+		if (!record_msaa_create(record))
+		{
+			logger.error("渲染目标:: MSAA 附件创建失败");
+			record_resources_destroy(record);
+			return false;
+		}
+		//一次性布局转换（颜色 → 着色器可读；深度 → 深度附件；MSAA 附件 → 对应附件布局）
+		if (!target_transition(record))
 		{
 			logger.error("渲染目标:: 初始布局转换失败");
 			record_resources_destroy(record);
@@ -228,13 +270,190 @@ namespace engine
 		}
 		//写出句柄
 		handle_out = handle;
-		logger.info("渲染目标:: 已创建（句柄 {}，{}×{}）", handle, width, height);
+		logger.info("渲染目标:: 已创建（句柄 {}，{}×{}，采样数 {}）", handle, width, height, record.sample_count);
+		return true;
+	}
+
+	/*
+	创建记录的 MSAA 附件（第九十六轮）
+	采样数 ≤ 1 时为空操作；否则按记录的颜色 / 深度格式与采样数各建一张附件与视图。
+	*/
+	bool Render_Target_Context::record_msaa_create(Render_Target_Record& record)
+	{
+		//关闭 MSAA 时无附件可建
+		if (record.sample_count <= 1)
+			return true;
+		//前置：内存模块必须就绪
+		if (memory == nullptr || !memory->valid())
+		{
+			logger.error("渲染目标:: 内存上下文不可用，无法创建 MSAA 附件");
+			return false;
+		}
+		//采样标志
+		VkSampleCountFlagBits samples = static_cast<VkSampleCountFlagBits>(record.sample_count);
+		//MSAA 颜色附件（仅颜色附件用途；解析到单采样颜色图像）
+		if (!memory->image_create(record.msaa_color_image, record.msaa_color_alloc,
+			record.extent.width, record.extent.height, record.color_format,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 1, samples))
+			return false;
+		//MSAA 颜色视图
+		if (!memory->image_view_create(record.msaa_color_view, record.msaa_color_image,
+			record.color_format, VK_IMAGE_ASPECT_COLOR_BIT))
+			return false;
+		//MSAA 深度附件
+		if (!memory->image_create(record.msaa_depth_image, record.msaa_depth_alloc,
+			record.extent.width, record.extent.height, record.depth_format,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1, samples))
+			return false;
+		//MSAA 深度视图
+		if (!memory->image_view_create(record.msaa_depth_view, record.msaa_depth_image,
+			record.depth_format, VK_IMAGE_ASPECT_DEPTH_BIT))
+			return false;
+		return true;
+	}
+
+	//销毁记录的 MSAA 附件
+	void Render_Target_Context::record_msaa_destroy(Render_Target_Record& record)
+	{
+		//内存模块就绪时归还图像与视图
+		if (memory != nullptr)
+		{
+			if (record.msaa_depth_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(record.msaa_depth_view);
+			if (record.msaa_depth_image != VK_NULL_HANDLE)
+				memory->image_destroy(record.msaa_depth_image, record.msaa_depth_alloc);
+			if (record.msaa_color_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(record.msaa_color_view);
+			if (record.msaa_color_image != VK_NULL_HANDLE)
+				memory->image_destroy(record.msaa_color_image, record.msaa_color_alloc);
+		}
+		record.msaa_color_image = VK_NULL_HANDLE;
+		record.msaa_color_alloc = VK_NULL_HANDLE;
+		record.msaa_color_view = VK_NULL_HANDLE;
+		record.msaa_depth_image = VK_NULL_HANDLE;
+		record.msaa_depth_alloc = VK_NULL_HANDLE;
+		record.msaa_depth_view = VK_NULL_HANDLE;
+	}
+
+	/*
+	设置上下文默认采样数（第九十六轮）
+	逐条重建「跟随默认采样数」的目标：先销毁全部旧资源（颜色 / 深度 / MSAA），
+	再按记录的尺寸 / 格式与新采样数重建，成功后恢复句柄；任一失败则返回假。
+	*/
+	bool Render_Target_Context::sample_count_set(uint32_t count)
+	{
+		//钳制采样数（仅接受 2 / 4 / 8，其余按 1）
+		if (count != 2 && count != 4 && count != 8)
+			count = 1;
+		//未变化则空操作
+		if (count == sample_count)
+			return true;
+		sample_count = count;
+		//逐条重建跟随采样数的目标
+		for (Render_Target_Record& record : records)
+		{
+			//跳过空槽与固定采样数目标
+			if (!record.valid || !record.follow_sample_count)
+				continue;
+			//保存重建参数
+			uint32_t width = record.extent.width;
+			uint32_t height = record.extent.height;
+			VkFormat color_format = record.color_format;
+			VkFormat depth_format = record.depth_format;
+			//销毁旧资源（含 MSAA）
+			record_resources_destroy(record);
+			//复位资源句柄与采样数（保留 extent / 格式 / 跟随标记）
+			record.sample_count = count;
+			//重建颜色图像
+			if (!memory->image_create(record.color_image, record.color_alloc, width, height, color_format,
+				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+			{
+				logger.error("渲染目标:: 采样数切换时颜色图像重建失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+			//重建颜色视图
+			if (!memory->image_view_create(record.color_view, record.color_image, color_format, VK_IMAGE_ASPECT_COLOR_BIT))
+			{
+				logger.error("渲染目标:: 采样数切换时颜色视图重建失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+			//重建深度图像
+			if (!memory->image_create(record.depth_image, record.depth_alloc, width, height, depth_format,
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+			{
+				logger.error("渲染目标:: 采样数切换时深度图像重建失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+			//重建深度视图
+			if (!memory->image_view_create(record.depth_view, record.depth_image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT))
+			{
+				logger.error("渲染目标:: 采样数切换时深度视图重建失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+			//重建 MSAA 附件
+			if (!record_msaa_create(record))
+			{
+				logger.error("渲染目标:: 采样数切换时 MSAA 附件重建失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+			//重建后一次性布局转换
+			if (!target_transition(record))
+			{
+				logger.error("渲染目标:: 采样数切换时布局转换失败");
+				record.valid = false;
+				record_resources_destroy(record);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	//当前上下文默认采样数
+	uint32_t Render_Target_Context::sample_count_get(void) const
+	{
+		return sample_count;
+	}
+
+	//取目标 MSAA 附件与采样数
+	bool Render_Target_Context::target_msaa_get(uint64_t handle, VkImage& msaa_color_image_out,
+		VkImageView& msaa_color_view_out, VkImageView& msaa_depth_view_out, uint32_t& sample_count_out) const
+	{
+		//出参先复位
+		msaa_color_image_out = VK_NULL_HANDLE;
+		msaa_color_view_out = VK_NULL_HANDLE;
+		msaa_depth_view_out = VK_NULL_HANDLE;
+		sample_count_out = 1;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出 MSAA 图像 / 视图与采样数
+		msaa_color_image_out = record.msaa_color_image;
+		msaa_color_view_out = record.msaa_color_view;
+		msaa_depth_view_out = record.msaa_depth_view;
+		sample_count_out = record.sample_count;
 		return true;
 	}
 
 	//归还单个记录的图像与视图（颜色与深度各自先视图后图像）
 	void Render_Target_Context::record_resources_destroy(Render_Target_Record& record)
 	{
+		//先归还 MSAA 附件（第九十六轮）
+		record_msaa_destroy(record);
 		//内存模块就绪时逐个归还
 		if (memory != nullptr)
 		{
@@ -415,6 +634,16 @@ namespace engine
 		//已空或无深度图像则拒绝
 		if (!record.valid || record.depth_image == VK_NULL_HANDLE)
 			return false;
+		/*
+		MSAA 开启时深度读回不可用（第九十六轮）
+		实际深度写入多重采样附件，而多重采样深度无法解析 / 拷贝为单采样值；
+		目标上的单采样深度图像在 MSAA 路径未被写入，读回只会得到清屏值，故直接拒绝。
+		*/
+		if (record.sample_count > 1)
+		{
+			logger.error("渲染目标:: MSAA 开启时深度读回不可用（采样数 {}）", record.sample_count);
+			return false;
+		}
 		//容量（元素个数）校验
 		VkDeviceSize value_count = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height;
 		if (value_count > capacity)
