@@ -140,10 +140,27 @@ if("${BYJY_ENGINE_CORE_LIB_PATH}" STREQUAL "")
         set(BYJY_XIA_CENG_TREE "x64-Release")
     endif()
 
-    set(BYJY_ENGINE_CORE_LIB_PATH
-        "${BYJY_PROJECT_ROOT}/Engine/EngineCore/out/build/${BYJY_XIA_CENG_TREE}/lib/EngineCore.lib"
-    )
-    message(STATUS "Renderer：按本层构建类型 ${CMAKE_BUILD_TYPE} 映射下层库 → ${BYJY_XIA_CENG_TREE}")
+    # 优先使用本层内部的「冻结快照」（第八十六轮）
+    # 快照由工作站 刷新渲染层下层快照.ps1 生成：下层依赖/EngineCore/x64-<tree>/{include,lib}；
+    # 存在即锁定使用，使引擎核心的并行开发（源码 / 构建树变动）不影响渲染层构建。
+    # 快照缺失时回退到 EngineCore 构建树，并给出告警提示先运行刷新脚本。
+    set(BYJY_ENGINE_CORE_SNAPSHOT_TREE
+        "${CMAKE_CURRENT_SOURCE_DIR}/下层依赖/EngineCore/${BYJY_XIA_CENG_TREE}")
+    set(BYJY_ENGINE_CORE_SNAPSHOT_LIB
+        "${BYJY_ENGINE_CORE_SNAPSHOT_TREE}/lib/EngineCore.lib")
+
+    if(EXISTS "${BYJY_ENGINE_CORE_SNAPSHOT_LIB}")
+        set(BYJY_ENGINE_CORE_LIB_PATH "${BYJY_ENGINE_CORE_SNAPSHOT_LIB}")
+        message(STATUS "Renderer：使用冻结下限层库 → ${BYJY_ENGINE_CORE_LIB_PATH}")
+    else()
+        set(BYJY_ENGINE_CORE_LIB_PATH
+            "${BYJY_PROJECT_ROOT}/Engine/EngineCore/out/build/${BYJY_XIA_CENG_TREE}/lib/EngineCore.lib"
+        )
+        message(WARNING
+            "Renderer：未找到冻结快照 ${BYJY_ENGINE_CORE_SNAPSHOT_LIB}，回退到下层构建树。\n"
+            "          如需冻结依赖，请先运行工作站 刷新渲染层下层快照.ps1 后重新配置。")
+        message(STATUS "Renderer：按本层构建类型 ${CMAKE_BUILD_TYPE} 映射下层库 → ${BYJY_XIA_CENG_TREE}")
+    endif()
 endif()
 
 byjy_jieru_xiaceng(

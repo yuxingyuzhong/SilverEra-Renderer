@@ -1,0 +1,105 @@
+#pragma once
+//预编译头
+#include "Engine/EngineCore/common/前置头文件包含.h"
+//获取 JSON 解析外部库
+#include <nlohmann/json.hpp>
+//获取哈希混合工具
+#include "Engine/EngineCore/src/tools/Detail/哈希混合.h"
+
+//游戏引擎命名空间
+namespace engine
+{
+    //事件
+    struct Event
+    {
+        //默认构造函数
+        Event()
+        {
+
+        }
+        //含参构造函数 —— 构造事件标签
+        Event(const std::string& category, const std::string& tag)
+        {
+            this->category = category;
+            this->tag = tag;
+        }
+
+        //含参构造函数 —— 构造对象标签
+        Event(const std::string& sender, const std::string& receiver,
+            const std::string& category, const std::string& tag)
+        {
+            this->sender = sender;
+            this->receiver = receiver;
+            this->category = category;
+            this->tag = tag;
+        }
+
+        //含参构造函数 —— 全量构造
+        Event(const std::string& sender,const std::string& receiver,
+            const std::string& category,const std::string& tag,
+            const nlohmann::json& config)
+        {
+            this->sender = sender;
+            this->receiver = receiver;
+            this->category = category;
+            this->tag = tag;
+            this->config = config;
+        }
+
+        //默认析构函数
+        ~Event()
+        {
+
+        }
+
+        //事件发起者
+        std::string sender{};
+        //事件目标
+        std::string receiver{};
+        //事件分类
+        std::string category;
+        //类内标签
+        std::string tag;
+        //配置包
+        nlohmann::json config;
+
+        //使用默认等于运算符
+        bool operator==(const Event& other) const
+        {
+            if (this->category == other.category &&
+                this->tag == other.tag &&
+                this->receiver == other.receiver &&
+                this->config == other.config)
+                return true;
+            else
+                return false;
+        }
+    };
+}
+
+namespace std
+{
+    template<>
+    struct hash<engine::Event>
+    {
+        size_t operator()(const engine::Event& evt) const noexcept
+        {
+            std::hash<std::string> str_hasher;
+            size_t seed = 0;
+
+            // 1. 哈希基类成员（与 Event 一致）
+            seed = str_hasher(evt.category);
+            engine::detail::hash_combine(seed, str_hasher(evt.tag));
+            engine::detail::hash_combine(seed, str_hasher(evt.receiver));
+
+            // 2. 哈希派生类成员 config（将 json 转为字符串再哈希）
+            //    注意：dump() 可能抛出异常，但 noexcept 标记要求不抛，这里假设不会。
+            //    若担心，可以捕获异常并返回一个默认值（但会破坏一致性）。
+            std::string config_str = evt.config.dump();
+            engine::detail::hash_combine(seed, str_hasher(config_str));
+
+            return seed;
+        }
+    };
+
+}
