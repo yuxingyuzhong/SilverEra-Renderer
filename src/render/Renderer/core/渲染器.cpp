@@ -113,6 +113,9 @@ namespace engine
 			0.0f, 0.0f, 1.0f, 0.0f,
 			0.0f, 0.0f, 0.0f, 1.0f,
 		};
+
+		//白色（RGBA；第六十九轮：未设置逐物体色调时的默认推送值，乘到反照率上画面不变）
+		const float WHITE_COLOR_RGBA[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	}
 
 	//渲染层版本查询
@@ -953,6 +956,10 @@ namespace engine
 		impl->material_pbr_active = false;
 		impl->material_pbr_roughness = 1.0f;
 		impl->material_pbr_metallic = 0.0f;
+		//逐物体色调恢复默认（白色，第六十九轮）
+		impl->material_tint_active = false;
+		for (std::size_t index = 0; index < 4; ++index)
+			impl->material_tint[index] = 1.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -2175,6 +2182,23 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
 	}
 
+	//按程序化胶囊加载网格（第六十九轮新增）
+	bool Renderer::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
+		uint32_t segments, uint32_t rings)
+	{
+		//前置：已初始化、半径为正、中段高度非负（非数亦拒）、分段与纬圈在区间内
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height >= 0.0f)
+			|| segments < 3 || segments > 128 || rings < 2 || rings > 64)
+		{
+			logger.warn("渲染器:: 胶囊参数非法（半径 {}、高度 {}、分段 {}、纬圈 {}）",
+				radius, height, segments, rings);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::capsule_generate(radius, height, segments, rings));
+	}
+
 	//按程序化圆锥加载网格（第六十八轮新增）
 	bool Renderer::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
@@ -2362,11 +2386,19 @@ namespace engine
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
 		/*
-		可选颜色推送（文字着色）
+		颜色 / 色调推送（文字着色 ＋ 第六十九轮逐物体色调）
 		矩阵已由实例缓冲承载，推送块前 64 字节仅用于占位（单位矩阵），后 16 字节为颜色；
 		存储于 Impl 的 deque（元素引用稳定），绘制项持其指针，直到 frame_render 消费。
+		非文字路径**恒推送**：显式 color 优先，其次吸附式逐物体色调，最后回落白色——
+		场景片元着色器把反照率 × 该颜色，白色时画面逐字节不变。
 		*/
-		if (color != nullptr)
+		const float* push_color = color;
+		//非文字且未显式给出颜色时，改用吸附色调或白色
+		if (push_color == nullptr && !impl->in_text_draw)
+			push_color = impl->material_tint_active
+				? impl->material_tint
+				: WHITE_COLOR_RGBA;
+		if (push_color != nullptr)
 		{
 			impl->pending_push_constants.emplace_back();
 			std::array<float, 20>& push = impl->pending_push_constants.back();
@@ -2378,7 +2410,7 @@ namespace engine
 			push[15] = 1.0f;
 			//后 16 字节 = 颜色
 			for (std::size_t index = 0; index < 4; ++index)
-				push[16 + index] = color[index];
+				push[16 + index] = push_color[index];
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		}
@@ -2466,6 +2498,22 @@ namespace engine
 		item.instance_count = count;
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
+		/*
+		色调推送（第六十九轮）
+		场景片元着色器恒读推送常量 offset 64 处的 tint，故实例化绘制也必须推送该块：
+		吸附色调或白色（未设置时），否则未设置的推送常量取值未定义。
+		*/
+		impl->pending_push_constants.emplace_back();
+		std::array<float, 20>& push = impl->pending_push_constants.back();
+		push.fill(0.0f);
+		push[0] = 1.0f;
+		push[5] = 1.0f;
+		push[10] = 1.0f;
+		push[15] = 1.0f;
+		for (std::size_t index = 0; index < 4; ++index)
+			push[16 + index] = impl->material_tint_active ? impl->material_tint[index] : 1.0f;
+		item.push_constants = push.data();
+		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
@@ -2840,6 +2888,22 @@ namespace engine
 		if (data.pbr_override && !record.pbr_override)
 			logger.warn("渲染器:: 材质 PBR 参数非法（粗糙度 {}、金属度 {}），按不覆盖登记",
 				data.pbr_roughness, data.pbr_metallic);
+		/*
+		逐物体反照率色调（第六十九轮）
+		四个分量都在 [0, 1] 才视为覆盖；否则按「不覆盖」登记，不把脏值送进推送常量。
+		*/
+		record.tint_override = data.tint_override
+			&& data.tint[0] >= 0.0f && data.tint[0] <= 1.0f
+			&& data.tint[1] >= 0.0f && data.tint[1] <= 1.0f
+			&& data.tint[2] >= 0.0f && data.tint[2] <= 1.0f
+			&& data.tint[3] >= 0.0f && data.tint[3] <= 1.0f;
+		if (record.tint_override)
+			for (std::size_t index = 0; index < 4; ++index)
+				record.tint[index] = data.tint[index];
+		//若声明色调覆盖但参数非法则告警
+		if (data.tint_override && !record.tint_override)
+			logger.warn("渲染器:: 材质色调非法（{} / {} / {} / {}），按不覆盖登记",
+				data.tint[0], data.tint[1], data.tint[2], data.tint[3]);
 		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
 		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
 		{
@@ -2916,6 +2980,7 @@ namespace engine
 			pipeline_bind_set(0);
 			texture_bind_set(0);
 			material_pbr_clear();
+			material_tint_clear();
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -2925,6 +2990,7 @@ namespace engine
 			pipeline_bind_set(0);
 			texture_bind_set(0);
 			material_pbr_clear();
+			material_tint_clear();
 			return;
 		}
 		//取目标记录
@@ -2939,6 +3005,10 @@ namespace engine
 			impl->material_pbr_active = false;
 		impl->material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
 		impl->material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
+		//按记录同步逐物体色调（第六十九轮）
+		impl->material_tint_active = record.tint_override;
+		for (std::size_t index = 0; index < 4; ++index)
+			impl->material_tint[index] = record.tint_override ? record.tint[index] : 1.0f;
 	}
 
 	/*
@@ -3009,6 +3079,74 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0.0f;
 		return impl->material_pbr_metallic;
+	}
+
+	/*
+	设置逐物体反照率色调（第六十九轮）
+	四个分量须都在 [0, 1]；任一分量越界 / 非数则整次拒绝（状态不变）。
+	设置只影响**之后登记**的绘制项（推送常量在 mesh_draw 时写入），与绑定类接口的吸附语义一致；
+	mesh_draw 显式给出的 color 形参优先于本状态。
+	*/
+	bool Renderer::material_tint_set(float red, float green, float blue, float alpha)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 设置逐物体色调失败：尚未初始化");
+			return false;
+		}
+		//各分量合法性校验（NaN 比较恒假，故也被拒绝）
+		if (!(red >= 0.0f && red <= 1.0f) || !(green >= 0.0f && green <= 1.0f)
+			|| !(blue >= 0.0f && blue <= 1.0f) || !(alpha >= 0.0f && alpha <= 1.0f))
+		{
+			logger.warn("渲染器:: 逐物体色调分量越界（{} / {} / {} / {}），已忽略", red, green, blue, alpha);
+			return false;
+		}
+		//写入吸附状态
+		impl->material_tint_active = true;
+		impl->material_tint[0] = red;
+		impl->material_tint[1] = green;
+		impl->material_tint[2] = blue;
+		impl->material_tint[3] = alpha;
+		return true;
+	}
+
+	//清除逐物体反照率色调（第六十九轮）
+	void Renderer::material_tint_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//回落白色（画面与未设置时一致）
+		impl->material_tint_active = false;
+		for (std::size_t index = 0; index < 4; ++index)
+			impl->material_tint[index] = 1.0f;
+	}
+
+	//当前是否启用逐物体反照率色调（第六十九轮）
+	bool Renderer::material_tint_active(void) const
+	{
+		//未初始化视为未启用
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->material_tint_active;
+	}
+
+	//读取当前逐物体色调（第六十九轮）
+	void Renderer::material_tint_get(float out[4]) const
+	{
+		//空指针直接忽略
+		if (out == nullptr)
+			return;
+		//未初始化返回白色
+		if (impl == nullptr || !impl->initialized)
+		{
+			for (std::size_t index = 0; index < 4; ++index)
+				out[index] = 1.0f;
+			return;
+		}
+		for (std::size_t index = 0; index < 4; ++index)
+			out[index] = impl->material_tint[index];
 	}
 
 	//创建离屏渲染目标

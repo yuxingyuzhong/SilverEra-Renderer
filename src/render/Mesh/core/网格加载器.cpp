@@ -208,6 +208,84 @@ namespace engine
 	}
 
 	/*
+	生成胶囊（第六十九轮）
+	中段圆柱 ＋ 上下半球；总高 = height + 2 × radius，沿 Y 轴、中心在原点；
+	环表自北向南排列（上半球 → 下赤道 → 下半球），法线朝外、接缝 UV、外向绕序与球体一致。
+	*/
+	Mesh_Data Mesh_Context::capsule_generate(float radius, float height, uint32_t segments, uint32_t rings)
+	{
+		//分段数兜底
+		if (segments < 3)
+			segments = 3;
+		if (rings < 2)
+			rings = 2;
+		Mesh_Data data;
+		//圆柱段半高
+		float half_height = height * 0.5f;
+		//单个环：高度、圆周半径、法线径向系数、法线纵向分量
+		struct Ring
+		{
+			float y = 0.0f;
+			float ring_radius = 0.0f;
+			float radial = 0.0f;
+			float vertical = 0.0f;
+		};
+		//环表（自北向南）
+		std::vector<Ring> ring_list;
+		ring_list.reserve(2 * rings + 2);
+		//上半球（北极 → 赤道）
+		for (uint32_t index = 0; index <= rings; ++index)
+		{
+			float factor = static_cast<float>(index) / static_cast<float>(rings);
+			float phi = 1.5707963f * factor;
+			ring_list.push_back({ half_height + radius * std::cos(phi), radius * std::sin(phi),
+				std::sin(phi), std::cos(phi) });
+		}
+		//圆柱底端（下赤道，法线纯径向）
+		ring_list.push_back({ -half_height, radius, 1.0f, 0.0f });
+		//下半球（赤道 → 南极）
+		for (uint32_t index = 1; index <= rings; ++index)
+		{
+			float factor = static_cast<float>(index) / static_cast<float>(rings);
+			float phi = 1.5707963f * factor;
+			ring_list.push_back({ -half_height - radius * std::sin(phi), radius * std::cos(phi),
+				std::cos(phi), -std::sin(phi) });
+		}
+		//逐环生成顶点（含接缝列）
+		const uint32_t ring_count = static_cast<uint32_t>(ring_list.size());
+		for (uint32_t ring_index = 0; ring_index < ring_count; ++ring_index)
+		{
+			const Ring& ring = ring_list[ring_index];
+			float v = static_cast<float>(ring_index) / static_cast<float>(ring_count - 1);
+			for (uint32_t slice = 0; slice <= segments; ++slice)
+			{
+				float u = static_cast<float>(slice) / static_cast<float>(segments);
+				float theta = 6.2831853f * u;
+				float nx = std::cos(theta);
+				float nz = std::sin(theta);
+				data.vertices.push_back({ { ring.ring_radius * nx, ring.y, ring.ring_radius * nz }, { u, v },
+					{ ring.radial * nx, ring.vertical, ring.radial * nz } });
+			}
+		}
+		//每格两三角形（外向绕序，与球体一致）
+		for (uint32_t ring_index = 0; ring_index + 1 < ring_count; ++ring_index)
+		{
+			for (uint32_t slice = 0; slice < segments; ++slice)
+			{
+				uint32_t a = ring_index * (segments + 1) + slice;
+				uint32_t b = a + segments + 1;
+				data.indices.push_back(a);
+				data.indices.push_back(a + 1);
+				data.indices.push_back(b);
+				data.indices.push_back(a + 1);
+				data.indices.push_back(b + 1);
+				data.indices.push_back(b);
+			}
+		}
+		return data;
+	}
+
+	/*
 	生成圆锥（第六十八轮）
 	底面半径 radius、总高 height，沿 Y 轴、中心在原点、锥尖朝 +Y；
 	侧面两圈（底面 / 锥尖，接缝复制列）法线按锥面斜率倾斜，底面端盖法线朝 -Y。

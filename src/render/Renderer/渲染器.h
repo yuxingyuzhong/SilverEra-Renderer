@@ -191,6 +191,14 @@ namespace engine
 		*/
 		bool mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
 		/*
+		加载程序化胶囊（第六十九轮新增）
+		radius 为正、height 为中段圆柱高度（可为 0 → 退化为球）；总高 = height + 2 × radius；
+		segments 圆周分段 3..128、rings 单侧半球纬圈 2..64；
+		非法参数整次拒绝（句柄置 0 并告警）。法线朝外，接缝 UV，外向绕序。
+		*/
+		bool mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
+			uint32_t segments, uint32_t rings);
+		/*
 		加载程序化圆环（第六十七轮新增）
 		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
 		*/
@@ -292,6 +300,22 @@ namespace engine
 		float material_pbr_roughness(void) const;
 		//当前逐物体材质金属度（未启用时为 0；第六十八轮）
 		float material_pbr_metallic(void) const;
+		/*
+		设置逐物体反照率色调（第六十九轮）
+		设置后，后续**非文字**网格绘制把反照率乘上该色调（RGBA，各分量 0..1）；
+		mesh_draw 显式给出的 color 形参优先于本吸附状态。
+		任一分量越界 / 非数整次拒绝并返回假（状态不变）。
+		*/
+		bool material_tint_set(float red, float green, float blue, float alpha = 1.0f);
+		/*
+		清除逐物体反照率色调（第六十九轮）
+		后续绘制回落白色（画面与未设置时一致）；未设置时为空操作。
+		*/
+		void material_tint_clear(void);
+		//当前是否启用逐物体反照率色调（第六十九轮）
+		bool material_tint_active(void) const;
+		//读取当前逐物体色调（四个分量写入 out；未启用时为全 1；第六十九轮）
+		void material_tint_get(float out[4]) const;
 
 		/*
 		设置后续绘制所用混合档（Opaque / Alpha）

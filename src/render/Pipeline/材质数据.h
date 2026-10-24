@@ -43,5 +43,9 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//逐物体材质金属度（合法域 [0, 1]；仅 pbr_override 为真时生效）
 		float pbr_metallic = 0.0f;
+		//是否覆盖反照率色调（第六十九轮；false 时用白色，画面不变）
+		bool tint_override = false;
+		//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
+		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	};
 }

@@ -186,6 +186,10 @@ namespace engine
 			float pbr_roughness = 1.0f;
 			//逐物体材质金属度（0..1；仅 pbr_override 为真时生效）
 			float pbr_metallic = 0.0f;
+			//是否覆盖反照率色调（第六十九轮；false 时用白色）
+			bool tint_override = false;
+			//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
+			float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 			//记录是否有效
 			bool valid = false;
 		};
@@ -356,6 +360,15 @@ namespace engine
 		float material_pbr_roughness = 1.0f;
 		//逐物体材质金属度（0..1）
 		float material_pbr_metallic = 0.0f;
+		/*
+		逐物体反照率色调吸附状态（第六十九轮）
+		material_tint_set 之后，后续非文字网格绘制在推送常量中携带该色调（albedo × tint）；
+		material_tint_clear（或 material_bind_set 绑定无色调的材质）回落白色（画面不变）。
+		mesh_draw 显式给出的 color 形参优先于该吸附状态。
+		*/
+		bool material_tint_active = false;
+		//逐物体反照率色调（RGBA，各分量 0..1）
+		float material_tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

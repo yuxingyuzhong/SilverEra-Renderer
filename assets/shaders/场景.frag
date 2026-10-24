@@ -9,6 +9,16 @@ layout(location = 2) in vec3 in_world;
 //逐物体材质（第六十八轮；x = 粗糙度缩放、y = 金属度、z = 覆盖标志、w 保留）
 layout(location = 3) flat in vec4 in_material;
 
+/*
+逐物体反照率色调（第六十九轮）
+推送常量前 64 字节为占位矩阵（模型矩阵已由实例属性承载），64..79 为色调 vec4；
+门面在非文字路径**恒推送**该块（默认白色），故未显式设置色调时画面逐字节不变。
+*/
+layout(push_constant) uniform Push_Tint
+{
+	layout(offset = 64) vec4 tint;
+} push_tint;
+
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
 
@@ -205,7 +215,8 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 
 void main()
 {
-	vec4 albedo_color = texture(albedo, in_uv);
+	//采样反照率并乘逐物体色调（默认白色 → 不变）
+	vec4 albedo_color = texture(albedo, in_uv) * push_tint.tint;
 	/*
 	多光源累加（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源）
 	未提供法线（长度近零）时按「朝向相机」处理，等价于满照（辐射度 = 1），
