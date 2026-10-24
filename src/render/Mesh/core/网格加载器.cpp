@@ -90,6 +90,9 @@ namespace engine
 		if (stacks < 2)
 			stacks = 2;
 		Mesh_Data data;
+		//按顶点 / 索引数量预留（第八十五轮：减少生成期重分配）
+		data.vertices.reserve(static_cast<std::size_t>(stacks + 1) * (slices + 1));
+		data.indices.reserve(static_cast<std::size_t>(stacks) * slices * 6);
 		//逐纬度环生成顶点
 		for (uint32_t stack = 0; stack <= stacks; ++stack)
 		{
@@ -138,6 +141,9 @@ namespace engine
 		if (segments < 3)
 			segments = 3;
 		Mesh_Data data;
+		//按顶点 / 索引数量预留（第八十五轮：减少生成期重分配）
+		data.vertices.reserve(static_cast<std::size_t>(segments + 1) * 2 + (segments + 2) * 2);
+		data.indices.reserve(static_cast<std::size_t>(segments) * 12);
 		//半高
 		float half_height = height * 0.5f;
 		//侧面：底部一圈 + 顶部一圈（末列与首列重合以保留 UV 接缝）
@@ -292,6 +298,9 @@ namespace engine
 		//环表（自北向南）
 		std::vector<Ring> ring_list;
 		ring_list.reserve(2 * rings + 2);
+		//按顶点 / 索引数量预留（第八十五轮：减少生成期重分配）
+		data.vertices.reserve(static_cast<std::size_t>(2 * rings + 2) * (segments + 1));
+		data.indices.reserve(static_cast<std::size_t>(2 * rings + 1) * segments * 6);
 		//上半球（北极 → 赤道）
 		for (uint32_t index = 0; index <= rings; ++index)
 		{
@@ -355,6 +364,9 @@ namespace engine
 		if (segments < 3)
 			segments = 3;
 		Mesh_Data data;
+		//按顶点 / 索引数量预留（第八十五轮：减少生成期重分配）
+		data.vertices.reserve(static_cast<std::size_t>(segments + 1) * 2 + (segments + 2));
+		data.indices.reserve(static_cast<std::size_t>(segments) * 9);
 		//半高
 		float half_height = height * 0.5f;
 		/*
@@ -432,6 +444,9 @@ namespace engine
 		if (minor_segments < 3)
 			minor_segments = 3;
 		Mesh_Data data;
+		//按顶点 / 索引数量预留（第八十五轮：减少生成期重分配）
+		data.vertices.reserve(static_cast<std::size_t>(major_segments + 1) * (minor_segments + 1));
+		data.indices.reserve(static_cast<std::size_t>(major_segments) * minor_segments * 6);
 		//逐环绕角（u）与管周角（v）生成顶点
 		for (uint32_t major = 0; major <= major_segments; ++major)
 		{

@@ -155,6 +155,9 @@ namespace engine
 		//先清空出参（失败时不留下任何几何）
 		data_out.vertices.clear();
 		data_out.indices.clear();
+		//按字符数预留（第八十五轮：每个可见字形 4 顶点 / 6 索引，空白字形只推进笔位）
+		data_out.vertices.reserve(text.size() * 4);
+		data_out.indices.reserve(text.size() * 6);
 		//前置：字体记录必须有效
 		if (!record.valid)
 			return false;
