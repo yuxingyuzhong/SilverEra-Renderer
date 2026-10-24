@@ -2056,6 +2056,9 @@ namespace engine
 		stats.post_stages = impl->frame.last_post_stages_get();
 		//累计因视锥剔除而未登记的项数
 		stats.culled_items = impl->culled_items;
+		//累计按需上传字节（第七十二轮）
+		stats.scene_upload_bytes = impl->scene_upload_bytes;
+		stats.instance_upload_bytes = impl->instance_upload_bytes;
 		return stats;
 	}
 

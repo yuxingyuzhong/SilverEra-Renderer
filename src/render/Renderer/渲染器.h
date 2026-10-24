@@ -97,6 +97,12 @@ namespace engine
 		与 draw_items 互补：draw_items 为实际登记量，二者之和即「意图登记的项数」。
 		*/
 		uint64_t culled_items = 0;
+		/*
+		累计按需上传字节（第七十二轮新增；与门面 scene_upload_bytes / instance_upload_bytes 同源）
+		场景 UBO 以 16 字节为单元、实例缓冲以一个实例（80 字节）为单元，仅写入变化区间。
+		*/
+		uint64_t scene_upload_bytes = 0;
+		uint64_t instance_upload_bytes = 0;
 	};
 
 	/*
