@@ -275,6 +275,11 @@ namespace engine
 		bool texture_readback_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		查询纹理尺寸（第九十轮新增）
+		成功时写出宽 / 高（任一非空）并返回真；未初始化 / 句柄无效返回假且出参归零。
+		*/
+		bool texture_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const;
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
 		/*

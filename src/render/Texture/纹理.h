@@ -81,6 +81,8 @@ namespace engine
 		bool texture_detach(uint64_t handle, Texture_Record& record_out);
 		//取图像视图与采样器（供描述符写入；句柄无效返回假）
 		bool texture_bind_get(uint64_t handle, VkImageView& view_out, VkSampler& sampler_out) const;
+		//取纹理尺寸（第九十轮新增；句柄无效返回假且出参归零）
+		bool texture_size_get(uint64_t handle, uint32_t& width_out, uint32_t& height_out) const;
 		/*
 		读回纹理第 0 级像素（第二十七轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 宽×高×4；

@@ -160,6 +160,26 @@ namespace engine
 	}
 
 	//程序生成棋盘格纹理
+	//取纹理尺寸（只读；句柄无效返回假且出参归零）
+	bool Texture_Context::texture_size_get(uint64_t handle, uint32_t& width_out, uint32_t& height_out) const
+	{
+		//出参先复位
+		width_out = 0;
+		height_out = 0;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取纹理记录
+		const Texture_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出尺寸
+		width_out = record.width;
+		height_out = record.height;
+		return true;
+	}
+
 	bool Texture_Context::texture_create_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size)
 	{
 		//默认无有效句柄

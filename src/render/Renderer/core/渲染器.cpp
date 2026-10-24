@@ -2666,6 +2666,29 @@ namespace engine
 			pixels, capacity, width_out, height_out);
 	}
 
+	//查询纹理尺寸
+	bool Renderer::texture_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交纹理模块取尺寸
+		uint32_t width = 0;
+		uint32_t height = 0;
+		if (!impl->texture.texture_size_get(handle, width, height))
+			return false;
+		if (width_out != nullptr)
+			*width_out = width;
+		if (height_out != nullptr)
+			*height_out = height;
+		return true;
+	}
+
 	//设置当前绘制所用纹理
 	void Renderer::texture_bind_set(uint64_t texture_handle)
 	{
