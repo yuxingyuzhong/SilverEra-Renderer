@@ -272,11 +272,18 @@ namespace engine
 		//设置当前绘制所用纹理（传 0 或无效句柄则回落内置默认白纹理）
 		void texture_bind_set(uint64_t texture_handle);
 		/*
-		设置纹理采样器状态（寻址模式 / 是否启用 mip 过滤）
+		设置纹理采样器状态（寻址模式 / 是否启用 mip 过滤 / LOD 范围与偏置 / 各向异性）
+		lod_bias 钳到 [-16, 16]（非数归 0），正值为更模糊、负值为更锐利；
 		采样器为模块共享且被烘焙进各帧槽描述符集，故本方法在切换状态后会**重新绑定当前纹理**，
 		新状态自下一次绘制起生效；未初始化时静默返回。
 		*/
 		void texture_sampler_state_set(const Texture_Sampler_State& state);
+		/*
+		读取当前采样器状态（第七十七轮新增；只读诊断）
+		返回门面归一后的生效值（各向异性已按设备能力裁剪、lod_bias 已钳制）；
+		未初始化时返回默认状态（默认值即既有行为）。
+		*/
+		Texture_Sampler_State texture_sampler_state_get(void) const;
 
 		/*
 		登记材质（图形管线 ＋ 纹理 ＋ 混合档）
@@ -374,6 +381,12 @@ namespace engine
 		bool render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height);
 		//销毁离屏渲染目标（句柄无效则忽略）
 		void render_target_destroy(uint64_t handle);
+		/*
+		查询离屏渲染目标尺寸（第七十七轮新增）
+		成功时写出宽 / 高（任一非空）并返回真；未初始化 / 句柄无效返回假且出参归零。
+		供上层在「目标尺寸独立」场景下按实际尺寸安排后处理链 / 纹理映射，避免自行记账。
+		*/
+		bool render_target_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const;
 		/*
 		读回离屏渲染目标的颜色内容（第二十六轮新增）
 		先把在途帧等尽（frames_wait），再用一次性命令缓冲同步拷贝到主机；

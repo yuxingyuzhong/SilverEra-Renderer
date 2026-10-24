@@ -102,6 +102,8 @@ namespace engine
 		否则采样仍按旧参数进行。
 		*/
 		void sampler_state_set(const Texture_Sampler_State& state);
+		//取当前共享采样器状态（只读诊断；未设置过时为默认值）
+		Texture_Sampler_State sampler_state_get(void) const;
 	private:
 		/*
 		取共享采样器

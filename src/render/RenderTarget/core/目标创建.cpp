@@ -321,6 +321,24 @@ namespace engine
 		return true;
 	}
 
+	//取渲染目标尺寸（只读；句柄无效返回假且出参归零）
+	bool Render_Target_Context::target_extent_get(uint64_t handle, VkExtent2D& extent_out) const
+	{
+		//出参先复位
+		extent_out = { 0, 0 };
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出范围
+		extent_out = record.extent;
+		return true;
+	}
+
 	//句柄是否有效
 	bool Render_Target_Context::target_valid(uint64_t handle) const
 	{

@@ -85,6 +85,8 @@ namespace engine
 		//取渲染目标各附件与范围（句柄无效返回假）
 		bool target_get(uint64_t handle, VkImage& color_image_out, VkImageView& color_view_out,
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;
+		//取渲染目标尺寸（第七十七轮新增；句柄无效返回假且出参归零）
+		bool target_extent_get(uint64_t handle, VkExtent2D& extent_out) const;
 		/*
 		读回渲染目标的颜色图像到主机缓冲（第二十六轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下、无行填充），capacity 须不小于 宽×高×4；

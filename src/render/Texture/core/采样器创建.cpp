@@ -44,7 +44,8 @@ namespace engine
 		info.addressModeU = address_mode;
 		info.addressModeV = address_mode;
 		info.addressModeW = address_mode;
-		info.mipLodBias = 0.0f;
+		//细节层级偏置（状态给出；门面已钳到 [-16, 16]）
+		info.mipLodBias = sampler_state.lod_bias;
 		/*
 		各向异性过滤
 		状态为真才启用；此处不再查设备能力（设备未启用该特性时创建采样器会失败），
@@ -103,6 +104,7 @@ namespace engine
 			&& sampler_state.mip_filter == state.mip_filter
 			&& sampler_state.min_lod == state.min_lod
 			&& sampler_state.max_lod == state.max_lod
+			&& sampler_state.lod_bias == state.lod_bias
 			&& sampler_state.anisotropy == state.anisotropy
 			&& sampler_state.max_anisotropy == state.max_anisotropy)
 			return;
@@ -129,8 +131,14 @@ namespace engine
 			if (record.valid)
 				record.sampler = shared_sampler;
 		}
-		logger.info("纹理创建:: 采样器状态已切换（寻址 {}，mip 过滤 {}，minLod {}，maxLod {}，各向异性 {} ×{}）",
+		logger.info("纹理创建:: 采样器状态已切换（寻址 {}，mip 过滤 {}，minLod {}，maxLod {}，LOD 偏置 {}，各向异性 {} ×{}）",
 			static_cast<int32_t>(state.address_mode), state.mip_filter, state.min_lod, state.max_lod,
-			state.anisotropy, state.max_anisotropy);
+			state.lod_bias, state.anisotropy, state.max_anisotropy);
+	}
+
+	//取当前共享采样器状态（只读诊断）
+	Texture_Sampler_State Texture_Context::sampler_state_get(void) const
+	{
+		return sampler_state;
 	}
 }

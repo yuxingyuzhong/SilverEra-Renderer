@@ -42,6 +42,12 @@ namespace engine
 		float min_lod = 0.0f;
 		float max_lod = -1.0f;
 		/*
+		细节层级偏置（第七十七轮）
+		叠加在硬件按屏幕导数算出的 LOD 之上：正值更模糊、负值更锐利；
+		仅对拥有 mip 链的纹理在缩小绘制时有可观察效果。门面钳到 [-16, 16]，非数归 0。
+		*/
+		float lod_bias = 0.0f;
+		/*
 		各向异性过滤
 		anisotropy 为真时启用；须设备在创建时启用了 samplerAnisotropy 特性，
 		门面会在调用采样器前按设备能力归一（不支持则置假并告警，倍数钳到设备上限）。

@@ -2717,6 +2717,16 @@ namespace engine
 			}
 		}
 		/*
+		LOD 偏置归一（第七十七轮）
+		非数归 0（用自比较判定，避免引入 <cmath>），再钳到 [-16, 16]；越界不告警（与钳制类参数一致）。
+		*/
+		if (!(effective.lod_bias == effective.lod_bias))
+			effective.lod_bias = 0.0f;
+		if (effective.lod_bias < -16.0f)
+			effective.lod_bias = -16.0f;
+		if (effective.lod_bias > 16.0f)
+			effective.lod_bias = 16.0f;
+		/*
 		切换共享采样器状态并以新采样器重写各帧槽 set1
 		采样器被烘焙进各帧槽 set1，故切换后须重写 set1，否则采样仍按旧参数进行；
 		切换会销毁并重建共享采样器，故先等全部在途帧完成，避免销毁仍被在途描述符集引用的旧采样器。
@@ -2739,6 +2749,15 @@ namespace engine
 		//以新采样器重写全部帧槽 set1
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
+	}
+
+	//读取当前采样器状态（只读诊断；未初始化返回默认状态）
+	Texture_Sampler_State Renderer::texture_sampler_state_get(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return Texture_Sampler_State{};
+		return impl->texture.sampler_state_get();
 	}
 
 	//设置后续绘制所用混合档（切档触发图形管线重建）
@@ -3247,6 +3266,28 @@ namespace engine
 		//转交渲染目标模块（颜色 / 深度格式取当前交换链格式）
 		return impl->render_target.target_create(handle_out, width, height,
 			impl->swapchain.format_get(), impl->swapchain.depth_format_get());
+	}
+
+	//查询离屏渲染目标尺寸
+	bool Renderer::render_target_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交渲染目标模块取尺寸
+		VkExtent2D extent{};
+		if (!impl->render_target.target_extent_get(handle, extent))
+			return false;
+		if (width_out != nullptr)
+			*width_out = extent.width;
+		if (height_out != nullptr)
+			*height_out = extent.height;
+		return true;
 	}
 
 	//读回离屏渲染目标的颜色内容
