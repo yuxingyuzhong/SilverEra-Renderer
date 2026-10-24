@@ -2184,6 +2184,20 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
 	}
 
+	//按程序化平面加载网格（第七十一轮新增）
+	bool Renderer::mesh_plane_load(Mesh_Handle& handle_out, float width, float height)
+	{
+		//前置：已初始化、宽高为正（非数亦拒）
+		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f))
+		{
+			logger.warn("渲染器:: 平面参数非法（宽 {}、高 {}）", width, height);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
+	}
+
 	//按程序化胶囊加载网格（第六十九轮新增）
 	bool Renderer::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
 		uint32_t segments, uint32_t rings)

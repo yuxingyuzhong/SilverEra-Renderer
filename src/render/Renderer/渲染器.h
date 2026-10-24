@@ -199,6 +199,11 @@ namespace engine
 		bool mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
 			uint32_t segments, uint32_t rings);
 		/*
+		加载程序化平面（第七十一轮新增）
+		width / height 为正（沿 X / Y，中心在原点，法线朝 +Z）；非法参数整次拒绝（句柄置 0 并告警）。
+		*/
+		bool mesh_plane_load(Mesh_Handle& handle_out, float width, float height);
+		/*
 		加载程序化圆环（第六十七轮新增）
 		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
 		*/

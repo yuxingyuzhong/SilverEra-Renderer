@@ -208,6 +208,27 @@ namespace engine
 	}
 
 	/*
+	生成平面（第七十一轮）
+	沿 X / Y 展开、中心在原点、法线朝 +Z；四个顶点 ＋ 两个三角形（与场景四边形同绕序）。
+	*/
+	Mesh_Data Mesh_Context::plane_generate(float width, float height)
+	{
+		Mesh_Data data;
+		//半宽 / 半高
+		float half_width = width * 0.5f;
+		float half_height = height * 0.5f;
+		const float normal[3] = { 0.0f, 0.0f, 1.0f };
+		data.vertices = {
+			{ { -half_width, -half_height, 0.0f }, { 0.0f, 1.0f }, { normal[0], normal[1], normal[2] } },
+			{ { half_width, -half_height, 0.0f }, { 1.0f, 1.0f }, { normal[0], normal[1], normal[2] } },
+			{ { half_width, half_height, 0.0f }, { 1.0f, 0.0f }, { normal[0], normal[1], normal[2] } },
+			{ { -half_width, half_height, 0.0f }, { 0.0f, 0.0f }, { normal[0], normal[1], normal[2] } },
+		};
+		data.indices = { 0, 1, 2, 0, 2, 3 };
+		return data;
+	}
+
+	/*
 	生成胶囊（第六十九轮）
 	中段圆柱 ＋ 上下半球；总高 = height + 2 × radius，沿 Y 轴、中心在原点；
 	环表自北向南排列（上半球 → 下赤道 → 下半球），法线朝外、接缝 UV、外向绕序与球体一致。
