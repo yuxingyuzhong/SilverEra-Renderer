@@ -188,11 +188,15 @@ namespace engine
 			mesh = item.mesh;
 			//刷新最近使用序号（第四十八轮）
 			item.last_used = ++use_clock;
+			//计入命中（第七十五轮）
+			++cache_hits;
 			break;
 		}
 		//未命中则新建
 		if (mesh == 0)
 		{
+			//计入未命中（第七十五轮）
+			++cache_misses;
 			//按布局生成文字几何（像素坐标，原点在文本左上角）
 			Mesh_Data data;
 			if (!Font_Context::text_layout_build(data, *record, text, layout))

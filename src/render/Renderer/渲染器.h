@@ -218,6 +218,11 @@ namespace engine
 		//卸载网格
 		void mesh_unload(Mesh_Handle handle);
 		/*
+		查询网格包围盒（第七十三轮新增；网格局部空间的轴对齐包围盒）
+		成功写出 min / max 并返回真；未初始化 / 句柄无效返回假（出参不变）。
+		*/
+		bool mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
+		/*
 		绘制网格
 		transform 为列主序 16 浮点模型矩阵，可为 nullptr 表示单位矩阵；
 		color 为可选的 RGBA 颜色（长度 ≥ 4，分量 0..1）：非空时随绘制项推送常量下发（offset 64），
@@ -517,6 +522,13 @@ namespace engine
 		按码点去重计（同一码点至多计一次），UTF-8 解码失败的字节不计；计数只增不减。
 		*/
 		uint64_t font_skipped_codepoints(uint64_t font) const;
+		/*
+		文字网格缓存命中 / 未命中次数（第七十五轮新增；自 init 起累计）
+		同一（字体, 文本, 布局）第二次及以后绘制即计一次命中；缓存满淘汰不影响累计值。
+		未初始化时均返回 0。
+		*/
+		uint64_t text_cache_hits(void) const;
+		uint64_t text_cache_misses(void) const;
 
 		//相机：设置位置
 		void camera_position_set(float x, float y, float z);

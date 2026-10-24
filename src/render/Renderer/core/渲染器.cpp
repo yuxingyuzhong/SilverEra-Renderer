@@ -2283,6 +2283,16 @@ namespace engine
 		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 	}
 
+	//查询网格包围盒（第七十三轮新增）
+	bool Renderer::mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const
+	{
+		//未初始化或出参为空则拒绝
+		if (impl == nullptr || !impl->initialized || min_out == nullptr || max_out == nullptr)
+			return false;
+		//转交网格模块（句柄无效时返回假，出参不变）
+		return impl->mesh.mesh_bounds_get(handle, min_out, max_out);
+	}
+
 	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
@@ -3708,6 +3718,24 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->font.font_skipped_codepoints_get(font);
+	}
+
+	//文字网格缓存命中次数（第七十五轮）
+	uint64_t Renderer::text_cache_hits(void) const
+	{
+		//未初始化则视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->text.mesh_cache_hits();
+	}
+
+	//文字网格缓存未命中次数（第七十五轮）
+	uint64_t Renderer::text_cache_misses(void) const
+	{
+		//未初始化则视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->text.mesh_cache_misses();
 	}
 
 	//相机：设置位置

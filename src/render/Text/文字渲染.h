@@ -78,6 +78,10 @@ namespace engine
 		void frame_begin(uint32_t overlap);
 		//归还全部缓存网格并复位（管线句柄 / 颜色回到默认）
 		void shutdown(void);
+		//文本网格缓存命中次数（第七十五轮；自 init 起累计）
+		uint64_t mesh_cache_hits(void) const { return cache_hits; }
+		//文本网格缓存未命中次数（第七十五轮；自 init 起累计）
+		uint64_t mesh_cache_misses(void) const { return cache_misses; }
 	private:
 		//字体模块（不持有）
 		Font_Context* font = nullptr;
@@ -115,5 +119,9 @@ namespace engine
 		uint32_t frame_overlap = 1;
 		//文本网格缓存条目上限（第四十八轮；超出即淘汰最久未用项，避免无界增长）
 		static constexpr uint32_t MESH_CACHE_MAX = 64;
+		//缓存命中次数（第七十五轮）
+		uint64_t cache_hits = 0;
+		//缓存未命中次数（第七十五轮）
+		uint64_t cache_misses = 0;
 	};
 }
