@@ -144,6 +144,12 @@ namespace engine
 		//取帧统计快照（未初始化时各项为零）
 		Frame_Stats frame_stats_get(void) const;
 		/*
+		清零累计帧统计（第九十一轮新增）
+		帧数、绘制项 / 实例 / 实际绘制量、累计耗时、GPU 样本、剔除数、上传字节全部归零；
+		最近一帧的即时量（frame_ms / gpu_frame_ms / post_stages）保持不变。未初始化时静默忽略。
+		*/
+		void frame_stats_reset(void);
+		/*
 		是否支持 GPU 时间戳（设备与图形队列族均支持时为真；未初始化时为假）
 		为假时帧统计的 gpu_frame_ms 恒 0（已优雅降级，不影响渲染）。
 		*/
@@ -646,6 +652,15 @@ namespace engine
 		方向 / 颜色 / 环境光保持既有值；清空后画面回到「仅方向光」。
 		*/
 		void lights_clear(void);
+		/*
+		已登记点光源数量（第九十二轮新增；含聚光灯；未初始化返回 0）
+		*/
+		uint32_t point_light_count(void) const;
+		/*
+		读取第 index 盏点光源的状态快照（第九十二轮新增；只读诊断）
+		成功写出状态并返回真；未初始化 / index 越界返回假（出参保持不变）。
+		*/
+		bool point_light_state_get(uint32_t index, Point_Light_State& state_out) const;
 		/*
 		设置镜面高光参数（第三十一轮新增；对方向光与点光源均生效）
 		intensity 为高光强度（≥ 0，0 = 关闭），shininess 为光泽度（≥ 1，越大高光越集中）。

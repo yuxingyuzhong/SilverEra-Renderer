@@ -2029,6 +2029,21 @@ namespace engine
 		return impl->frame_count;
 	}
 
+	//清零累计帧统计（第九十一轮）
+	void Renderer::frame_stats_reset(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//帧模块累计量归零
+		impl->frame.totals_reset();
+		//门面自身累计量归零（帧数 / 剔除数 / 按需上传字节）
+		impl->frame_count = 0;
+		impl->culled_items = 0;
+		impl->scene_upload_bytes = 0;
+		impl->instance_upload_bytes = 0;
+	}
+
 	//取帧统计快照
 	Frame_Stats Renderer::frame_stats_get(void) const
 	{
@@ -4307,6 +4322,42 @@ namespace engine
 		//清空计数并恢复方向光默认强度（方向 / 颜色 / 环境光保持既有值）
 		impl->point_light_count = 0;
 		impl->light_intensity = 1.0f;
+	}
+
+	//已登记点光源数量（第九十二轮）
+	uint32_t Renderer::point_light_count(void) const
+	{
+		//未初始化视为 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->point_light_count;
+	}
+
+	//读取第 index 盏点光源的状态快照（第九十二轮）
+	bool Renderer::point_light_state_get(uint32_t index, Point_Light_State& state_out) const
+	{
+		//未初始化或越界返回假（出参保持不变）
+		if (impl == nullptr || !impl->initialized || index >= impl->point_light_count
+			|| index >= Impl::POINT_LIGHT_MAX)
+			return false;
+		//内部记录 → 公开快照
+		const Impl::Point_Light& light = impl->point_lights[index];
+		state_out = Point_Light_State{};
+		for (std::size_t each = 0; each < 3; ++each)
+		{
+			state_out.position[each] = light.position[each];
+			state_out.color[each] = light.color[each];
+			state_out.spot_direction[each] = light.spot_direction[each];
+		}
+		state_out.radius = light.radius;
+		state_out.intensity = light.intensity;
+		state_out.attenuation = light.attenuation;
+		state_out.specular_scale = light.specular_scale;
+		state_out.shininess = light.shininess;
+		state_out.is_spot = light.is_spot;
+		state_out.spot_inner_cos = light.spot_inner_cos;
+		state_out.spot_outer_cos = light.spot_outer_cos;
+		return true;
 	}
 
 	//设置镜面高光参数（第三十一轮新增）

@@ -292,6 +292,12 @@ namespace engine
 		double last_frame_ms_get(void) const;
 		//累计主机侧耗时（毫秒；自构建以来各帧「录制 ＋ 提交 ＋ 呈现调用」之和）
 		double total_frame_ms_get(void) const;
+		/*
+		清零累计统计（第九十一轮）
+		frames 以外的累计量（绘制项 / 实例 / 实际绘制 / 累计耗时 / GPU 样本）全部归零；
+		最近一帧的即时量（last_frame_ms / last_gpu_frame_ms / last_post_stages）保持不变。
+		*/
+		void totals_reset(void);
 		uint64_t total_draw_items_get(void) const;
 		uint64_t total_instances_get(void) const;
 		//累计实际绘制项数（第十一轮；不含被跳过的不完整项）

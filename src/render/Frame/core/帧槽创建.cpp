@@ -191,6 +191,18 @@ namespace engine
 		return total_frame_ms;
 	}
 
+	//清零累计统计（第九十一轮；即时量保持不变）
+	void Frame_Context::totals_reset(void)
+	{
+		total_frame_ms = 0.0;
+		total_draw_items = 0;
+		total_instances = 0;
+		total_drawn_items = 0;
+		total_drawn_instances = 0;
+		total_gpu_frame_ms = 0.0;
+		gpu_sample_count = 0;
+	}
+
 	//累计绘制项数
 	uint64_t Frame_Context::total_draw_items_get(void) const
 	{

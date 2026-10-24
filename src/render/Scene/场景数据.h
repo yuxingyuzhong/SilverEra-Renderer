@@ -140,6 +140,35 @@ namespace engine
 	};
 
 	/*
+	点光源状态快照（第九十二轮；Vulkan-free，只读查询用）
+	与门面 `point_light_state_get` 配套：由内部逐盏记录导出，供上层诊断 / 回显。
+	*/
+	struct Point_Light_State
+	{
+		//位置（世界坐标）
+		float position[3] = { 0.0f, 0.0f, 0.0f };
+		//颜色（RGB，0..1）
+		float color[3] = { 1.0f, 1.0f, 1.0f };
+		//衰减半径（> 0）
+		float radius = 5.0f;
+		//强度（≥ 0）
+		float intensity = 1.0f;
+		//逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比）
+		uint32_t attenuation = 0;
+		//逐盏高光缩放（1 = 跟随全局，0 = 不产生高光）
+		float specular_scale = 1.0f;
+		//逐盏光泽度（0 = 跟随全局）
+		float shininess = 0.0f;
+		//是否聚光灯
+		bool is_spot = false;
+		//光传播方向（单位向量；仅聚光灯有效）
+		float spot_direction[3] = { 0.0f, 0.0f, -1.0f };
+		//内 / 外锥角余弦（仅聚光灯有效）
+		float spot_inner_cos = 1.0f;
+		float spot_outer_cos = 0.0f;
+	};
+
+	/*
 	雾组（第四十七轮拆分）
 	默认密度 0（关闭），画面与引入雾前一致。
 	*/
