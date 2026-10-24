@@ -32,6 +32,8 @@ namespace engine
 		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
+		//顶点数（第九十三轮新增；只读查询用）
+		uint32_t vertex_count = 0;
 		/*
 		局部包围盒（创建时按顶点位置一次算出；第二十二轮新增）
 		供门面做实例级视锥剔除；空网格（不应出现）时取全零，等价于「保守保留」。
@@ -78,6 +80,8 @@ namespace engine
 		bool mesh_detach(Mesh_Handle handle, Mesh_Record& record_out);
 		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
+		//取网格顶点 / 索引数量（第九十三轮新增；句柄无效返回假且出参归零）
+		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;
 		//取网格局部包围盒（句柄无效返回假；第二十二轮新增）
 		bool mesh_bounds_get(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
 
@@ -120,6 +124,12 @@ namespace engine
 		中心顶点 ＋ 圆周顶点（末点与首点重合以保留 UV 接缝），三角扇索引。
 		*/
 		static Mesh_Data disc_generate(float radius, uint32_t segments);
+		/*
+		生成细分平面（第九十三轮新增）
+		width / height 为尺寸（X / Y，中心在原点、法线 +Z）；columns / rows 为网格分段（>= 1）；
+		顶点 (columns+1) × (rows+1)，索引 columns × rows × 6，UV 覆盖整面。
+		*/
+		static Mesh_Data grid_generate(float width, float height, uint32_t columns, uint32_t rows);
 		/*
 		生成圆环（第六十七轮新增）
 		major_radius 环半径、minor_radius 管半径；major_segments / minor_segments 双分段（>= 3）；

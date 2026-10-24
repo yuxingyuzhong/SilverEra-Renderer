@@ -121,6 +121,7 @@ namespace engine
 		record.allocation = allocation;
 		record.index_offset = vertex_bytes;
 		record.index_count = static_cast<uint32_t>(data.indices.size());
+		record.vertex_count = static_cast<uint32_t>(data.vertices.size());
 		/*
 		局部包围盒：按顶点位置逐轴取极值
 		只在创建时算一次（句柄有效期间只读）；顶点位置来自 Vertex::position（vec3）。
@@ -194,6 +195,26 @@ namespace engine
 	}
 
 	//取网格缓冲、索引区偏移与索引数
+	//取网格顶点 / 索引数量（只读；句柄无效返回假且出参归零）
+	bool Mesh_Context::mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const
+	{
+		//出参先复位
+		vertex_count_out = 0;
+		index_count_out = 0;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取网格记录
+		const Mesh_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出数量
+		vertex_count_out = record.vertex_count;
+		index_count_out = record.index_count;
+		return true;
+	}
+
 	bool Mesh_Context::mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const
 	{
 		//默认输出为空

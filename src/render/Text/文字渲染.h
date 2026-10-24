@@ -5,6 +5,9 @@
 #include "Application/Renderer/src/render/Mesh/网格数据.h"
 //文字布局参数（Vulkan-free）：对齐方式与换行宽度
 #include "Application/Renderer/src/render/Text/文字布局数据.h"
+//按字体分桶的缓存索引（第九十四轮；unordered_map）
+#include <unordered_map>
+#include <vector>
 
 //游戏引擎命名空间
 namespace engine
@@ -118,6 +121,14 @@ namespace engine
 		};
 		//缓存集合
 		std::vector<Record> records;
+		/*
+		按字体分桶的缓存索引（第九十四轮）
+		字体句柄 → 该字体在 records 中的下标列表；查找只扫描同字体条目，
+		避免每次绘制遍历全部字体。records 增删后须重建（entries 少，重建成本低）。
+		*/
+		std::unordered_map<uint64_t, std::vector<std::size_t>> font_index;
+		//重建分桶索引（records 增删后调用）
+		void font_index_rebuild(void);
 		//待销毁网格（第四十八轮：淘汰 / 卸载时先移入，待无在途帧引用后统一归还）
 		std::vector<Record> retired;
 		//最近使用序号发生器（第四十八轮）

@@ -2231,6 +2231,46 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::disc_generate(radius, segments));
 	}
 
+	//按细分平面加载网格（第九十三轮新增）
+	bool Renderer::mesh_grid_load(Mesh_Handle& handle_out, float width, float height,
+		uint32_t columns, uint32_t rows)
+	{
+		//前置：已初始化、宽高为正（非数亦拒）、分段在区间内
+		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f)
+			|| columns < 1 || columns > 256 || rows < 1 || rows > 256)
+		{
+			logger.warn("渲染器:: 细分平面参数非法（宽 {}、高 {}、列 {}、行 {}）",
+				width, height, columns, rows);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::grid_generate(width, height, columns, rows));
+	}
+
+	//查询网格顶点 / 索引数量（第九十三轮新增）
+	bool Renderer::mesh_counts(Mesh_Handle handle, uint32_t* vertex_count_out, uint32_t* index_count_out) const
+	{
+		//出参先复位
+		if (vertex_count_out != nullptr)
+			*vertex_count_out = 0;
+		if (index_count_out != nullptr)
+			*index_count_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交网格模块
+		uint32_t vertex_count = 0;
+		uint32_t index_count = 0;
+		if (!impl->mesh.mesh_counts_get(handle, vertex_count, index_count))
+			return false;
+		if (vertex_count_out != nullptr)
+			*vertex_count_out = vertex_count;
+		if (index_count_out != nullptr)
+			*index_count_out = index_count;
+		return true;
+	}
+
 	//按程序化胶囊加载网格（第六十九轮新增）
 	bool Renderer::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
 		uint32_t segments, uint32_t rings)

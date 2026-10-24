@@ -222,6 +222,18 @@ namespace engine
 		*/
 		bool mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments);
 		/*
+		加载细分平面（第九十三轮新增）
+		width / height 为正、columns / rows 为网格分段 1..256；
+		顶点 (columns+1)×(rows+1)、索引 columns×rows×6，XY 平面、法线 +Z；非法参数整次拒绝。
+		*/
+		bool mesh_grid_load(Mesh_Handle& handle_out, float width, float height,
+			uint32_t columns, uint32_t rows);
+		/*
+		查询网格顶点 / 索引数量（第九十三轮新增）
+		成功写出（各出参可为空）并返回真；未初始化 / 句柄无效返回假且出参归零。
+		*/
+		bool mesh_counts(Mesh_Handle handle, uint32_t* vertex_count_out, uint32_t* index_count_out) const;
+		/*
 		加载程序化圆环（第六十七轮新增）
 		major_radius / minor_radius 为正；双分段 3..128；非法参数整次拒绝（句柄置 0 并告警）。
 		*/

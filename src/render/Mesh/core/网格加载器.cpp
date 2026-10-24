@@ -273,6 +273,56 @@ namespace engine
 	}
 
 	/*
+	生成细分平面（第九十三轮）
+	XY 平面上的规则网格：顶点 (columns+1)×(rows+1)，索引 columns×rows×6，法线 +Z，UV 覆盖整面。
+	*/
+	Mesh_Data Mesh_Context::grid_generate(float width, float height, uint32_t columns, uint32_t rows)
+	{
+		//分段数兜底
+		if (columns < 1)
+			columns = 1;
+		if (rows < 1)
+			rows = 1;
+		Mesh_Data data;
+		//按顶点 / 索引数量预留
+		data.vertices.reserve(static_cast<std::size_t>(columns + 1) * (rows + 1));
+		data.indices.reserve(static_cast<std::size_t>(columns) * rows * 6);
+		//半宽 / 半高
+		float half_width = width * 0.5f;
+		float half_height = height * 0.5f;
+		//逐行逐列生成顶点（v 自上而下）
+		for (uint32_t row = 0; row <= rows; ++row)
+		{
+			float v = static_cast<float>(row) / static_cast<float>(rows);
+			float y = half_height - height * v;
+			for (uint32_t column = 0; column <= columns; ++column)
+			{
+				float u = static_cast<float>(column) / static_cast<float>(columns);
+				float x = -half_width + width * u;
+				data.vertices.push_back({ { x, y, 0.0f }, { u, v }, { 0.0f, 0.0f, 1.0f } });
+			}
+		}
+		//逐格两三角形（外向绕序，从 +Z 观察逆时针）
+		for (uint32_t row = 0; row < rows; ++row)
+		{
+			for (uint32_t column = 0; column < columns; ++column)
+			{
+				uint32_t top_left = row * (columns + 1) + column;
+				uint32_t top_right = top_left + 1;
+				uint32_t bottom_left = top_left + columns + 1;
+				uint32_t bottom_right = bottom_left + 1;
+				data.indices.push_back(top_left);
+				data.indices.push_back(bottom_left);
+				data.indices.push_back(bottom_right);
+				data.indices.push_back(top_left);
+				data.indices.push_back(bottom_right);
+				data.indices.push_back(top_right);
+			}
+		}
+		return data;
+	}
+
+	/*
 	生成胶囊（第六十九轮）
 	中段圆柱 ＋ 上下半球；总高 = height + 2 × radius，沿 Y 轴、中心在原点；
 	环表自北向南排列（上半球 → 下赤道 → 下半球），法线朝外、接缝 UV、外向绕序与球体一致。

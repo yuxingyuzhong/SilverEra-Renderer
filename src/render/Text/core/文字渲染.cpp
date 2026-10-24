@@ -66,6 +66,8 @@ namespace engine
 			retired.push_back(*it);
 			it = records.erase(it);
 		}
+		//条目已删改，重建分桶索引（第九十四轮）
+		font_index_rebuild();
 		//该字体已随调用方销毁，待销毁项此刻可直接归还
 		retired_flush();
 	}
@@ -110,6 +112,8 @@ namespace engine
 		for (const auto& record : records)
 			retired.push_back(record);
 		records.clear();
+		//分桶索引同步清空（第九十四轮）
+		font_index.clear();
 		//统一归还（含此前淘汰的待销毁项）
 		retired_flush();
 		//复位管线句柄与颜色
@@ -172,8 +176,16 @@ namespace engine
 		布局必须参与缓存键，否则同一文本换布局后会命中旧网格（几何不更新）。
 		*/
 		Mesh_Handle mesh = 0;
-		for (auto& item : records)
+		//只在「本字体」分桶中查找（第九十四轮）
+		auto bucket = font_index.find(font_handle);
+		std::size_t bucket_size = (bucket != font_index.end()) ? bucket->second.size() : 0;
+		for (std::size_t position = 0; position < bucket_size; ++position)
 		{
+			//桶内下标须在记录范围内（重建滞后时跳过）
+			std::size_t slot = bucket->second[position];
+			if (slot >= records.size())
+				continue;
+			auto& item = records[slot];
 			//命中本字体与本文本
 			if (item.font != font_handle || item.text != text)
 				continue;
@@ -230,8 +242,11 @@ namespace engine
 				stale.retired_tick = frame_clock;
 				retired.push_back(stale);
 				records.erase(records.begin() + static_cast<std::ptrdiff_t>(oldest));
+				//下标整体前移，重建分桶索引
+				font_index_rebuild();
 			}
 			records.push_back(item);
+			font_index[font_handle].push_back(records.size() - 1);
 		}
 
 		//绑定文字管线与字形图集纹理（图集成为当前纹理，供 set1 采样）
@@ -295,5 +310,15 @@ namespace engine
 			retired.push_back(stale);
 			records.erase(records.begin() + static_cast<std::ptrdiff_t>(oldest));
 		}
+		//下标整体前移，重建分桶索引（第九十四轮）
+		font_index_rebuild();
+	}
+
+	//重建按字体分桶的缓存索引（第九十四轮）
+	void Text_Renderer::font_index_rebuild(void)
+	{
+		font_index.clear();
+		for (std::size_t index = 0; index < records.size(); ++index)
+			font_index[records[index].font].push_back(index);
 	}
 }
