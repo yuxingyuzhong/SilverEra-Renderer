@@ -500,6 +500,13 @@ namespace engine
 		*/
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		/*
+		批量读回当前链各级的专设参数（第八十二轮新增；只读诊断）
+		out 按「级序 × 4 浮点」紧排（阈值 / 软膝 / 强度 / 保留），最多写 capacity / 4 级；
+		返回值 = 实际写入的级数 = min(链级数, capacity / 4)；未专设的级写 0。
+		未初始化 / out 为空 / capacity < 4 返回 0。
+		*/
+		uint32_t post_chain_params_get(float* out, uint32_t capacity) const;
+		/*
 		启用 / 关闭视锥剔除（第二十五轮新增；默认开启）
 		关闭后网格绘制项一律照常登记（含完全在视锥外的项），culled_items 不再递增；
 		用于调试 / 对照与「上层自行剔除」的场景。未初始化时静默忽略。

@@ -3742,6 +3742,32 @@ namespace engine
 		return 1;
 	}
 
+	//批量读回当前链各级的专设参数（只读诊断）
+	uint32_t Renderer::post_chain_params_get(float* out, uint32_t capacity) const
+	{
+		//出参为空或容量不足一级则无内容可写
+		if (out == nullptr || capacity < 4)
+			return 0;
+		//实际可写的级数（受链级数与容量共同限制）
+		uint32_t stages = capacity / 4;
+		//未初始化时链为空
+		uint32_t chain_size = (impl == nullptr || !impl->initialized)
+			? 0u : static_cast<uint32_t>(impl->post_chain.size());
+		if (chain_size > Impl::POST_CHAIN_MAX_STAGES)
+			chain_size = Impl::POST_CHAIN_MAX_STAGES;
+		if (stages > chain_size)
+			stages = chain_size;
+		//逐级写出（未专设的级写 0）
+		for (uint32_t stage = 0; stage < stages; ++stage)
+		{
+			//该级是否设过专设值
+			bool valid = impl->post_stage_param_valid[stage];
+			for (uint32_t each = 0; each < 4; ++each)
+				out[stage * 4 + each] = valid ? impl->post_stage_param[stage][each] : 0.0f;
+		}
+		return stages;
+	}
+
 	//设置文字颜色（RGBA，逐分量钳制）
 	void Renderer::text_color_set(const float color[4])
 	{
