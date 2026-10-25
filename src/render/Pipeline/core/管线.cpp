@@ -40,7 +40,8 @@ namespace engine
 		VkPipeline created = VK_NULL_HANDLE;
 		//若图形管线创建失败
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
-			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations))
+			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations,
+			entry.depth_write, entry.depth_lequal))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -103,7 +104,7 @@ namespace engine
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 5;
+		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 6;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -266,7 +267,8 @@ namespace engine
 
 	//登记具名图形管线
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
-		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations)
+		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations,
+		bool depth_write, bool depth_lequal)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -286,6 +288,8 @@ namespace engine
 		entry.cull_none = cull_none;
 		entry.sample_count = sample_count;
 		entry.input_locations = input_locations;
+		entry.depth_write = depth_write;
+		entry.depth_lequal = depth_lequal;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{
@@ -557,11 +561,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 1072 字节：… ＋ 阴影参数与强度 ＋ PBR-lite 参数 ＋ 远区级联矩阵与级联参数 ＋ 相机近远平面；第一百二十三轮由 1056 扩为 1072）
+		//缓冲描述（场景 UBO 1088 字节：… ＋ 阴影参数与强度 ＋ PBR-lite 参数 ＋ 远区级联矩阵与级联参数 ＋ 相机近远平面 ＋ 天空盒参数；第一百二十五轮由 1072 扩为 1088）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 1072;
+		buffer_info.range = 1088;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -747,6 +751,38 @@ namespace engine
 
 		//更新描述符集
 		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽的场景采样器集写天空盒立方体贴图（set 1 binding 5；第一百二十五轮）
+	bool Pipeline_Context::sky_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//前置：帧槽范围、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 天空盒绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 5）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sampler_sets[slot];
+		write.dstBinding = 5;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 		return true;
 	}
 

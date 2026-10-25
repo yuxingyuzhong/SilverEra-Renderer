@@ -67,11 +67,16 @@ namespace engine
 		*/
 		bool image_create(VkImage& image_out, VmaAllocation& alloc_out,
 			uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage,
-			uint32_t mip_levels = 1, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
+			uint32_t mip_levels = 1, VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT,
+			uint32_t array_layers = 1, VkImageCreateFlags flags = 0);
 		//销毁图像（图像与它的内存一起归还）
 		void image_destroy(VkImage image, VmaAllocation alloc);
-		//创建图像视图（二维、单层、单 mip）
-		bool image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t level_count = 1);
+		/*
+		创建图像视图（二维 / 立方体；级数由调用方给出，默认 1；第一百二十五轮增视图类型与层数）
+		view_type 为 VK_IMAGE_VIEW_TYPE_2D 或 VK_IMAGE_VIEW_TYPE_CUBE；layer_count 为覆盖的数组层数（立方体为 6）。
+		*/
+		bool image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect,
+			uint32_t level_count = 1, VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D, uint32_t layer_count = 1);
 		//销毁图像视图
 		void image_view_destroy(VkImageView view);
 
@@ -87,7 +92,7 @@ namespace engine
 		终态布局固定为 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL（采样用途）。
 		*/
 		bool upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
-			uint32_t width, uint32_t height, uint32_t row_pixels);
+			uint32_t width, uint32_t height, uint32_t row_pixels, uint32_t layer = 0);
 		/*
 		从图像读回像素（第二十七轮新增）
 		读取第 0 级、整幅图像到 data（RGBA8 紧排，data_size 须为 宽×高×4）；

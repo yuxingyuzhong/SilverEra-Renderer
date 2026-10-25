@@ -66,6 +66,12 @@ namespace engine
 		//从内存像素创建纹理（RGBA8 紧排；句柄自 1 起，0 表无效）
 		bool texture_create_from_memory(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height);
 		/*
+		从内存像素创建立方体贴图（第一百二十五轮）
+		six_faces 为 6 张面的 RGBA8 紧排数据，顺序 +X / -X / +Y / -Y / +Z / -Z，每面 width × height；
+		不生成 mip 链（简易 IBL 以 LOD 0 采样近似）。
+		*/
+		bool texture_create_cube(uint64_t& handle_out, const uint8_t* six_faces, uint32_t width, uint32_t height);
+		/*
 		从文件创建纹理（解码 PNG / JPG / BMP 等为 RGBA8 后走内存像素路径）
 		解码由外部库 stb_image 承担（唯一定义 STB_IMAGE_IMPLEMENTATION 的编译单元见 core/纹理解码.cpp）；
 		文件不存在、为空、解码失败或解码尺寸非法时返回假，且**不留下任何半初始化纹理记录**。

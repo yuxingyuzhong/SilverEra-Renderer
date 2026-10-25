@@ -73,6 +73,13 @@ namespace engine
 		0xFF = 全量（0..7）；0 = 同 0xFF（解析失败时的保守回落）。
 		*/
 		uint32_t input_locations = 0xFF;
+		/*
+		深度状态（第一百二十五轮）
+		depth_write = 关闭深度写入（天空盒等只读深度参与的管线）；
+		depth_lequal = 比较算子改用 LESS_OR_EQUAL（配合 z = 1 的全屏天空绘制，只在深度仍为清屏值处着色）。
+		*/
+		bool depth_write = true;
+		bool depth_lequal = false;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
 	};
@@ -113,7 +120,7 @@ namespace engine
 		*/
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
-			uint32_t input_locations = 0xFF);
+			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -194,6 +201,11 @@ namespace engine
 		无贴图时由门面传入内置默认白纹理，使采样值恒为 (1,1,1) 从而不影响画面。
 		*/
 		bool material_texture_bind(uint32_t slot, VkSampler sampler, VkImageView normal_view, VkImageView roughness_view);
+		/*
+		向第 slot 帧槽的场景采样器集写「天空盒立方体贴图」（set 1 binding 5；第一百二十五轮）
+		view 须为 CUBE 视图；未绑定时场景片元不会采样该 binding（由 UBO 的 sky_params 开关控制）。
+		*/
+		bool sky_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 	private:
 		//描述符集布局创建（实现见 core/描述符布局.cpp）
 		bool descriptor_layouts_create(void);
@@ -202,7 +214,7 @@ namespace engine
 		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config，sample_count 为 0 时跟随 config）
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
-			uint32_t input_locations = 0xFF);
+			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

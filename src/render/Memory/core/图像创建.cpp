@@ -11,7 +11,7 @@ namespace engine
 	*/
 	bool Memory_Context::image_create(VkImage& image_out, VmaAllocation& alloc_out,
 		uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage,
-		uint32_t mip_levels, VkSampleCountFlagBits samples)
+		uint32_t mip_levels, VkSampleCountFlagBits samples, uint32_t array_layers, VkImageCreateFlags flags)
 	{
 		//前置：分配器与逻辑设备必须就绪
 		if (!valid())
@@ -33,7 +33,8 @@ namespace engine
 		image_info.format = format;
 		image_info.extent = { width, height, 1 };
 		image_info.mipLevels = mip_levels;
-		image_info.arrayLayers = 1;
+		image_info.arrayLayers = array_layers == 0 ? 1 : array_layers;
+		image_info.flags = flags;
 		image_info.samples = samples;
 		image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
 		image_info.usage = usage;
@@ -72,7 +73,8 @@ namespace engine
 	}
 
 	//创建图像视图（二维；级数由调用方给出，默认 1）
-	bool Memory_Context::image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t level_count)
+	bool Memory_Context::image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect,
+		uint32_t level_count, VkImageViewType view_type, uint32_t layer_count)
 	{
 		//前置：图像句柄与逻辑设备必须齐备
 		if (image == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
@@ -91,13 +93,13 @@ namespace engine
 		VkImageViewCreateInfo view_info{};
 		view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		view_info.image = image;
-		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		view_info.viewType = view_type;
 		view_info.format = format;
 		view_info.subresourceRange.aspectMask = aspect;
 		view_info.subresourceRange.baseMipLevel = 0;
 		view_info.subresourceRange.levelCount = level_count;
 		view_info.subresourceRange.baseArrayLayer = 0;
-		view_info.subresourceRange.layerCount = 1;
+		view_info.subresourceRange.layerCount = layer_count == 0 ? 1 : layer_count;
 
 		//创建视图
 		VkResult result = vkCreateImageView(device, &view_info, nullptr, &view_out);

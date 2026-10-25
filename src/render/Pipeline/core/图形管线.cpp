@@ -27,7 +27,7 @@ namespace engine
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations)
+		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -143,12 +143,12 @@ namespace engine
 		multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(effective_samples);
 		multisample.sampleShadingEnable = VK_FALSE;
 
-		//深度 / 模板（深度测试开、写开、LESS）
+		//深度 / 模板（深度测试恒开；写开关与比较算子由参数给出，默认「写开 + LESS」）
 		VkPipelineDepthStencilStateCreateInfo depth_stencil{};
 		depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 		depth_stencil.depthTestEnable = VK_TRUE;
-		depth_stencil.depthWriteEnable = VK_TRUE;
-		depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+		depth_stencil.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
+		depth_stencil.depthCompareOp = depth_lequal ? VK_COMPARE_OP_LESS_OR_EQUAL : VK_COMPARE_OP_LESS;
 		depth_stencil.depthBoundsTestEnable = VK_FALSE;
 		depth_stencil.stencilTestEnable = VK_FALSE;
 

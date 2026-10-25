@@ -332,6 +332,31 @@ namespace engine
 		bool texture_load_file(uint64_t& handle_out, const std::string& path);
 		//程序生成棋盘格纹理
 		bool texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
+		/*
+		从内存像素创建立方体贴图（第一百二十五轮）
+		six_faces 为 6 面 RGBA8 紧排（顺序 +X / -X / +Y / -Y / +Z / -Z），每面 width × height；
+		用于天空盒背景与简易 IBL 采样；失败返回假且句柄保持 0。
+		*/
+		bool texture_cube_load(uint64_t& handle_out, const uint8_t* six_faces, uint32_t width, uint32_t height);
+		/*
+		天空盒 / 简易 IBL 开关（第一百二十五轮）
+		启用后场景片元按法线方向与反射方向采样立方体贴图作环境补光，并在主场景 pass 末尾绘制全屏背景；
+		默认关闭，关闭时画面与引入前逐字节一致。未初始化时静默忽略。
+		*/
+		void sky_enable_set(bool enabled);
+		//当前是否启用天空盒（未初始化时为假）
+		bool sky_enabled(void) const;
+		//设置天空盒强度（ambient = 漫反射 / 环境补光、specular = 镜面；负值按 0 处理，默认均为 0）
+		void sky_params_set(float ambient, float specular);
+		//读取天空盒强度（出参可为空）
+		void sky_params_get(float* ambient_out, float* specular_out) const;
+		/*
+		绑定天空盒立方体贴图（第一百二十五轮；0 = 内置纯白立方体）
+		内部先等尽在途帧，再重写全部帧槽 set1 binding 5；句柄无效时保持原绑定。
+		*/
+		void sky_texture_set(uint64_t texture_handle);
+		//当前天空盒立方体贴图句柄（0 = 内置纯白立方体）
+		uint64_t sky_texture(void) const;
 		//卸载纹理（句柄无效则忽略；绑定过该纹理的帧槽需由调用方重新 texture_bind_set）
 		void texture_unload(uint64_t handle);
 		/*

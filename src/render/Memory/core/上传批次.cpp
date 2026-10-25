@@ -163,7 +163,7 @@ namespace engine
 	若将来需要其他终态（如作为渲染目标或再次传输），在此扩参即可。
 	*/
 	bool Memory_Context::upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
-		uint32_t width, uint32_t height, uint32_t row_pixels)
+		uint32_t width, uint32_t height, uint32_t row_pixels, uint32_t layer)
 	{
 		//前置：上下文与队列就绪、目标句柄与源数据齐备
 		if (!valid() || dst_image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE)
@@ -203,7 +203,11 @@ namespace engine
 			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.image = dst_image;
-			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			to_transfer.subresourceRange.baseMipLevel = 0;
+			to_transfer.subresourceRange.levelCount = 1;
+			to_transfer.subresourceRange.baseArrayLayer = layer;
+			to_transfer.subresourceRange.layerCount = 1;
 			to_transfer.srcAccessMask = 0;
 			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			vkCmdPipelineBarrier(command_buffer,
@@ -215,7 +219,10 @@ namespace engine
 			copy_region.bufferOffset = 0;
 			copy_region.bufferRowLength = row_pixels;
 			copy_region.bufferImageHeight = 0;
-			copy_region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.baseArrayLayer = layer;
+			copy_region.imageSubresource.layerCount = 1;
 			copy_region.imageOffset = { 0, 0, 0 };
 			copy_region.imageExtent = { width, height, 1 };
 			vkCmdCopyBufferToImage(command_buffer, staging_buffer, dst_image,
@@ -306,7 +313,10 @@ namespace engine
 			copy_region.bufferOffset = 0;
 			copy_region.bufferRowLength = 0;
 			copy_region.bufferImageHeight = 0;
-			copy_region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.baseArrayLayer = 0;
+			copy_region.imageSubresource.layerCount = 1;
 			copy_region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
 			copy_region.imageExtent = { region_width, region_height, 1 };
 			vkCmdCopyImageToBuffer(command_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer, 1, &copy_region);

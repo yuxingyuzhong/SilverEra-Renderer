@@ -170,6 +170,81 @@ namespace engine
 		return true;
 	}
 
+	//从内存像素创建立方体贴图（第一百二十五轮）
+	bool Texture_Context::texture_create_cube(uint64_t& handle_out, const uint8_t* six_faces, uint32_t width, uint32_t height)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//前置：内存模块、逻辑设备、像素与尺寸必须有效
+		if (memory == nullptr || !memory->valid() || device == VK_NULL_HANDLE)
+		{
+			logger.error("纹理创建:: 纹理上下文尚未构建，无法创建立方体贴图");
+			return false;
+		}
+		if (six_faces == nullptr || width == 0 || height == 0)
+		{
+			logger.error("纹理创建:: 立方体贴图的像素指针为空或尺寸为零");
+			return false;
+		}
+
+		/*
+		创建六层立方体图像
+		单 mip；usage 需含采样与传输目标；flags 必须置 CUBE_COMPATIBLE 才允许立方体视图。
+		*/
+		VkImage image = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		if (!memory->image_create(image, allocation, width, height, VK_FORMAT_R8G8B8A8_SRGB,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 1,
+			VK_SAMPLE_COUNT_1_BIT, 6, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT))
+			return false;
+
+		//逐面上传（每面 RGBA8 紧排）
+		VkDeviceSize face_size = static_cast<VkDeviceSize>(width) * height * 4;
+		for (uint32_t face = 0; face < 6; ++face)
+		{
+			if (!memory->upload_image(image, six_faces + face_size * face, face_size, width, height, 0, face))
+			{
+				logger.error("纹理创建:: 立方体贴图第 {} 面上传失败，回退", face);
+				memory->image_destroy(image, allocation);
+				return false;
+			}
+		}
+
+		//创建立方体视图（覆盖六层）
+		VkImageView view = VK_NULL_HANDLE;
+		if (!memory->image_view_create(view, image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT,
+			1, VK_IMAGE_VIEW_TYPE_CUBE, 6))
+		{
+			memory->image_destroy(image, allocation);
+			return false;
+		}
+
+		//取共享采样器（首次调用创建，之后复用）
+		if (!sampler_create(shared_sampler))
+		{
+			memory->image_view_destroy(view);
+			memory->image_destroy(image, allocation);
+			return false;
+		}
+
+		//登记纹理记录（mip 级数恒 1；尺寸按单面计）
+		Texture_Record record;
+		record.image = image;
+		record.allocation = allocation;
+		record.view = view;
+		record.sampler = shared_sampler;
+		record.mip_levels = 1;
+		record.width = width;
+		record.height = height;
+		record.valid = true;
+		records.push_back(record);
+
+		//句柄自 1 起
+		handle_out = static_cast<uint64_t>(records.size());
+		logger.info("纹理创建:: 立方体贴图已建立（句柄 {}，{}x{}，6 面）", handle_out, width, height);
+		return true;
+	}
+
 	//程序生成棋盘格纹理
 	//取纹理尺寸（只读；句柄无效返回假且出参归零）
 	bool Texture_Context::texture_size_get(uint64_t handle, uint32_t& width_out, uint32_t& height_out) const

@@ -68,6 +68,12 @@ namespace engine
 		*/
 		bool ssaa_pipeline_ensure(void);
 		/*
+		确保天空盒具名管线就绪（惰性登记；第一百二十五轮）
+		着色器对为 天空盒.vert / 天空盒.frag；采样数跟随主场景配置，深度只读 ＋ LESS_OR_EQUAL，
+		使全屏天空项只覆盖深度仍为清屏值的背景像素。
+		*/
+		bool sky_pipeline_ensure(void);
+		/*
 		确保 SSAA 超采样目标就绪（场景目标 = 输出 × 倍率；解析目标 = 输出尺寸）
 		倍率或输出尺寸变化时先等尽在途帧、销毁旧目标再重建；创建失败置 ssaa_extent_failed 并由调用方回落。
 		*/
@@ -324,6 +330,19 @@ namespace engine
 		uint32_t ssaa_target_factor = 0;
 		//SSAA 降采样具名管线句柄（0 = 尚未登记）
 		uint64_t ssaa_pipeline = 0;
+		/*
+		天空盒 / 简易 IBL（第一百二十五轮）
+		默认关闭，故未启用时画面与引入前逐字节一致；启用后场景片元按法线 / 反射方向采样立方体贴图作补光，
+		并由全屏天空项绘制背景。sky_texture 为用户设置的立方体贴图句柄（0 = 内置纯白立方体）。
+		*/
+		bool sky_enabled = false;
+		uint64_t sky_texture = 0;
+		uint64_t default_sky_texture = 0;
+		uint64_t sky_pipeline = 0;
+		//漫反射（环境补光）强度
+		float sky_ambient = 0.0f;
+		//镜面强度
+		float sky_specular = 0.0f;
 		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
 		uint32_t msaa_samples = 1;
 		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）

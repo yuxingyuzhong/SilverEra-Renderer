@@ -347,6 +347,45 @@ namespace engine
 		return true;
 	}
 
+	//确保天空盒具名管线就绪（惰性登记）
+	bool Renderer::Impl::sky_pipeline_ensure(void)
+	{
+		//天空盒具名管线尚未登记
+		if (sky_pipeline == 0)
+		{
+			//加载天空盒顶点 / 片元着色器模块（顺带解析顶点输入位置）
+			VkShaderModule vert_module = VK_NULL_HANDLE;
+			VkShaderModule frag_module = VK_NULL_HANDLE;
+			uint32_t vert_input_locations = 0;
+			if (!shader.module_load(vert_module, "天空盒.vert.spv", &vert_input_locations))
+			{
+				logger.error("渲染器:: 天空盒顶点着色器加载失败");
+				return false;
+			}
+			if (!shader.module_load(frag_module, "天空盒.frag.spv"))
+			{
+				logger.error("渲染器:: 天空盒片元着色器加载失败");
+				shader.module_destroy(vert_module);
+				return false;
+			}
+			//登记具名管线（采样数跟随主场景配置；关闭背面剔除；深度只读 ＋ LESS_OR_EQUAL）
+			uint64_t registered = 0;
+			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque,
+				VK_FORMAT_UNDEFINED, true, 0, vert_input_locations, false, true))
+			{
+				logger.error("渲染器:: 天空盒管线登记失败");
+				shader.module_destroy(vert_module);
+				shader.module_destroy(frag_module);
+				return false;
+			}
+			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
+			sky_pipeline = registered;
+			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
+			logger.info("渲染器:: 天空盒管线已登记（句柄 {}）", registered);
+		}
+		return true;
+	}
+
 	//销毁 SSAA 超采样目标（关闭时调用）
 	void Renderer::Impl::ssaa_targets_destroy(void)
 	{
@@ -653,8 +692,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十三轮由 1056 扩为 1072 字节：追加相机近远平面）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1072,
+			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1088,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -877,6 +916,37 @@ namespace engine
 				return false;
 			}
 		}
+		/*
+		内置纯白立方体（第一百二十五轮）
+		场景片元静态声明 binding 5（samplerCube），故即使未启用天空盒也必须有有效绑定；
+		1×1×6 面全白，且默认天空盒强度为 0，故不改变既有画面。
+		*/
+		const uint8_t white_cube_faces[6 * 4] = {
+			255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+			255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+		};
+		if (!impl->texture.texture_create_cube(impl->default_sky_texture, white_cube_faces, 1, 1))
+		{
+			logger.error("渲染器:: 默认天空盒立方体创建失败");
+			shutdown();
+			return false;
+		}
+		//取默认立方体的视图与采样器（与默认白纹理共用同一共享采样器）
+		VkImageView sky_view = VK_NULL_HANDLE;
+		VkSampler sky_sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(impl->default_sky_texture, sky_view, sky_sampler))
+		{
+			logger.error("渲染器:: 默认天空盒立方体视图获取失败");
+			shutdown();
+			return false;
+		}
+		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
+			if (!impl->pipeline.sky_bind(slot, sky_sampler, sky_view))
+			{
+				logger.error("渲染器:: 默认天空盒绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
 		//⑮ 网格：记录内存模块
 		if (!impl->mesh.build(impl->memory))
 		{
@@ -1185,6 +1255,13 @@ namespace engine
 		impl->instance_allocations.clear();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
+		//天空盒状态复位（第一百二十五轮；默认关闭、强度 0）
+		impl->sky_enabled = false;
+		impl->sky_texture = 0;
+		impl->default_sky_texture = 0;
+		impl->sky_pipeline = 0;
+		impl->sky_ambient = 0.0f;
+		impl->sky_specular = 0.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
@@ -1570,14 +1647,15 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块组装（1072 字节 = 268 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
-		第一百二十一轮追加远区级联矩阵与级联参数）
+		场景 UBO 整块组装（1088 字节 = 272 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
+		第一百二十一轮追加远区级联矩阵与级联参数；第一百二十五轮追加天空盒参数）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
 		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
 		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度、
-		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）、244 远区级联矩阵、260 级联参数。
+		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）、244 远区级联矩阵、260 级联参数、264 相机近远平面、
+		268 天空盒参数（x 启用 / y 漫反射强度 / z 镜面强度）。
 		*/
-		float scene_block[268] = {};
+		float scene_block[272] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1697,40 +1775,48 @@ namespace engine
 		scene_block[264] = clip_near;
 		scene_block[265] = clip_far;
 		/*
+		天空盒参数（第一百二十五轮）
+		268 = 启用（> 0.5 生效）、269 = 漫反射（环境）强度、270 = 镜面强度、271 保留；
+		未启用时着色器整段跳过，画面与引入前逐字节一致。
+		*/
+		scene_block[268] = impl->sky_enabled ? 1.0f : 0.0f;
+		scene_block[269] = impl->sky_ambient;
+		scene_block[270] = impl->sky_specular;
+		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 268 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的 272 浮点，按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 1072 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 1088 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 268)
+		if (impl->scene_block_cache.size() != scene_slot_count * 272)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 268, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * 272, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		//本帧槽缓存段（268 浮点）
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 268;
+		//本帧槽缓存段（272 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 272;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1072, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1088, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 1072;
+			uploaded_bytes = 1088;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 268 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = 272 / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -1775,8 +1861,8 @@ namespace engine
 				uploaded_bytes += segment_bytes;
 			}
 		}
-		//更新该帧槽缓存（与已写入内容一致；第一百二十三轮为 268 浮点）
-		for (std::size_t index = 0; index < 268; ++index)
+		//更新该帧槽缓存（与已写入内容一致；第一百二十五轮为 272 浮点）
+		for (std::size_t index = 0; index < 272; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -1869,6 +1955,34 @@ namespace engine
 			//资源未就绪则回落原路径
 			else
 				logger.warn("渲染器:: SSAA 资源未就绪，本帧回落原路径");
+		}
+		/*
+		天空盒准备（第一百二十五轮）
+		启用且全屏网格与天空管线就绪时，追加一个单位实例供全屏天空项使用；
+		该实例与后处理实例同为追加到本帧实例存储末尾的单位矩阵，故须在下方「实例缓冲写入」之前完成。
+		*/
+		bool sky_frame = false;
+		//天空项在本帧实例缓冲内的字节偏移
+		VkDeviceSize sky_instance_offset = 0;
+		if (impl->sky_enabled)
+		{
+			//本帧实例存储须仍有空位，且全屏网格与天空管线就绪
+			if (impl->pending_instances.size() < impl->instance_capacity
+				&& impl->post_mesh_ensure() && impl->sky_pipeline_ensure())
+			{
+				sky_instance_offset = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
+				impl->pending_instances.emplace_back();
+				std::array<float, INSTANCE_FLOAT_COUNT>& identity = impl->pending_instances.back();
+				identity.fill(0.0f);
+				identity[0] = 1.0f;
+				identity[5] = 1.0f;
+				identity[10] = 1.0f;
+				identity[15] = 1.0f;
+				sky_frame = true;
+			}
+			//实例存储已满或资源未就绪则跳过本帧天空背景
+			else
+				logger.warn("渲染器:: 天空盒资源未就绪，本帧跳过天空背景");
 		}
 		/*
 		实例模型矩阵写入本帧槽实例缓冲
@@ -1980,6 +2094,51 @@ namespace engine
 			//本帧槽的采样器描述符集（set1）
 			item.sampler_set = impl->pipeline.sampler_set_get(slot);
 			item.descriptor_set_count = 2;
+		}
+		/*
+		追加天空盒绘制项（第一百二十五轮）
+		复用后处理全屏网格与场景帧槽描述符集；推送常量 offset 0 为逆视图投影矩阵，
+		片元据此把 NDC 反推为世界方向并采样 binding 5 的立方体贴图。
+		*/
+		if (sky_frame)
+		{
+			VkPipeline sky_pipeline_object = impl->pipeline.pipeline_by_handle_get(impl->sky_pipeline);
+			VkBuffer sky_mesh_buffer = VK_NULL_HANDLE;
+			VkDeviceSize sky_mesh_index_offset = 0;
+			uint32_t sky_mesh_index_count = 0;
+			//若管线与全屏网格齐备
+			if (sky_pipeline_object != VK_NULL_HANDLE
+				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, sky_mesh_buffer,
+					sky_mesh_index_offset, sky_mesh_index_count))
+			{
+				//推送常量（16 浮点逆视图投影矩阵）
+				impl->pending_push_constants.emplace_back();
+				std::array<float, 24>& sky_push = impl->pending_push_constants.back();
+				sky_push.fill(0.0f);
+				glm::mat4 inverse_view_proj = glm::inverse(glm::make_mat4(view_proj));
+				const float* inverse_data = glm::value_ptr(inverse_view_proj);
+				for (std::size_t index = 0; index < 16; ++index)
+					sky_push[index] = inverse_data[index];
+				//天空项（全屏四边形 ＋ 天空管线 ＋ 单位实例；不参与阴影投影）
+				Frame_Render_Item sky_item{};
+				sky_item.pipeline = sky_pipeline_object;
+				sky_item.layout = impl->pipeline.layout_get();
+				sky_item.scene_set = impl->pipeline.scene_set_get(slot);
+				sky_item.sampler_set = impl->pipeline.sampler_set_get(slot);
+				sky_item.descriptor_set_count = 2;
+				sky_item.vertex_buffer = sky_mesh_buffer;
+				sky_item.index_buffer = sky_mesh_buffer;
+				sky_item.index_offset = sky_mesh_index_offset;
+				sky_item.index_count = sky_mesh_index_count;
+				sky_item.instance_buffer = impl->instance_buffers[slot];
+				sky_item.instance_offset = sky_instance_offset;
+				sky_item.instance_count = 1;
+				sky_item.push_constants = sky_push.data();
+				sky_item.push_constant_size = static_cast<uint32_t>(sizeof(float) * 16);
+				sky_item.cast_shadow = false;
+				sky_item.sample_count = impl->pipeline.pipeline_sample_count(impl->sky_pipeline);
+				impl->pending_items.push_back(sky_item);
+			}
 		}
 
 		//交给帧模块走取图像 / 录制 / 提交 / 呈现（可选像素回读）
@@ -3090,6 +3249,98 @@ namespace engine
 		return impl->texture.texture_create_checkerboard(handle_out, width, height, cell_size);
 	}
 
+	//从内存像素创建立方体贴图（第一百二十五轮；供天空盒与简易 IBL 使用）
+	bool Renderer::texture_cube_load(uint64_t& handle_out, const uint8_t* six_faces, uint32_t width, uint32_t height)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 立方体贴图加载失败：尚未初始化");
+			return false;
+		}
+		//转交纹理模块创建
+		return impl->texture.texture_create_cube(handle_out, six_faces, width, height);
+	}
+
+	//天空盒 / 简易 IBL 开关（第一百二十五轮）
+	void Renderer::sky_enable_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->sky_enabled = enabled;
+	}
+
+	//当前是否启用天空盒
+	bool Renderer::sky_enabled(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->sky_enabled;
+	}
+
+	//设置天空盒强度（负值按 0 处理）
+	void Renderer::sky_params_set(float ambient, float specular)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->sky_ambient = ambient > 0.0f ? ambient : 0.0f;
+		impl->sky_specular = specular > 0.0f ? specular : 0.0f;
+	}
+
+	//读取天空盒强度（出参可为空）
+	void Renderer::sky_params_get(float* ambient_out, float* specular_out) const
+	{
+		//未初始化时返回默认值（均为 0）
+		float ambient = impl != nullptr && impl->initialized ? impl->sky_ambient : 0.0f;
+		float specular = impl != nullptr && impl->initialized ? impl->sky_specular : 0.0f;
+		if (ambient_out != nullptr)
+			*ambient_out = ambient;
+		if (specular_out != nullptr)
+			*specular_out = specular;
+	}
+
+	//绑定天空盒立方体贴图（0 = 内置纯白立方体）
+	void Renderer::sky_texture_set(uint64_t texture_handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//目标立方体（0 → 内置纯白立方体）
+		uint64_t target = texture_handle != 0 ? texture_handle : impl->default_sky_texture;
+		VkImageView view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		if (!impl->texture.texture_bind_get(target, view, sampler))
+		{
+			logger.error("渲染器:: 天空盒贴图绑定失败：立方体贴图句柄 {} 无效", texture_handle);
+			return;
+		}
+		//先等尽在途帧，避免重写仍被在途命令缓冲引用的描述符集
+		if (!impl->frame.frames_wait())
+			return;
+		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			//把立方体贴图写入该帧槽场景采样集的 binding 5
+			if (!impl->pipeline.sky_bind(slot, sampler, view))
+			{
+				logger.error("渲染器:: 天空盒贴图绑定失败（帧槽 {}）", slot);
+				return;
+			}
+		impl->sky_texture = texture_handle;
+	}
+
+	//当前天空盒立方体贴图句柄（0 = 内置纯白立方体）
+	uint64_t Renderer::sky_texture(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->sky_texture;
+	}
+
 	//卸载纹理
 	void Renderer::texture_unload(uint64_t handle)
 	{
@@ -3103,6 +3354,9 @@ namespace engine
 		//若卸载的是当前绑定视图，则回落内置默认白纹理（避免采样器状态切换时写入已失效视图）
 		if (record.view == impl->bound_view)
 			texture_bind_set(0);
+		//若卸载的是当前天空盒贴图，则回落内置纯白立方体（避免 binding 5 指向已失效视图）
+		if (handle != 0 && handle == impl->sky_texture)
+			sky_texture_set(0);
 		//组装延迟条目（图像与视图经内存模块归还）
 		Deferred_Entry entry{};
 		Deferred_Memory_Resource resource{};

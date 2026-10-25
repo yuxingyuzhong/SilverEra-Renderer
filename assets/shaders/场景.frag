@@ -32,6 +32,8 @@ layout(set = 1, binding = 1) uniform sampler2D shadow_map;
 layout(set = 1, binding = 3) uniform sampler2D normal_map;
 //粗糙度贴图（第一百二十四轮；set 1 binding 4，取红通道作粗糙度乘子；默认绑定白纹理 → ×1）
 layout(set = 1, binding = 4) uniform sampler2D roughness_map;
+//天空盒立方体贴图（第一百二十五轮；set 1 binding 5；默认绑定内置纯白立方体）
+layout(set = 1, binding = 5) uniform samplerCube sky_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -81,6 +83,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 cascade_params;
 	//相机近远平面（x = 近平面、y = 远平面；第一百二十三轮，供后处理把深度换回世界距离）
 	vec4 camera_range;
+	//天空盒参数（第一百二十五轮；x = 启用 > 0.5、y = 漫反射（环境）强度、z = 镜面强度、w 保留）
+	vec4 sky_params;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
@@ -257,6 +261,8 @@ void main()
 	*/
 	vec3 radiance = vec3(1.0);
 	vec3 specular = vec3(0.0);
+	//天空盒镜面 IBL 累加（第一百二十五轮；不受全局高光强度缩放）
+	vec3 sky_specular = vec3(0.0);
 	//若提供了法线
 	if (length(in_normal) > 0.000001)
 	{
@@ -310,6 +316,18 @@ void main()
 			ambient_rgb = mix(scene.ambient_color.rgb, hemisphere_rgb, scene.ambient_ground.w);
 		}
 		radiance = ambient_rgb * scene.light_common.x;
+		/*
+		天空盒简易 IBL（第一百二十五轮）
+		启用时以立方体贴图作环境补光：法线方向采样近似漫反射（加入辐射度），
+		反射方向采样近似镜面（独立累加，不受全局高光强度缩放）；
+		关闭时整段跳过，画面与引入前逐字节一致。
+		*/
+		if (scene.sky_params.x > 0.5)
+		{
+			radiance += texture(sky_map, normal).rgb * scene.sky_params.y;
+			vec3 reflected = reflect(-to_view, normal);
+			sky_specular = texture(sky_map, reflected).rgb * scene.sky_params.z;
+		}
 		/*
 		方向光（强度为 0 视为关闭）
 		高光按 Blinn-Phong：H = normalize(L + V)，取各光源贡献的最大值（不做叠加，避免过曝）
@@ -431,7 +449,7 @@ void main()
 	*/
 	float diffuse_weight = scene.pbr_params.x > 0.5
 		? clamp(1.0 - material_metallic(), 0.0, 1.0) : 1.0;
-	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y;
+	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
 	/*
 	距离雾（第三十八轮；密度 0 = 关闭）
 	按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度 混合雾色；
