@@ -239,6 +239,24 @@ namespace engine
 		return last_gpu_frame_ms;
 	}
 
+	//最近一帧场景 pass 耗时（毫秒；第一百二十八轮）
+	double Frame_Context::last_gpu_scene_ms_get(void) const
+	{
+		return last_gpu_scene_ms;
+	}
+
+	//最近一帧后处理耗时（毫秒；第一百二十八轮）
+	double Frame_Context::last_gpu_post_ms_get(void) const
+	{
+		return last_gpu_post_ms;
+	}
+
+	//最近一次阴影 pass 耗时（毫秒；第一百二十八轮）
+	double Frame_Context::last_gpu_shadow_ms_get(void) const
+	{
+		return last_gpu_shadow_ms;
+	}
+
 	//累计 GPU 侧耗时（毫秒）
 	double Frame_Context::total_gpu_frame_ms_get(void) const
 	{
@@ -353,18 +371,27 @@ namespace engine
 		*/
 		slot.timestamp_pool = VK_NULL_HANDLE;
 		slot.timestamp_written = false;
+		slot.shadow_timestamp_pool = VK_NULL_HANDLE;
+		slot.shadow_timestamp_written = false;
 		if (timestamp_supported)
 		{
-			//查询池创建信息（时间戳类型，两个查询）
+			//查询池创建信息（时间戳类型，四个查询：帧始 / 场景结束 / 后处理结束 / 帧末）
 			VkQueryPoolCreateInfo query_info{};
 			query_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
 			query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
-			query_info.queryCount = 2;
+			query_info.queryCount = 4;
 			//创建失败仅记日志并降级（该帧槽 GPU 耗时恒 0）
 			if (vkCreateQueryPool(device, &query_info, nullptr, &slot.timestamp_pool) != VK_SUCCESS)
 			{
 				slot.timestamp_pool = VK_NULL_HANDLE;
 				logger.warn("帧槽创建:: GPU 时间戳查询池创建失败，该帧槽 GPU 耗时降级为 0");
+			}
+			//阴影 pass 专用查询池（第一百二十八轮；两个查询：始 / 末）
+			query_info.queryCount = 2;
+			if (vkCreateQueryPool(device, &query_info, nullptr, &slot.shadow_timestamp_pool) != VK_SUCCESS)
+			{
+				slot.shadow_timestamp_pool = VK_NULL_HANDLE;
+				logger.warn("帧槽创建:: 阴影时间戳查询池创建失败，阴影 GPU 耗时降级为 0");
 			}
 		}
 
@@ -380,6 +407,9 @@ namespace engine
 			//销毁 GPU 时间戳查询池
 			if (slot.timestamp_pool != VK_NULL_HANDLE)
 				vkDestroyQueryPool(device, slot.timestamp_pool, nullptr);
+			//销毁阴影时间戳查询池（第一百二十八轮）
+			if (slot.shadow_timestamp_pool != VK_NULL_HANDLE)
+				vkDestroyQueryPool(device, slot.shadow_timestamp_pool, nullptr);
 			//销毁完成栅栏
 			if (slot.in_flight_fence != VK_NULL_HANDLE)
 				vkDestroyFence(device, slot.in_flight_fence, nullptr);
@@ -390,6 +420,8 @@ namespace engine
 		//复位句柄
 		slot.timestamp_pool = VK_NULL_HANDLE;
 		slot.timestamp_written = false;
+		slot.shadow_timestamp_pool = VK_NULL_HANDLE;
+		slot.shadow_timestamp_written = false;
 		slot.in_flight_fence = VK_NULL_HANDLE;
 		slot.command_pool = VK_NULL_HANDLE;
 		slot.command_buffer = VK_NULL_HANDLE;

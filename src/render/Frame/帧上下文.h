@@ -27,10 +27,17 @@ namespace engine
 		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
-		//GPU 时间戳查询池（每槽两个查询：帧始 / 帧末；设备不支持时为空）
+		//GPU 时间戳查询池（每槽四个查询：帧始 / 场景结束 / 后处理结束 / 帧末；设备不支持时为空）
 		VkQueryPool timestamp_pool = VK_NULL_HANDLE;
 		//该槽是否已写入过时间戳（首次写入前不读回，避免读到未执行的查询）
 		bool timestamp_written = false;
+		/*
+		阴影 pass 时间戳查询池（第一百二十八轮；每槽两个查询：始 / 末）
+		阴影 pass 为独立提交，故单独计时，避免覆盖主帧时间戳。
+		*/
+		VkQueryPool shadow_timestamp_pool = VK_NULL_HANDLE;
+		//该槽是否已写入过阴影时间戳
+		bool shadow_timestamp_written = false;
 	};
 
 	/*
@@ -242,9 +249,9 @@ namespace engine
 		目标颜色在帧间恒处于 SHADER_READ_ONLY_OPTIMAL，故离屏结果可直接作纹理采样。
 		返回假视为硬错误。
 		*/
-		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items, uint32_t item_count,
-			const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
-			Frame_Readback_Request* readback = nullptr);
+		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
+			uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
+			Frame_Readback_Request* readback = nullptr, bool shadow_pass = false);
 		/*
 		渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
 		（同帧多 pass；与 render_to_target 的跨帧闭环不同，本路径在同一帧内完成「目标 → 后处理 → 呈现」）。
@@ -337,6 +344,17 @@ namespace engine
 		bool gpu_timestamp_supported_get(void) const;
 		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
 		double last_gpu_frame_ms_get(void) const;
+		//最近一帧场景 pass 的 GPU 耗时（毫秒；第一百二十八轮）
+		double last_gpu_scene_ms_get(void) const;
+		//最近一帧后处理各级合计的 GPU 耗时（毫秒；无后处理时为 0）
+		double last_gpu_post_ms_get(void) const;
+		//最近一次阴影 pass 的 GPU 耗时（毫秒；未启用阴影或能力不可用时为 0）
+		double last_gpu_shadow_ms_get(void) const;
+		/*
+		读回最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮）
+		须在阴影 pass 提交且等尽在途帧之后调用；无能力 / 未写过 / 结果不可用时返回 0 且不改动已有值。
+		*/
+		double shadow_gpu_ms_read(void);
 		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回的时间戳之和；无能力时恒 0）
 		double total_gpu_frame_ms_get(void) const;
 		//已读回 GPU 时间戳的样本数（无能力 / 该帧槽首轮未写时间戳时不增；自构建以来累计）
@@ -383,7 +401,7 @@ namespace engine
 		void command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
-			VkQueryPool timestamp_pool = VK_NULL_HANDLE);
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false);
 		/*
 		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
 		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
@@ -485,6 +503,14 @@ namespace engine
 		uint32_t timestamp_valid_bits = 0;
 		//最近一帧 GPU 侧耗时（毫秒；无能力或尚未读回时为 0）
 		double last_gpu_frame_ms = 0.0;
+		//最近一帧场景 pass 耗时（毫秒；第一百二十八轮）
+		double last_gpu_scene_ms = 0.0;
+		//最近一帧后处理耗时（毫秒；无后处理时为 0）
+		double last_gpu_post_ms = 0.0;
+		//最近一次阴影 pass 耗时（毫秒）
+		double last_gpu_shadow_ms = 0.0;
+		//最近一次阴影 pass 使用的帧槽（供阴影时间戳读回定位）
+		uint32_t last_shadow_slot = 0;
 		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回之和）
 		double total_gpu_frame_ms = 0.0;
 		//已读回 GPU 时间戳的样本数（自构建以来）

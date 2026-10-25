@@ -91,6 +91,14 @@ namespace engine
 		uint64_t drawn_instances = 0;
 		//最近一帧 GPU 侧耗时（毫秒；设备不支持 GPU 时间戳时恒 0）
 		double gpu_frame_ms = 0.0;
+		/*
+		GPU 耗时分解（第一百二十八轮；设备不支持时各项恒 0）
+		场景 = 场景 pass；后处理 = 全部后处理级合计；阴影 = 最近一次阴影 pass（独立提交）。
+		场景 ＋ 后处理 ≤ 总耗时（差值为收尾布局转换与呈现准备）。
+		*/
+		double gpu_scene_ms = 0.0;
+		double gpu_post_ms = 0.0;
+		double gpu_shadow_ms = 0.0;
 		//累计主机侧耗时（毫秒；自 init 以来各帧 frame_ms 之和）
 		double frame_total_ms = 0.0;
 		/*

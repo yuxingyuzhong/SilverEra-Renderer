@@ -1613,7 +1613,7 @@ namespace engine
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
-						static_cast<uint32_t>(shadow_items.size()), cascade_clear))
+						static_cast<uint32_t>(shadow_items.size()), cascade_clear, nullptr, nullptr, true))
 					{
 						logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
 						return false;
@@ -1625,6 +1625,8 @@ namespace engine
 					logger.error("渲染器:: 阴影 pass 等待完成失败");
 					return false;
 				}
+				//读回阴影 pass 的 GPU 耗时（第一百二十八轮；此时该提交已完成）
+				impl->shadow_gpu_ms = impl->frame.shadow_gpu_ms_read();
 				//记录本帧签名并标记阴影图可复用
 				impl->shadow_signature = shadow_signature;
 				impl->shadow_pass_ready = true;
@@ -2590,6 +2592,10 @@ namespace engine
 		stats.instances = impl->frame.total_instances_get();
 		//GPU 侧耗时取自帧模块时间戳查询池（设备不支持时恒 0）
 		stats.gpu_frame_ms = impl->frame.last_gpu_frame_ms_get();
+		//GPU 分解：场景 / 后处理取自主查询池，阴影取自阴影专用池（第一百二十八轮）
+		stats.gpu_scene_ms = impl->frame.last_gpu_scene_ms_get();
+		stats.gpu_post_ms = impl->frame.last_gpu_post_ms_get();
+		stats.gpu_shadow_ms = impl->shadow_gpu_ms;
 		//实际绘制量（不含被跳过的不完整项；与登记量 draw_items / instances 对照可见差异）
 		stats.drawn_items = impl->frame.total_drawn_items_get();
 		stats.drawn_instances = impl->frame.total_drawn_instances_get();

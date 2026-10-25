@@ -28,9 +28,9 @@ namespace engine
 		//无查询池 / 尚未写过 / 能力未启用即跳过
 		if (slot.timestamp_pool == VK_NULL_HANDLE || !slot.timestamp_written || !timestamp_supported)
 			return;
-		//读回两个时间戳（该槽上一轮已由栅栏等待保证执行完毕，故结果就绪）
-		uint64_t ticks[2] = { 0, 0 };
-		VkResult status = vkGetQueryPoolResults(device, slot.timestamp_pool, 0, 2,
+		//读回四个时间戳（帧始 / 场景结束 / 后处理结束 / 帧末；该槽上一轮已由栅栏等待保证执行完毕）
+		uint64_t ticks[4] = { 0, 0, 0, 0 };
+		VkResult status = vkGetQueryPoolResults(device, slot.timestamp_pool, 0, 4,
 			sizeof(ticks), ticks, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
 		//尚未就绪（首轮未执行完等）即跳过，不改动已有值
 		if (status != VK_SUCCESS)
@@ -41,12 +41,42 @@ namespace engine
 		*/
 		uint64_t mask = timestamp_valid_bits >= 64 ? ~0ull : ((1ull << timestamp_valid_bits) - 1ull);
 		uint64_t begin_ticks = ticks[0] & mask;
-		uint64_t end_ticks = ticks[1] & mask;
+		uint64_t scene_end_ticks = ticks[1] & mask;
+		uint64_t post_end_ticks = ticks[2] & mask;
+		uint64_t end_ticks = ticks[3] & mask;
 		//换算毫秒（timestamp_period 单位为「纳秒 / tick」）
-		last_gpu_frame_ms = static_cast<double>(end_ticks - begin_ticks) * static_cast<double>(timestamp_period) / 1.0e6;
+		double period = static_cast<double>(timestamp_period) / 1.0e6;
+		last_gpu_frame_ms = static_cast<double>(end_ticks - begin_ticks) * period;
+		/*
+		场景 / 后处理分解（第一百二十八轮）
+		场景 = 查询 1 − 查询 0；后处理 = 查询 2 − 查询 1；两者之和小于等于总耗时（差值为收尾布局转换）。
+		*/
+		last_gpu_scene_ms = static_cast<double>(scene_end_ticks - begin_ticks) * period;
+		last_gpu_post_ms = static_cast<double>(post_end_ticks - scene_end_ticks) * period;
 		//累计本次读回的 GPU 耗时与样本数（仅在确实读回时递增，故样本数 = 已成功读回的帧数）
 		total_gpu_frame_ms += last_gpu_frame_ms;
 		++gpu_sample_count;
+	}
+
+	//读回最近一次阴影 pass 的 GPU 耗时（第一百二十八轮）
+	double Frame_Context::shadow_gpu_ms_read(void)
+	{
+		//无能力 / 无帧槽 / 槽号越界即返回现有值
+		if (!timestamp_supported || slots.empty() || last_shadow_slot >= slots.size())
+			return last_gpu_shadow_ms;
+		Frame_Slot& slot = slots[last_shadow_slot];
+		//尚未写过阴影时间戳即保持原值
+		if (slot.shadow_timestamp_pool == VK_NULL_HANDLE || !slot.shadow_timestamp_written)
+			return last_gpu_shadow_ms;
+		//调用方已等尽在途帧，结果应已就绪
+		uint64_t ticks[2] = { 0, 0 };
+		if (vkGetQueryPoolResults(device, slot.shadow_timestamp_pool, 0, 2,
+			sizeof(ticks), ticks, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+			return last_gpu_shadow_ms;
+		uint64_t mask = timestamp_valid_bits >= 64 ? ~0ull : ((1ull << timestamp_valid_bits) - 1ull);
+		double period = static_cast<double>(timestamp_period) / 1.0e6;
+		last_gpu_shadow_ms = static_cast<double>((ticks[1] & mask) - (ticks[0] & mask)) * period;
+		return last_gpu_shadow_ms;
 	}
 
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
@@ -206,7 +236,7 @@ namespace engine
 	*/
 	bool Frame_Context::render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
 		uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
-		Frame_Readback_Request* readback)
+		Frame_Readback_Request* readback, bool shadow_pass)
 	{
 		//前置：帧上下文与目标附件必须齐备（含深度视图，与同帧多 pass 路径同口径）
 		if (!valid() || target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
@@ -217,7 +247,8 @@ namespace engine
 		}
 
 		//取当前帧槽（与交换链路径共用同一轮转）
-		Frame_Slot& slot = slots[frame_count % frame_overlap];
+		const uint32_t slot_index = frame_count % frame_overlap;
+		Frame_Slot& slot = slots[slot_index];
 
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 		if (!slot_fence_wait(slot))
@@ -260,8 +291,9 @@ namespace engine
 		//本帧计时起点（主机侧录制 ＋ 提交）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
+		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
-			readback_target, slot.timestamp_pool);
+			readback_target, shadow_pass ? slot.shadow_timestamp_pool : slot.timestamp_pool, shadow_pass);
 
 		/*
 		仅以完成栅栏提交
@@ -293,8 +325,14 @@ namespace engine
 		if (readback_active && !readback_read(slot, *readback, target.extent))
 			return false;
 
-		//标记该帧槽已写入时间戳（此后帧首即可读回本轮结果）
-		slot.timestamp_written = true;
+		//标记该帧槽已写入时间戳（阴影 pass 记独立池与槽号，其余记主四查询池）
+		if (shadow_pass)
+		{
+			slot.shadow_timestamp_written = true;
+			last_shadow_slot = slot_index;
+		}
+		else
+			slot.timestamp_written = true;
 		//推进帧计数（帧槽轮转与延迟销毁均以它为判据）
 		++frame_count;
 		//释放到期的延迟销毁条目

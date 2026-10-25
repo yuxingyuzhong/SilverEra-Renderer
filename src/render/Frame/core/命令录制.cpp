@@ -117,7 +117,7 @@ namespace engine
 		*/
 		if (timestamp_pool != VK_NULL_HANDLE)
 		{
-			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 4);
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
 		}
 
@@ -250,6 +250,16 @@ namespace engine
 		vkCmdEndRendering(command_buffer);
 
 		/*
+		场景 / 后处理分段时间戳（第一百二十八轮）
+		直通路径无后处理：场景结束处同时记录查询 1 与 2，使「后处理耗时」恒 0。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE)
+		{
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 2);
+		}
+
+		/*
 		UI 阶段（MSAA；第九十六轮）
 		UI 管线为单采样（ImGui 后端按 MSAASamples=1 创建），故解析完成后以「加载后保留」的
 		单采样通道绘制 UI；通道仅含颜色附件（UI 不使用深度）。
@@ -356,7 +366,7 @@ namespace engine
 
 		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
 		if (timestamp_pool != VK_NULL_HANDLE)
-			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 3);
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
@@ -371,7 +381,7 @@ namespace engine
 	*/
 	void Frame_Context::command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool, bool shadow_pass)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -385,7 +395,8 @@ namespace engine
 		*/
 		if (timestamp_pool != VK_NULL_HANDLE)
 		{
-			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			//阴影 pass 为独立提交，仅记录始 / 末两个查询；普通离屏路径记录四段
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, shadow_pass ? 2 : 4);
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
 		}
 
@@ -518,6 +529,17 @@ namespace engine
 		vkCmdEndRendering(command_buffer);
 
 		/*
+		场景 / 后处理分段时间戳（第一百二十八轮）
+		离屏与阴影 pass 均无后处理：普通离屏路径在场景结束处同时写查询 1 / 2；
+		阴影 pass 使用两查询池，末点改由下方收尾处记录，故此处不写。
+		*/
+		if (timestamp_pool != VK_NULL_HANDLE && !shadow_pass)
+		{
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 2);
+		}
+
+		/*
 		UI 阶段（MSAA；第九十六轮）
 		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；
 		通道仅含颜色附件（UI 不使用深度）。
@@ -611,9 +633,10 @@ namespace engine
 				0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
 
-		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
+		//GPU 时间戳终点（可选；阴影 pass 为末点 1，普通离屏为末点 3）
 		if (timestamp_pool != VK_NULL_HANDLE)
-			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool,
+				shadow_pass ? 1 : 3);
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");
@@ -651,7 +674,7 @@ namespace engine
 		*/
 		if (timestamp_pool != VK_NULL_HANDLE)
 		{
-			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 2);
+			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 4);
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
 		}
 
@@ -757,6 +780,9 @@ namespace engine
 		frame_recorded = items_record(command_buffer, items, item_count);
 		//场景 pass · 结束动态渲染
 		vkCmdEndRendering(command_buffer);
+		//场景结束时间戳（第一百二十八轮；后处理耗时 = 查询 2 − 查询 1）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
 
 		/*
 		场景 pass → 首级后处理 · 场景目标颜色布局转换：COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
@@ -1033,6 +1059,9 @@ namespace engine
 		本帧采样结束后把深度转回深度附件布局，供下一帧以 DEPTH_ATTACHMENT_OPTIMAL 重新挂载；
 		深度图像句柄为空时跳过（既有行为不变）。
 		*/
+		//后处理结束时间戳（第一百二十八轮；含全部后处理级与各级收尾布局转换）
+		if (timestamp_pool != VK_NULL_HANDLE)
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 2);
 		if (scene_target.depth_image != VK_NULL_HANDLE)
 		{
 			VkImageMemoryBarrier depth_barrier{};
@@ -1058,7 +1087,7 @@ namespace engine
 
 		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）
 		if (timestamp_pool != VK_NULL_HANDLE)
-			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 3);
 
 		//结束录制
 		vk_result_check(vkEndCommandBuffer(command_buffer), "vkEndCommandBuffer");

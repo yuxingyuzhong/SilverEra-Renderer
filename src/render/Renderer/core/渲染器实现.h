@@ -388,6 +388,8 @@ namespace engine
 		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
+		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
+		double shadow_gpu_ms = 0.0;
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
 		bool cull_enabled = true;
 		//是否启用静态合批（第一百二十七轮；默认开启）
