@@ -80,6 +80,12 @@ namespace engine
 		*/
 		bool depth_write = true;
 		bool depth_lequal = false;
+		/*
+		覆盖率写入（第一百二十六轮）
+		alphaToCoverageEnable = 真时，片元 alpha 转化为多重采样覆盖率（仅采样数 > 1 的管线有效）；
+		采样数为 1 时自动关闭，等价于既有 alpha 混合路径。
+		*/
+		bool alpha_to_coverage = false;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
 	};
@@ -120,7 +126,8 @@ namespace engine
 		*/
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
-			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false);
+			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
+			bool alpha_to_coverage = false);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -214,7 +221,8 @@ namespace engine
 		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config，sample_count 为 0 时跟随 config）
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
-			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false);
+			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
+			bool alpha_to_coverage = false);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

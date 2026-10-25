@@ -41,7 +41,7 @@ namespace engine
 		//若图形管线创建失败
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
 			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations,
-			entry.depth_write, entry.depth_lequal))
+			entry.depth_write, entry.depth_lequal, entry.alpha_to_coverage))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -268,7 +268,7 @@ namespace engine
 	//登记具名图形管线
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations,
-		bool depth_write, bool depth_lequal)
+		bool depth_write, bool depth_lequal, bool alpha_to_coverage)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -290,6 +290,7 @@ namespace engine
 		entry.input_locations = input_locations;
 		entry.depth_write = depth_write;
 		entry.depth_lequal = depth_lequal;
+		entry.alpha_to_coverage = alpha_to_coverage;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{

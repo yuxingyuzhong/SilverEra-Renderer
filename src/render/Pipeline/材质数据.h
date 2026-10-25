@@ -59,5 +59,11 @@ namespace engine
 		uint64_t normal_texture = 0;
 		uint64_t roughness_texture = 0;
 		float normal_strength = 0.0f;
+		/*
+		覆盖率写入（第一百二十六轮）
+		true 时该材质的共享管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效）；
+		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。
+		*/
+		bool alpha_to_coverage = false;
 	};
 }

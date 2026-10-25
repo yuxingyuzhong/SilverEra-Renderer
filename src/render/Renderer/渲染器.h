@@ -51,6 +51,12 @@ namespace engine
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 		/*
+		文字覆盖率写入（第一百二十六轮）
+		true 时文字管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效，改善字形边缘）；
+		false（默认）保持既有 alpha 混合，1× 下逐字节不变。
+		*/
+		bool text_alpha_to_coverage = false;
+		/*
 		管线缓存文件路径（第一百零六轮；空 = 关闭）
 		初始化时若文件存在则载入作为 VkPipelineCache 初始数据；关闭时写回该文件。
 		路径按当前工作目录解释，支持中文（按 UTF-8 转换）。
@@ -469,12 +475,13 @@ namespace engine
 		void blend_mode_set(Blend_Mode mode);
 
 		/*
-		登记具名图形管线（顶点 / 片元着色器文件名 ＋ 混合档）
+		登记具名图形管线（顶点 / 片元着色器文件名 ＋ 混合档 ＋ 可选覆盖率写入）
 		成功写出句柄（≥ 1）；具名管线与默认场景管线共享同一管线布局与描述符集布局，
-		仅「着色器对 ＋ 混合档」不同；未初始化 / 着色器加载失败 / 管线创建失败时返回假、句柄保持 0。
+		仅「着色器对 ＋ 混合档 ＋ 覆盖率开关」不同；未初始化 / 着色器加载失败 / 管线创建失败时返回假、句柄保持 0。
+		alpha_to_coverage 仅在 MSAA 采样数 > 1 时生效（1× 下自动关闭，行为与既有 alpha 混合一致）。
 		*/
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
-			Blend_Mode blend_mode = Blend_Mode::Opaque);
+			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
 		//卸载具名图形管线（句柄 0 或无效句柄忽略；卸载后其句柄失效）
 		void pipeline_unload(uint64_t handle);
 		/*

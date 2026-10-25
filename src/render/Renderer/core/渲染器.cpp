@@ -991,8 +991,9 @@ namespace engine
 				if (self->impl->text.pipeline_get() != 0)
 					return self->impl->text.pipeline_get();
 				uint64_t handle = 0;
-				//登记失败保持 0
-				if (!self->pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha))
+				//登记失败保持 0（文字覆盖率写入按配置决定；仅 MSAA > 1× 时生效）
+				if (!self->pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha,
+					self->impl->config.text_alpha_to_coverage))
 					return 0;
 				self->impl->text.pipeline_set(handle);
 				return handle;
@@ -1305,6 +1306,7 @@ namespace engine
 		//材质记录与按档缓存的共享具名管线清空（具名管线已随 extra_pipelines 释放）
 		impl->materials.clear();
 		impl->blend_pipelines.clear();
+		impl->blend_pipelines_alpha_coverage.clear();
 		impl->bound_pipeline_request = 0;
 		impl->shader.destroy();
 		//交换链销毁连带销毁深度图像，须排在管线之后
@@ -3582,7 +3584,7 @@ namespace engine
 	}
 
 	//登记具名图形管线
-	bool Renderer::pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader, Blend_Mode blend_mode)
+	bool Renderer::pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -3612,7 +3614,7 @@ namespace engine
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
 		if (!impl->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
-			VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
+			VK_FORMAT_UNDEFINED, false, 0, vert_input_locations, true, false, alpha_to_coverage))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -3774,24 +3776,31 @@ namespace engine
 			? data.normal_strength : 0.0f;
 		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
 			logger.warn("渲染器:: 材质法线强度 {} 越界（合法域 (0, 4]），按 0 登记", data.normal_strength);
-		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
-		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
+		//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时由管线侧生效）
+		record.alpha_to_coverage = data.alpha_to_coverage;
+		/*
+		若未指定管线且需要共享管线：混合档非不透明，或显式要求覆盖率写入
+		（覆盖率写入不能沿用默认场景管线，故不透明档 + 覆盖率也须登记专用管线）
+		*/
+		if (record.pipeline == 0 && (data.blend != Blend_Mode::Opaque || data.alpha_to_coverage))
 		{
-			//按档位序取缓存下标并确保缓存表足够长
+			//按「是否覆盖率写入」选择缓存表，再按档位序取下标并确保表足够长
+			std::vector<uint64_t>& table = data.alpha_to_coverage
+				? impl->blend_pipelines_alpha_coverage : impl->blend_pipelines;
 			std::size_t index = static_cast<std::size_t>(data.blend);
-			if (impl->blend_pipelines.size() <= index)
-				impl->blend_pipelines.resize(index + 1, 0);
+			if (table.size() <= index)
+				table.resize(index + 1, 0);
 			//该档尚未登记则以默认场景着色器对登记一条（此后同档材质共享之）
-			if (impl->blend_pipelines[index] == 0)
+			if (table[index] == 0)
 			{
-				if (!pipeline_load(impl->blend_pipelines[index], "场景.vert.spv", "场景.frag.spv", data.blend))
+				if (!pipeline_load(table[index], "场景.vert.spv", "场景.frag.spv", data.blend, data.alpha_to_coverage))
 				{
 					logger.error("渲染器:: 材质登记失败：具名管线登记失败");
 					return false;
 				}
 			}
 			//材质使用该档的共享管线（所有权归门面，卸载不释放）
-			record.pipeline = impl->blend_pipelines[index];
+			record.pipeline = table[index];
 		}
 		//标记记录有效
 		record.valid = true;

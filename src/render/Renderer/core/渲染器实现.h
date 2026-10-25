@@ -211,6 +211,8 @@ namespace engine
 			uint64_t roughness_texture = 0;
 			//法线强度（第一百二十四轮；0 = 不启用）
 			float normal_strength = 0.0f;
+			//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时生效）
+			bool alpha_to_coverage = false;
 			//记录是否有效
 			bool valid = false;
 		};
@@ -222,6 +224,11 @@ namespace engine
 		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
 		*/
 		std::vector<uint64_t> blend_pipelines;
+		/*
+		覆盖率写入档共用管线（第一百二十六轮；下标 = 混合档序）
+		与 blend_pipelines 同构，但登记的管线带 alphaToCoverage；仅在材质显式要求时使用。
+		*/
+		std::vector<uint64_t> blend_pipelines_alpha_coverage;
 		//当前绘制所选管线句柄（0 = 默认场景管线）
 		uint64_t bound_pipeline_request = 0;
 		//网格模块

@@ -27,7 +27,8 @@ namespace engine
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal)
+		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal,
+		bool alpha_to_coverage)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -142,6 +143,11 @@ namespace engine
 		multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 		multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(effective_samples);
 		multisample.sampleShadingEnable = VK_FALSE;
+		/*
+		覆盖率写入（第一百二十六轮）
+		仅多重采样管线启用；单采样时强制关闭，保持既有 alpha 混合路径逐字节不变。
+		*/
+		multisample.alphaToCoverageEnable = (alpha_to_coverage && effective_samples > 1) ? VK_TRUE : VK_FALSE;
 
 		//深度 / 模板（深度测试恒开；写开关与比较算子由参数给出，默认「写开 + LESS」）
 		VkPipelineDepthStencilStateCreateInfo depth_stencil{};
