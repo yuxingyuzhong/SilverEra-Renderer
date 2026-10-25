@@ -44,24 +44,24 @@ namespace engine
 		合并条件：管线 / 布局 / 顶点与索引缓冲 / 索引区 / 推送常量逐字节 / 后处理参数 /
 		实例缓冲相同且实例区首尾相接 / 阴影标记 / 采样数全等。
 		只累加实例数、不重排顺序，故绘制结果逐字节不变。
-		返回被合并掉的项数（第一百三十五轮；供合批收益观测）。
+		返回被合并掉的项数（第一百三十五轮）；scratch 为复用缓冲（第一百三十六轮，避免逐帧分配）。
 		*/
-		std::size_t batch_adjacent_items(std::vector<Frame_Render_Item>& items)
+		std::size_t batch_adjacent_items(std::vector<Frame_Render_Item>& items, std::vector<Frame_Render_Item>& scratch)
 		{
 			//不足两项无需合并
 			if (items.size() < 2)
 				return 0;
-			//合并结果（保留首个等价项并累加实例数）
-			std::vector<Frame_Render_Item> merged_items;
-			merged_items.reserve(items.size());
+			//复用外部缓冲作为合并结果存储（保留首个等价项并累加实例数）
+			scratch.clear();
+			scratch.reserve(items.size());
 			for (const Frame_Render_Item& item : items)
 			{
 				//能否并入前一项
 				bool can_merge = false;
 				//若已有可比较的前一项
-				if (!merged_items.empty())
+				if (!scratch.empty())
 				{
-					const Frame_Render_Item& last = merged_items.back();
+					const Frame_Render_Item& last = scratch.back();
 					//推送常量是否逐字节一致（0 字节表示两侧都不推送）
 					bool push_same = last.push_constant_size == item.push_constant_size
 						&& last.push_constant_offset == item.push_constant_offset;
@@ -87,13 +87,13 @@ namespace engine
 				}
 				//可合并则把实例数并入前一项（实例数据仍按原顺序连续）
 				if (can_merge)
-					merged_items.back().instance_count += item.instance_count;
+					scratch.back().instance_count += item.instance_count;
 				else
-					merged_items.push_back(item);
+					scratch.push_back(item);
 			}
 			//合并前项数
 			std::size_t original_size = items.size();
-			items.swap(merged_items);
+			items.swap(scratch);
 			//返回被合并掉的项数（原项数 − 合并后项数）
 			return original_size > items.size() ? original_size - items.size() : 0;
 		}
@@ -665,6 +665,13 @@ namespace engine
 			effective.frame_overlap = image_available_count;
 		}
 		//⑧ 帧（像素回读缓冲依赖内存模块，故传入 memory）
+		/*
+		预留帧内待绘制项与实例存储容量（第一百三十六轮）
+		容量取自实例上限，避免逐帧扩容；仅在初始化时执行一次。
+		*/
+		impl->pending_items.reserve(impl->instance_capacity);
+		impl->pending_instances.reserve(impl->instance_capacity);
+		impl->batch_scratch.reserve(impl->instance_capacity);
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
 			impl->device.present_family_get(), impl->device.present_queue_get(),
@@ -1671,7 +1678,7 @@ namespace engine
 						shadow_item.push_constants = cascade_matrix;
 					//阴影列表同样合批（第一百二十九轮；相邻等价项，投影顺序无关）
 					if (impl->static_batching)
-						impl->frame_merged_items += batch_adjacent_items(shadow_items);
+						impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
@@ -2159,7 +2166,7 @@ namespace engine
 		仅合并相邻等价项，绘制顺序与实例顺序不变，画面逐字节一致。
 		*/
 		if (impl->static_batching)
-			impl->frame_merged_items += batch_adjacent_items(impl->pending_items);
+			impl->frame_merged_items += batch_adjacent_items(impl->pending_items, impl->batch_scratch);
 
 		//为本帧待绘制项填装描述符集与实例缓冲句柄
 		for (auto& item : impl->pending_items)

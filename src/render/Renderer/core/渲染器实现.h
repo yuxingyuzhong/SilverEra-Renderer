@@ -481,6 +481,8 @@ namespace engine
 		VkShaderModule frag_module = VK_NULL_HANDLE;
 		//待绘制项（由 mesh_draw 逐次登记，frame_render 消费后清空；同帧可登记多个网格）
 		std::vector<Frame_Render_Item> pending_items;
+		//合批复用缓冲（第一百三十六轮；避免每帧为合并结果分配新向量）
+		std::vector<Frame_Render_Item> batch_scratch;
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 		//是否已初始化
