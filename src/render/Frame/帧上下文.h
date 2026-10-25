@@ -331,6 +331,8 @@ namespace engine
 		uint64_t gpu_sample_count_get(void) const;
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链；第二十二轮新增）
 		uint32_t last_post_stages_get(void) const;
+		//最近一帧实际使用的采样数（第一百零一轮；1 = 单采样）
+		uint32_t last_sample_count_get(void) const;
 		/*
 		压入延迟销毁条目（指示「release_frame 帧及以后」可释放）
 		条目中的旧资源（旧交换链 / 图像视图 / 两类信号量 / 深度图像与内存与视图）由帧模块在到期时释放；
@@ -477,6 +479,8 @@ namespace engine
 		uint64_t gpu_sample_count = 0;
 		//最近一帧实际执行的后处理级数（非链路径清零；第二十二轮新增）
 		uint32_t last_post_stages = 0;
+		//最近一帧实际使用的采样数（第一百零一轮；1 = 单采样）
+		uint32_t last_sample_count = 1;
 		//延迟销毁队列
 		std::vector<Deferred_Entry> deferred_entries;
 		//内存模块（像素回读缓冲的创建 / 销毁依赖它）

@@ -257,6 +257,12 @@ namespace engine
 		return last_post_stages;
 	}
 
+	//最近一帧实际使用的采样数（第一百零一轮）
+	uint32_t Frame_Context::last_sample_count_get(void) const
+	{
+		return last_sample_count;
+	}
+
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 	bool Frame_Context::slot_fence_wait(Frame_Slot& slot)
 	{

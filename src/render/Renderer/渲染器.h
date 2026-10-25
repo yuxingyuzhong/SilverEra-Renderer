@@ -105,6 +105,8 @@ namespace engine
 		*/
 		uint64_t scene_upload_bytes = 0;
 		uint64_t instance_upload_bytes = 0;
+		//最近一帧实际使用的 MSAA 采样数（第一百零一轮；1 = 单采样）
+		uint32_t msaa_samples = 1;
 	};
 
 	/*

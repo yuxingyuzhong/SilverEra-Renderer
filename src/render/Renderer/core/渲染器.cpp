@@ -2202,6 +2202,8 @@ namespace engine
 		stats.gpu_samples = impl->frame.gpu_sample_count_get();
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链）
 		stats.post_stages = impl->frame.last_post_stages_get();
+		//最近一帧实际使用的采样数（第一百零一轮）
+		stats.msaa_samples = impl->frame.last_sample_count_get();
 		//累计因视锥剔除而未登记的项数
 		stats.culled_items = impl->culled_items;
 		//累计按需上传字节（第七十二轮）
