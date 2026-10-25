@@ -399,6 +399,19 @@ namespace engine
 		return entry_find(handle) != nullptr;
 	}
 
+	//获取指定句柄图形管线实际烘焙的采样数（第九十八轮）
+	uint32_t Pipeline_Context::pipeline_sample_count(uint64_t handle) const
+	{
+		//取目标条目
+		const Pipeline_Entry* entry = entry_find(handle);
+		//未登记按单采样处理
+		if (entry == nullptr)
+			return 1;
+		//条目固定采样数优先，否则跟随配置
+		uint32_t samples = entry->sample_count != 0 ? entry->sample_count : config.sample_count;
+		return samples == 0 ? 1 : samples;
+	}
+
 	//获取当前激活图形管线
 	VkPipeline Pipeline_Context::pipeline_get(void) const
 	{

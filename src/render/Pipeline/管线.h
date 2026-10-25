@@ -134,6 +134,12 @@ namespace engine
 		VkPipeline pipeline_get(void) const;
 		//获取指定句柄的图形管线（未登记返回空；不改变当前激活管线）
 		VkPipeline pipeline_by_handle_get(uint64_t handle) const;
+		/*
+		获取指定句柄图形管线实际烘焙的采样数（第九十八轮）
+		条目固定采样数优先，否则为上下文配置值；未登记返回 1。
+		供帧模块按级选择单采样 / 多重采样宿附件。
+		*/
+		uint32_t pipeline_sample_count(uint64_t handle) const;
 		//获取管线布局（全管线共享）
 		VkPipelineLayout layout_get(void) const;
 		//第 slot 帧槽的场景 UBO 描述符集（set 0）

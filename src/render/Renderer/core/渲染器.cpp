@@ -259,8 +259,9 @@ namespace engine
 			}
 			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
 			uint64_t registered = 0;
+			//内置后处理管线固定单采样（第九十八轮：全屏 pass 无需多重采样）
 			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque,
-				VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
+				VK_FORMAT_UNDEFINED, false, 1, vert_input_locations))
 			{
 				logger.error("渲染器:: 后处理管线登记失败");
 				shader.module_destroy(vert_module);
@@ -307,8 +308,9 @@ namespace engine
 			}
 			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
 			uint64_t registered = 0;
+			//SSAA 降采样为全屏 pass，固定单采样（第九十八轮）
 			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque,
-				VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
+				VK_FORMAT_UNDEFINED, false, 1, vert_input_locations))
 			{
 				logger.error("渲染器:: SSAA 降采样管线登记失败");
 				shader.module_destroy(vert_module);
@@ -1892,6 +1894,8 @@ namespace engine
 					post_item.instance_buffer = impl->instance_buffers[slot];
 					post_item.instance_offset = ssaa_instance_offset;
 					post_item.instance_count = 1;
+					//该级管线实际采样数（决定宿附件是否为多重采样）
+					post_item.sample_count = impl->pipeline.pipeline_sample_count(stage_pipelines[index]);
 					post_items.push_back(post_item);
 				}
 				//若两级绘制项齐备
@@ -2022,6 +2026,8 @@ namespace engine
 					post_item.instance_buffer = impl->instance_buffers[slot];
 					post_item.instance_offset = post_instance_offset;
 					post_item.instance_count = 1;
+					//该级管线实际采样数（决定宿附件是否为多重采样；第九十八轮）
+					post_item.sample_count = impl->pipeline.pipeline_sample_count(stage_pipelines[index]);
 					//泛光参数（帧模块随「源 / 宿尺寸」一并推送，offset 96）
 					if (index < Impl::POST_CHAIN_MAX_STAGES && impl->post_stage_param_valid[index])
 					{

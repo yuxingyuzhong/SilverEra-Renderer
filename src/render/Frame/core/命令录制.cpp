@@ -808,7 +808,14 @@ namespace engine
 			VkImage stage_msaa_image = last_stage ? swapchain_msaa_image : dest.msaa_color_image;
 			VkImageView stage_msaa_color = last_stage ? swapchain_msaa_color_view : dest.msaa_color_view;
 			VkImageView stage_msaa_depth = last_stage ? swapchain_msaa_depth_view : dest.msaa_depth_view;
-			uint32_t stage_sample_count = last_stage ? swapchain_sample_count : dest.sample_count;
+			/*
+			本级采样数取该级管线实际烘焙值（第九十八轮）
+			后处理为全屏 pass，单采样与多重采样结果等价；内置后处理管线固定单采样，
+			故通常直接写单采样宿，省去多重采样附件的写入与解析带宽。
+			*/
+			uint32_t stage_sample_count = post_items[stage].sample_count;
+			if (stage_sample_count == 0)
+				stage_sample_count = 1;
 			//本级宿 MSAA 颜色附件布局转换（内容逐帧丢弃，oldLayout 用 UNDEFINED）
 			if (stage_sample_count > 1 && stage_msaa_image != VK_NULL_HANDLE)
 			{
