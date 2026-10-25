@@ -74,6 +74,7 @@ namespace engine
 						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
 							== item.instance_offset;
 					can_merge = push_same && post_same && instance_adjacent
+						&& !last.transparent && !item.transparent
 						&& last.pipeline == item.pipeline
 						&& last.layout == item.layout
 						&& last.vertex_buffer == item.vertex_buffer
@@ -3138,6 +3139,8 @@ namespace engine
 		item.instance_count = 1;
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
+		//透明标记（第一百三十轮：文字等非不透明混合项不参与合批，避免混叠顺序改变）
+		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*
 		颜色 / 色调推送（文字着色 ＋ 第六十九轮逐物体色调）
 		矩阵已由实例缓冲承载，推送块前 64 字节仅用于占位（单位矩阵），后 16 字节为颜色；
@@ -3258,6 +3261,8 @@ namespace engine
 		item.instance_count = count;
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
+		//透明标记（第一百三十轮：非不透明混合项不参与合批）
+		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*
 		色调推送（第六十九轮）
 		场景片元着色器恒读推送常量 offset 64 处的 tint，故实例化绘制也必须推送该块：

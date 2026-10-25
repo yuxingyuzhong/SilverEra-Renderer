@@ -148,6 +148,11 @@ namespace engine
 
 		//获取当前激活图形管线
 		VkPipeline pipeline_get(void) const;
+		/*
+		获取当前激活图形管线的混合档（第一百三十轮）
+		无激活管线时返回 Blend_Mode::Opaque；供门面标记「透明绘制项不参与合批」。
+		*/
+		Blend_Mode pipeline_blend_mode_get(void) const;
 		//获取指定句柄的图形管线（未登记返回空；不改变当前激活管线）
 		VkPipeline pipeline_by_handle_get(uint64_t handle) const;
 		/*

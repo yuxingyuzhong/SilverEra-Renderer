@@ -506,6 +506,15 @@ namespace engine
 		return entry != nullptr ? entry->pipeline : VK_NULL_HANDLE;
 	}
 
+	//获取当前激活图形管线的混合档（第一百三十轮）
+	Blend_Mode Pipeline_Context::pipeline_blend_mode_get(void) const
+	{
+		//取当前激活条目
+		const Pipeline_Entry* entry = entry_find(active_handle);
+		//条目存在则返回其混合档，否则按不透明处理
+		return entry != nullptr ? entry->blend_mode : Blend_Mode::Opaque;
+	}
+
 	//获取指定句柄的图形管线（不改变当前激活管线）
 	VkPipeline Pipeline_Context::pipeline_by_handle_get(uint64_t handle) const
 	{
