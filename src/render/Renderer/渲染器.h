@@ -119,6 +119,13 @@ namespace engine
 		//累计主机侧耗时（毫秒；自 init 以来各帧 frame_ms 之和）
 		double frame_total_ms = 0.0;
 		/*
+		累计主机侧分段耗时（毫秒；第一百三十四轮）
+		三段随每帧累加，与 frame_total_ms 同一口径；离屏帧不累加呈现段。
+		*/
+		double host_record_total_ms = 0.0;
+		double host_submit_total_ms = 0.0;
+		double host_present_total_ms = 0.0;
+		/*
 		累计 GPU 侧耗时（毫秒；自 init 以来各次成功读回的时间戳之和；设备不支持时恒 0）
 		读回口径为「按帧槽环形读回」：第 N 帧读回的是该槽上一轮（第 N − 在途帧数 帧）的耗时。
 		*/

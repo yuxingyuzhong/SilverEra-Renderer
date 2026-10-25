@@ -219,6 +219,10 @@ namespace engine
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
 		total_frame_ms += last_frame_ms;
+		//累计主机侧分段（第一百三十四轮）
+		total_host_record_ms += last_host_record_ms;
+		total_host_submit_ms += last_host_submit_ms;
+		total_host_present_ms += last_host_present_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
 		//交换链直通路径无后处理级；记录本帧采样数
@@ -335,6 +339,10 @@ namespace engine
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
 		total_frame_ms += last_frame_ms;
+		//累计主机侧分段（第一百三十四轮）
+		total_host_record_ms += last_host_record_ms;
+		total_host_submit_ms += last_host_submit_ms;
+		total_host_present_ms += last_host_present_ms;
 		//累计本帧绘制统计
 		frame_stats_accumulate(items, item_count);
 		//离屏路径无后处理级；记录目标采样数
@@ -541,6 +549,10 @@ namespace engine
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
 		total_frame_ms += last_frame_ms;
+		//累计主机侧分段（第一百三十四轮）
+		total_host_record_ms += last_host_record_ms;
+		total_host_submit_ms += last_host_submit_ms;
+		total_host_present_ms += last_host_present_ms;
 		//累计本帧绘制统计（场景 pass 项 ＋ 各级后处理 pass 的单个绘制项）
 		frame_stats_accumulate(items, item_count);
 		//本帧实际执行的后处理级数（链路径即 post_count）；记录场景目标的采样数

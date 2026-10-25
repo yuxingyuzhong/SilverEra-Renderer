@@ -339,6 +339,13 @@ namespace engine
 		//累计主机侧耗时（毫秒；自构建以来各帧「录制 ＋ 提交 ＋ 呈现调用」之和）
 		double total_frame_ms_get(void) const;
 		/*
+		累计主机侧分段耗时（毫秒；第一百三十四轮）
+		录制 / 提交 / 呈现三段随每帧累加，与 total_frame_ms 同一口径；无边框的呈现段在离屏帧中不增长。
+		*/
+		double total_host_record_ms_get(void) const;
+		double total_host_submit_ms_get(void) const;
+		double total_host_present_ms_get(void) const;
+		/*
 		清零累计统计（第九十一轮）
 		frames 以外的累计量（绘制项 / 实例 / 实际绘制 / 累计耗时 / GPU 样本）全部归零；
 		最近一帧的即时量（last_frame_ms / last_gpu_frame_ms / last_post_stages）保持不变。
@@ -519,6 +526,10 @@ namespace engine
 		double last_host_present_ms = 0.0;
 		//累计主机侧耗时（毫秒；自构建以来）
 		double total_frame_ms = 0.0;
+		//累计主机侧分段耗时（第一百三十四轮）
+		double total_host_record_ms = 0.0;
+		double total_host_submit_ms = 0.0;
+		double total_host_present_ms = 0.0;
 		//累计绘制项数（自构建以来）
 		uint64_t total_draw_items = 0;
 		//累计实例数（按登记项计；含被跳过的不完整项）

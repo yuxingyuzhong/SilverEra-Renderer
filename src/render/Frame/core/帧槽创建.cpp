@@ -141,6 +141,10 @@ namespace engine
 		last_host_submit_ms = 0.0;
 		last_host_present_ms = 0.0;
 		total_frame_ms = 0.0;
+		//主机侧分段累计一并归零（第一百三十四轮）
+		total_host_record_ms = 0.0;
+		total_host_submit_ms = 0.0;
+		total_host_present_ms = 0.0;
 		total_draw_items = 0;
 		total_instances = 0;
 		total_drawn_items = 0;
@@ -218,10 +222,32 @@ namespace engine
 		return total_frame_ms;
 	}
 
+	//累计录制阶段耗时（毫秒；第一百三十四轮）
+	double Frame_Context::total_host_record_ms_get(void) const
+	{
+		return total_host_record_ms;
+	}
+
+	//累计提交阶段耗时（毫秒；第一百三十四轮）
+	double Frame_Context::total_host_submit_ms_get(void) const
+	{
+		return total_host_submit_ms;
+	}
+
+	//累计呈现阶段耗时（毫秒；第一百三十四轮）
+	double Frame_Context::total_host_present_ms_get(void) const
+	{
+		return total_host_present_ms;
+	}
+
 	//清零累计统计（第九十一轮；即时量保持不变）
 	void Frame_Context::totals_reset(void)
 	{
 		total_frame_ms = 0.0;
+		//主机侧分段累计一并归零（第一百三十四轮）
+		total_host_record_ms = 0.0;
+		total_host_submit_ms = 0.0;
+		total_host_present_ms = 0.0;
 		total_draw_items = 0;
 		total_instances = 0;
 		total_drawn_items = 0;

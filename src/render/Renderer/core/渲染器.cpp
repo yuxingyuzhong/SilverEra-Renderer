@@ -2636,6 +2636,10 @@ namespace engine
 		stats.drawn_instances = impl->frame.total_drawn_instances_get();
 		//累计口径：主机侧耗时之和、GPU 侧成功读回之和与样本数
 		stats.frame_total_ms = impl->frame.total_frame_ms_get();
+		//主机侧分段累计（第一百三十四轮）
+		stats.host_record_total_ms = impl->frame.total_host_record_ms_get();
+		stats.host_submit_total_ms = impl->frame.total_host_submit_ms_get();
+		stats.host_present_total_ms = impl->frame.total_host_present_ms_get();
 		stats.gpu_total_ms = impl->frame.total_gpu_frame_ms_get();
 		stats.gpu_samples = impl->frame.gpu_sample_count_get();
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链）
