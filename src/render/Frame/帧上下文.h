@@ -362,6 +362,17 @@ namespace engine
 		double shadow_gpu_ms_read(void);
 		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回的时间戳之和；无能力时恒 0）
 		double total_gpu_frame_ms_get(void) const;
+		/*
+		累计分段 GPU 耗时（第一百三十一轮）
+		场景 / 后处理随主查询池每次成功读回累加；阴影每完成一次读回累加一次（按需重绘时才会读回）。
+		无能力时各项恒 0。
+		*/
+		double total_gpu_scene_ms_get(void) const;
+		double total_gpu_post_ms_get(void) const;
+		//累计阴影 pass 的 GPU 耗时（毫秒）
+		double total_gpu_shadow_ms_get(void) const;
+		//已读回的阴影 GPU 样本数（每完成一次阴影读回递增；自构建以来累计）
+		uint64_t gpu_shadow_sample_count_get(void) const;
 		//已读回 GPU 时间戳的样本数（无能力 / 该帧槽首轮未写时间戳时不增；自构建以来累计）
 		uint64_t gpu_sample_count_get(void) const;
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链；第二十二轮新增）
@@ -518,6 +529,12 @@ namespace engine
 		uint32_t last_shadow_slot = 0;
 		//累计 GPU 侧耗时（毫秒；自构建以来各次成功读回之和）
 		double total_gpu_frame_ms = 0.0;
+		//累计分段 GPU 耗时（第一百三十一轮）
+		double total_gpu_scene_ms = 0.0;
+		double total_gpu_post_ms = 0.0;
+		double total_gpu_shadow_ms = 0.0;
+		//已读回的阴影 GPU 样本数
+		uint64_t gpu_shadow_sample_count = 0;
 		//已读回 GPU 时间戳的样本数（自构建以来）
 		uint64_t gpu_sample_count = 0;
 		//最近一帧实际执行的后处理级数（非链路径清零；第二十二轮新增）

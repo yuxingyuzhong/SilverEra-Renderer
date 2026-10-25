@@ -55,6 +55,9 @@ namespace engine
 		last_gpu_post_ms = static_cast<double>(post_end_ticks - scene_end_ticks) * period;
 		//累计本次读回的 GPU 耗时与样本数（仅在确实读回时递增，故样本数 = 已成功读回的帧数）
 		total_gpu_frame_ms += last_gpu_frame_ms;
+		//累计分段耗时（第一百三十一轮；与总耗时同一读回口径）
+		total_gpu_scene_ms += last_gpu_scene_ms;
+		total_gpu_post_ms += last_gpu_post_ms;
 		++gpu_sample_count;
 	}
 
@@ -76,6 +79,9 @@ namespace engine
 		uint64_t mask = timestamp_valid_bits >= 64 ? ~0ull : ((1ull << timestamp_valid_bits) - 1ull);
 		double period = static_cast<double>(timestamp_period) / 1.0e6;
 		last_gpu_shadow_ms = static_cast<double>((ticks[1] & mask) - (ticks[0] & mask)) * period;
+		//累计阴影耗时与样本数（第一百三十一轮；仅在确实读回时递增）
+		total_gpu_shadow_ms += last_gpu_shadow_ms;
+		++gpu_shadow_sample_count;
 		return last_gpu_shadow_ms;
 	}
 

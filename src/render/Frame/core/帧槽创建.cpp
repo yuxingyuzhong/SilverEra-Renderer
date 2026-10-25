@@ -148,6 +148,11 @@ namespace engine
 		last_gpu_frame_ms = 0.0;
 		total_gpu_frame_ms = 0.0;
 		gpu_sample_count = 0;
+		//分段累计量一并归零（第一百三十一轮）
+		total_gpu_scene_ms = 0.0;
+		total_gpu_post_ms = 0.0;
+		total_gpu_shadow_ms = 0.0;
+		gpu_shadow_sample_count = 0;
 		//解除对内存模块的引用
 		memory = nullptr;
 	}
@@ -201,6 +206,11 @@ namespace engine
 		total_drawn_instances = 0;
 		total_gpu_frame_ms = 0.0;
 		gpu_sample_count = 0;
+		//分段累计量一并归零（第一百三十一轮）
+		total_gpu_scene_ms = 0.0;
+		total_gpu_post_ms = 0.0;
+		total_gpu_shadow_ms = 0.0;
+		gpu_shadow_sample_count = 0;
 	}
 
 	//累计绘制项数
@@ -267,6 +277,30 @@ namespace engine
 	uint64_t Frame_Context::gpu_sample_count_get(void) const
 	{
 		return gpu_sample_count;
+	}
+
+	//累计场景 pass 的 GPU 耗时（毫秒；第一百三十一轮）
+	double Frame_Context::total_gpu_scene_ms_get(void) const
+	{
+		return total_gpu_scene_ms;
+	}
+
+	//累计后处理各级合计的 GPU 耗时（毫秒；第一百三十一轮）
+	double Frame_Context::total_gpu_post_ms_get(void) const
+	{
+		return total_gpu_post_ms;
+	}
+
+	//累计阴影 pass 的 GPU 耗时（毫秒；第一百三十一轮）
+	double Frame_Context::total_gpu_shadow_ms_get(void) const
+	{
+		return total_gpu_shadow_ms;
+	}
+
+	//已读回的阴影 GPU 样本数（第一百三十一轮）
+	uint64_t Frame_Context::gpu_shadow_sample_count_get(void) const
+	{
+		return gpu_shadow_sample_count;
 	}
 
 	//最近一帧实际执行的后处理级数

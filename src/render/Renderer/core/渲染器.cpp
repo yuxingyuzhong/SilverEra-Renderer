@@ -2610,6 +2610,11 @@ namespace engine
 		stats.gpu_scene_ms = impl->frame.last_gpu_scene_ms_get();
 		stats.gpu_post_ms = impl->frame.last_gpu_post_ms_get();
 		stats.gpu_shadow_ms = impl->shadow_gpu_ms;
+		//累计分段耗时与阴影样本数（第一百三十一轮）
+		stats.gpu_scene_total_ms = impl->frame.total_gpu_scene_ms_get();
+		stats.gpu_post_total_ms = impl->frame.total_gpu_post_ms_get();
+		stats.gpu_shadow_total_ms = impl->frame.total_gpu_shadow_ms_get();
+		stats.gpu_shadow_samples = impl->frame.gpu_shadow_sample_count_get();
 		//实际绘制量（不含被跳过的不完整项；与登记量 draw_items / instances 对照可见差异）
 		stats.drawn_items = impl->frame.total_drawn_items_get();
 		stats.drawn_instances = impl->frame.total_drawn_instances_get();

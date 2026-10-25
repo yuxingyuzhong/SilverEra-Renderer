@@ -99,6 +99,15 @@ namespace engine
 		double gpu_scene_ms = 0.0;
 		double gpu_post_ms = 0.0;
 		double gpu_shadow_ms = 0.0;
+		/*
+		累计分段 GPU 耗时（第一百三十一轮；设备不支持时各项恒 0）
+		场景 / 后处理随每次成功读回累加；阴影每完成一次读回累加一次（按需重绘时才会产生样本）。
+		gpu_shadow_samples 为已读回的阴影样本数。
+		*/
+		double gpu_scene_total_ms = 0.0;
+		double gpu_post_total_ms = 0.0;
+		double gpu_shadow_total_ms = 0.0;
+		uint64_t gpu_shadow_samples = 0;
 		//累计主机侧耗时（毫秒；自 init 以来各帧 frame_ms 之和）
 		double frame_total_ms = 0.0;
 		/*
@@ -191,8 +200,9 @@ namespace engine
 		Frame_Stats frame_stats_get(void) const;
 		/*
 		清零累计帧统计（第九十一轮新增）
-		帧数、绘制项 / 实例 / 实际绘制量、累计耗时、GPU 样本、剔除数、上传字节全部归零；
-		最近一帧的即时量（frame_ms / gpu_frame_ms / post_stages）保持不变。未初始化时静默忽略。
+		帧数、绘制项 / 实例 / 实际绘制量、累计耗时（主机 / GPU / 分段）、GPU 样本（含阴影样本）、
+		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / gpu_frame_ms / gpu_scene_ms /
+		gpu_post_ms / gpu_shadow_ms / post_stages）保持不变。未初始化时静默忽略。
 		*/
 		void frame_stats_reset(void);
 		/*
