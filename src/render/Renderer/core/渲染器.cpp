@@ -4245,6 +4245,44 @@ namespace engine
 		impl->post_stage_param_valid[stage] = true;
 	}
 
+	//四参逐级设置（第一百二十二轮；供分级调色阶段使用）
+	void Renderer::post_stage_param4_set(uint32_t stage, float x, float y, float z, float w)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		/*
+		参数校验（分级调色语义）
+		黑位抬升 −1..1、伽马 0.01..10、增益 0..10、饱和度 0..4；
+		任一越界或非有限值即整次忽略，保持该级原参数不变。
+		*/
+		bool finite = (x == x) && (y == y) && (z == z) && (w == w);
+		bool valid = finite
+			&& x >= -1.0f && x <= 1.0f
+			&& y >= 0.01f && y <= 10.0f
+			&& z >= 0.0f && z <= 10.0f
+			&& w >= 0.0f && w <= 4.0f;
+		//若非法则整次忽略（保持原值）
+		if (!valid)
+		{
+			logger.warn("渲染器:: 逐级四参非法（级 {}：lift {}、gamma {}、gain {}、sat {}），整次忽略",
+				stage, x, y, z, w);
+			return;
+		}
+		impl->post_stage_param[stage][0] = x;
+		impl->post_stage_param[stage][1] = y;
+		impl->post_stage_param[stage][2] = z;
+		impl->post_stage_param[stage][3] = w;
+		impl->post_stage_param_valid[stage] = true;
+	}
+
 	//启用 / 关闭视锥剔除
 	void Renderer::cull_enabled_set(bool enabled)
 	{

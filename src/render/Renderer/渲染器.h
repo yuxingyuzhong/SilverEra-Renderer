@@ -591,6 +591,14 @@ namespace engine
 		*/
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		/*
+		四参逐级设置（第一百二十二轮新增；供「分级调色」阶段使用）
+		stage 为链内级序（0 起，须小于当前链级数）；
+		x = 黑位抬升 lift（−1..1）、y = 伽马 gamma（0.01..10）、z = 增益 gain（0..10）、
+		w = 饱和度 saturation（0..4）；恒等参数为 (0, 1, 1, 1)。
+		任一参数越界或非有限值即整次忽略并告警；生效后自下一次 frame_render 起按该级下发。
+		*/
+		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
+		/*
 		批量读回当前链各级的专设参数（第八十二轮新增；只读诊断）
 		out 按「级序 × 4 浮点」紧排（阈值 / 软膝 / 强度 / 保留），最多写 capacity / 4 级；
 		返回值 = 实际写入的级数 = min(链级数, capacity / 4)；未专设的级写 0。
