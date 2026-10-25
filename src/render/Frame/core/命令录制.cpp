@@ -435,12 +435,21 @@ namespace engine
 		color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		color_attachment.imageView = target.sample_count > 1 ? target.msaa_color_view : target.color_view;
 		color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		/*
+		清屏或保留（第一百二十一轮）
+		clear_color 为空表示「保留已有内容」，供同一目标的后续分片 pass 使用（级联阴影第 2 片）。
+		*/
+		color_attachment.loadOp = clear_color != nullptr ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 		color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		color_attachment.clearValue.color.float32[0] = clear_color[0];
-		color_attachment.clearValue.color.float32[1] = clear_color[1];
-		color_attachment.clearValue.color.float32[2] = clear_color[2];
-		color_attachment.clearValue.color.float32[3] = clear_color[3];
+		if (clear_color != nullptr)
+		{
+			color_attachment.clearValue.color.float32[0] = clear_color[0];
+			color_attachment.clearValue.color.float32[1] = clear_color[1];
+			color_attachment.clearValue.color.float32[2] = clear_color[2];
+			color_attachment.clearValue.color.float32[3] = clear_color[3];
+		}
+		else
+			color_attachment.clearValue.color.float32[0] = 0.0f;
 		//MSAA：解析到目标单采样颜色图像
 		if (target.sample_count > 1)
 		{
@@ -472,7 +481,7 @@ namespace engine
 		//进入动态渲染
 		vkCmdBeginRendering(command_buffer, &rendering_info);
 
-		//视口（正高度；与交换链路径同口径）
+		//视口（正高度；与交换链路径同口径；第一百二十一轮支持子视口）
 		VkViewport viewport{};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
@@ -480,12 +489,20 @@ namespace engine
 		viewport.height = static_cast<float>(target.extent.height);
 		viewport.minDepth = 0.0f;
 		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-
-		//裁剪区
+		//裁剪区（默认整幅目标）
 		VkRect2D scissor{};
 		scissor.offset = { 0, 0 };
 		scissor.extent = target.extent;
+		//若指定了子视口（宽高均非零），则视口与裁剪均收缩到该矩形
+		if (target.viewport_rect.extent.width != 0 && target.viewport_rect.extent.height != 0)
+		{
+			viewport.x = static_cast<float>(target.viewport_rect.offset.x);
+			viewport.y = static_cast<float>(target.viewport_rect.offset.y);
+			viewport.width = static_cast<float>(target.viewport_rect.extent.width);
+			viewport.height = static_cast<float>(target.viewport_rect.extent.height);
+			scissor = target.viewport_rect;
+		}
+		vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 		vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
 		//逐渲染项绘制（带状态缓存）

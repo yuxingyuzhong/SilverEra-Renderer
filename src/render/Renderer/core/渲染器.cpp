@@ -40,12 +40,13 @@ namespace engine
 		}
 
 		/*
-		阴影输入签名（第五十五轮）
-		把光源空间矩阵、本帧实例矩阵（全部 float 位模式）、投影项数与阴影图边长混入 64 位 FNV-1a；
-		用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
+		阴影输入签名（第五十五轮；第一百二十一轮加级联信息）
+		把光源空间矩阵（含远区级联矩阵）、本帧实例矩阵（全部 float 位模式）、投影项数、阴影图边长
+		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
 		*/
-		uint64_t shadow_signature_build(const float light_view_proj[16], const float* instances,
-			std::size_t instance_count, std::size_t shadow_item_count, uint32_t shadow_size)
+		uint64_t shadow_signature_build(const float light_view_proj[16], const float light_view_proj_far[16],
+			const float* instances, std::size_t instance_count, std::size_t shadow_item_count,
+			uint32_t shadow_size, uint32_t cascade_count)
 		{
 			//FNV-1a 偏移基
 			uint64_t hash = 1469598103934665603ull;
@@ -57,9 +58,12 @@ namespace engine
 				hash ^= static_cast<uint64_t>(bits);
 				hash *= 1099511628211ull;
 			};
-			//光源空间矩阵
+			//光源空间矩阵（近区）
 			for (std::size_t index = 0; index < 16; ++index)
 				mix_float(light_view_proj[index]);
+			//远区级联矩阵（单级时为零矩阵，不影响既有签名分布）
+			for (std::size_t index = 0; index < 16; ++index)
+				mix_float(light_view_proj_far[index]);
 			//实例矩阵（每项 16 个 float）
 			for (std::size_t index = 0; index < instance_count; ++index)
 				mix_float(instances[index]);
@@ -67,6 +71,8 @@ namespace engine
 			hash ^= static_cast<uint64_t>(shadow_item_count);
 			hash *= 1099511628211ull;
 			hash ^= static_cast<uint64_t>(shadow_size);
+			hash *= 1099511628211ull;
+			hash ^= static_cast<uint64_t>(cascade_count);
 			hash *= 1099511628211ull;
 			return hash;
 		}
@@ -641,8 +647,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；第六十四轮由 960 扩为 976 字节：追加 PBR-lite 参数 vec4）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 976,
+			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十一轮由 976 扩为 1056 字节：追加远区级联矩阵与级联参数）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1056,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -1343,15 +1349,55 @@ namespace engine
 			light_dir = glm::normalize(light_dir);
 			//上向量与光向平行时改用 X 轴
 			glm::vec3 up = glm::abs(light_dir.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-			//光源机位位于场景中心的「逆光向」一侧
-			glm::vec3 eye = -light_dir * 20.0f;
-			glm::mat4 light_view = glm::lookAt(eye, glm::vec3(0.0f), up);
-			//正交范围可配（第一百零七轮；默认 12 / 1 / 60 与旧版一致）
-			glm::mat4 light_proj = glm::ortho(-impl->shadow_half_extent, impl->shadow_half_extent,
-				-impl->shadow_half_extent, impl->shadow_half_extent, impl->shadow_near, impl->shadow_far);
-			light_proj[1][1] *= -1.0f;
-			glm::mat4 light_vp = light_proj * light_view;
-			std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
+			/*
+			级联阴影矩阵（第一百二十一轮）
+			单级：与引入级联前完全一致 —— 光源机位固定在场景中心的「逆光向」一侧，
+			      正交半宽取 shadow_half_extent，近远取 shadow_near / shadow_far。
+			双级：两片各为「以相机为中心的包围球」，半径分别为 split_distance 与 split × far_scale；
+			      片元按与相机的距离选择，故与着色器的选择口径严格一致（不依赖视场角与宽高比）。
+			*/
+			if (impl->cascade_count == 2 && impl->cascade_far_scale > 1.0f)
+			{
+				//相机世界位置（两片包围球的共同中心）
+				float camera_position[3] = {};
+				impl->camera.position_get(camera_position);
+				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
+				for (uint32_t cascade = 0; cascade < 2; ++cascade)
+				{
+					//本片包围球半径（第 0 片近区 = 切换距离，第 1 片远区 = 切换距离 × 远区倍数）
+					float radius = cascade == 0
+						? impl->cascade_split_distance
+						: impl->cascade_split_distance * impl->cascade_far_scale;
+					//光源机位：沿逆光向退到「球半径 + 近平面」处，使整球都落在近平面之后
+					glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+					glm::mat4 light_view = glm::lookAt(eye, center, up);
+					//深度跨度：球直径 + 两端近平面余量
+					float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
+					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
+					proj[1][1] *= -1.0f;
+					glm::mat4 vp = proj * light_view;
+					float* target_matrix = cascade == 0 ? impl->light_view_proj : impl->light_view_proj_far;
+					std::memcpy(target_matrix, glm::value_ptr(vp), sizeof(float) * 16);
+					//记录本片深度跨度（着色器法线偏移换算用）
+					impl->cascade_depth_span[cascade] = depth_far - impl->shadow_near;
+				}
+			}
+			else
+			{
+				//光源机位位于场景中心的「逆光向」一侧
+				glm::vec3 eye = -light_dir * 20.0f;
+				glm::mat4 light_view = glm::lookAt(eye, glm::vec3(0.0f), up);
+				//正交范围可配（第一百零七轮；默认 12 / 1 / 60 与旧版一致）
+				glm::mat4 light_proj = glm::ortho(-impl->shadow_half_extent, impl->shadow_half_extent,
+					-impl->shadow_half_extent, impl->shadow_half_extent, impl->shadow_near, impl->shadow_far);
+				light_proj[1][1] *= -1.0f;
+				glm::mat4 light_vp = light_proj * light_view;
+				std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
+				//单级：远区矩阵为零，深度跨度固定 59（与引入级联前一致）
+				std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
+				impl->cascade_depth_span[0] = 59.0f;
+				impl->cascade_depth_span[1] = 59.0f;
+			}
 		}
 		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
@@ -1375,8 +1421,9 @@ namespace engine
 			const float* instance_floats = impl->pending_instances.empty()
 				? nullptr : impl->pending_instances.front().data();
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				instance_floats, impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
-				shadow_item_count, impl->shadow_size);
+				impl->light_view_proj_far, instance_floats,
+				impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
+				shadow_item_count, impl->shadow_size, impl->cascade_count);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
 			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
 			{
@@ -1450,11 +1497,37 @@ namespace engine
 				}
 				//阴影图清空为全 0（打包深度 0 = 最远）
 				const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-				if (!impl->frame.render_to_target(shadow_target, shadow_items.data(),
-					static_cast<uint32_t>(shadow_items.size()), shadow_clear))
+				/*
+				按级联分片绘制（第一百二十一轮）
+				单级：整幅目标一次绘制，行为与引入级联前逐字节一致；
+				双级：目标沿 X 切成左右两片，各占「边长的一半」，第 1 片先清屏整幅、第 2 片以「保留」写入。
+				*/
+				uint32_t cascade_total = impl->cascade_count == 2 ? 2u : 1u;
+				uint32_t tile_size = cascade_total == 2 ? (impl->shadow_size / 2) : impl->shadow_size;
+				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
 				{
-					logger.error("渲染器:: 阴影 pass 提交失败");
-					return false;
+					//本片目标（双级时收缩视口到对应象限；奇数边长时右片取剩余宽度）
+					Frame_Render_Target cascade_target = shadow_target;
+					if (cascade_total == 2)
+					{
+						uint32_t tile_origin = cascade == 0 ? 0 : tile_size;
+						uint32_t tile_width = cascade == 0 ? tile_size
+							: (shadow_target.extent.width > tile_size ? shadow_target.extent.width - tile_size : tile_size);
+						cascade_target.viewport_rect.offset = { static_cast<int32_t>(tile_origin), 0 };
+						cascade_target.viewport_rect.extent = { tile_width, tile_size };
+					}
+					//本片使用的光源空间矩阵
+					const float* cascade_matrix = cascade == 0 ? impl->light_view_proj : impl->light_view_proj_far;
+					for (auto& shadow_item : shadow_items)
+						shadow_item.push_constants = cascade_matrix;
+					//第 1 片负责清屏，后续片保留已有内容
+					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
+					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
+						static_cast<uint32_t>(shadow_items.size()), cascade_clear))
+					{
+						logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
+						return false;
+					}
 				}
 				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
 				if (!impl->frame.frames_wait())
@@ -1490,13 +1563,14 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块组装（976 字节 = 244 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数）
+		场景 UBO 整块组装（1056 字节 = 264 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
+		第一百二十一轮追加远区级联矩阵与级联参数）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
 		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
 		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度、
-		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）。
+		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）、244 远区级联矩阵、260 级联参数。
 		*/
-		float scene_block[244] = {};
+		float scene_block[264] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1595,40 +1669,52 @@ namespace engine
 		scene_block[241] = impl->pbr_roughness;
 		scene_block[242] = impl->pbr_metallic;
 		/*
+		级联阴影参数（第一百二十一轮）
+		244..259 为远区级联矩阵（单级时为零矩阵）；260..263 为级联参数：
+		x = 级联数（1 或 2）、y = 切换距离（与相机的世界距离）、
+		z = 近区深度跨度、w = 远区深度跨度（供着色器换算法线偏移；单级时均为 59）。
+		*/
+		for (std::size_t index = 0; index < 16; ++index)
+			scene_block[244 + index] = impl->light_view_proj_far[index];
+		scene_block[260] = static_cast<float>(impl->cascade_count == 2 ? 2 : 1);
+		scene_block[261] = impl->cascade_split_distance;
+		scene_block[262] = impl->cascade_depth_span[0];
+		scene_block[263] = impl->cascade_depth_span[1];
+		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 244 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的 264 浮点，按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 976 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 1056 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 244)
+		if (impl->scene_block_cache.size() != scene_slot_count * 264)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 244, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * 264, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		//本帧槽缓存段（244 浮点）
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 244;
+		//本帧槽缓存段（264 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 264;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 976, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1056, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 976;
+			uploaded_bytes = 1056;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 244 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = 264 / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -1673,8 +1759,8 @@ namespace engine
 				uploaded_bytes += segment_bytes;
 			}
 		}
-		//更新该帧槽缓存（与已写入内容一致）
-		for (std::size_t index = 0; index < 244; ++index)
+		//更新该帧槽缓存（与已写入内容一致；第一百二十一轮为 264 浮点）
+		for (std::size_t index = 0; index < 264; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -5192,6 +5278,51 @@ namespace engine
 			*near_out = near_plane;
 		if (far_out != nullptr)
 			*far_out = far_plane;
+	}
+
+	//设置级联阴影配置（第一百二十一轮）
+	void Renderer::shadow_cascade_set(uint32_t count, float far_scale, float split_distance)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//参数校验：级联数仅 1 / 2、远区倍数 > 1、切换距离 > 0（非数一并拒绝）
+		if ((count != 1 && count != 2) || !(far_scale > 1.0f) || !(split_distance > 0.0f))
+		{
+			logger.warn("渲染器:: 级联阴影参数非法（级联数 {}，远区倍数 {}，切换距离 {}），本次忽略",
+				count, far_scale, split_distance);
+			return;
+		}
+		impl->cascade_count = count;
+		impl->cascade_far_scale = far_scale;
+		impl->cascade_split_distance = split_distance;
+		//分片方式或范围改变，旧阴影图不再可信
+		impl->shadow_pass_ready = false;
+		logger.info("渲染器:: 级联阴影已设为 {} 级（远区倍数 {}，切换距离 {}，单片边长 {}）",
+			count, far_scale, split_distance,
+			count == 2 ? impl->shadow_size / 2 : impl->shadow_size);
+	}
+
+	//当前级联阴影配置（第一百二十一轮）
+	void Renderer::shadow_cascade_get(uint32_t* count_out, float* far_scale_out, float* split_distance_out) const
+	{
+		//默认值与未初始化一致
+		uint32_t count = 1;
+		float far_scale = 3.0f;
+		float split_distance = 12.0f;
+		//已初始化则取当前值
+		if (impl != nullptr && impl->initialized)
+		{
+			count = impl->cascade_count;
+			far_scale = impl->cascade_far_scale;
+			split_distance = impl->cascade_split_distance;
+		}
+		if (count_out != nullptr)
+			*count_out = count;
+		if (far_scale_out != nullptr)
+			*far_scale_out = far_scale;
+		if (split_distance_out != nullptr)
+			*split_distance_out = split_distance;
 	}
 
 	//累计实际执行的阴影 pass 次数（第五十五轮）
