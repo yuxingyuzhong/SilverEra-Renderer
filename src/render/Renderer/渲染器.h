@@ -131,6 +131,14 @@ namespace engine
 		*/
 		uint64_t culled_items = 0;
 		/*
+		最近一帧即时观测（第一百三十二轮）
+		last_draw_items / last_instances = 该帧合批后实际交给录制的项数与实例数；
+		last_culled_items = 该帧因视锥剔除而未登记的项数。清零累计量时三者保持不变。
+		*/
+		uint64_t last_draw_items = 0;
+		uint64_t last_instances = 0;
+		uint64_t last_culled_items = 0;
+		/*
 		累计按需上传字节（第七十二轮新增；与门面 scene_upload_bytes / instance_upload_bytes 同源）
 		场景 UBO 以 16 字节为单元、实例缓冲以一个实例（80 字节）为单元，仅写入变化区间。
 		*/
@@ -202,7 +210,8 @@ namespace engine
 		清零累计帧统计（第九十一轮新增）
 		帧数、绘制项 / 实例 / 实际绘制量、累计耗时（主机 / GPU / 分段）、GPU 样本（含阴影样本）、
 		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / gpu_frame_ms / gpu_scene_ms /
-		gpu_post_ms / gpu_shadow_ms / post_stages）保持不变。未初始化时静默忽略。
+		gpu_post_ms / gpu_shadow_ms / post_stages / last_draw_items / last_instances /
+		last_culled_items）保持不变。未初始化时静默忽略。
 		*/
 		void frame_stats_reset(void);
 		/*

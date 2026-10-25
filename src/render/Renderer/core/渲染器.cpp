@@ -2515,6 +2515,18 @@ namespace engine
 			}
 		}
 		//消费完毕，清空待绘制项与其推送常量存储（下一帧由 mesh_draw 重新登记）
+		/*
+		记录最近一帧的即时观测（第一百三十二轮）
+		取用时机在合批之后、清空之前：故 last_draw_items 为「实际交给录制的项数」，
+		last_instances 为其实例数之和，与累计口径同源。
+		*/
+		impl->last_draw_items = impl->pending_items.size();
+		uint64_t last_instances = 0;
+		for (const Frame_Render_Item& item : impl->pending_items)
+			last_instances += item.instance_count;
+		impl->last_instances = last_instances;
+		impl->last_culled_items = impl->frame_culled_items;
+		impl->frame_culled_items = 0;
 		impl->pending_items.clear();
 		impl->pending_instances.clear();
 		impl->pending_push_constants.clear();
@@ -2628,6 +2640,10 @@ namespace engine
 		stats.msaa_samples = impl->frame.last_sample_count_get();
 		//累计因视锥剔除而未登记的项数
 		stats.culled_items = impl->culled_items;
+		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
+		stats.last_draw_items = impl->last_draw_items;
+		stats.last_instances = impl->last_instances;
+		stats.last_culled_items = impl->last_culled_items;
 		//累计按需上传字节（第七十二轮）
 		stats.scene_upload_bytes = impl->scene_upload_bytes;
 		stats.instance_upload_bytes = impl->instance_upload_bytes;
@@ -3104,8 +3120,9 @@ namespace engine
 			//若包围盒完全落在视锥外则跳过登记
 			if (frustum_cull_aabb(view_proj, model, bounds_min, bounds_max))
 			{
-				//计入剔除观测（累计量）
+				//计入剔除观测（累计量与最近一帧量）
 				++impl->culled_items;
+				++impl->frame_culled_items;
 				return true;
 			}
 		}
@@ -3229,6 +3246,7 @@ namespace engine
 			{
 				//整批按一个绘制项计（与登记量的口径一致）
 				++impl->culled_items;
+				++impl->frame_culled_items;
 				return true;
 			}
 		}

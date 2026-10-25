@@ -388,6 +388,15 @@ namespace engine
 		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
+		/*
+		最近一帧的即时观测（第一百三十二轮）
+		frame_culled_items 为「本帧已登记阶段」累计、在 frame_render 收尾时转存到 last_culled_items 并清零；
+		last_draw_items / last_instances 在合批之后、清空待绘制项之前取用（故与累计口径一致）。
+		*/
+		uint64_t frame_culled_items = 0;
+		uint64_t last_culled_items = 0;
+		uint64_t last_draw_items = 0;
+		uint64_t last_instances = 0;
 		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
 		double shadow_gpu_ms = 0.0;
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
