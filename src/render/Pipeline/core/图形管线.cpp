@@ -216,7 +216,7 @@ namespace engine
 		pipeline_info.renderPass = VK_NULL_HANDLE;
 
 		//创建图形管线
-		if (!vk_result_check(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_out), "vkCreateGraphicsPipelines"))
+		if (!vk_result_check(vkCreateGraphicsPipelines(device, pipeline_cache, 1, &pipeline_info, nullptr, &pipeline_out), "vkCreateGraphicsPipelines"))
 		{
 			pipeline_out = VK_NULL_HANDLE;
 			return false;

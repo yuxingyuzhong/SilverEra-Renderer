@@ -50,6 +50,12 @@ namespace engine
 		uint32_t msaa_samples = 1;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
+		/*
+		管线缓存文件路径（第一百零六轮；空 = 关闭）
+		初始化时若文件存在则载入作为 VkPipelineCache 初始数据；关闭时写回该文件。
+		路径按当前工作目录解释，支持中文（按 UTF-8 转换）。
+		*/
+		std::string pipeline_cache_path = "";
 	};
 
 	/*
@@ -766,6 +772,14 @@ namespace engine
 		void shadow_resolution_set(uint32_t resolution);
 		//当前阴影图分辨率（未初始化时为默认 1024）
 		uint32_t shadow_resolution(void) const;
+		/*
+		阴影光源正交视锥范围（第一百零七轮新增）
+		half_extent 为半宽 / 半高（世界单位，默认 12）；near / far 为光源空间近远平面（默认 1 / 60）。
+		三者共同决定阴影覆盖范围与深度精度；非法（半宽 ≤ 0、near ≤ 0、far ≤ near）整次忽略并告警。
+		*/
+		void shadow_range_set(float half_extent, float near_plane, float far_plane);
+		//当前阴影正交范围（未初始化时写默认 12 / 1 / 60）
+		void shadow_range_get(float* half_extent_out, float* near_out, float* far_out) const;
 		/*
 		累计实际执行的阴影 pass 次数（第五十五轮新增）
 		阴影 pass 采用「输入签名不变则复用上一帧阴影图」的按需重绘策略；

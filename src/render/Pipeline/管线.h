@@ -140,6 +140,13 @@ namespace engine
 		供帧模块按级选择单采样 / 多重采样宿附件。
 		*/
 		uint32_t pipeline_sample_count(uint64_t handle) const;
+		/*
+		管线缓存（第一百零六轮）
+		cache_set 用外部字节数据重建缓存（须在创建图形管线之前调用）；cache_get 取回缓存字节。
+		缓存对象在 build 时创建、destroy 时销毁；图形管线创建均使用该缓存。
+		*/
+		bool cache_set(const void* data, std::size_t size);
+		bool cache_get(std::vector<uint8_t>& bytes_out) const;
 		//获取管线布局（全管线共享）
 		VkPipelineLayout layout_get(void) const;
 		//第 slot 帧槽的场景 UBO 描述符集（set 0）
@@ -201,6 +208,8 @@ namespace engine
 		VkDescriptorSetLayout sampler_set_layout = VK_NULL_HANDLE;
 		//管线布局（全管线共享）
 		VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
+		//管线缓存（第一百零六轮；图形管线创建共用）
+		VkPipelineCache pipeline_cache = VK_NULL_HANDLE;
 		//描述符池
 		VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 		//场景 UBO 描述符集（长度 = frame_overlap）

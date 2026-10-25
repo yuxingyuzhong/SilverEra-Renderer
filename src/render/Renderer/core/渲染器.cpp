@@ -5,6 +5,9 @@
 #include "src/render/Renderer/core/结果检查.h"
 //std::nothrow
 #include <new>
+//管线缓存文件读写（第一百零六轮）
+#include <fstream>
+#include <filesystem>
 //glm 数学库（第五十二轮：光源空间视图投影矩阵）
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -15,6 +18,13 @@ namespace engine
 {
 	namespace
 	{
+		//UTF-8 字符串 → 文件系统路径（中文路径按 u8 解释；第一百零六轮）
+		std::filesystem::path path_from_utf8(const std::string& text)
+		{
+			std::u8string u8(reinterpret_cast<const char8_t*>(text.data()), text.size());
+			return std::filesystem::path(u8);
+		}
+
 		//列主序 4×4 矩阵相乘（out = a × b；out 可与 a / b 不同）
 		void matrix4_multiply(const float a[16], const float b[16], float out[16])
 		{
@@ -590,6 +600,28 @@ namespace engine
 				return false;
 			}
 		}
+		/*
+		载入管线缓存（第一百零六轮；可选）
+		须在创建任何图形管线之前注入；文件缺失或读取失败仅告警，不阻断初始化。
+		*/
+		if (!effective.pipeline_cache_path.empty())
+		{
+			std::ifstream cache_stream(path_from_utf8(effective.pipeline_cache_path), std::ios::binary | std::ios::ate);
+			//文件存在则读出全部字节
+			if (cache_stream.is_open())
+			{
+				std::streamsize cache_size = cache_stream.tellg();
+				if (cache_size > 0)
+				{
+					std::vector<uint8_t> cache_bytes(static_cast<std::size_t>(cache_size));
+					cache_stream.seekg(0);
+					cache_stream.read(reinterpret_cast<char*>(cache_bytes.data()), cache_size);
+					if (!cache_bytes.empty())
+						impl->pipeline.cache_set(cache_bytes.data(), cache_bytes.size());
+				}
+				cache_stream.close();
+			}
+		}
 		//⑫ 管线：图形管线（初始档位 = 不透明）
 		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module, Blend_Mode::Opaque,
 			impl->scene_input_locations))
@@ -1140,6 +1172,22 @@ namespace engine
 		impl->instance_allocations.clear();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
+		/*
+		写回管线缓存（第一百零六轮；可选）
+		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
+		*/
+		if (impl->initialized && !impl->config.pipeline_cache_path.empty())
+		{
+			std::vector<uint8_t> cache_bytes;
+			if (impl->pipeline.cache_get(cache_bytes))
+			{
+				std::ofstream cache_stream(path_from_utf8(impl->config.pipeline_cache_path),
+					std::ios::binary | std::ios::trunc);
+				if (cache_stream.is_open())
+					cache_stream.write(reinterpret_cast<const char*>(cache_bytes.data()),
+						static_cast<std::streamsize>(cache_bytes.size()));
+			}
+		}
 		//管线依赖设备与内存，须先于两者销毁
 		impl->pipeline.destroy();
 		//着色器模块须先于着色器上下文复位
@@ -1271,7 +1319,9 @@ namespace engine
 			//光源机位位于场景中心的「逆光向」一侧
 			glm::vec3 eye = -light_dir * 20.0f;
 			glm::mat4 light_view = glm::lookAt(eye, glm::vec3(0.0f), up);
-			glm::mat4 light_proj = glm::ortho(-12.0f, 12.0f, -12.0f, 12.0f, 1.0f, 60.0f);
+			//正交范围可配（第一百零七轮；默认 12 / 1 / 60 与旧版一致）
+			glm::mat4 light_proj = glm::ortho(-impl->shadow_half_extent, impl->shadow_half_extent,
+				-impl->shadow_half_extent, impl->shadow_half_extent, impl->shadow_near, impl->shadow_far);
 			light_proj[1][1] *= -1.0f;
 			glm::mat4 light_vp = light_proj * light_view;
 			std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
@@ -5052,6 +5102,49 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->shadow_size : Impl::SHADOW_SIZE;
+	}
+
+	//设置阴影光源正交视锥范围（第一百零七轮）
+	void Renderer::shadow_range_set(float half_extent, float near_plane, float far_plane)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//参数校验：半宽为正、近平面为正、远平面大于近平面（非数一并拒绝）
+		if (!(half_extent > 0.0f) || !(near_plane > 0.0f) || !(far_plane > near_plane))
+		{
+			logger.warn("渲染器:: 阴影视锥参数非法（半宽 {}，近 {}，远 {}），本次忽略",
+				half_extent, near_plane, far_plane);
+			return;
+		}
+		impl->shadow_half_extent = half_extent;
+		impl->shadow_near = near_plane;
+		impl->shadow_far = far_plane;
+		//光源空间矩阵随下一帧更新，旧阴影图不再可信
+		impl->shadow_pass_ready = false;
+		logger.info("渲染器:: 阴影视锥已设为 半宽 {}，近 {}，远 {}", half_extent, near_plane, far_plane);
+	}
+
+	//当前阴影正交范围（第一百零七轮）
+	void Renderer::shadow_range_get(float* half_extent_out, float* near_out, float* far_out) const
+	{
+		//默认值与未初始化一致
+		float half_extent = 12.0f;
+		float near_plane = 1.0f;
+		float far_plane = 60.0f;
+		//已初始化则取当前值
+		if (impl != nullptr && impl->initialized)
+		{
+			half_extent = impl->shadow_half_extent;
+			near_plane = impl->shadow_near;
+			far_plane = impl->shadow_far;
+		}
+		if (half_extent_out != nullptr)
+			*half_extent_out = half_extent;
+		if (near_out != nullptr)
+			*near_out = near_plane;
+		if (far_out != nullptr)
+			*far_out = far_plane;
 	}
 
 	//累计实际执行的阴影 pass 次数（第五十五轮）

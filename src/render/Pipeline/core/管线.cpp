@@ -67,6 +67,16 @@ namespace engine
 		this->device = device;
 		this->config = config;
 
+		//创建空管线缓存（第一百零六轮；外部数据由 cache_set 在创建管线前注入）
+		VkPipelineCacheCreateInfo cache_info{};
+		cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+		if (!vk_result_check(vkCreatePipelineCache(device, &cache_info, nullptr, &pipeline_cache), "vkCreatePipelineCache"))
+		{
+			logger.error("管线:: 管线缓存创建失败，回退");
+			destroy();
+			return false;
+		}
+
 		//创建描述符集布局（set0 / set1）
 		if (!descriptor_layouts_create())
 		{
@@ -186,6 +196,9 @@ namespace engine
 			//销毁场景描述符集布局
 			if (scene_set_layout != VK_NULL_HANDLE)
 				vkDestroyDescriptorSetLayout(device, scene_set_layout, nullptr);
+			//销毁管线缓存（第一百零六轮；须在全部图形管线之后）
+			if (pipeline_cache != VK_NULL_HANDLE)
+				vkDestroyPipelineCache(device, pipeline_cache, nullptr);
 		}
 
 		//清空容器与句柄
@@ -197,6 +210,7 @@ namespace engine
 		active_handle = 0;
 		descriptor_pool = VK_NULL_HANDLE;
 		pipeline_layout = VK_NULL_HANDLE;
+		pipeline_cache = VK_NULL_HANDLE;
 		sampler_set_layout = VK_NULL_HANDLE;
 		scene_set_layout = VK_NULL_HANDLE;
 		device = VK_NULL_HANDLE;
@@ -410,6 +424,65 @@ namespace engine
 		//条目固定采样数优先，否则跟随配置
 		uint32_t samples = entry->sample_count != 0 ? entry->sample_count : config.sample_count;
 		return samples == 0 ? 1 : samples;
+	}
+
+	//用外部字节数据重建管线缓存（第一百零六轮）
+	bool Pipeline_Context::cache_set(const void* data, std::size_t size)
+	{
+		//前置：逻辑设备必须就绪
+		if (device == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 设置管线缓存时逻辑设备为空");
+			return false;
+		}
+		//销毁旧缓存（已创建的图形管线不受影响）
+		if (pipeline_cache != VK_NULL_HANDLE)
+		{
+			vkDestroyPipelineCache(device, pipeline_cache, nullptr);
+			pipeline_cache = VK_NULL_HANDLE;
+		}
+		//以外部数据重建缓存
+		VkPipelineCacheCreateInfo cache_info{};
+		cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+		cache_info.initialDataSize = (data != nullptr && size != 0) ? size : 0;
+		cache_info.pInitialData = cache_info.initialDataSize != 0 ? data : nullptr;
+		if (!vk_result_check(vkCreatePipelineCache(device, &cache_info, nullptr, &pipeline_cache), "vkCreatePipelineCache（外部数据）"))
+		{
+			//失败时重建空缓存，保证后续管线创建仍可用
+			cache_info.initialDataSize = 0;
+			cache_info.pInitialData = nullptr;
+			vk_result_check(vkCreatePipelineCache(device, &cache_info, nullptr, &pipeline_cache), "vkCreatePipelineCache（空）");
+			return false;
+		}
+		logger.info("管线:: 管线缓存已载入（{} 字节）", static_cast<uint32_t>(size));
+		return true;
+	}
+
+	//取回管线缓存字节（第一百零六轮）
+	bool Pipeline_Context::cache_get(std::vector<uint8_t>& bytes_out) const
+	{
+		//出参先清空
+		bytes_out.clear();
+		//前置：缓存与设备必须就绪
+		if (device == VK_NULL_HANDLE || pipeline_cache == VK_NULL_HANDLE)
+			return false;
+		//先取所需字节数
+		std::size_t size = 0;
+		if (!vk_result_check(vkGetPipelineCacheData(device, pipeline_cache, &size, nullptr), "vkGetPipelineCacheData（长度）"))
+			return false;
+		//空缓存无可保存内容
+		if (size == 0)
+			return false;
+		//取回内容
+		bytes_out.resize(size);
+		if (!vk_result_check(vkGetPipelineCacheData(device, pipeline_cache, &size, bytes_out.data()), "vkGetPipelineCacheData"))
+		{
+			bytes_out.clear();
+			return false;
+		}
+		//按实际长度收敛
+		bytes_out.resize(size);
+		return true;
 	}
 
 	//获取当前激活图形管线

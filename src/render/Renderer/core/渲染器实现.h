@@ -237,6 +237,13 @@ namespace engine
 		uint64_t shadow_target = 0;
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
 		bool shadow_enabled = false;
+		/*
+		阴影光源正交视锥（第一百零七轮）
+		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
+		*/
+		float shadow_half_extent = 12.0f;
+		float shadow_near = 1.0f;
+		float shadow_far = 60.0f;
 		//阴影深度偏置（第五十二轮）
 		float shadow_bias = 0.003f;
 		//阴影软度（第五十三轮；0 = 单点硬边，≥0.5 = 3×3 PCF 平均）
