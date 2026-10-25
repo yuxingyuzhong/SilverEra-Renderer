@@ -154,6 +154,13 @@ namespace engine
 		uint64_t last_instances = 0;
 		uint64_t last_culled_items = 0;
 		/*
+		合批收益（第一百三十五轮）
+		last_merged_items = 最近一帧被合并掉的项数（主 pass ＋ 阴影各片）；merged_items = 自 init 以来累计。
+		仅在 `static_batching` 开启时增长；清零累计量时 last_merged_items 保持不变。
+		*/
+		uint64_t last_merged_items = 0;
+		uint64_t merged_items = 0;
+		/*
 		累计按需上传字节（第七十二轮新增；与门面 scene_upload_bytes / instance_upload_bytes 同源）
 		场景 UBO 以 16 字节为单元、实例缓冲以一个实例（80 字节）为单元，仅写入变化区间。
 		*/
@@ -226,7 +233,7 @@ namespace engine
 		帧数、绘制项 / 实例 / 实际绘制量、累计耗时（主机 / GPU / 分段）、GPU 样本（含阴影样本）、
 		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / host_record_ms / host_submit_ms /
 		host_present_ms / gpu_frame_ms / gpu_scene_ms / gpu_post_ms / gpu_shadow_ms / post_stages /
-		last_draw_items / last_instances / last_culled_items）保持不变。未初始化时静默忽略。
+		last_draw_items / last_instances / last_culled_items / last_merged_items）保持不变。未初始化时静默忽略。
 		*/
 		void frame_stats_reset(void);
 		/*

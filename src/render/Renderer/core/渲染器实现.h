@@ -397,6 +397,14 @@ namespace engine
 		uint64_t last_culled_items = 0;
 		uint64_t last_draw_items = 0;
 		uint64_t last_instances = 0;
+		/*
+		合批收益观测（第一百三十五轮）
+		frame_merged_items 为本帧（主 pass ＋ 阴影各片）被合并掉的项数，帧收尾转存 last_merged_items 并清零；
+		merged_items 为自 init 以来累计被合并项数。
+		*/
+		uint64_t frame_merged_items = 0;
+		uint64_t last_merged_items = 0;
+		uint64_t merged_items = 0;
 		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
 		double shadow_gpu_ms = 0.0;
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）

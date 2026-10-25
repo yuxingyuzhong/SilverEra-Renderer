@@ -44,12 +44,13 @@ namespace engine
 		合并条件：管线 / 布局 / 顶点与索引缓冲 / 索引区 / 推送常量逐字节 / 后处理参数 /
 		实例缓冲相同且实例区首尾相接 / 阴影标记 / 采样数全等。
 		只累加实例数、不重排顺序，故绘制结果逐字节不变。
+		返回被合并掉的项数（第一百三十五轮；供合批收益观测）。
 		*/
-		void batch_adjacent_items(std::vector<Frame_Render_Item>& items)
+		std::size_t batch_adjacent_items(std::vector<Frame_Render_Item>& items)
 		{
 			//不足两项无需合并
 			if (items.size() < 2)
-				return;
+				return 0;
 			//合并结果（保留首个等价项并累加实例数）
 			std::vector<Frame_Render_Item> merged_items;
 			merged_items.reserve(items.size());
@@ -90,7 +91,11 @@ namespace engine
 				else
 					merged_items.push_back(item);
 			}
+			//合并前项数
+			std::size_t original_size = items.size();
 			items.swap(merged_items);
+			//返回被合并掉的项数（原项数 − 合并后项数）
+			return original_size > items.size() ? original_size - items.size() : 0;
 		}
 
 		/*
@@ -1666,7 +1671,7 @@ namespace engine
 						shadow_item.push_constants = cascade_matrix;
 					//阴影列表同样合批（第一百二十九轮；相邻等价项，投影顺序无关）
 					if (impl->static_batching)
-						batch_adjacent_items(shadow_items);
+						impl->frame_merged_items += batch_adjacent_items(shadow_items);
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
@@ -2154,7 +2159,7 @@ namespace engine
 		仅合并相邻等价项，绘制顺序与实例顺序不变，画面逐字节一致。
 		*/
 		if (impl->static_batching)
-			batch_adjacent_items(impl->pending_items);
+			impl->frame_merged_items += batch_adjacent_items(impl->pending_items);
 
 		//为本帧待绘制项填装描述符集与实例缓冲句柄
 		for (auto& item : impl->pending_items)
@@ -2525,6 +2530,10 @@ namespace engine
 		for (const Frame_Render_Item& item : impl->pending_items)
 			last_instances += item.instance_count;
 		impl->last_instances = last_instances;
+		//合批收益（第一百三十五轮）：累计 + 本帧转存并清零
+		impl->merged_items += impl->frame_merged_items;
+		impl->last_merged_items = impl->frame_merged_items;
+		impl->frame_merged_items = 0;
 		impl->last_culled_items = impl->frame_culled_items;
 		impl->frame_culled_items = 0;
 		impl->pending_items.clear();
@@ -2652,6 +2661,9 @@ namespace engine
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
 		stats.last_culled_items = impl->last_culled_items;
+		//合批收益（第一百三十五轮）
+		stats.last_merged_items = impl->last_merged_items;
+		stats.merged_items = impl->merged_items;
 		//累计按需上传字节（第七十二轮）
 		stats.scene_upload_bytes = impl->scene_upload_bytes;
 		stats.instance_upload_bytes = impl->instance_upload_bytes;
