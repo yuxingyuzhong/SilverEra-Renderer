@@ -64,6 +64,16 @@ namespace engine
 		故此处显式置标志，使「尺寸变化 → 交换链重建」在任意窗口形态下均可被上层驱动。
 		*/
 		bool window_size_set(uint32_t width, uint32_t height);
+		/*
+		全屏切换（第一百一十一轮）
+		成功返回真并置「交换链待重建」标志（全屏往往伴随客户区尺寸变化）；
+		隐藏窗口下后端可能拒绝全屏，失败返回假且保持窗口状态不变。
+		*/
+		bool fullscreen_set(bool fullscreen);
+		//当前是否处于全屏（窗口未创建时为假）
+		bool fullscreen_get(void) const;
+		//窗口显示缩放比例（DPI；窗口未创建或查询失败时为 1）
+		float display_scale_get(void) const;
 		//原生窗口句柄（供上层调试；SDL 类型属本层实现细节）
 		SDL_Window* window_get(void) const;
 		//组装实例所需扩展清单（内部调 SDL_Vulkan_GetInstanceExtensions；返回是否成功）

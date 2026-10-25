@@ -204,6 +204,16 @@ namespace engine
 		使「尺寸变化 → 交换链重建」可由上层驱动、可被用例构造。未初始化 / 尺寸为零时返回假。
 		*/
 		bool window_size_set(uint32_t width, uint32_t height);
+		/*
+		全屏切换（第一百一十一轮）
+		成功返回真并置「交换链待重建」标志；隐藏窗口下后端可能拒绝，失败返回假。
+		未初始化时返回假。
+		*/
+		bool window_fullscreen_set(bool fullscreen);
+		//当前是否处于全屏（未初始化时为假）
+		bool window_fullscreen(void) const;
+		//窗口显示缩放比例（DPI；未初始化或查询失败时为 1）
+		float display_scale(void) const;
 
 		/*
 		加载网格（顶点 / 索引缓冲上传至设备本地）

@@ -122,6 +122,47 @@ namespace engine
 		return true;
 	}
 
+	//全屏切换（第一百一十一轮）
+	bool Platform_Context::fullscreen_set(bool fullscreen)
+	{
+		//前置：窗口必须已创建
+		if (window == nullptr)
+		{
+			logger.error("平台上下文:: 窗口尚未创建，无法切换全屏");
+			return false;
+		}
+		//请求 SDL 切换全屏
+		if (!SDL_SetWindowFullscreen(window, fullscreen))
+		{
+			logger.warn("平台上下文:: 全屏切换失败：{}", SDL_GetError());
+			return false;
+		}
+		//全屏切换通常伴随客户区尺寸变化，显式置重建标志
+		resize_flag = true;
+		return true;
+	}
+
+	//当前是否处于全屏（第一百一十一轮）
+	bool Platform_Context::fullscreen_get(void) const
+	{
+		//窗口未创建视为否
+		if (window == nullptr)
+			return false;
+		//读取窗口标志
+		return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+	}
+
+	//窗口显示缩放比例（第一百一十二轮）
+	float Platform_Context::display_scale_get(void) const
+	{
+		//窗口未创建则按 1 处理
+		if (window == nullptr)
+			return 1.0f;
+		//查询显示缩放（非正值防御为 1）
+		float scale = SDL_GetWindowDisplayScale(window);
+		return scale > 0.0f ? scale : 1.0f;
+	}
+
 	//获取原生窗口句柄
 	SDL_Window* Platform_Context::window_get(void) const
 	{

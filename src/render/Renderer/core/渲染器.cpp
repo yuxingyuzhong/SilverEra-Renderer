@@ -1238,6 +1238,33 @@ namespace engine
 		impl->initialized = false;
 	}
 
+	//全屏切换（第一百一十一轮）
+	bool Renderer::window_fullscreen_set(bool fullscreen)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->platform.fullscreen_set(fullscreen);
+	}
+
+	//当前是否处于全屏（第一百一十一轮）
+	bool Renderer::window_fullscreen(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->platform.fullscreen_get();
+	}
+
+	//窗口显示缩放比例（第一百一十二轮）
+	float Renderer::display_scale(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 1.0f;
+		return impl->platform.display_scale_get();
+	}
+
 	//是否已初始化
 	bool Renderer::valid(void) const
 	{
@@ -4095,13 +4122,17 @@ namespace engine
 				stage, static_cast<uint32_t>(impl->post_chain.size()));
 			return;
 		}
-		//参数校验：阈值须正、软膝非负且小于阈值、强度须为有限正值
-		bool valid = (threshold > 0.0f) && (knee >= 0.0f) && (knee < threshold)
-			&& (intensity > 0.0f) && (intensity < 100.0f);
+		/*
+		参数校验（第一百零八轮放宽）
+		三级参数同时供「泛光类」与「色彩 / 色温类」预设使用，后者需要带符号或任意区间，
+		故此处只要求三者均为有限值且强度落在 (0,100)；不再施加泛光语义的阈值 / 软膝约束。
+		*/
+		bool finite = (threshold == threshold) && (knee == knee) && (intensity == intensity);
+		bool valid = finite && (intensity > 0.0f) && (intensity < 100.0f);
 		//若非法则整次忽略（保持原值）
 		if (!valid)
 		{
-			logger.warn("渲染器:: 逐级泛光参数非法（级 {}：阈值 {}、软膝 {}、强度 {}），整次忽略",
+			logger.warn("渲染器:: 逐级后处理参数非法（级 {}：阈值 {}、软膝 {}、强度 {}），整次忽略",
 				stage, threshold, knee, intensity);
 			return;
 		}
