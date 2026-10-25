@@ -40,6 +40,59 @@ namespace engine
 		}
 
 		/*
+		相邻等价绘制项合批（第一百二十九轮；主 pass 与阴影 pass 共用）
+		合并条件：管线 / 布局 / 顶点与索引缓冲 / 索引区 / 推送常量逐字节 / 后处理参数 /
+		实例缓冲相同且实例区首尾相接 / 阴影标记 / 采样数全等。
+		只累加实例数、不重排顺序，故绘制结果逐字节不变。
+		*/
+		void batch_adjacent_items(std::vector<Frame_Render_Item>& items)
+		{
+			//不足两项无需合并
+			if (items.size() < 2)
+				return;
+			//合并结果（保留首个等价项并累加实例数）
+			std::vector<Frame_Render_Item> merged_items;
+			merged_items.reserve(items.size());
+			for (const Frame_Render_Item& item : items)
+			{
+				//能否并入前一项
+				bool can_merge = false;
+				//若已有可比较的前一项
+				if (!merged_items.empty())
+				{
+					const Frame_Render_Item& last = merged_items.back();
+					//推送常量是否逐字节一致（0 字节表示两侧都不推送）
+					bool push_same = last.push_constant_size == item.push_constant_size
+						&& last.push_constant_offset == item.push_constant_offset;
+					if (push_same && last.push_constant_size != 0)
+						push_same = last.push_constants != nullptr && item.push_constants != nullptr
+							&& memcmp(last.push_constants, item.push_constants, last.push_constant_size) == 0;
+					//后处理参数是否一致（场景项恒相等）
+					bool post_same = memcmp(last.post_params, item.post_params, sizeof(last.post_params)) == 0;
+					//实例区是否首尾相接
+					bool instance_adjacent = last.instance_buffer == item.instance_buffer
+						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
+							== item.instance_offset;
+					can_merge = push_same && post_same && instance_adjacent
+						&& last.pipeline == item.pipeline
+						&& last.layout == item.layout
+						&& last.vertex_buffer == item.vertex_buffer
+						&& last.index_buffer == item.index_buffer
+						&& last.index_offset == item.index_offset
+						&& last.index_count == item.index_count
+						&& last.cast_shadow == item.cast_shadow
+						&& last.sample_count == item.sample_count;
+				}
+				//可合并则把实例数并入前一项（实例数据仍按原顺序连续）
+				if (can_merge)
+					merged_items.back().instance_count += item.instance_count;
+				else
+					merged_items.push_back(item);
+			}
+			items.swap(merged_items);
+		}
+
+		/*
 		阴影输入签名（第五十五轮；第一百二十一轮加级联信息）
 		把光源空间矩阵（含远区级联矩阵）、本帧实例矩阵（全部 float 位模式）、投影项数、阴影图边长
 		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
@@ -1610,6 +1663,9 @@ namespace engine
 					const float* cascade_matrix = cascade == 0 ? impl->light_view_proj : impl->light_view_proj_far;
 					for (auto& shadow_item : shadow_items)
 						shadow_item.push_constants = cascade_matrix;
+					//阴影列表同样合批（第一百二十九轮；相邻等价项，投影顺序无关）
+					if (impl->static_batching)
+						batch_adjacent_items(shadow_items);
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
@@ -2093,54 +2149,11 @@ namespace engine
 		}
 
 		/*
-		静态合批（第一百二十七轮）
-		把**相邻且完全等价**的绘制项合并为一次实例化绘制：管线 / 布局 / 缓冲与索引区相同、推送常量逐字节相同、
-		实例区在实例缓冲中严格连续、阴影标记与采样数一致。
-		合并只减少实际绘制次数（drawn_items），绘制顺序与实例顺序不变，故画面逐字节一致。
+		静态合批（第一百二十七轮；第一百二十九轮抽为主 pass / 阴影 pass 共用工具）
+		仅合并相邻等价项，绘制顺序与实例顺序不变，画面逐字节一致。
 		*/
-		if (impl->static_batching && impl->pending_items.size() > 1)
-		{
-			//合并结果（保留首个等价项并累加实例数）
-			std::vector<Frame_Render_Item> merged_items;
-			merged_items.reserve(impl->pending_items.size());
-			for (const Frame_Render_Item& item : impl->pending_items)
-			{
-				//能否并入前一项
-				bool can_merge = false;
-				//若已有可比较的前一项
-				if (!merged_items.empty())
-				{
-					const Frame_Render_Item& last = merged_items.back();
-					//推送常量是否逐字节一致（0 字节表示两侧都不推送）
-					bool push_same = last.push_constant_size == item.push_constant_size
-						&& last.push_constant_offset == item.push_constant_offset;
-					if (push_same && last.push_constant_size != 0)
-						push_same = last.push_constants != nullptr && item.push_constants != nullptr
-							&& memcmp(last.push_constants, item.push_constants, last.push_constant_size) == 0;
-					//后处理参数是否一致（场景项恒相等）
-					bool post_same = memcmp(last.post_params, item.post_params, sizeof(last.post_params)) == 0;
-					//实例区是否首尾相接
-					bool instance_adjacent = last.instance_buffer == item.instance_buffer
-						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
-							== item.instance_offset;
-					can_merge = push_same && post_same && instance_adjacent
-						&& last.pipeline == item.pipeline
-						&& last.layout == item.layout
-						&& last.vertex_buffer == item.vertex_buffer
-						&& last.index_buffer == item.index_buffer
-						&& last.index_offset == item.index_offset
-						&& last.index_count == item.index_count
-						&& last.cast_shadow == item.cast_shadow
-						&& last.sample_count == item.sample_count;
-				}
-				//可合并则把实例数并入前一项（实例数据仍按原顺序连续）
-				if (can_merge)
-					merged_items.back().instance_count += item.instance_count;
-				else
-					merged_items.push_back(item);
-			}
-			impl->pending_items.swap(merged_items);
-		}
+		if (impl->static_batching)
+			batch_adjacent_items(impl->pending_items);
 
 		//为本帧待绘制项填装描述符集与实例缓冲句柄
 		for (auto& item : impl->pending_items)
