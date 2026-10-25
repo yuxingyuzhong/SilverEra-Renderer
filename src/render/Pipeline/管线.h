@@ -127,6 +127,8 @@ namespace engine
 		bool pipeline_rebuild(VkFormat color_format, VkFormat depth_format, uint32_t sample_count = 1);
 		//重建句柄 0 默认管线的混合档（供门面 blend_mode_set；无默认管线时为空操作）
 		bool pipeline_default_blend_set(Blend_Mode blend_mode);
+		//已登记图形管线数量（第一百一十三轮；含默认管线）
+		uint32_t pipeline_count(void) const;
 		//句柄是否已登记
 		bool pipeline_has(uint64_t handle) const;
 

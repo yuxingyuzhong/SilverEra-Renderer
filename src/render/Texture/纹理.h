@@ -60,6 +60,8 @@ namespace engine
 		void destroy(void);
 		//是否已构建完成
 		bool valid(void) const;
+		//当前有效纹理数量（第一百一十三轮；只读诊断）
+		uint32_t texture_count(void) const;
 
 		//从内存像素创建纹理（RGBA8 紧排；句柄自 1 起，0 表无效）
 		bool texture_create_from_memory(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height);

@@ -124,6 +124,17 @@ namespace engine
 		return texture != nullptr;
 	}
 
+	//当前有效字体数量（第一百一十三轮）
+	uint32_t Font_Context::font_count(void) const
+	{
+		//逐条统计有效记录
+		uint32_t count = 0;
+		for (const Font_Record& record : records)
+			if (record.valid)
+				++count;
+		return count;
+	}
+
 	//销毁（幂等）
 	void Font_Context::destroy(void)
 	{

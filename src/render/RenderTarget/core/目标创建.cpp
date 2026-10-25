@@ -37,6 +37,17 @@ namespace engine
 		return device != VK_NULL_HANDLE && memory != nullptr;
 	}
 
+	//当前有效渲染目标数量（第一百一十三轮）
+	uint32_t Render_Target_Context::target_count(void) const
+	{
+		//逐条统计有效记录
+		uint32_t count = 0;
+		for (const Render_Target_Record& record : records)
+			if (record.valid)
+				++count;
+		return count;
+	}
+
 	//确保一次性命令池与栅栏就绪（首次创建，之后复用）
 	bool Render_Target_Context::transient_resources_ensure(void)
 	{

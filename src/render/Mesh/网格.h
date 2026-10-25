@@ -78,7 +78,9 @@ namespace engine
 		成功返回真并写出被摘出的记录；句柄无效或记录已空时返回假（不写出任何资源）。
 		*/
 		bool mesh_detach(Mesh_Handle handle, Mesh_Record& record_out);
-		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）
+		//取网格缓冲、索引区偏移与索引数（句柄无效返回假）//当前有效网格数量（第一百一十三轮；只读诊断）
+		uint32_t mesh_count(void) const;
+		//句柄是否有效（实现见 core/网格缓冲.cpp）
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
 		//取网格顶点 / 索引数量（第九十三轮新增；句柄无效返回假且出参归零）
 		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;

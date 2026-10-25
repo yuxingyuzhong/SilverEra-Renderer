@@ -3968,6 +3968,22 @@ namespace engine
 		return count;
 	}
 
+	//当前链各级管线的实际采样数（第一百一十六轮）
+	uint32_t Renderer::post_chain_sample_counts(uint32_t* out, uint32_t capacity) const
+	{
+		//出参为空 / 容量为零 / 未初始化则返回 0
+		if (out == nullptr || capacity == 0 || impl == nullptr || !impl->initialized)
+			return 0;
+		//实际写入级数 = min(链级数, 容量)
+		uint32_t count = static_cast<uint32_t>(impl->post_chain.size());
+		if (count > capacity)
+			count = capacity;
+		//逐级查询管线采样数
+		for (uint32_t index = 0; index < count; ++index)
+			out[index] = impl->pipeline.pipeline_sample_count(impl->post_chain[index]);
+		return count;
+	}
+
 	//把渲染目标的颜色绑定为当前纹理（供后续绘制采样）
 	void Renderer::texture_bind_target(uint64_t handle)
 	{
@@ -5183,6 +5199,41 @@ namespace engine
 	{
 		//未初始化返回 0
 		return impl != nullptr && impl->initialized ? impl->shadow_pass_count : 0;
+	}
+
+	//当前聚光灯数量（第一百一十五轮）
+	uint32_t Renderer::spot_light_count(void) const
+	{
+		//未初始化返回 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		//统计 is_spot 为真的光源
+		uint32_t count = 0;
+		for (uint32_t index = 0; index < impl->point_light_count; ++index)
+			if (impl->point_lights[index].is_spot)
+				++count;
+		return count;
+	}
+
+	//资源计数快照（第一百一十三 / 一百一十四轮）
+	Renderer_Resource_Counts Renderer::resource_counts(void) const
+	{
+		//默认全零
+		Renderer_Resource_Counts counts{};
+		//未初始化直接返回
+		if (impl == nullptr || !impl->initialized)
+			return counts;
+		//各模块有效记录数
+		counts.meshes = impl->mesh.mesh_count();
+		counts.textures = impl->texture.texture_count();
+		counts.pipelines = impl->pipeline.pipeline_count();
+		counts.fonts = impl->font.font_count();
+		counts.render_targets = impl->render_target.target_count();
+		//材质按有效记录计
+		for (const Impl::Material_Record& record : impl->materials)
+			if (record.valid)
+				++counts.materials;
+		return counts;
 	}
 
 	//累计场景 UBO 上传字节数（第六十轮新增）

@@ -407,6 +407,12 @@ namespace engine
 		return true;
 	}
 
+	//已登记图形管线数量（第一百一十三轮）
+	uint32_t Pipeline_Context::pipeline_count(void) const
+	{
+		return static_cast<uint32_t>(pipelines.size());
+	}
+
 	//句柄是否已登记
 	bool Pipeline_Context::pipeline_has(uint64_t handle) const
 	{

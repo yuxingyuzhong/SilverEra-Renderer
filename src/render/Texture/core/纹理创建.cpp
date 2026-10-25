@@ -71,6 +71,17 @@ namespace engine
 		return memory != nullptr && device != VK_NULL_HANDLE;
 	}
 
+	//当前有效纹理数量（第一百一十三轮）
+	uint32_t Texture_Context::texture_count(void) const
+	{
+		//逐条统计有效记录
+		uint32_t count = 0;
+		for (const Texture_Record& record : records)
+			if (record.valid)
+				++count;
+		return count;
+	}
+
 	//从内存像素创建纹理
 	bool Texture_Context::texture_create_from_memory(uint64_t& handle_out, const uint8_t* pixels, uint32_t width, uint32_t height)
 	{

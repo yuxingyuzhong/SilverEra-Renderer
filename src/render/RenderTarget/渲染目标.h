@@ -81,6 +81,8 @@ namespace engine
 		void destroy(void);
 		//是否已构建完成（逻辑设备与内存模块齐备）
 		bool valid(void) const;
+		//当前有效渲染目标数量（第一百一十三轮；只读诊断）
+		uint32_t target_count(void) const;
 
 		/*
 		创建渲染目标

@@ -107,6 +107,8 @@ namespace engine
 		void destroy(void);
 		//是否已构建完成
 		bool valid(void) const;
+		//当前有效字体数量（第一百一十三轮；只读诊断）
+		uint32_t font_count(void) const;
 
 		/*
 		从 TTF 文件加载字体并烘焙 ASCII 字形图集

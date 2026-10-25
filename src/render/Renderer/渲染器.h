@@ -116,6 +116,26 @@ namespace engine
 	};
 
 	/*
+	资源计数快照（第一百一十三 / 一百一十四轮；只读诊断）
+	各字段为当前有效记录数（材质按有效材质记录计）。
+	*/
+	struct Renderer_Resource_Counts
+	{
+		//网格数
+		uint32_t meshes = 0;
+		//纹理数（含内置默认白纹理）
+		uint32_t textures = 0;
+		//图形管线数（含默认场景管线）
+		uint32_t pipelines = 0;
+		//字体数
+		uint32_t fonts = 0;
+		//渲染目标数（含阴影目标）
+		uint32_t render_targets = 0;
+		//材质数
+		uint32_t materials = 0;
+	};
+
+	/*
 	渲染器（门面）
 	生命周期：init → frame_render × N → shutdown
 	状态机：未初始化 → 已初始化 → 已销毁（shutdown 幂等，可重复调用）
@@ -514,6 +534,12 @@ namespace engine
 		*/
 		bool post_chain_set(const uint64_t* handles, uint32_t count);
 		/*
+		当前链各级管线的实际采样数（第一百一十六轮）
+		按级序写入 out（每级 1 个整数：1 = 单采样、2/4/8 = 多重采样）；
+		返回实际写入级数 = min(链长, capacity)；out 为空 / capacity 为 0 / 未初始化返回 0。
+		*/
+		uint32_t post_chain_sample_counts(uint32_t* out, uint32_t capacity) const;
+		/*
 		读取当前后处理链级数（0 表未设链，即走单级默认后处理）
 		**下标即当前级序**：若某级管线被卸载，链中该句柄会被摘除、后续级序前移，
 		故与「post_chain_set 时的原始下标」可能不同。
@@ -796,6 +822,10 @@ namespace engine
 		本查询供上层观测该策略的命中情况（静态场景下应显著低于帧数）。
 		*/
 		uint64_t shadow_pass_count(void) const;
+		//当前聚光灯数量（第一百一十五轮；is_spot 为真的光源数）
+		uint32_t spot_light_count(void) const;
+		//资源计数快照（第一百一十三 / 一百一十四轮；未初始化时全零）
+		Renderer_Resource_Counts resource_counts(void) const;
 		/*
 		累计场景 UBO 上传字节数（第六十轮新增）
 		场景 UBO 现按 16 字节单元比较、仅写入变化区间；本查询供上层观测每帧上传开销

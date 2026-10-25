@@ -194,6 +194,17 @@ namespace engine
 		return true;
 	}
 
+	//当前有效网格数量（第一百一十三轮）
+	uint32_t Mesh_Context::mesh_count(void) const
+	{
+		//逐条统计有效记录（数量小，无需额外计数成员）
+		uint32_t count = 0;
+		for (const Mesh_Record& record : records)
+			if (record.valid)
+				++count;
+		return count;
+	}
+
 	//取网格缓冲、索引区偏移与索引数
 	//取网格顶点 / 索引数量（只读；句柄无效返回假且出参归零）
 	bool Mesh_Context::mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const
