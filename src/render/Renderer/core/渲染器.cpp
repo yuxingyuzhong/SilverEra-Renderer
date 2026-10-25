@@ -2337,6 +2337,16 @@ namespace engine
 		return impl->msaa_samples;
 	}
 
+	//当前颜色 / 深度格式共同支持的最大 MSAA 采样数（第九十九轮）
+	uint32_t Renderer::msaa_max_samples(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 1;
+		return msaa_supported_max(impl->device.physical_device_get(),
+			impl->swapchain.format_get(), impl->swapchain.depth_format_get(), 8);
+	}
+
 	//是否支持采样器各向异性过滤
 	bool Renderer::sampler_anisotropy_supported(void) const
 	{

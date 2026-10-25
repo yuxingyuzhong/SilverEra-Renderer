@@ -176,6 +176,11 @@ namespace engine
 		void msaa_samples_set(uint32_t samples);
 		//当前 MSAA 采样数（未初始化或关闭时为 1）
 		uint32_t msaa_samples(void) const;
+		/*
+		当前颜色 / 深度格式共同支持的最大 MSAA 采样数（第九十九轮）
+		返回 1 / 2 / 4 / 8；未初始化或均不支持时返回 1。
+		*/
+		uint32_t msaa_max_samples(void) const;
 		//是否支持采样器各向异性过滤（设备创建时按特性支持情况启用；未初始化时为假）
 		bool sampler_anisotropy_supported(void) const;
 		//采样器最大各向异性倍数（设备上限；未初始化或未启用该特性时为 1）
