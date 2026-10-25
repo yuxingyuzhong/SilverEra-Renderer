@@ -194,6 +194,8 @@ namespace engine
 			slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
 			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
+		//录制阶段耗时（第一百三十三轮）
+		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 
 		/*
 		取本帧呈现完成信号量
@@ -204,9 +206,15 @@ namespace engine
 		*/
 		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
 
-		//提交并呈现
-		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
+		//提交并呈现（提交 / 呈现两段耗时由实现回填）
+		double submit_ms = 0.0;
+		double present_ms = 0.0;
+		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out,
+			submit_ms, present_ms))
 			return false;
+		//提交 / 呈现阶段耗时（第一百三十三轮）
+		last_host_submit_ms = submit_ms;
+		last_host_present_ms = present_ms;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
@@ -300,6 +308,8 @@ namespace engine
 		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
 			readback_target, shadow_pass ? slot.shadow_timestamp_pool : slot.timestamp_pool, shadow_pass);
+		//录制阶段耗时（第一百三十三轮）
+		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 
 		/*
 		仅以完成栅栏提交
@@ -314,9 +324,13 @@ namespace engine
 		submit_info.commandBufferInfoCount = 1;
 		submit_info.pCommandBufferInfos = &command_info;
 
-		//提交到图形队列（帧栅栏作为完成信号）
+		//提交到图形队列（帧栅栏作为完成信号）；提交阶段耗时（第一百三十三轮）
+		std::chrono::steady_clock::time_point submit_time_begin = std::chrono::steady_clock::now();
 		if (!vk_result_check(vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence), "vkQueueSubmit2（离屏）"))
 			return false;
+		last_host_submit_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_time_begin).count();
+		//离屏路径不呈现
+		last_host_present_ms = 0.0;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
@@ -508,13 +522,21 @@ namespace engine
 			readback_target, slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
 			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
+		//录制阶段耗时（第一百三十三轮；含全部后处理级）
+		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 
 		//取本帧呈现完成信号量（按交换链图像持有）
 		VkSemaphore render_finished = swapchain.render_finished_semaphore_get(image_index);
 
-		//提交并呈现（与交换链路径共用同一提交 / 呈现实现）
-		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out))
+		//提交并呈现（与交换链路径共用同一提交 / 呈现实现；两段耗时由实现回填）
+		double submit_ms = 0.0;
+		double present_ms = 0.0;
+		if (!submit_present(slot, image_index, image_available, render_finished, swapchain, rebuild_needed_out,
+			submit_ms, present_ms))
 			return false;
+		//提交 / 呈现阶段耗时（第一百三十三轮）
+		last_host_submit_ms = submit_ms;
+		last_host_present_ms = present_ms;
 		//本帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 		//累计本帧主机侧耗时
@@ -543,9 +565,10 @@ namespace engine
 		return true;
 	}
 
-	//提交并呈现
+	//提交并呈现（submit_ms_out / present_ms_out 回填两段主机侧耗时，第一百三十三轮）
 	bool Frame_Context::submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
-		VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out)
+		VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out,
+		double& submit_ms_out, double& present_ms_out)
 	{
 		//等待信号量提交信息（图像可用，等待发生在颜色附件输出阶段）
 		VkSemaphoreSubmitInfo wait_info{};
@@ -574,8 +597,12 @@ namespace engine
 		submit_info.signalSemaphoreInfoCount = 1;
 		submit_info.pSignalSemaphoreInfos = &signal_info;
 
-		//提交到图形队列（帧栅栏作为完成信号）
-		if (!vk_result_check(vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence), "vkQueueSubmit2"))
+		//提交到图形队列（帧栅栏作为完成信号）；提交阶段耗时（第一百三十三轮）
+		std::chrono::steady_clock::time_point submit_time_begin = std::chrono::steady_clock::now();
+		VkResult submit_result = vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence);
+		submit_ms_out = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_time_begin).count();
+		//若提交失败
+		if (!vk_result_check(submit_result, "vkQueueSubmit2"))
 			return false;
 
 		//交换链句柄需取地址，故用局部量承接
@@ -589,8 +616,10 @@ namespace engine
 		present_info.pSwapchains = &swapchain_handle;
 		present_info.pImageIndices = &image_index;
 
-		//呈现到呈现队列
+		//呈现到呈现队列；呈现阶段耗时（第一百三十三轮）
+		std::chrono::steady_clock::time_point present_time_begin = std::chrono::steady_clock::now();
 		VkResult present_result = vkQueuePresentKHR(present_queue, &present_info);
+		present_ms_out = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - present_time_begin).count();
 		//若交换链过期或次优
 		if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR)
 		{

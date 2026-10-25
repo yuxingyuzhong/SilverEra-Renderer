@@ -136,6 +136,10 @@ namespace engine
 		acquire_cursor = 0;
 		frame_count = 0;
 		last_frame_ms = 0.0;
+		//主机侧分段即时量一并归零（第一百三十三轮）
+		last_host_record_ms = 0.0;
+		last_host_submit_ms = 0.0;
+		last_host_present_ms = 0.0;
 		total_frame_ms = 0.0;
 		total_draw_items = 0;
 		total_instances = 0;
@@ -188,6 +192,24 @@ namespace engine
 	double Frame_Context::last_frame_ms_get(void) const
 	{
 		return last_frame_ms;
+	}
+
+	//最近一帧录制阶段耗时（毫秒；第一百三十三轮）
+	double Frame_Context::last_host_record_ms_get(void) const
+	{
+		return last_host_record_ms;
+	}
+
+	//最近一帧提交阶段耗时（毫秒；第一百三十三轮）
+	double Frame_Context::last_host_submit_ms_get(void) const
+	{
+		return last_host_submit_ms;
+	}
+
+	//最近一帧呈现阶段耗时（毫秒；第一百三十三轮）
+	double Frame_Context::last_host_present_ms_get(void) const
+	{
+		return last_host_present_ms;
 	}
 
 	//累计主机侧耗时（毫秒）

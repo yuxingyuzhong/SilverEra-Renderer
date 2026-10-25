@@ -328,6 +328,14 @@ namespace engine
 		total_draw_items / total_instances 为自构建以来的累计绘制项数与实例数。
 		*/
 		double last_frame_ms_get(void) const;
+		/*
+		最近一帧主机侧分段耗时（毫秒；第一百三十三轮）
+		录制 = 命令录制调用；提交 = vkQueueSubmit2；呈现 = vkQueuePresentKHR（离屏路径恒 0）。
+		三者之和不超过 last_frame_ms。
+		*/
+		double last_host_record_ms_get(void) const;
+		double last_host_submit_ms_get(void) const;
+		double last_host_present_ms_get(void) const;
 		//累计主机侧耗时（毫秒；自构建以来各帧「录制 ＋ 提交 ＋ 呈现调用」之和）
 		double total_frame_ms_get(void) const;
 		/*
@@ -439,8 +447,14 @@ namespace engine
 		*/
 		Recorded_Counts items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
+		/*
+		提交并呈现
+		submit_ms_out / present_ms_out 回填「vkQueueSubmit2」与「vkQueuePresentKHR」调用的主机侧耗时
+		（毫秒；第一百三十三轮），供门面主机侧分段观测。
+		*/
 		bool submit_present(Frame_Slot& slot, uint32_t image_index, VkSemaphore image_available,
-			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out);
+			VkSemaphore render_finished, Swapchain_Context& swapchain, bool& rebuild_needed_out,
+			double& submit_ms_out, double& present_ms_out);
 		/*
 		累计本帧绘制统计（实现见 core/提交呈现.cpp）
 		绘制项数按登记项计；实例数取各绘制项 instance_count 之和（0 表该项不完整、无实例可计）。
@@ -499,6 +513,10 @@ namespace engine
 		uint32_t frame_count = 0;
 		//最近一帧主机侧耗时（毫秒；录制 ＋ 提交 ＋ 呈现调用）
 		double last_frame_ms = 0.0;
+		//最近一帧主机侧分段耗时（第一百三十三轮；录制 / 提交 / 呈现）
+		double last_host_record_ms = 0.0;
+		double last_host_submit_ms = 0.0;
+		double last_host_present_ms = 0.0;
 		//累计主机侧耗时（毫秒；自构建以来）
 		double total_frame_ms = 0.0;
 		//累计绘制项数（自构建以来）

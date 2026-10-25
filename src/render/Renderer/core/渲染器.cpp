@@ -2614,6 +2614,10 @@ namespace engine
 		stats.frames = impl->frame_count;
 		//帧耗时与绘制 / 实例计数取自帧模块（主机侧录制统计）
 		stats.frame_ms = impl->frame.last_frame_ms_get();
+		//主机侧分段（第一百三十三轮；录制 / 提交 / 呈现）
+		stats.host_record_ms = impl->frame.last_host_record_ms_get();
+		stats.host_submit_ms = impl->frame.last_host_submit_ms_get();
+		stats.host_present_ms = impl->frame.last_host_present_ms_get();
 		stats.draw_items = impl->frame.total_draw_items_get();
 		stats.instances = impl->frame.total_instances_get();
 		//GPU 侧耗时取自帧模块时间戳查询池（设备不支持时恒 0）

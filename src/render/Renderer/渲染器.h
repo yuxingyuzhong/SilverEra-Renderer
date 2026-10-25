@@ -77,6 +77,14 @@ namespace engine
 		uint64_t frames = 0;
 		//最近一帧主机侧耗时（毫秒）
 		double frame_ms = 0.0;
+		/*
+		最近一帧主机侧分段耗时（毫秒；第一百三十三轮）
+		录制 = 命令录制调用；提交 = vkQueueSubmit2；呈现 = vkQueuePresentKHR（离屏路径恒 0）。
+		三者之和不超过 frame_ms（差值为取图像 / 等待栅栏等前置开销）。
+		*/
+		double host_record_ms = 0.0;
+		double host_submit_ms = 0.0;
+		double host_present_ms = 0.0;
 		//累计绘制项数（含同帧多 pass 路径的后处理绘制项；**按登记项计**，含被跳过的不完整项）
 		uint64_t draw_items = 0;
 		//累计实例数（按登记项计）
@@ -209,9 +217,9 @@ namespace engine
 		/*
 		清零累计帧统计（第九十一轮新增）
 		帧数、绘制项 / 实例 / 实际绘制量、累计耗时（主机 / GPU / 分段）、GPU 样本（含阴影样本）、
-		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / gpu_frame_ms / gpu_scene_ms /
-		gpu_post_ms / gpu_shadow_ms / post_stages / last_draw_items / last_instances /
-		last_culled_items）保持不变。未初始化时静默忽略。
+		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / host_record_ms / host_submit_ms /
+		host_present_ms / gpu_frame_ms / gpu_scene_ms / gpu_post_ms / gpu_shadow_ms / post_stages /
+		last_draw_items / last_instances / last_culled_items）保持不变。未初始化时静默忽略。
 		*/
 		void frame_stats_reset(void);
 		/*
