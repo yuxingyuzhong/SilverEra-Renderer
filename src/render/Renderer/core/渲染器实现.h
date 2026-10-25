@@ -390,6 +390,8 @@ namespace engine
 		uint64_t culled_items = 0;
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
 		bool cull_enabled = true;
+		//是否启用静态合批（第一百二十七轮；默认开启）
+		bool static_batching = true;
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 24>> pending_push_constants;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）

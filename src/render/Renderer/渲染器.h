@@ -48,6 +48,8 @@ namespace engine
 		uint32_t ssaa_factor = 1;
 		//多重采样抗锯齿采样数（第九十六轮；1 = 关闭，2/4/8 = MSAA；默认 1 保持既有画面逐字节不变）
 		uint32_t msaa_samples = 1;
+		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
+		bool static_batching = true;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 		/*
@@ -645,6 +647,15 @@ namespace engine
 		void cull_enabled_set(bool enabled);
 		//查询视锥剔除是否启用（未初始化返回默认值 true）
 		bool cull_enabled(void) const;
+		/*
+		启用 / 关闭静态合批（第一百二十七轮；默认开启）
+		开启时把**相邻且完全等价**的绘制项合并为一次实例化绘制（同管线 / 索引区 / 推送常量 / 连续实例区）；
+		绘制顺序与画面逐字节不变，仅减少实际绘制次数（`Frame_Stats::drawn_items` 下降）。
+		未初始化时静默忽略。
+		*/
+		void static_batching_set(bool enabled);
+		//查询静态合批是否启用（未初始化返回默认值 true）
+		bool static_batching(void) const;
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →

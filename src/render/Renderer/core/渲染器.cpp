@@ -1067,6 +1067,8 @@ namespace engine
 
 		//记录配置并标记初始化完成
 		impl->config = effective;
+		//静态合批开关（第一百二十七轮；默认开启）
+		impl->static_batching = effective.static_batching;
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
@@ -1186,6 +1188,8 @@ namespace engine
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
 		impl->cull_enabled = true;
+		//静态合批恢复默认（开启，第一百二十七轮）
+		impl->static_batching = true;
 		//逐物体 PBR 材质恢复默认（不覆盖全局，第六十八轮）
 		impl->material_pbr_active = false;
 		impl->material_pbr_roughness = 1.0f;
@@ -2084,6 +2088,56 @@ namespace engine
 			impl->instance_block_cached[slot] = 1;
 			//累计上传字节（观测用）
 			impl->instance_upload_bytes += uploaded_bytes;
+		}
+
+		/*
+		静态合批（第一百二十七轮）
+		把**相邻且完全等价**的绘制项合并为一次实例化绘制：管线 / 布局 / 缓冲与索引区相同、推送常量逐字节相同、
+		实例区在实例缓冲中严格连续、阴影标记与采样数一致。
+		合并只减少实际绘制次数（drawn_items），绘制顺序与实例顺序不变，故画面逐字节一致。
+		*/
+		if (impl->static_batching && impl->pending_items.size() > 1)
+		{
+			//合并结果（保留首个等价项并累加实例数）
+			std::vector<Frame_Render_Item> merged_items;
+			merged_items.reserve(impl->pending_items.size());
+			for (const Frame_Render_Item& item : impl->pending_items)
+			{
+				//能否并入前一项
+				bool can_merge = false;
+				//若已有可比较的前一项
+				if (!merged_items.empty())
+				{
+					const Frame_Render_Item& last = merged_items.back();
+					//推送常量是否逐字节一致（0 字节表示两侧都不推送）
+					bool push_same = last.push_constant_size == item.push_constant_size
+						&& last.push_constant_offset == item.push_constant_offset;
+					if (push_same && last.push_constant_size != 0)
+						push_same = last.push_constants != nullptr && item.push_constants != nullptr
+							&& memcmp(last.push_constants, item.push_constants, last.push_constant_size) == 0;
+					//后处理参数是否一致（场景项恒相等）
+					bool post_same = memcmp(last.post_params, item.post_params, sizeof(last.post_params)) == 0;
+					//实例区是否首尾相接
+					bool instance_adjacent = last.instance_buffer == item.instance_buffer
+						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
+							== item.instance_offset;
+					can_merge = push_same && post_same && instance_adjacent
+						&& last.pipeline == item.pipeline
+						&& last.layout == item.layout
+						&& last.vertex_buffer == item.vertex_buffer
+						&& last.index_buffer == item.index_buffer
+						&& last.index_offset == item.index_offset
+						&& last.index_count == item.index_count
+						&& last.cast_shadow == item.cast_shadow
+						&& last.sample_count == item.sample_count;
+				}
+				//可合并则把实例数并入前一项（实例数据仍按原顺序连续）
+				if (can_merge)
+					merged_items.back().instance_count += item.instance_count;
+				else
+					merged_items.push_back(item);
+			}
+			impl->pending_items.swap(merged_items);
 		}
 
 		//为本帧待绘制项填装描述符集与实例缓冲句柄
@@ -4639,6 +4693,24 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return true;
 		return impl->cull_enabled;
+	}
+
+	//启用 / 关闭静态合批（第一百二十七轮）
+	void Renderer::static_batching_set(bool enabled)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->static_batching = enabled;
+	}
+
+	//查询静态合批是否启用
+	bool Renderer::static_batching(void) const
+	{
+		//未初始化时返回默认值（开启）
+		if (impl == nullptr || !impl->initialized)
+			return true;
+		return impl->static_batching;
 	}
 
 	//读取某一级的泛光专设参数（只读诊断）
