@@ -773,6 +773,33 @@ namespace engine
 			0, 0, nullptr, 0, nullptr, 1, &barrier);
 
 		/*
+		场景 pass → 后处理 · 场景深度布局转换（第一百二十三轮）
+		深度采样类阶段（景深）在片元阶段读取深度图，故由深度附件转为着色器可读；
+		深度图像句柄为空（未取深度）时跳过，保持既有行为。
+		*/
+		if (scene_target.depth_image != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier depth_barrier{};
+			depth_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			depth_barrier.oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depth_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			depth_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			depth_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			depth_barrier.image = scene_target.depth_image;
+			depth_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			depth_barrier.subresourceRange.baseMipLevel = 0;
+			depth_barrier.subresourceRange.levelCount = 1;
+			depth_barrier.subresourceRange.baseArrayLayer = 0;
+			depth_barrier.subresourceRange.layerCount = 1;
+			depth_barrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			depth_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &depth_barrier);
+		}
+
+		/*
 		后处理各级（多目标轮转）
 		第 stage 级：源 = targets[stage % target_count]（恒为 SHADER_READ_ONLY，可直接采样）；
 		           宿 = 末级交换链图像 / 非末级 targets[(stage + 1) % target_count]。
@@ -999,6 +1026,34 @@ namespace engine
 					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 					0, 0, nullptr, 0, nullptr, 1, &barrier);
 			}
+		}
+
+		/*
+		后处理链收尾 · 场景深度布局回转（第一百二十三轮）
+		本帧采样结束后把深度转回深度附件布局，供下一帧以 DEPTH_ATTACHMENT_OPTIMAL 重新挂载；
+		深度图像句柄为空时跳过（既有行为不变）。
+		*/
+		if (scene_target.depth_image != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier depth_barrier{};
+			depth_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			depth_barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			depth_barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			depth_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			depth_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			depth_barrier.image = scene_target.depth_image;
+			depth_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			depth_barrier.subresourceRange.baseMipLevel = 0;
+			depth_barrier.subresourceRange.levelCount = 1;
+			depth_barrier.subresourceRange.baseArrayLayer = 0;
+			depth_barrier.subresourceRange.layerCount = 1;
+			depth_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			depth_barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+				| VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &depth_barrier);
 		}
 
 		//GPU 时间戳终点（可选；管线底部，含此前全部命令与收尾布局转换）

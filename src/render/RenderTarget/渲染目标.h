@@ -115,6 +115,12 @@ namespace engine
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;
 		//取渲染目标尺寸（第七十七轮新增；句柄无效返回假且出参归零）
 		bool target_extent_get(uint64_t handle, VkExtent2D& extent_out) const;
+		/*
+		取渲染目标的深度图像与视图（第一百二十三轮新增）
+		供后处理阶段（景深）以纹理方式采样深度；句柄无效或记录已空时返回假且出参为空。
+		注意：采样前调用方须把深度转入 SHADER_READ_ONLY_OPTIMAL，用完转回 DEPTH_ATTACHMENT_OPTIMAL。
+		*/
+		bool target_depth_get(uint64_t handle, VkImage& depth_image_out, VkImageView& depth_view_out) const;
 		//取目标 MSAA 附件与采样数（第九十六轮；关闭 MSAA 时图像 / 视图为空且采样数为 1）
 		bool target_msaa_get(uint64_t handle, VkImage& msaa_color_image_out, VkImageView& msaa_color_view_out,
 			VkImageView& msaa_depth_view_out, uint32_t& sample_count_out) const;

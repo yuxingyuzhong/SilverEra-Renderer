@@ -66,6 +66,15 @@ namespace engine
 		this->far_plane = far_plane;
 	}
 
+	//写出近远平面（第一百二十三轮；供景深把深度缓冲换算为世界距离）
+	void Camera::clip_get(float* near_out, float* far_out) const
+	{
+		if (near_out != nullptr)
+			*near_out = near_plane;
+		if (far_out != nullptr)
+			*far_out = far_plane;
+	}
+
 	//绕「上方向」围绕注视点轨道旋转
 	void Camera::orbit(float radians_delta)
 	{

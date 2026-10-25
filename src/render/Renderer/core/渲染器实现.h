@@ -60,7 +60,8 @@ namespace engine
 		签名未变时为空操作（避免逐帧更新在途描述符集）；变化时先等尽在途帧再写满全部帧槽。
 		绑定规则：index i 的 binding 0 = views[i]、binding 1 = views[0]（场景目标）。
 		*/
-		bool post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler);
+		bool post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler,
+			VkImageView depth_view = VK_NULL_HANDLE);
 		/*
 		确保 SSAA 降采样具名管线就绪（惰性登记）
 		着色器对为 后处理.vert / 降采样.frag（不透明档）；模块由本实现体持有，随 extra_pipelines 统一销毁。
@@ -328,6 +329,8 @@ namespace engine
 		VkImageView post_bound_views[PRESENT_TARGET_MAX] = {};
 		uint32_t post_bound_view_count = 0;
 		VkSampler post_bound_sampler = VK_NULL_HANDLE;
+		//后处理采样集 binding 2 已绑定的场景深度视图（第一百二十三轮）
+		VkImageView post_bound_depth = VK_NULL_HANDLE;
 		bool post_bind_cached = false;
 		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
 		bool ssaa_extent_failed = false;

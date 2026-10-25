@@ -229,9 +229,9 @@ namespace engine
 			record_resources_destroy(record);
 			return false;
 		}
-		//创建深度图像（深度附件 ＋ 传输源；第二十八轮增加传输源以支持深度读回）
+		//创建深度图像（深度附件 ＋ 传输源；第二十八轮增加传输源以支持深度读回；第一百二十三轮增加采样以支持景深）
 		if (!memory->image_create(record.depth_image, record.depth_alloc, width, height, depth_format,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT))
 		{
 			logger.error("渲染目标:: 深度图像创建失败");
 			record_resources_destroy(record);
@@ -392,9 +392,9 @@ namespace engine
 				record_resources_destroy(record);
 				return false;
 			}
-			//重建深度图像
+			//重建深度图像（第一百二十三轮起同时保留采样用途）
 			if (!memory->image_create(record.depth_image, record.depth_alloc, width, height, depth_format,
-				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT))
 			{
 				logger.error("渲染目标:: 采样数切换时深度图像重建失败");
 				record.valid = false;
@@ -548,6 +548,26 @@ namespace engine
 		color_view_out = record.color_view;
 		depth_view_out = record.depth_view;
 		extent_out = record.extent;
+		return true;
+	}
+
+	//取渲染目标深度图像与视图（第一百二十三轮）
+	bool Render_Target_Context::target_depth_get(uint64_t handle, VkImage& depth_image_out, VkImageView& depth_view_out) const
+	{
+		//出参先复位
+		depth_image_out = VK_NULL_HANDLE;
+		depth_view_out = VK_NULL_HANDLE;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出深度图像与视图
+		depth_image_out = record.depth_image;
+		depth_view_out = record.depth_view;
 		return true;
 	}
 

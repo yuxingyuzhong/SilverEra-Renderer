@@ -32,6 +32,8 @@ namespace engine
 		void aspect_set(float aspect);
 		//设置近远平面
 		void near_far_set(float near_plane, float far_plane);
+		//写出近远平面（第一百二十三轮新增；供景深把深度缓冲换算为世界距离）
+		void clip_get(float* near_out, float* far_out) const;
 		/*
 		设置投影模式
 		enabled 为真时改用正交投影（垂直可见高度 = ortho_height 世界单位，宽按 aspect 推出）；

@@ -134,6 +134,12 @@ namespace engine
 		//深度图像视图（MSAA 开启时为单采样深度，不参与主 pass）
 		VkImageView depth_view = VK_NULL_HANDLE;
 		/*
+		深度图像句柄（第一百二十三轮）
+		供「场景 pass → 后处理」之间的深度布局转换（采样前转 SHADER_READ_ONLY、用后转回深度附件）；
+		为空时后处理链不做深度转换（景深阶段将读到未定义内容）。
+		*/
+		VkImage depth_image = VK_NULL_HANDLE;
+		/*
 		MSAA 附件（第九十六轮；sample_count > 1 时有效）
 		颜色 pass 写入多重采样附件，结束时解析（resolve）到 color_view；深度用多重采样附件。
 		*/

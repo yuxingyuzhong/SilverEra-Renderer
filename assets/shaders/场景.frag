@@ -73,6 +73,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	mat4 light_view_proj_far;
 	//级联参数（x = 级联数 1/2、y = 切换距离、z = 远区半宽缩放、w 保留；第一百二十一轮）
 	vec4 cascade_params;
+	//相机近远平面（x = 近平面、y = 远平面；第一百二十三轮，供后处理把深度换回世界距离）
+	vec4 camera_range;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）

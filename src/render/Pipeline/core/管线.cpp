@@ -95,14 +95,14 @@ namespace engine
 		/*
 		描述符池与每帧槽描述符集
 		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 3 × 2；
-		采样器布局已含 2 个 binding（0 = 当前源、1 = 场景目标），故采样器类描述符按两倍计；
-		最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)（每帧槽各一个 set0、一个 set1 采样器集、POST_SET_PER_SLOT 个 set1 后处理集）。
+		采样器布局已含 3 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度；第一百二十三轮由 2 增为 3），
+		故采样器类描述符按三倍计；最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)。
 		*/
 		VkDescriptorPoolSize pool_sizes[2]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 2;
+		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 3;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -556,11 +556,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 1056 字节：… ＋ 阴影参数与强度 ＋ PBR-lite 参数 ＋ 远区级联矩阵与级联参数；第一百二十一轮由 976 扩为 1056）
+		//缓冲描述（场景 UBO 1072 字节：… ＋ 阴影参数与强度 ＋ PBR-lite 参数 ＋ 远区级联矩阵与级联参数 ＋ 相机近远平面；第一百二十三轮由 1056 扩为 1072）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 1056;
+		buffer_info.range = 1072;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -699,6 +699,40 @@ namespace engine
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = target_set;
 		write.dstBinding = 1;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽指定 index 的后处理采样器集写「场景深度」（binding 2；第一百二十三轮）
+	bool Pipeline_Context::post_depth_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index)
+	{
+		//取目标后处理集（index 越界则返回空句柄）
+		VkDescriptorSet target_set = post_set_get(slot, index);
+		//前置：设备、目标集、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || target_set == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 后处理深度绑定参数不完整");
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 2）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = target_set;
+		write.dstBinding = 2;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
 		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

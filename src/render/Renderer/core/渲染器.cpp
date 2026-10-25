@@ -190,17 +190,19 @@ namespace engine
 	}
 
 	/*
-	把后处理采样集绑定到给定目标视图组（第九十七轮）
-	签名（采样器 ＋ 视图组与数量）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
-	binding 0 = 该级源（views[index]）、binding 1 = 场景目标（views[0]）。
+	把后处理采样集绑定到给定目标视图组（第九十七轮；第一百二十三轮增加场景深度）
+	签名（采样器 ＋ 视图组与数量 ＋ 深度视图）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
+	binding 0 = 该级源（views[index]）、binding 1 = 场景目标（views[0]）、
+	binding 2 = 场景深度（depth_view 非空时才写，供景深类片元采样）。
 	*/
-	bool Renderer::Impl::post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler)
+	bool Renderer::Impl::post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler, VkImageView depth_view)
 	{
 		//数量钳到每帧槽后处理集上限
 		if (count > PRESENT_TARGET_MAX)
 			count = PRESENT_TARGET_MAX;
-		//签名比较：采样器、数量与逐视图一致则空操作
-		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count;
+		//签名比较：采样器、数量、深度与逐视图一致则空操作
+		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count
+			&& post_bound_depth == depth_view;
 		for (uint32_t index = 0; same && index < count; ++index)
 			if (post_bound_views[index] != views[index])
 				same = false;
@@ -215,10 +217,14 @@ namespace engine
 			{
 				pipeline.post_texture_bind(slot, sampler, views[index], index);
 				pipeline.post_scene_bind(slot, sampler, views[0], index);
+				//深度视图非空时一并写入（景深等深度采样阶段使用）
+				if (depth_view != VK_NULL_HANDLE)
+					pipeline.post_depth_bind(slot, sampler, depth_view, index);
 			}
 		//更新签名缓存
 		post_bound_sampler = sampler;
 		post_bound_view_count = count;
+		post_bound_depth = depth_view;
 		for (uint32_t index = 0; index < count; ++index)
 			post_bound_views[index] = views[index];
 		post_bind_cached = true;
@@ -647,8 +653,8 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十一轮由 976 扩为 1056 字节：追加远区级联矩阵与级联参数）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1056,
+			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十三轮由 1056 扩为 1072 字节：追加相机近远平面）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1072,
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -1563,14 +1569,14 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块组装（1056 字节 = 264 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
+		场景 UBO 整块组装（1072 字节 = 268 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
 		第一百二十一轮追加远区级联矩阵与级联参数）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
 		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
 		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度、
 		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）、244 远区级联矩阵、260 级联参数。
 		*/
-		float scene_block[264] = {};
+		float scene_block[268] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1681,40 +1687,49 @@ namespace engine
 		scene_block[262] = impl->cascade_depth_span[0];
 		scene_block[263] = impl->cascade_depth_span[1];
 		/*
+		相机近远平面（第一百二十三轮）
+		264 = 近平面、265 = 远平面（世界单位）；供景深片元把深度缓冲换算成以相机为原点的距离。
+		*/
+		float clip_near = 0.0f;
+		float clip_far = 0.0f;
+		impl->camera.clip_get(&clip_near, &clip_far);
+		scene_block[264] = clip_near;
+		scene_block[265] = clip_far;
+		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 264 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的 268 浮点，按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 1056 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 1072 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 264)
+		if (impl->scene_block_cache.size() != scene_slot_count * 268)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 264, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * 268, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		//本帧槽缓存段（264 浮点）
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 264;
+		//本帧槽缓存段（268 浮点）
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 268;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1056, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1072, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 1056;
+			uploaded_bytes = 1072;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 264 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = 268 / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -1759,8 +1774,8 @@ namespace engine
 				uploaded_bytes += segment_bytes;
 			}
 		}
-		//更新该帧槽缓存（与已写入内容一致；第一百二十一轮为 264 浮点）
-		for (std::size_t index = 0; index < 264; ++index)
+		//更新该帧槽缓存（与已写入内容一致；第一百二十三轮为 268 浮点）
+		for (std::size_t index = 0; index < 268; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -2146,7 +2161,10 @@ namespace engine
 				std::vector<VkImageView> post_views(targets.size());
 				for (std::size_t index = 0; index < targets.size(); ++index)
 					post_views[index] = targets[index].color_view;
-				if (!impl->post_sets_bind(post_views.data(), static_cast<uint32_t>(post_views.size()), shared_sampler))
+				//取场景目标的深度图像（第一百二十三轮；帧模块据此做采样前后的布局转换）
+				impl->render_target.target_depth_get(impl->present_target, targets[0].depth_image, targets[0].depth_view);
+				if (!impl->post_sets_bind(post_views.data(), static_cast<uint32_t>(post_views.size()),
+					shared_sampler, targets[0].depth_view))
 				{
 					logger.error("渲染器:: 后处理失败：采样集绑定失败");
 					ready = false;
