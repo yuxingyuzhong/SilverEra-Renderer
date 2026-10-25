@@ -189,6 +189,11 @@ namespace engine
 		供深度采样类后处理片元（如 景深.frag）；调用前须保证该深度图像处于 SHADER_READ_ONLY_OPTIMAL。
 		*/
 		bool post_depth_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
+		/*
+		向第 slot 帧槽的场景采样器集写「材质贴图」（set 1 binding 3 = 法线、binding 4 = 粗糙度；第一百二十四轮）
+		无贴图时由门面传入内置默认白纹理，使采样值恒为 (1,1,1) 从而不影响画面。
+		*/
+		bool material_texture_bind(uint32_t slot, VkSampler sampler, VkImageView normal_view, VkImageView roughness_view);
 	private:
 		//描述符集布局创建（实现见 core/描述符布局.cpp）
 		bool descriptor_layouts_create(void);

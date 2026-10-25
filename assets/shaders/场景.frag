@@ -17,6 +17,8 @@ layout(location = 3) flat in vec4 in_material;
 layout(push_constant) uniform Push_Tint
 {
 	layout(offset = 64) vec4 tint;
+	//材质贴图参数（第一百二十四轮；x = 法线强度（0 = 不启用）、y = 粗糙度贴图启用、zw 保留）
+	layout(offset = 80) vec4 material_extras;
 } push_tint;
 
 //颜色附件输出
@@ -26,6 +28,10 @@ layout(location = 0) out vec4 out_color;
 layout(set = 1, binding = 0) uniform sampler2D albedo;
 //阴影图（第五十二轮；set 1 binding 1，RGBA8 打包 32 位深度，以 texelFetch 读取规避插值）
 layout(set = 1, binding = 1) uniform sampler2D shadow_map;
+//法线贴图（第一百二十四轮；set 1 binding 3，切线空间法线；默认绑定白纹理）
+layout(set = 1, binding = 3) uniform sampler2D normal_map;
+//粗糙度贴图（第一百二十四轮；set 1 binding 4，取红通道作粗糙度乘子；默认绑定白纹理 → ×1）
+layout(set = 1, binding = 4) uniform sampler2D roughness_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -86,7 +92,12 @@ const int POINT_LIGHT_MAX = 8;
 */
 float material_roughness_scale()
 {
-	return in_material.z > 0.5 ? clamp(in_material.x, 0.05, 4.0) : max(scene.pbr_params.y, 0.05);
+	float base = in_material.z > 0.5 ? clamp(in_material.x, 0.05, 4.0) : max(scene.pbr_params.y, 0.05);
+	/*
+	粗糙度贴图（第一百二十四轮）
+	取红通道作乘子；默认绑定为内置白纹理（采样值 1），故无贴图路径与引入前逐字节一致。
+	*/
+	return base * texture(roughness_map, in_uv).r;
 }
 
 /*
@@ -250,6 +261,36 @@ void main()
 	if (length(in_normal) > 0.000001)
 	{
 		vec3 normal = normalize(in_normal);
+		/*
+		法线贴图（第一百二十四轮）
+		强度为 0（默认）时整段跳过，几何法线原样使用，画面逐字节不变；
+		启用时按屏幕空间导数构造切线基（网格无切线属性），把切线空间法线变换到世界空间后按强度混合。
+		*/
+		if (push_tint.material_extras.x > 0.0)
+		{
+			//切线空间法线（[0,1] 编码 → [-1,1]）
+			vec3 tangent_normal = texture(normal_map, in_uv).xyz * 2.0 - 1.0;
+			//屏幕空间导数构造切线 / 副切线
+			vec3 dp1 = dFdx(in_world);
+			vec3 dp2 = dFdy(in_world);
+			vec2 duv1 = dFdx(in_uv);
+			vec2 duv2 = dFdy(in_uv);
+			vec3 dp2perp = cross(dp2, normal);
+			vec3 dp1perp = cross(normal, dp1);
+			vec3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+			vec3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+			//基向量归一（退化时保持几何法线）
+			float maximum = max(dot(tangent, tangent), dot(bitangent, bitangent));
+			if (maximum > 0.0)
+			{
+				float inverse_length = inversesqrt(maximum);
+				tangent *= inverse_length;
+				bitangent *= inverse_length;
+				vec3 perturbed = normalize(tangent * tangent_normal.x + bitangent * tangent_normal.y
+					+ normal * tangent_normal.z);
+				normal = normalize(mix(normal, perturbed, clamp(push_tint.material_extras.x, 0.0, 1.0)));
+			}
+		}
 		//视线方向（相机 → 片元 的反向，即片元指向相机）
 		vec3 to_view = normalize(scene.camera_pos.xyz - in_world);
 		/*

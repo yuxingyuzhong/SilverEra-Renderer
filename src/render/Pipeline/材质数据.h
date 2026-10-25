@@ -49,5 +49,15 @@ namespace engine
 		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效）
 		float emissive = 0.0f;
+		/*
+		PBR 贴图化（第一百二十四轮）
+		normal_texture：法线贴图句柄（0 = 无，按几何法线着色）。
+		roughness_texture：粗糙度贴图句柄（0 = 无，按 1 处理）。
+		normal_strength：法线强度（0 = 不启用；合法域 (0, 4]）。
+		无贴图路径（三者皆默认）与引入贴图前逐字节一致。
+		*/
+		uint64_t normal_texture = 0;
+		uint64_t roughness_texture = 0;
+		float normal_strength = 0.0f;
 	};
 }

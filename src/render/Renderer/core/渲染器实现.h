@@ -199,6 +199,12 @@ namespace engine
 			float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 			//逐物体自发光强度（第七十轮；0 = 无自发光）
 			float emissive = 0.0f;
+			//法线贴图句柄（第一百二十四轮；0 = 无）
+			uint64_t normal_texture = 0;
+			//粗糙度贴图句柄（第一百二十四轮；0 = 无）
+			uint64_t roughness_texture = 0;
+			//法线强度（第一百二十四轮；0 = 不启用）
+			float normal_strength = 0.0f;
 			//记录是否有效
 			bool valid = false;
 		};
@@ -359,7 +365,7 @@ namespace engine
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
 		bool cull_enabled = true;
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
-		std::deque<std::array<float, 20>> pending_push_constants;
+		std::deque<std::array<float, 24>> pending_push_constants;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
@@ -420,6 +426,8 @@ namespace engine
 		float material_tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效，无需覆盖标志）
 		float material_emissive = 0.0f;
+		//逐物体法线强度（第一百二十四轮；0 = 不启用，随推送常量 offset 80 的 x 分量下发）
+		float material_normal_strength = 0.0f;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

@@ -1125,6 +1125,7 @@ namespace engine
 			impl->material_tint[index] = 1.0f;
 		//逐物体自发光恢复默认（0，第七十轮）
 		impl->material_emissive = 0.0f;
+		impl->material_normal_strength = 0.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -2919,7 +2920,7 @@ namespace engine
 		if (push_color != nullptr)
 		{
 			impl->pending_push_constants.emplace_back();
-			std::array<float, 20>& push = impl->pending_push_constants.back();
+			std::array<float, 24>& push = impl->pending_push_constants.back();
 			//前 64 字节 = 单位矩阵
 			push.fill(0.0f);
 			push[0] = 1.0f;
@@ -2929,6 +2930,12 @@ namespace engine
 			//后 16 字节 = 颜色
 			for (std::size_t index = 0; index < 4; ++index)
 				push[16 + index] = push_color[index];
+			/*
+			材质贴图参数（第一百二十四轮；offset 80 的 vec4）
+			x = 法线强度（0 = 不启用），y = 粗糙度贴图启用标志（贴图恒绑定，默认白纹理即恒等），zw 保留。
+			*/
+			push[20] = impl->material_normal_strength;
+			push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		}
@@ -3023,7 +3030,7 @@ namespace engine
 		吸附色调或白色（未设置时），否则未设置的推送常量取值未定义。
 		*/
 		impl->pending_push_constants.emplace_back();
-		std::array<float, 20>& push = impl->pending_push_constants.back();
+		std::array<float, 24>& push = impl->pending_push_constants.back();
 		push.fill(0.0f);
 		push[0] = 1.0f;
 		push[5] = 1.0f;
@@ -3191,6 +3198,18 @@ namespace engine
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
+		/*
+		材质贴图回落（第一百二十四轮）
+		单独切换反照率时把 set1 binding 3 / 4 复位为内置默认白纹理，
+		避免上一材质的法线 / 粗糙度贴图残留；材质路径随后会再写自己的贴图。
+		*/
+		{
+			VkImageView white_view = VK_NULL_HANDLE;
+			VkSampler white_sampler = VK_NULL_HANDLE;
+			if (impl->texture.texture_bind_get(impl->default_texture, white_view, white_sampler))
+				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					impl->pipeline.material_texture_bind(slot, white_sampler, white_view, white_view);
+		}
 	}
 
 	//设置纹理采样器状态（切换后重新绑定当前纹理，使新采样器真正生效）
@@ -3490,6 +3509,17 @@ namespace engine
 		record.emissive = (data.emissive >= 0.0f && data.emissive <= 8.0f) ? data.emissive : 0.0f;
 		if (!(data.emissive >= 0.0f && data.emissive <= 8.0f))
 			logger.warn("渲染器:: 材质自发光 {} 越界（合法域 [0, 8]），按 0 登记", data.emissive);
+		/*
+		PBR 贴图化（第一百二十四轮）
+		法线强度合法域 (0, 4]；越界 / 非数按 0（不启用）登记。
+		贴图句柄原样记录，绑定阶段无效句柄回落内置默认白纹理。
+		*/
+		record.normal_texture = data.normal_texture;
+		record.roughness_texture = data.roughness_texture;
+		record.normal_strength = (data.normal_strength > 0.0f && data.normal_strength <= 4.0f)
+			? data.normal_strength : 0.0f;
+		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
+			logger.warn("渲染器:: 材质法线强度 {} 越界（合法域 (0, 4]），按 0 登记", data.normal_strength);
 		//若未指定管线且混合档非不透明：复用 / 登记该档的**共享**具名管线
 		if (record.pipeline == 0 && data.blend != Blend_Mode::Opaque)
 		{
@@ -3568,6 +3598,7 @@ namespace engine
 			material_pbr_clear();
 			material_tint_clear();
 			material_emissive_clear();
+			impl->material_normal_strength = 0.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -3579,6 +3610,7 @@ namespace engine
 			material_pbr_clear();
 			material_tint_clear();
 			material_emissive_clear();
+			impl->material_normal_strength = 0.0f;
 			return;
 		}
 		//取目标记录
@@ -3586,6 +3618,32 @@ namespace engine
 		//绑定材质管线与纹理（管线句柄未登记 / 纹理句柄无效时各自内部回落默认）
 		pipeline_bind_set(record.pipeline);
 		texture_bind_set(record.texture);
+		/*
+		PBR 贴图化（第一百二十四轮）
+		法线 / 粗糙度贴图无效或未配置时回落内置默认白纹理（采样为 (1,1,1)，画面不变）；
+		法线强度经推送常量 offset 80 的 x 分量下发给场景片元。
+		*/
+		impl->material_normal_strength = record.normal_strength;
+		{
+			//默认白纹理（兜底视图与采样器）
+			VkImageView white_view = VK_NULL_HANDLE;
+			VkSampler white_sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, white_view, white_sampler);
+			//法线贴图（无效则用默认白纹理）
+			VkImageView normal_view = white_view;
+			VkSampler normal_sampler = white_sampler;
+			if (record.normal_texture != 0)
+				impl->texture.texture_bind_get(record.normal_texture, normal_view, normal_sampler);
+			//粗糙度贴图（无效则用默认白纹理）
+			VkImageView roughness_view = white_view;
+			VkSampler roughness_sampler = white_sampler;
+			if (record.roughness_texture != 0)
+				impl->texture.texture_bind_get(record.roughness_texture, roughness_view, roughness_sampler);
+			//把两张贴图写入全部帧槽 set1
+			if (normal_view != VK_NULL_HANDLE && roughness_view != VK_NULL_HANDLE)
+				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					impl->pipeline.material_texture_bind(slot, normal_sampler, normal_view, roughness_view);
+		}
 		//按记录的 PBR 覆盖标志设置 / 清除逐物体材质（第六十八轮）
 		if (record.pbr_override)
 			impl->material_pbr_active = true;
@@ -3768,6 +3826,7 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		impl->material_emissive = 0.0f;
+		impl->material_normal_strength = 0.0f;
 	}
 
 	//当前逐物体自发光强度（第七十轮）
