@@ -56,6 +56,12 @@ namespace engine
 		//确保既有单级默认后处理所需资源就绪（默认后处理管线 ＋ 全屏网格）
 		bool post_resources_ensure(void);
 		/*
+		把后处理采样集绑定到给定目标视图组（第九十七轮）
+		签名未变时为空操作（避免逐帧更新在途描述符集）；变化时先等尽在途帧再写满全部帧槽。
+		绑定规则：index i 的 binding 0 = views[i]、binding 1 = views[0]（场景目标）。
+		*/
+		bool post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler);
+		/*
 		确保 SSAA 降采样具名管线就绪（惰性登记）
 		着色器对为 后处理.vert / 降采样.frag（不透明档）；模块由本实现体持有，随 extra_pipelines 统一销毁。
 		*/
@@ -287,6 +293,16 @@ namespace engine
 		uint64_t ssaa_pipeline = 0;
 		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
 		uint32_t msaa_samples = 1;
+		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）
+		uint32_t scene_input_locations = 0;
+		/*
+		后处理采样集绑定签名（第九十七轮）
+		记录上次写入的目标视图组与采样器；未变化则跳过逐帧重写，避免更新在途描述符集。
+		*/
+		VkImageView post_bound_views[PRESENT_TARGET_MAX] = {};
+		uint32_t post_bound_view_count = 0;
+		VkSampler post_bound_sampler = VK_NULL_HANDLE;
+		bool post_bind_cached = false;
 		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
 		bool ssaa_extent_failed = false;
 		//字体模块（TTF → 字形图集）

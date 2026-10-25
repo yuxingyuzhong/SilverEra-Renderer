@@ -12,6 +12,61 @@ namespace engine
 			std::u8string u8(reinterpret_cast<const char8_t*>(text.data()), text.size());
 			return std::filesystem::path(u8);
 		}
+
+		/*
+		解析 SPIR-V 模块声明的顶点输入位置（第九十七轮）
+		仅扫描 OpVariable（存储类 Input）与 OpDecorate（Location）两类指令；
+		返回位集（位 i = location i），未解析出任何位置时返回 0。
+		目的：图形管线只声明着色器真正消费的顶点属性，消除校验层「属性未被消费」告警。
+		*/
+		uint32_t input_locations_of(const vector<char>& bytes)
+		{
+			const uint32_t* words = reinterpret_cast<const uint32_t*>(bytes.data());
+			std::size_t word_count = bytes.size() / 4;
+			//前置：魔数与最小长度
+			if (word_count < 5 || words[0] != 0x07230203u)
+				return 0;
+			//输入变量 id 集合与位置装饰映射（数量很小，线性容器足够）
+			vector<uint32_t> input_ids;
+			vector<std::pair<uint32_t, uint32_t>> locations;
+			std::size_t index = 5;
+			while (index < word_count)
+			{
+				//指令头：高 16 位为字数、低 16 位为操作码
+				uint32_t header = words[index];
+				std::size_t instruction_words = header >> 16;
+				uint16_t opcode = static_cast<uint16_t>(header & 0xFFFFu);
+				//字数非法即终止（防御损坏字节码）
+				if (instruction_words == 0 || index + instruction_words > word_count)
+					break;
+				//OpVariable（59）：操作数 = 结果类型、结果 id、存储类
+				if (opcode == 59 && instruction_words >= 4)
+				{
+					uint32_t result_id = words[index + 2];
+					uint32_t storage_class = words[index + 3];
+					//存储类 1 = Input
+					if (storage_class == 1)
+						input_ids.push_back(result_id);
+				}
+				//OpDecorate（71）：操作数 = 目标 id、装饰、字面量
+				else if (opcode == 71 && instruction_words >= 4)
+				{
+					uint32_t target = words[index + 1];
+					uint32_t decoration = words[index + 2];
+					//装饰 30 = Location
+					if (decoration == 30)
+						locations.emplace_back(target, words[index + 3]);
+				}
+				index += instruction_words;
+			}
+			//把位置映射到输入变量
+			uint32_t mask = 0;
+			for (uint32_t id : input_ids)
+				for (const auto& item : locations)
+					if (item.first == id && item.second < 32)
+						mask |= (1u << item.second);
+			return mask;
+		}
 	}
 
 	//读取着色器文件字节
@@ -56,8 +111,12 @@ namespace engine
 	}
 
 	//加载着色器模块
-	bool Shader_Context::module_load(VkShaderModule& module_out, const string& file_name) const
+	bool Shader_Context::module_load(VkShaderModule& module_out, const string& file_name,
+		uint32_t* input_locations_out) const
 	{
+		//出参先复位
+		if (input_locations_out != nullptr)
+			*input_locations_out = 0;
 		//默认无有效模块
 		module_out = VK_NULL_HANDLE;
 		//前置：逻辑设备必须齐备
@@ -99,6 +158,10 @@ namespace engine
 			module_out = VK_NULL_HANDLE;
 			return false;
 		}
+
+		//解析模块声明的顶点输入位置（第九十七轮；供图形管线裁剪属性声明）
+		if (input_locations_out != nullptr)
+			*input_locations_out = input_locations_of(bytes);
 
 		logger.info("着色器:: 着色器模块已加载（{}）", file_name);
 		return true;

@@ -40,7 +40,7 @@ namespace engine
 		VkPipeline created = VK_NULL_HANDLE;
 		//若图形管线创建失败
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
-			entry.color_format, entry.cull_none, entry.sample_count))
+			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -210,7 +210,8 @@ namespace engine
 	}
 
 	//登记 / 替换并激活句柄 0「默认场景管线」
-	bool Pipeline_Context::pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode)
+	bool Pipeline_Context::pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
+		uint32_t input_locations)
 	{
 		//前置：基础设施与着色器模块必须齐备
 		if (!valid() || vert_module == VK_NULL_HANDLE || frag_module == VK_NULL_HANDLE)
@@ -237,6 +238,7 @@ namespace engine
 		entry->vert_module = vert_module;
 		entry->frag_module = frag_module;
 		entry->blend_mode = blend_mode;
+		entry->input_locations = input_locations;
 		//创建图形管线
 		if (!entry_pipeline_create(*entry))
 			return false;
@@ -249,7 +251,7 @@ namespace engine
 
 	//登记具名图形管线
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
-		VkFormat color_format, bool cull_none, uint32_t sample_count)
+		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -268,6 +270,7 @@ namespace engine
 		entry.color_format = color_format;
 		entry.cull_none = cull_none;
 		entry.sample_count = sample_count;
+		entry.input_locations = input_locations;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{

@@ -27,7 +27,7 @@ namespace engine
 	结果写入 pipeline_out（不改动任何条目）：本模块可持有多条管线，每条由调用方传入其着色器对与混合档。
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-		VkFormat color_format, bool cull_none, uint32_t sample_count)
+		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -40,55 +40,71 @@ namespace engine
 		stages[1].module = frag_module;
 		stages[1].pName = "main";
 
-		//顶点绑定（binding 0：顶点属性，步长 = sizeof(Vertex) = 20）
-		VkVertexInputBindingDescription vertex_bindings[2]{};
-		vertex_bindings[0].binding = 0;
-		vertex_bindings[0].stride = sizeof(Vertex);
-		vertex_bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-		//实例绑定（binding 1：模型矩阵 4 列 vec4 ＋ 逐物体材质 vec4，按实例步进；第六十八轮步长 64 → 80）
-		vertex_bindings[1].binding = 1;
-		vertex_bindings[1].stride = INSTANCE_STRIDE_BYTES;
-		vertex_bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
 		/*
-		顶点属性（0：位置 vec3 @0；1：纹理坐标 vec2 @12；2：法线 vec3 @20）＋ 实例属性（3..6：模型矩阵 4 列 vec4；7：逐物体材质 vec4）
-		实例属性**恒定声明**：渲染层只有一条绘制路径（模型矩阵统一由实例缓冲承载，
-		实例数为 1 即逐次绘制的等价路径），故不存在「管线要实例属性而未绑定实例缓冲」的合法状态。
+		顶点输入按「着色器实际声明的位置」裁剪（第九十七轮）
+		input_locations 为 SPIR-V 解析所得位集（0 视为解析失败 → 全量 0xFF）；
+		只在位集命中时声明对应属性，避免校验层「属性未被消费」告警。
 		*/
+		uint32_t declared_locations = input_locations == 0 ? 0xFF : input_locations;
+		//属性集合（最多 8 条：0..7）
 		VkVertexInputAttributeDescription vertex_attributes[8]{};
-		vertex_attributes[0].location = 0;
-		vertex_attributes[0].binding = 0;
-		vertex_attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-		vertex_attributes[0].offset = 0;
-		vertex_attributes[1].location = 1;
-		vertex_attributes[1].binding = 0;
-		vertex_attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
-		vertex_attributes[1].offset = 12;
-		//顶点法线（第二十九轮新增；location 2，偏移 20，零向量表示未提供）
-		vertex_attributes[2].location = 2;
-		vertex_attributes[2].binding = 0;
-		vertex_attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-		vertex_attributes[2].offset = 20;
+		uint32_t attribute_count = 0;
+		//是否需要顶点绑定 0 / 实例绑定 1
+		bool use_vertex_binding = false;
+		bool use_instance_binding = false;
+		//声明单条属性（位集未命中则跳过）
+		auto add_attribute = [&](uint32_t location, uint32_t binding, VkFormat format, uint32_t offset)
+		{
+			//位集未命中则跳过
+			if ((declared_locations & (1u << location)) == 0)
+				return;
+			VkVertexInputAttributeDescription& attribute = vertex_attributes[attribute_count++];
+			attribute.location = location;
+			attribute.binding = binding;
+			attribute.format = format;
+			attribute.offset = offset;
+			//记录绑定使用情况
+			if (binding == 0)
+				use_vertex_binding = true;
+			else
+				use_instance_binding = true;
+		};
+		//位置 vec3 @0 / 纹理坐标 vec2 @12 / 法线 vec3 @20
+		add_attribute(0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0);
+		add_attribute(1, 0, VK_FORMAT_R32G32_SFLOAT, 12);
+		add_attribute(2, 0, VK_FORMAT_R32G32B32_SFLOAT, 20);
 		//模型矩阵 4 列（列主序：列 i 位于字节偏移 i × 16）
 		for (uint32_t index = 0; index < 4; ++index)
-		{
-			vertex_attributes[3 + index].location = 3 + index;
-			vertex_attributes[3 + index].binding = 1;
-			vertex_attributes[3 + index].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-			vertex_attributes[3 + index].offset = index * 16;
-		}
-		//逐物体材质（第六十八轮；location 7，偏移 64：x = 粗糙度缩放、y = 金属度、z = 覆盖标志、w 保留）
-		vertex_attributes[7].location = 7;
-		vertex_attributes[7].binding = 1;
-		vertex_attributes[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-		vertex_attributes[7].offset = INSTANCE_MATERIAL_OFFSET * 4;
+			add_attribute(3 + index, 1, VK_FORMAT_R32G32B32A32_SFLOAT, index * 16);
+		//逐物体材质（第六十八轮；location 7，偏移 64）
+		add_attribute(7, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_MATERIAL_OFFSET * 4);
 
-		//顶点输入状态（两个绑定：0 = 顶点步进，1 = 实例步进；共 8 条属性）
+		//顶点绑定（binding 0：顶点属性，步长 = sizeof(Vertex)；binding 1：实例步长 80）
+		VkVertexInputBindingDescription vertex_bindings[2]{};
+		uint32_t binding_count = 0;
+		//顶点步进绑定
+		if (use_vertex_binding)
+		{
+			vertex_bindings[binding_count].binding = 0;
+			vertex_bindings[binding_count].stride = sizeof(Vertex);
+			vertex_bindings[binding_count].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+			++binding_count;
+		}
+		//实例步进绑定
+		if (use_instance_binding)
+		{
+			vertex_bindings[binding_count].binding = 1;
+			vertex_bindings[binding_count].stride = INSTANCE_STRIDE_BYTES;
+			vertex_bindings[binding_count].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+			++binding_count;
+		}
+
+		//顶点输入状态（仅声明实际使用的绑定与属性）
 		VkPipelineVertexInputStateCreateInfo vertex_input{};
 		vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertex_input.vertexBindingDescriptionCount = 2;
+		vertex_input.vertexBindingDescriptionCount = binding_count;
 		vertex_input.pVertexBindingDescriptions = vertex_bindings;
-		vertex_input.vertexAttributeDescriptionCount = 8;
+		vertex_input.vertexAttributeDescriptionCount = attribute_count;
 		vertex_input.pVertexAttributeDescriptions = vertex_attributes;
 
 		//图元装配（三角形列表）

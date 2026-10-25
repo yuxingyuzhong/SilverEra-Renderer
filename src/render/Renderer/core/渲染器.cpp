@@ -173,6 +173,42 @@ namespace engine
 		return true;
 	}
 
+	/*
+	把后处理采样集绑定到给定目标视图组（第九十七轮）
+	签名（采样器 ＋ 视图组与数量）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
+	binding 0 = 该级源（views[index]）、binding 1 = 场景目标（views[0]）。
+	*/
+	bool Renderer::Impl::post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler)
+	{
+		//数量钳到每帧槽后处理集上限
+		if (count > PRESENT_TARGET_MAX)
+			count = PRESENT_TARGET_MAX;
+		//签名比较：采样器、数量与逐视图一致则空操作
+		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count;
+		for (uint32_t index = 0; same && index < count; ++index)
+			if (post_bound_views[index] != views[index])
+				same = false;
+		if (same)
+			return true;
+		//等尽在途帧，确保目标帧槽描述符集不被任何命令缓冲引用
+		if (!frame.frames_wait())
+			return false;
+		//逐帧槽写入
+		for (uint32_t slot = 0; slot < config.frame_overlap; ++slot)
+			for (uint32_t index = 0; index < count; ++index)
+			{
+				pipeline.post_texture_bind(slot, sampler, views[index], index);
+				pipeline.post_scene_bind(slot, sampler, views[0], index);
+			}
+		//更新签名缓存
+		post_bound_sampler = sampler;
+		post_bound_view_count = count;
+		for (uint32_t index = 0; index < count; ++index)
+			post_bound_views[index] = views[index];
+		post_bind_cached = true;
+		return true;
+	}
+
 	//确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
 	bool Renderer::Impl::post_mesh_ensure(void)
 	{
@@ -206,10 +242,11 @@ namespace engine
 		//后处理具名管线尚未登记
 		if (post_pipeline == 0)
 		{
-			//加载后处理顶点 / 片元着色器模块
+			//加载后处理顶点 / 片元着色器模块（顺带解析顶点输入位置）
 			VkShaderModule vert_module = VK_NULL_HANDLE;
 			VkShaderModule frag_module = VK_NULL_HANDLE;
-			if (!shader.module_load(vert_module, "后处理.vert.spv"))
+			uint32_t vert_input_locations = 0;
+			if (!shader.module_load(vert_module, "后处理.vert.spv", &vert_input_locations))
 			{
 				logger.error("渲染器:: 后处理顶点着色器加载失败");
 				return false;
@@ -222,7 +259,8 @@ namespace engine
 			}
 			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
 			uint64_t registered = 0;
-			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque))
+			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque,
+				VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
 			{
 				logger.error("渲染器:: 后处理管线登记失败");
 				shader.module_destroy(vert_module);
@@ -252,10 +290,11 @@ namespace engine
 		//降采样具名管线尚未登记
 		if (ssaa_pipeline == 0)
 		{
-			//加载后处理顶点 / 降采样片元着色器模块
+			//加载后处理顶点 / 降采样片元着色器模块（顺带解析顶点输入位置）
 			VkShaderModule vert_module = VK_NULL_HANDLE;
 			VkShaderModule frag_module = VK_NULL_HANDLE;
-			if (!shader.module_load(vert_module, "后处理.vert.spv"))
+			uint32_t vert_input_locations = 0;
+			if (!shader.module_load(vert_module, "后处理.vert.spv", &vert_input_locations))
 			{
 				logger.error("渲染器:: SSAA 降采样顶点着色器加载失败");
 				return false;
@@ -268,7 +307,8 @@ namespace engine
 			}
 			//登记具名管线（不透明档；与默认管线共享同一布局与描述符集布局）
 			uint64_t registered = 0;
-			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque))
+			if (!pipeline.pipeline_register(registered, vert_module, frag_module, Blend_Mode::Opaque,
+				VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
 			{
 				logger.error("渲染器:: SSAA 降采样管线登记失败");
 				shader.module_destroy(vert_module);
@@ -521,7 +561,8 @@ namespace engine
 		}
 		impl->shader.directory_set(effective.shader_dir);
 		//⑩ 加载顶点 / 片元着色器模块
-		if (!impl->shader.module_load(impl->vert_module, "场景.vert.spv"))
+		//加载场景顶点着色器（顺带解析其声明的顶点输入位置，供管线裁剪属性）
+		if (!impl->shader.module_load(impl->vert_module, "场景.vert.spv", &impl->scene_input_locations))
 		{
 			logger.error("渲染器:: 顶点着色器加载失败");
 			shutdown();
@@ -548,7 +589,8 @@ namespace engine
 			}
 		}
 		//⑫ 管线：图形管线（初始档位 = 不透明）
-		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module, Blend_Mode::Opaque))
+		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module, Blend_Mode::Opaque,
+			impl->scene_input_locations))
 		{
 			logger.error("渲染器:: 图形管线创建失败");
 			shutdown();
@@ -1816,13 +1858,12 @@ namespace engine
 			//若前置就绪
 			if (ready)
 			{
-				//把两个目标写入各帧槽后处理采样集（下标 0 = 场景目标、1 = 解析目标）
-				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
+				//把两个目标写入各帧槽后处理采样集（签名未变则跳过，避免更新在途描述符集）
+				VkImageView post_views[2] = { targets[0].color_view, targets[1].color_view };
+				if (!impl->post_sets_bind(post_views, 2, shared_sampler))
 				{
-					impl->pipeline.post_texture_bind(each, shared_sampler, targets[0].color_view, 0);
-					impl->pipeline.post_texture_bind(each, shared_sampler, targets[1].color_view, 1);
-					impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view, 0);
-					impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view, 1);
+					logger.error("渲染器:: SSAA 失败：后处理采样集绑定失败");
+					ready = false;
 				}
 				//两级管线：0 = 降采样（N 倍 → 输出），1 = 默认后处理（输出 → 交换链）
 				uint64_t stage_pipelines[2] = { impl->ssaa_pipeline, impl->post_pipeline };
@@ -1931,17 +1972,18 @@ namespace engine
 			if (ready)
 			{
 				/*
-				把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号；长命资源，一次写满全部槽）
-				binding 0 = 该级源；binding 1 恒写目标组首项（场景目标），供双源片元（泛光叠加）采样原画面。
+				把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号）
+				binding 0 = 该级源；binding 1 恒写目标组首项（场景目标），供双源片元（泛光叠加）采样原画面；
+				签名未变时为空操作（避免逐帧更新在途描述符集）。
 				*/
-				for (uint32_t each = 0; each < impl->config.frame_overlap; ++each)
-					for (std::size_t index = 0; index < targets.size(); ++index)
-					{
-						impl->pipeline.post_texture_bind(each, shared_sampler, targets[index].color_view,
-							static_cast<uint32_t>(index));
-						impl->pipeline.post_scene_bind(each, shared_sampler, targets[0].color_view,
-							static_cast<uint32_t>(index));
-					}
+				std::vector<VkImageView> post_views(targets.size());
+				for (std::size_t index = 0; index < targets.size(); ++index)
+					post_views[index] = targets[index].color_view;
+				if (!impl->post_sets_bind(post_views.data(), static_cast<uint32_t>(post_views.size()), shared_sampler))
+				{
+					logger.error("渲染器:: 后处理失败：采样集绑定失败");
+					ready = false;
+				}
 				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线）
 				std::vector<uint64_t> stage_pipelines;
 				//链路径取注册链
@@ -2296,6 +2338,15 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return false;
 		return impl->device.anisotropy_enabled_get();
+	}
+
+	//采样器 LOD 偏置绝对值上限（设备上限；第九十七轮）
+	float Renderer::sampler_max_lod_bias(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->device.max_sampler_lod_bias_get();
 	}
 
 	//采样器最大各向异性倍数（设备上限）
@@ -2976,15 +3027,16 @@ namespace engine
 			}
 		}
 		/*
-		LOD 偏置归一（第七十七轮）
-		非数归 0（用自比较判定，避免引入 <cmath>），再钳到 [-16, 16]；越界不告警（与钳制类参数一致）。
+		LOD 偏置归一（第七十七轮；第九十七轮改按设备上限钳制）
+		非数归 0；再钳到设备极限 `maxSamplerLodBias`（绝对值）以内，避免创建采样器时校验报错。
 		*/
 		if (!(effective.lod_bias == effective.lod_bias))
 			effective.lod_bias = 0.0f;
-		if (effective.lod_bias < -16.0f)
-			effective.lod_bias = -16.0f;
-		if (effective.lod_bias > 16.0f)
-			effective.lod_bias = 16.0f;
+		float lod_bias_limit = impl->device.max_sampler_lod_bias_get();
+		if (effective.lod_bias < -lod_bias_limit)
+			effective.lod_bias = -lod_bias_limit;
+		if (effective.lod_bias > lod_bias_limit)
+			effective.lod_bias = lod_bias_limit;
 		/*
 		切换共享采样器状态并以新采样器重写各帧槽 set1
 		采样器被烘焙进各帧槽 set1，故切换后须重写 set1，否则采样仍按旧参数进行；
@@ -3005,9 +3057,24 @@ namespace engine
 		VkImageView view = impl->bound_view != VK_NULL_HANDLE ? impl->bound_view : default_view;
 		//记录当前绑定视图（保持与 set1 一致）
 		impl->bound_view = view;
-		//以新采样器重写全部帧槽 set1
+		//以新采样器重写全部帧槽 set1（binding 0）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
+		/*
+		同步重写阴影采样器（set1 binding 1；第九十七轮）
+		旧共享采样器已销毁，若 binding 1 仍指向旧句柄，阴影绘制会触发「采样器已销毁」校验错误；
+		故在切换后把阴影图以新采样器重新写入各帧槽。
+		*/
+		if (impl->shadow_target != 0)
+		{
+			VkImage shadow_image = VK_NULL_HANDLE;
+			VkImageView shadow_view = VK_NULL_HANDLE;
+			VkImageView shadow_depth_view = VK_NULL_HANDLE;
+			VkExtent2D shadow_extent{};
+			if (impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent))
+				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					impl->pipeline.shadow_bind(slot, sampler, shadow_view);
+		}
 	}
 
 	//读取当前采样器状态（只读诊断；未初始化返回默认状态）
@@ -3053,9 +3120,10 @@ namespace engine
 			logger.error("渲染器:: 管线登记失败：尚未初始化");
 			return false;
 		}
-		//加载顶点着色器模块
+		//加载顶点着色器模块（顺带解析顶点输入位置，供管线裁剪属性）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
-		if (!impl->shader.module_load(vert_module, vert_shader))
+		uint32_t vert_input_locations = 0;
+		if (!impl->shader.module_load(vert_module, vert_shader, &vert_input_locations))
 		{
 			logger.error("渲染器:: 管线登记失败：顶点着色器 {} 加载失败", vert_shader);
 			return false;
@@ -3071,7 +3139,8 @@ namespace engine
 		}
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
-		if (!impl->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode))
+		if (!impl->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
+			VK_FORMAT_UNDEFINED, false, 0, vert_input_locations))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -4766,10 +4835,11 @@ namespace engine
 	*/
 	if (enabled && impl->shadow_pipeline == 0)
 	{
-		//加载阴影着色器模块
+		//加载阴影着色器模块（顺带解析顶点输入位置）
 		VkShaderModule shadow_vert = VK_NULL_HANDLE;
 		VkShaderModule shadow_frag = VK_NULL_HANDLE;
-		if (!impl->shader.module_load(shadow_vert, "阴影.vert.spv"))
+		uint32_t shadow_input_locations = 0;
+		if (!impl->shader.module_load(shadow_vert, "阴影.vert.spv", &shadow_input_locations))
 		{
 			logger.error("渲染器:: 阴影管线登记失败：顶点着色器加载失败，阴影保持关闭");
 			impl->shadow_enabled = false;
@@ -4786,7 +4856,7 @@ namespace engine
 		uint64_t shadow_pipeline = 0;
 		//阴影目标固定单采样（第九十六轮），故该管线采样数固定 1，不跟随 MSAA
 		if (!impl->pipeline.pipeline_register(shadow_pipeline, shadow_vert, shadow_frag,
-			Blend_Mode::Opaque, VK_FORMAT_R8G8B8A8_UNORM, true, 1))
+			Blend_Mode::Opaque, VK_FORMAT_R8G8B8A8_UNORM, true, 1, shadow_input_locations))
 		{
 			logger.error("渲染器:: 阴影管线登记失败：图形管线创建失败，阴影保持关闭");
 			impl->shader.module_destroy(shadow_vert);

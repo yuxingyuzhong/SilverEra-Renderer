@@ -37,8 +37,13 @@ namespace engine
 		void directory_set(const std::string& directory);
 		//读取着色器文件字节（file_name 如 "场景.vert.spv"）
 		bool file_bytes_read(std::vector<char>& bytes_out, const std::string& file_name) const;
-		//加载着色器模块（内部经 file_bytes_read；失败返回假）
-		bool module_load(VkShaderModule& module_out, const std::string& file_name) const;
+		/*
+		加载着色器模块（内部经 file_bytes_read；失败返回假）
+		input_locations_out 非空时写出该模块声明的顶点输入位置位集（第九十七轮；
+		位 i = location i；0 表示未解析出任何带位置的输入，调用方按「全量」处理）。
+		*/
+		bool module_load(VkShaderModule& module_out, const std::string& file_name,
+			uint32_t* input_locations_out = nullptr) const;
 		//销毁着色器模块
 		void module_destroy(VkShaderModule module) const;
 	private:

@@ -118,4 +118,10 @@ namespace engine
 	{
 		return max_sampler_anisotropy;
 	}
+
+	//获取采样器最大 LOD 偏置绝对值（设备上限）
+	float Device_Context::max_sampler_lod_bias_get(void) const
+	{
+		return max_sampler_lod_bias;
+	}
 }

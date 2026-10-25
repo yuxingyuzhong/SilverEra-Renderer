@@ -67,6 +67,12 @@ namespace engine
 		非 0 = 该管线固定按此采样数创建（阴影管线固定 1，其目标为单采样）。
 		*/
 		uint32_t sample_count = 0;
+		/*
+		顶点输入位置位集（第九十七轮）
+		位 i = 声明 location i；只声明着色器真正消费的属性，避免校验层「属性未被消费」告警。
+		0xFF = 全量（0..7）；0 = 同 0xFF（解析失败时的保守回落）。
+		*/
+		uint32_t input_locations = 0xFF;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
 	};
@@ -98,14 +104,16 @@ namespace engine
 		登记 / 替换并激活句柄 0「默认场景管线」
 		顶点输入 position vec3 + uv vec2；实例输入 mat4 模型矩阵；推送常量 mat4；深度测试开 / 写开；背面剔除 BACK。
 		*/
-		bool pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque);
+		bool pipeline_build(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
+			uint32_t input_locations = 0xFF);
 		/*
 		登记具名图形管线
 		句柄自 1 起递增且稳定不变；不改变当前激活管线；成功时写出句柄。
 		具名管线与默认管线共享同一管线布局与描述符集布局，仅允许「着色器对 + 混合档」不同。
 		*/
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
-			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0);
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
+			uint32_t input_locations = 0xFF);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -168,7 +176,8 @@ namespace engine
 		bool pipeline_layout_create(void);
 		//图形管线创建（实现见 core/图形管线.cpp；结果写入 pipeline_out，不改动条目；color_format 未定义时跟随 config，sample_count 为 0 时跟随 config）
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
-			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0);
+			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
+			uint32_t input_locations = 0xFF);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

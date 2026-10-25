@@ -67,6 +67,8 @@ namespace engine
 		bool anisotropy_enabled_get(void) const;
 		//获取采样器最大各向异性倍数（设备上限；未启用该特性时为 1）
 		float max_anisotropy_get(void) const;
+		//获取采样器最大 LOD 偏置绝对值（设备上限；第九十七轮）
+		float max_sampler_lod_bias_get(void) const;
 	private:
 		//选取物理设备并确定图形族与呈现族（实现见 core/物理设备选择.cpp）
 		bool build_physical_device(VkSurfaceKHR surface);
@@ -93,5 +95,7 @@ namespace engine
 		bool anisotropy_enabled = false;
 		//采样器最大各向异性倍数（设备上限）
 		float max_sampler_anisotropy = 1.0f;
+		//采样器最大 LOD 偏置绝对值（设备上限；第九十七轮）
+		float max_sampler_lod_bias = 0.0f;
 	};
 }

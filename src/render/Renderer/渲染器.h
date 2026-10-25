@@ -180,6 +180,8 @@ namespace engine
 		bool sampler_anisotropy_supported(void) const;
 		//采样器最大各向异性倍数（设备上限；未初始化或未启用该特性时为 1）
 		float sampler_max_anisotropy(void) const;
+		//采样器 LOD 偏置绝对值上限（设备 `maxSamplerLodBias`；未初始化时为 0）
+		float sampler_max_lod_bias(void) const;
 		//当前交换链尺寸（窗口缩放后可能变化）
 		uint32_t extent_width(void) const;
 		uint32_t extent_height(void) const;
@@ -313,7 +315,7 @@ namespace engine
 		void texture_bind_set(uint64_t texture_handle);
 		/*
 		设置纹理采样器状态（寻址模式 / 是否启用 mip 过滤 / LOD 范围与偏置 / 各向异性）
-		lod_bias 钳到 [-16, 16]（非数归 0），正值为更模糊、负值为更锐利；
+		lod_bias 钳到设备上限 `±maxSamplerLodBias`（非数归 0），正值为更模糊、负值为更锐利；
 		采样器为模块共享且被烘焙进各帧槽描述符集，故本方法在切换状态后会**重新绑定当前纹理**，
 		新状态自下一次绘制起生效；未初始化时静默返回。
 		*/

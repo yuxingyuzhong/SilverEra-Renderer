@@ -77,16 +77,26 @@ namespace engine
 		//不支持则告警（不硬失败）
 		else
 			logger.warn("逻辑设备创建:: 物理设备不支持采样器各向异性（samplerAnisotropy），已保持关闭");
-		//记录设备上限（最大各向异性倍数；未启用时为 1）
-		if (anisotropy_enabled)
+		/*
+		记录设备极限（第九十七轮：另记采样器最大 LOD 偏置）
+		各向异性上限仅在启用该特性时有意义；LOD 偏置上限始终记录，供门面钳制采样器参数。
+		*/
 		{
 			//设备属性（含极限值）
 			VkPhysicalDeviceProperties properties{};
 			vkGetPhysicalDeviceProperties(physical_device, &properties);
-			max_sampler_anisotropy = properties.limits.maxSamplerAnisotropy;
-			//防御：上限异常（非 > 1）时按 1 处理
-			if (!(max_sampler_anisotropy > 1.0f))
-				max_sampler_anisotropy = 1.0f;
+			//最大 LOD 偏置绝对值（负值防御为 0）
+			max_sampler_lod_bias = properties.limits.maxSamplerLodBias;
+			if (!(max_sampler_lod_bias > 0.0f))
+				max_sampler_lod_bias = 0.0f;
+			//启用各向异性时记录其上限（否则保持 1）
+			if (anisotropy_enabled)
+			{
+				max_sampler_anisotropy = properties.limits.maxSamplerAnisotropy;
+				//防御：上限异常（非 > 1）时按 1 处理
+				if (!(max_sampler_anisotropy > 1.0f))
+					max_sampler_anisotropy = 1.0f;
+			}
 		}
 
 		//启用的 Vulkan 1.3 特性（动态渲染 + 同步 2，经 pNext 链入）
