@@ -298,6 +298,17 @@ namespace engine
 		*/
 		bool mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data);
 		/*
+		加载程序化三角形（第一百四十二轮新增）
+		单个正面朝 +Z 的等腰三角形（3 顶点 / 3 索引）；仅需已初始化，无参数校验。
+		*/
+		bool mesh_triangle_load(Mesh_Handle& handle_out);
+		/*
+		加载程序化立方体（第一百四十二轮新增）
+		half_extent 为正（边长 = 2 × half_extent，中心在原点）；每面独立法线，24 顶点 / 36 索引；
+		非法参数整次拒绝（句柄置 0 并告警）。
+		*/
+		bool mesh_cube_load(Mesh_Handle& handle_out, float half_extent);
+		/*
 		加载程序化球体（第六十六轮新增）
 		radius 为正；slices 经度分段 3..128、stacks 纬度分段 2..64；
 		非法参数整次拒绝（句柄置 0 并告警）。法线朝外，UV 覆盖整球。

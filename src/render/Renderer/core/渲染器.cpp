@@ -2916,6 +2916,34 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
 	}
 
+	//按程序化三角形加载网格（第一百四十二轮新增）
+	bool Renderer::mesh_triangle_load(Mesh_Handle& handle_out)
+	{
+		//前置：已初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.warn("渲染器:: 三角形加载失败：尚未初始化");
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::triangle_generate());
+	}
+
+	//按程序化立方体加载网格（第一百四十二轮新增）
+	bool Renderer::mesh_cube_load(Mesh_Handle& handle_out, float half_extent)
+	{
+		//前置：已初始化、半边长正（非数亦拒）
+		if (impl == nullptr || !impl->initialized || !(half_extent > 0.0f))
+		{
+			logger.warn("渲染器:: 立方体参数非法（半边长 {}）", half_extent);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::cube_generate(half_extent));
+	}
+
 	//按程序化圆盘加载网格（第八十三轮新增）
 	bool Renderer::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
 	{
