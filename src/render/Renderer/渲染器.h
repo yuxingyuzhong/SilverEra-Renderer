@@ -976,11 +976,12 @@ namespace engine
 		//当前阴影正交范围（未初始化时写默认 12 / 1 / 60）
 		void shadow_range_get(float* half_extent_out, float* near_out, float* far_out) const;
 		/*
-		级联阴影（第一百二十一轮新增）
-		count 为级联数（仅接受 1 / 2，默认 1）；far_scale 为远区半宽相对近区的倍数（> 1，默认 3）；
-		split_distance 为按「与相机的世界距离」切换级联的阈值（> 0，默认 12）。
-		单级时行为与引入级联前逐字节一致；双级时阴影图沿 X 切成左右两片，各占边长的一半，
-		近区使用左片、远区使用右片，故近区阴影分辨率减半。
+		级联阴影（第一百二十一轮新增；第一百四十六轮扩为三级）
+		count 为级联数（接受 1 / 2 / 3，默认 1）；far_scale 为远区半径相对近区的倍数（> 1，默认 3）；
+		split_distance 为按「与相机的世界距离」切换首个级联的阈值（> 0，默认 12）。
+		单级时行为与引入级联前逐字节一致；多级时阴影图沿 X 切成同级数的方形小片，
+		片元按距离在 split_distance 与 split_distance × far_scale 处选择级联，
+		故片内分辨率随级数下降（级联的固有代价）。
 		任一参数非法整次忽略并告警；生效后旧阴影图不再可信，下一帧重绘。
 		*/
 		void shadow_cascade_set(uint32_t count, float far_scale, float split_distance);

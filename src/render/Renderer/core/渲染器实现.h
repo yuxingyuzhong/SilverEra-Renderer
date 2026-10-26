@@ -277,24 +277,25 @@ namespace engine
 		float shadow_near = 1.0f;
 		float shadow_far = 60.0f;
 		/*
-		级联阴影（第一百二十一轮）
-		cascade_count 为 1 时沿用上面单级口径（画面逐字节不变）；为 2 时阴影图按象限切两片：
-		第 1 片（左下）覆盖以原点为中心、半宽 shadow_half_extent 的近区，
-		第 2 片（右下）覆盖半宽 shadow_half_extent * cascade_far_scale 的远区；
-		片元按「与相机的距离」在 cascade_split_distance 处选择级联。
-		两片各占 shadow_size / 2 边长，故单级分辨率减半（级联的固有代价）。
+		级联阴影（第一百二十一轮；第一百四十六轮扩为三级）
+		cascade_count 为 1 时沿用上面单级口径（画面逐字节不变）；为 2 / 3 时阴影图按象限切 2 / 3 片：
+		各片覆盖以相机为中心、半径 split × far_scale^(片序) 的包围球，
+		片元按「与相机的距离」在 split、split × far_scale 处选择级联。
+		每片占 shadow_size / 级数 边长，故片内分辨率随级数下降（级联的固有代价）。
 		*/
 		uint32_t cascade_count = 1;
 		float cascade_far_scale = 3.0f;
 		float cascade_split_distance = 12.0f;
-		//远区光源空间视图投影矩阵（cascade_count == 2 时有效；每帧更新）
+		//远区光源空间视图投影矩阵（cascade_count >= 2 时有效；每帧更新）
 		float light_view_proj_far[16] = {};
+		//第三级光源空间视图投影矩阵（cascade_count == 3 时有效；每帧更新）
+		float light_view_proj_far2[16] = {};
 		/*
 		各片光源空间深度跨度（近平面到远平面；第一百二十一轮）
-		片元着色器的法线偏移按「偏置 × 深度跨度」换算到世界量级，双级时两片跨度不同，故逐片记录。
+		片元着色器的法线偏移按「偏置 × 深度跨度」换算到世界量级，逐片跨度不同，故逐片记录。
 		单级时恒为 59（与引入级联前的硬编码口径一致）。
 		*/
-		float cascade_depth_span[2] = { 59.0f, 59.0f };
+		float cascade_depth_span[3] = { 59.0f, 59.0f, 59.0f };
 		//阴影深度偏置（第五十二轮）
 		float shadow_bias = 0.003f;
 		//阴影软度（第五十三轮；0 = 单点硬边，≥0.5 = 3×3 PCF 平均）

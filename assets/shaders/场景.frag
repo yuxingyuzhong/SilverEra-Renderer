@@ -77,14 +77,18 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	float shadow_strength;
 	//PBR-lite 参数（第六十四轮；x = 启用 > 0.5、y = 粗糙度缩放（默认 1）、z = 金属度（第六十五轮，0..1）、w 保留）
 	vec4 pbr_params;
-	//远区级联光源空间矩阵（第一百二十一轮；级联数为 2 时有效，单级时为零矩阵）
+	//远区级联光源空间矩阵（第一百二十一轮；级联数 ≥ 2 时有效，单级时为零矩阵）
 	mat4 light_view_proj_far;
-	//级联参数（x = 级联数 1/2、y = 切换距离、z = 远区半宽缩放、w 保留；第一百二十一轮）
+	//级联参数（x = 级联数 1/2/3、y = 首个切换距离、z = 第 1 片深度跨度、w = 第 2 片深度跨度；第一百二十一轮）
 	vec4 cascade_params;
 	//相机近远平面（x = 近平面、y = 远平面；第一百二十三轮，供后处理把深度换回世界距离）
 	vec4 camera_range;
 	//天空盒参数（第一百二十五轮；x = 启用 > 0.5、y = 漫反射（环境）强度、z = 镜面强度、w 保留）
 	vec4 sky_params;
+	//第三级级联光源空间矩阵（第一百四十六轮；级联数为 3 时有效，其余为零矩阵）
+	mat4 light_view_proj_far2;
+	//第三级参数（x = 第 2 个切换距离、y = 第 3 片深度跨度、zw 保留；第一百四十六轮）
+	vec4 cascade_params2;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
@@ -188,25 +192,52 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 	if (scene.shadow_params.x < 0.5)
 		return 1.0;
 	/*
-	级联选择（第一百二十一轮）
-	cascade_params.x > 0.5 表示双级：按片元与相机的世界距离在 cascade_params.y 处切换；
-	近区用主矩阵（阴影图左半片）、远区用远区矩阵（右半片）。
+	级联选择（第一百二十一轮；第一百四十六轮扩为三级）
+	按片元与相机的世界距离选择级联：阈值依次为 cascade_params.y 与 cascade_params2.x；
+	各级使用各自的光源空间矩阵，阴影图则沿 X 切成同级数的方形小片。
 	*/
-	bool use_far = scene.cascade_params.x > 1.5
-		&& distance(world_pos, scene.camera_pos.xyz) > scene.cascade_params.y;
+	int cascade_count = int(scene.cascade_params.x + 0.5);
+	float view_distance = distance(world_pos, scene.camera_pos.xyz);
+	int cascade = 0;
+	if (cascade_count >= 2 && view_distance > scene.cascade_params.y)
+		cascade = 1;
+	if (cascade_count >= 3 && view_distance > scene.cascade_params2.x)
+		cascade = 2;
 	/*
 	法线偏移（第五十九轮）
 	沿片元法线推出一小段后再取阴影深度，抵消深度量化与掠射角造成的自阴影（shadow acne）；
-	偏移量 = 深度偏置 × 光源正交深度跨度（单级恒为 59；双级取本片跨度），使世界量级与 NDC 偏置量一致；
+	偏移量 = 深度偏置 × 光源正交深度跨度（单级恒为 59；多级取本片跨度），使世界量级与 NDC 偏置量一致；
 	法线为零向量（未提供法线）时不偏移，保持既有网格行为。
 	*/
-	float depth_span = scene.cascade_params.x > 1.5
-		? (use_far ? scene.cascade_params.w : scene.cascade_params.z) : 59.0;
+	mat4 light_matrix = scene.light_view_proj;
+	float depth_span = 59.0;
+	if (cascade_count == 2)
+	{
+		light_matrix = cascade == 1 ? scene.light_view_proj_far : scene.light_view_proj;
+		depth_span = cascade == 1 ? scene.cascade_params.w : scene.cascade_params.z;
+	}
+	else if (cascade_count >= 3)
+	{
+		if (cascade == 0)
+		{
+			light_matrix = scene.light_view_proj;
+			depth_span = scene.cascade_params.z;
+		}
+		else if (cascade == 1)
+		{
+			light_matrix = scene.light_view_proj_far;
+			depth_span = scene.cascade_params.w;
+		}
+		else
+		{
+			light_matrix = scene.light_view_proj_far2;
+			depth_span = scene.cascade_params2.y;
+		}
+	}
 	vec3 sample_pos = world_pos;
 	if (length(normal) > 0.000001)
 		sample_pos += normalize(normal) * (scene.shadow_params.y * depth_span);
 	//光源空间裁剪坐标
-	mat4 light_matrix = use_far ? scene.light_view_proj_far : scene.light_view_proj;
 	vec4 light_clip = light_matrix * vec4(sample_pos, 1.0);
 	//位于光源背后
 	if (light_clip.w <= 0.000001)
@@ -216,11 +247,17 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 	//阴影图外一律受光（避免边界拉伸）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
 		return 1.0;
-	//双级时把级联局部坐标映射到对应半片（X 按片偏移，Y 恒收缩到上半）
-	if (scene.cascade_params.x > 1.5)
+	//多级时把级联局部坐标映射到对应小片（X 按片序偏移，Y 恒收缩到顶格）
+	if (cascade_count == 2)
 	{
-		uv.x = uv.x * 0.5 + (use_far ? 0.5 : 0.0);
+		uv.x = uv.x * 0.5 + (cascade == 1 ? 0.5 : 0.0);
 		uv.y = uv.y * 0.5;
+	}
+	else if (cascade_count >= 3)
+	{
+		float slice = 1.0 / 3.0;
+		uv.x = uv.x * slice + float(cascade) * slice;
+		uv.y = uv.y * slice;
 	}
 	int size = int(scene.shadow_params.z + 0.5);
 	//纹素坐标（最近点，避免插值得到无意义的打包字节）
