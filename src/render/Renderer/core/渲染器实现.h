@@ -409,6 +409,16 @@ namespace engine
 		last_draw_items / last_instances 在合批之后、清空待绘制项之前取用（故与累计口径一致）。
 		*/
 		uint64_t frame_culled_items = 0;
+		/*
+		实例级剔除（第一百五十三轮）
+		culled_instances 为自 init 以来因视锥剔除而未写入实例缓冲的实例数；
+		frame_culled_instances 为当前帧累计，帧收尾转存 last_culled_instances 后清零；
+		instanced_cull_scratch 为筛选可见实例的复用缓冲（避免每次调用分配）。
+		*/
+		uint64_t culled_instances = 0;
+		uint64_t frame_culled_instances = 0;
+		uint64_t last_culled_instances = 0;
+		std::vector<float> instanced_cull_scratch;
 		uint64_t last_culled_items = 0;
 		uint64_t last_draw_items = 0;
 		uint64_t last_instances = 0;

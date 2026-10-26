@@ -675,6 +675,8 @@ namespace engine
 		*/
 		impl->pending_items.reserve(impl->instance_capacity);
 		impl->pending_instances.reserve(impl->instance_capacity);
+		//实例级剔除的筛选缓冲（第一百五十三轮；按实例上限预留，避免逐帧扩容）
+		impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(impl->instance_capacity) * 16);
 		impl->batch_scratch.reserve(impl->instance_capacity);
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
@@ -2578,6 +2580,9 @@ namespace engine
 		impl->frame_merged_items = 0;
 		impl->last_culled_items = impl->frame_culled_items;
 		impl->frame_culled_items = 0;
+		//实例级剔除同样按帧结算（第一百五十三轮）
+		impl->last_culled_instances = impl->frame_culled_instances;
+		impl->frame_culled_instances = 0;
 		impl->pending_items.clear();
 		impl->pending_instances.clear();
 		impl->pending_push_constants.clear();
@@ -2649,6 +2654,7 @@ namespace engine
 		//门面自身累计量归零（帧数 / 剔除数 / 按需上传字节）
 		impl->frame_count = 0;
 		impl->culled_items = 0;
+		impl->culled_instances = 0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
 		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
@@ -2702,6 +2708,9 @@ namespace engine
 		stats.msaa_samples = impl->frame.last_sample_count_get();
 		//累计因视锥剔除而未登记的项数
 		stats.culled_items = impl->culled_items;
+		//实例级剔除（第一百五十三轮）
+		stats.culled_instances = impl->culled_instances;
+		stats.last_culled_instances = impl->last_culled_instances;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -3335,8 +3344,9 @@ namespace engine
 			return false;
 		}
 		/*
-		整批视锥剔除（第二十二轮新增）
-		逐实例判可见性，**全部实例都在视锥外**才整批跳过（部分可见则整批保留，含被遮挡实例）。
+		实例级视锥剔除（第一百五十三轮；第二十二轮起为整批判定）
+		逐实例判可见性：不可见实例不写入实例缓冲（保留原顺序中的可见子集），
+		全部不可见时整批按一个绘制项计入剔除并直接返回。
 		*/
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
@@ -3345,19 +3355,31 @@ namespace engine
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
 			impl->camera.view_proj_get(view_proj);
-			//是否至少有一个实例可见
-			bool any_visible = false;
-			for (uint32_t instance = 0; instance < count && !any_visible; ++instance)
-				if (!frustum_cull_aabb(view_proj, transforms + static_cast<std::size_t>(instance) * 16, bounds_min, bounds_max))
-					any_visible = true;
-			//若整批不可见则不登记
-			if (!any_visible)
+			//筛选可见实例（复用缓冲；保持原相对顺序）
+			impl->instanced_cull_scratch.clear();
+			impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(count) * 16);
+			for (uint32_t instance = 0; instance < count; ++instance)
 			{
-				//整批按一个绘制项计（与登记量的口径一致）
+				const float* matrix = transforms + static_cast<std::size_t>(instance) * 16;
+				//可见实例整块拷贝（16 浮点）
+				if (!frustum_cull_aabb(view_proj, matrix, bounds_min, bounds_max))
+					impl->instanced_cull_scratch.insert(impl->instanced_cull_scratch.end(), matrix, matrix + 16);
+			}
+			//可见 / 剔除的实例数
+			const uint32_t visible_count = static_cast<uint32_t>(impl->instanced_cull_scratch.size() / 16);
+			const uint32_t culled_count = count - visible_count;
+			impl->culled_instances += culled_count;
+			impl->frame_culled_instances += culled_count;
+			//若整批不可见则不登记（按一个绘制项计）
+			if (visible_count == 0)
+			{
 				++impl->culled_items;
 				++impl->frame_culled_items;
 				return true;
 			}
+			//以筛选后的可见子集继续登记
+			transforms = impl->instanced_cull_scratch.data();
+			count = visible_count;
 		}
 		/*
 		本帧实例矩阵存储容量校验

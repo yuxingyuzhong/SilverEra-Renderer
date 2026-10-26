@@ -154,6 +154,13 @@ namespace engine
 		uint64_t last_instances = 0;
 		uint64_t last_culled_items = 0;
 		/*
+		实例级剔除观测（第一百五十三轮）
+		culled_instances 为自 init 以来因视锥剔除而未写入实例缓冲的实例数；
+		last_culled_instances 为最近一帧的同类数量；清零累计量时即时量保持不变。
+		*/
+		uint64_t culled_instances = 0;
+		uint64_t last_culled_instances = 0;
+		/*
 		合批收益（第一百三十五轮）
 		last_merged_items = 最近一帧被合并掉的项数（主 pass ＋ 阴影各片）；merged_items = 自 init 以来累计。
 		仅在 `static_batching` 开启时增长；清零累计量时 last_merged_items 保持不变。
