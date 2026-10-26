@@ -180,8 +180,19 @@ namespace engine
 		float density = 0.0f;
 		//雾起始距离（世界单位；≥ 0）
 		float start = 1.0f;
-		//雾结束距离（世界单位；须大于起始）
+		//雾结束距离（世界单位；须大于起始；仅线性模式使用）
 		float end = 10.0f;
+		/*
+		雾模式（第一百四十三轮）
+		0 = 线性区间（默认，按 [start, end] 归一化后取 t² × density）；
+		1 = 指数平方（factor = 1 − exp(−(density × (距离 − start))²)）。
+		*/
+		uint32_t mode = 0;
+		/*
+		高度衰减系数（第一百四十三轮；0 = 关闭）
+		雾因子按 `exp(−height_falloff × max(世界 y, 0))` 再缩放：越高越稀薄，地面附近不受影响。
+		*/
+		float height_falloff = 0.0f;
 	};
 
 	/*
@@ -301,6 +312,10 @@ namespace engine
 		float fog_start = 1.0f;
 		//雾结束距离（世界单位；须大于起始）
 		float fog_end = 10.0f;
+		//雾模式（第一百四十三轮；0 = 线性区间、1 = 指数平方；语义见 Fog_Data::mode）
+		uint32_t fog_mode = 0;
+		//雾高度衰减系数（第一百四十三轮；语义见 Fog_Data::height_falloff）
+		float fog_height_falloff = 0.0f;
 		//环境光颜色（RGB，0..1；第四十一轮；默认白 = 与标量环境光等价）
 		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
 		//环境光地面颜色与半球混合强度（第四十七轮；语义见 Light_Data::ambient_ground / ambient_hemisphere）

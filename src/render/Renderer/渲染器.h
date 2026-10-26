@@ -873,6 +873,23 @@ namespace engine
 		片元按「相机 → 片元」距离在 [start, end] 间取 `t² × density` 混合雾色；任一参数非法即整次忽略并告警。
 		*/
 		void fog_set(const float color[3], float density, float start, float end);
+		/*
+		设置指数平方雾（第一百四十三轮新增）
+		color 为雾色（分量 0..1），density 为密度（0..1，按「每世界单位」计；0 = 关闭），
+		start 为起雾距离（片元近于此距离无雾）。
+		因子为 `1 − exp(−(density × (距离 − start))²)`：近处趋零、远处平滑饱和到 1，
+		与 fog_set 的线性区间模式互斥（本调用把模式切到 1）。任一参数非法即整次忽略并告警。
+		*/
+		void fog_exp2_set(const float color[3], float density, float start);
+		//读取当前雾模式（第一百四十三轮新增；0 = 线性区间、1 = 指数平方；未初始化返回 0）
+		uint32_t fog_mode_get(void) const;
+		/*
+		设置雾的高度衰减（第一百四十三轮新增）
+		falloff 为「每世界单位」的衰减系数（0..10；0 = 关闭，默认）。
+		雾因子再乘以 `exp(−falloff × max(世界 y, 0))`：越高越稀薄，地面附近不受影响。
+		负值、越界或非数即整次忽略并告警（保持既有系数）。
+		*/
+		void fog_height_set(float falloff);
 		//关闭距离雾（第三十八轮新增；密度归零，其余参数保持既有值）
 		void fog_clear(void);
 		/*

@@ -451,8 +451,9 @@ void main()
 		? clamp(1.0 - material_metallic(), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
 	/*
-	距离雾（第三十八轮；密度 0 = 关闭）
-	按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度 混合雾色；
+	距离雾（第三十八轮；密度 0 = 关闭；第一百四十三轮补指数平方模式）
+	线性（fog_range.z ≤ 0.5）：按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度混合雾色；
+	指数平方（fog_range.z > 0.5）：因子为 1 − exp(−(密度 × (距离 − 起始))²)，近处趋零、远处平滑饱和；
 	雾前的照度与雾后的混合都在线性空间完成，最后统一钳制。
 	*/
 	/*
@@ -465,10 +466,28 @@ void main()
 	if (scene.fog_color_density.w > 0.0)
 	{
 		float view_distance = length(scene.camera_pos.xyz - in_world);
-		//雾区间跨度（避免除零）
-		float fog_span = max(scene.fog_range.y - scene.fog_range.x, 0.0001);
-		float fog_t = clamp((view_distance - scene.fog_range.x) / fog_span, 0.0, 1.0);
-		float fog_factor = clamp(fog_t * fog_t * scene.fog_color_density.w, 0.0, 1.0);
+		float fog_factor = 0.0;
+		//指数平方模式：起雾距离外按密度平方增长
+		if (scene.fog_range.z > 0.5)
+		{
+			float fog_distance = max(view_distance - scene.fog_range.x, 0.0);
+			float fog_scaled = scene.fog_color_density.w * fog_distance;
+			fog_factor = 1.0 - exp(-(fog_scaled * fog_scaled));
+		}
+		else
+		{
+			//雾区间跨度（避免除零）
+			float fog_span = max(scene.fog_range.y - scene.fog_range.x, 0.0001);
+			float fog_t = clamp((view_distance - scene.fog_range.x) / fog_span, 0.0, 1.0);
+			fog_factor = fog_t * fog_t * scene.fog_color_density.w;
+		}
+		fog_factor = clamp(fog_factor, 0.0, 1.0);
+		/*
+		雾高度衰减（第一百四十三轮；系数 0 = 关闭）
+		因子上再乘 exp(−falloff × max(世界 y, 0))：越高越稀薄，地面与水下不受影响；
+		系数为 0 时 exp(0) = 1，结果与不开高度雾逐字节一致。
+		*/
+		fog_factor *= exp(-scene.fog_range.w * max(in_world.y, 0.0));
 		final_rgb = mix(lit, scene.fog_color_density.rgb, fog_factor);
 	}
 	out_color = vec4(clamp(final_rgb, 0.0, 1.0), albedo_color.a);

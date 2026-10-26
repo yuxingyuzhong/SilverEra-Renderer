@@ -121,6 +121,10 @@ namespace engine
 		float fog_density = 0.0f;
 		float fog_start = 1.0f;
 		float fog_end = 10.0f;
+		//雾模式（第一百四十三轮：0 = 线性区间、1 = 指数平方；写入 fog_range.z）
+		uint32_t fog_mode = 0;
+		//雾高度衰减系数（第一百四十三轮；写入 fog_range.w；0 = 关闭）
+		float fog_height_falloff = 0.0f;
 		/*
 		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
 		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。

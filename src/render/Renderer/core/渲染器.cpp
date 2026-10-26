@@ -845,11 +845,11 @@ namespace engine
 			}
 			/*
 			写入初始雾参数（offset 640、32 字节；第三十八轮）
-			前 16 字节 = 雾色 rgb ＋ 密度 w；后 16 字节 = 起始距离 x ＋ 结束距离 y。
+			前 16 字节 = 雾色 rgb ＋ 密度 w；后 16 字节 = 起始距离 x ＋ 结束距离 y ＋ 模式 z（第一百四十三轮）。
 			*/
 			float fog_block[8] = {
 				impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
-				impl->fog_start, impl->fog_end, 0.0f, 0.0f,
+				impl->fog_start, impl->fog_end, static_cast<float>(impl->fog_mode), impl->fog_height_falloff,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 640))
 			{
@@ -1289,6 +1289,10 @@ namespace engine
 		impl->fog_density = 0.0f;
 		impl->fog_start = 1.0f;
 		impl->fog_end = 10.0f;
+		//复位雾模式（第一百四十三轮：默认线性区间）
+		impl->fog_mode = 0;
+		//复位雾高度衰减（第一百四十三轮：默认关闭）
+		impl->fog_height_falloff = 0.0f;
 		//复位环境光颜色（第四十轮：默认白）
 		impl->ambient_color[0] = 1.0f;
 		impl->ambient_color[1] = 1.0f;
@@ -1793,6 +1797,10 @@ namespace engine
 		scene_block[163] = impl->fog_density;
 		scene_block[164] = impl->fog_start;
 		scene_block[165] = impl->fog_end;
+		//雾模式（第一百四十三轮：0 = 线性区间、1 = 指数平方）
+		scene_block[166] = static_cast<float>(impl->fog_mode);
+		//雾高度衰减系数（第一百四十三轮）
+		scene_block[167] = impl->fog_height_falloff;
 		//环境光颜色（第四十轮）
 		scene_block[168] = impl->ambient_color[0];
 		scene_block[169] = impl->ambient_color[1];
@@ -5059,8 +5067,13 @@ namespace engine
 		specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(light.attenuation_mode);
-		//距离雾（非法参数由 fog_set 整次忽略）
-		fog_set(fog.color, fog.density, fog.start, fog.end);
+		//距离雾（按模式分派；非法参数由 fog_set / fog_exp2_set 整次忽略）
+		if (fog.mode == 1)
+			fog_exp2_set(fog.color, fog.density, fog.start);
+		else
+			fog_set(fog.color, fog.density, fog.start, fog.end);
+		//雾高度衰减（非法值由 fog_height_set 整次忽略）
+		fog_height_set(fog.height_falloff);
 		//环境光颜色（非法分量由 ambient_color_set 整次忽略）
 		ambient_color_set(light.ambient_color);
 		//半球环境光（地面颜色 ＋ 混合强度；非法颜色由 ambient_ground_set 整次忽略）
@@ -5171,6 +5184,8 @@ namespace engine
 		fog.density = scene.fog_density;
 		fog.start = scene.fog_start;
 		fog.end = scene.fog_end;
+		fog.mode = scene.fog_mode;
+		fog.height_falloff = scene.fog_height_falloff;
 		//转发三组入参
 		scene_apply(camera, light, fog);
 	}
@@ -5504,6 +5519,63 @@ namespace engine
 		impl->fog_density = density;
 		impl->fog_start = start;
 		impl->fog_end = end;
+		//切回线性区间模式（第一百四十三轮）
+		impl->fog_mode = 0;
+	}
+
+	//设置指数平方雾（第一百四十三轮新增）
+	void Renderer::fog_exp2_set(const float color[3], float density, float start)
+	{
+		//若尚未初始化或颜色指针为空
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		/*
+		参数校验（取反比较使 NaN 判非法）
+		颜色各分量须落在 [0,1]，密度须在 [0,1]、起始须非负且有限；
+		任一非法即整次忽略并告警（保持既有雾参数与模式）。
+		*/
+		bool fog_valid = (density >= 0.0f) && (density <= 1.0f)
+			&& (start >= 0.0f) && (start <= 1e6f);
+		for (std::size_t index = 0; index < 3; ++index)
+			//颜色分量越界或非数即判非法
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				fog_valid = false;
+		//若雾参数非法
+		if (!fog_valid)
+		{
+			logger.warn("渲染器:: 指数平方雾参数非法（密度 {}、起始 {}），整次忽略", density, start);
+			return;
+		}
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->fog_color[index] = color[index];
+		impl->fog_density = density;
+		impl->fog_start = start;
+		//切到指数平方模式
+		impl->fog_mode = 1;
+	}
+
+	//读取当前雾模式（第一百四十三轮新增）
+	uint32_t Renderer::fog_mode_get(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->fog_mode;
+	}
+
+	//设置雾的高度衰减（第一百四十三轮新增）
+	void Renderer::fog_height_set(float falloff)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//系数须在 [0, 10]（取反比较使 NaN 判非法）
+		if (!(falloff >= 0.0f && falloff <= 10.0f))
+		{
+			logger.warn("渲染器:: 雾高度衰减系数非法（{}），整次忽略", falloff);
+			return;
+		}
+		impl->fog_height_falloff = falloff;
 	}
 
 	//关闭距离雾（第三十八轮新增）
