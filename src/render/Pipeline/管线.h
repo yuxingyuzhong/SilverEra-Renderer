@@ -209,6 +209,12 @@ namespace engine
 		*/
 		bool post_depth_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		/*
+		向第 slot 帧槽的后处理采样器集写「3D LUT 条带」（set 1 binding 3；第一百四十四轮）
+		与场景集的 binding 3（材质法线）共用布局但分属不同描述符集，互不影响；
+		供 色彩查找.frag 采样，调用前须保证该图像处于 SHADER_READ_ONLY_OPTIMAL。
+		*/
+		bool post_lut_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
+		/*
 		向第 slot 帧槽的场景采样器集写「材质贴图」（set 1 binding 3 = 法线、binding 4 = 粗糙度；第一百二十四轮）
 		无贴图时由门面传入内置默认白纹理，使采样值恒为 (1,1,1) 从而不影响画面。
 		*/

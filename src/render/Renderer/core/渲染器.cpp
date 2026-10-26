@@ -3426,6 +3426,57 @@ namespace engine
 		return impl->texture.texture_create_checkerboard(handle_out, width, height, cell_size);
 	}
 
+	//程序生成恒等 3D LUT（第一百四十四轮；2D 条带布局）
+	bool Renderer::texture_load_lut_identity(uint64_t& handle_out, uint32_t edge)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 恒等查找表加载失败：尚未初始化");
+			return false;
+		}
+		//每轴纹素数须在 [2, 64]
+		if (edge < 2 || edge > 64)
+		{
+			logger.warn("渲染器:: 恒等查找表边长非法（{}），忽略", edge);
+			return false;
+		}
+		//条带尺寸（宽 = 边长²、高 = 边长）
+		const uint32_t strip_width = edge * edge;
+		const uint32_t strip_height = edge;
+		std::vector<uint8_t> pixels(static_cast<std::size_t>(strip_width) * strip_height * 4);
+		//每级线性值（0..1）与对应的 sRGB 存储值（纹理格式为 SRGB，采样时自动解码回线性）
+		std::vector<uint8_t> 编码表(edge);
+		for (uint32_t 级 = 0; 级 < edge; ++级)
+		{
+			//线性值（恒等映射的自变量）
+			float 线性 = static_cast<float>(级) * (edge > 1 ? 1.0f / static_cast<float>(edge - 1) : 0.0f);
+			//线性 → sRGB 编码（与交换链 / 纹理的 SRGB 格式配套）
+			float 编码 = 线性 <= 0.0031308f ? 线性 * 12.92f
+				: 1.055f * std::pow(线性, 1.0f / 2.4f) - 0.055f;
+			编码表[级] = static_cast<uint8_t>(编码 * 255.0f + 0.5f);
+		}
+		for (uint32_t 层 = 0; 层 < edge; ++层)
+		{
+			for (uint32_t 绿 = 0; 绿 < edge; ++绿)
+			{
+				for (uint32_t 红 = 0; 红 < edge; ++红)
+				{
+					//条带坐标（X = 层 × 边长 ＋ 红、Y = 绿）
+					std::size_t 偏移 = (static_cast<std::size_t>(绿) * strip_width + 层 * edge + 红) * 4;
+					pixels[偏移] = 编码表[红];
+					pixels[偏移 + 1] = 编码表[绿];
+					pixels[偏移 + 2] = 编码表[层];
+					pixels[偏移 + 3] = 255;
+				}
+			}
+		}
+		//转交纹理模块上传
+		return impl->texture.texture_create_from_memory(handle_out, pixels.data(), strip_width, strip_height);
+	}
+
 	//从内存像素创建立方体贴图（第一百二十五轮；供天空盒与简易 IBL 使用）
 	bool Renderer::texture_cube_load(uint64_t& handle_out, const uint8_t* six_faces, uint32_t width, uint32_t height)
 	{
@@ -4625,6 +4676,47 @@ namespace engine
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, shared_sampler, color_view);
 		logger.info("渲染器:: 渲染目标已绑定为当前纹理（句柄 {}）", handle);
+	}
+
+	//绑定 3D LUT 纹理（第一百四十四轮）
+	void Renderer::post_lut_bind(uint64_t texture_handle)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//取目标纹理的视图与采样器（无效句柄则告警并保持原绑定）
+		VkImageView view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		if (texture_handle == 0 || !impl->texture.texture_bind_get(texture_handle, view, sampler))
+		{
+			logger.warn("渲染器:: 查找表纹理句柄 {} 无效，绑定忽略", texture_handle);
+			return;
+		}
+		/*
+		写满全部帧槽的全部后处理描述符集之前先等全部在途帧完成
+		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
+		*/
+		impl->frame.frames_wait();
+		//逐帧槽逐后处理集写入 binding 3（长命资源，一次写满全部槽）
+		bool all_bound = true;
+		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			for (uint32_t index = 0; index < Pipeline_Context::POST_SET_PER_SLOT; ++index)
+				//任一集写入失败即记为不完整
+				if (!impl->pipeline.post_lut_bind(slot, sampler, view, index))
+					all_bound = false;
+		//全部写入成功才记录句柄
+		if (all_bound)
+			impl->lut_texture = texture_handle;
+		logger.info("渲染器:: 3D LUT 已绑定（句柄 {}）", texture_handle);
+	}
+
+	//当前 3D LUT 句柄（第一百四十四轮）
+	uint64_t Renderer::post_lut_get(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->lut_texture;
 	}
 
 	//从 TTF 文件加载字体（字号 = 字形像素高度）

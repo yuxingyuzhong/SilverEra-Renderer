@@ -401,6 +401,12 @@ namespace engine
 		//程序生成棋盘格纹理
 		bool texture_load_checkerboard(uint64_t& handle_out, uint32_t width, uint32_t height, uint32_t cell_size);
 		/*
+		程序生成恒等 3D LUT（第一百四十四轮新增）
+		edge 为每轴纹素数（2..64），生成 RGBA8 的 2D 条带：宽 = edge × edge、高 = edge；
+		恒等表输出等于输入，可作为自定义查找表的基线或通路验证。非法 edge 返回假且句柄保持 0。
+		*/
+		bool texture_load_lut_identity(uint64_t& handle_out, uint32_t edge);
+		/*
 		从内存像素创建立方体贴图（第一百二十五轮）
 		six_faces 为 6 面 RGBA8 紧排（顺序 +X / -X / +Y / -Y / +Z / -Z），每面 width × height；
 		用于天空盒背景与简易 IBL 采样；失败返回假且句柄保持 0。
@@ -651,6 +657,15 @@ namespace engine
 		与 render_target_set 配合即可完成「离屏渲染 → 采样合成」闭环。
 		*/
 		void texture_bind_target(uint64_t handle);
+		/*
+		绑定 3D LUT 纹理（第一百四十四轮新增）
+		把该纹理写入全部帧槽的全部后处理描述符集（set 1 binding 3），
+		之后以 色彩查找.frag 作为任一后处理级即可按表调色（该级参数 x = 混合强度）。
+		绑定前会等尽在途帧；句柄 0 / 无效时告警并保持原绑定；卸载该纹理会使其失效，须重新绑定。
+		*/
+		void post_lut_bind(uint64_t texture_handle);
+		//当前 3D LUT 句柄（第一百四十四轮新增；0 = 未绑定）
+		uint64_t post_lut_get(void) const;
 
 		/*
 		从 TTF 文件加载字体（字号 = 字形像素高度）

@@ -460,6 +460,8 @@ namespace engine
 		故采样器状态切换后可直接以该视图重写 set1（处置 R-FACADE-06：不再按句柄回落后覆盖目标绑定）。
 		*/
 		VkImageView bound_view = VK_NULL_HANDLE;
+		//当前 3D LUT 纹理句柄（第一百四十四轮；0 = 未绑定）
+		uint64_t lut_texture = 0;
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
 		/*
