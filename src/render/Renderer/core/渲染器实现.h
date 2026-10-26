@@ -286,6 +286,8 @@ namespace engine
 		uint32_t cascade_count = 1;
 		float cascade_far_scale = 3.0f;
 		float cascade_split_distance = 12.0f;
+		//级联接缝淡化带宽比例（第一百四十八轮；0 = 硬切换，0.5 = 阈值两侧各半）
+		float cascade_blend = 0.0f;
 		//远区光源空间视图投影矩阵（cascade_count >= 2 时有效；每帧更新）
 		float light_view_proj_far[16] = {};
 		//第三级光源空间视图投影矩阵（cascade_count == 3 时有效；每帧更新）

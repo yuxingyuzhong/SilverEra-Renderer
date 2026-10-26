@@ -988,6 +988,15 @@ namespace engine
 		//当前级联配置（未初始化时写默认 1 / 3 / 12）
 		void shadow_cascade_get(uint32_t* count_out, float* far_scale_out, float* split_distance_out) const;
 		/*
+		级联接缝淡化（第一百四十八轮新增）
+		blend 为切换阈值两侧的淡化带宽比例（0..0.5；0 = 硬切换，默认）。
+		带宽 = 阈值 × blend：片元落在带内时对相邻两片阴影因子做平滑混合，消除分辨率突变接缝。
+		越界 / 非数整次忽略并告警；不影响阴影图内容（无需重绘）。
+		*/
+		void shadow_cascade_blend_set(float blend);
+		//当前级联接缝淡化比例（未初始化时为默认 0）
+		float shadow_cascade_blend(void) const;
+		/*
 		累计实际执行的阴影 pass 次数（第五十五轮新增）
 		阴影 pass 采用「输入签名不变则复用上一帧阴影图」的按需重绘策略；
 		本查询供上层观测该策略的命中情况（静态场景下应显著低于帧数）。

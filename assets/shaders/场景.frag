@@ -186,6 +186,82 @@ shadow_params：x = 启用（> 0.5 生效）、y = 深度偏置、z = 阴影图�
 返回 0 = 完全遮蔽、1 = 完全受光；阴影图范围外或 w ≤ 0 时视为受光；
 最终按 scene.shadow_strength 在 1 与遮蔽系数之间插值（0 = 阴影无效、1 = 全遮蔽）。
 */
+//按级序取本片光源空间矩阵（第一百四十六轮）
+mat4 cascade_matrix_of(int index)
+{
+	if (index == 1)
+		return scene.light_view_proj_far;
+	if (index >= 2)
+		return scene.light_view_proj_far2;
+	return scene.light_view_proj;
+}
+
+//按级序取本片深度跨度（第一百四十六轮）
+float cascade_span_of(int index)
+{
+	if (index == 1)
+		return scene.cascade_params.w;
+	if (index >= 2)
+		return scene.cascade_params2.y;
+	return scene.cascade_params.z;
+}
+
+//单级阴影因子（未乘阴影强度；index 为级序、count 为级数）
+float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
+{
+	/*
+	法线偏移（第五十九轮）
+	沿片元法线推出一小段后再取阴影深度，抵消深度量化与掠射角造成的自阴影（shadow acne）；
+	偏移量 = 深度偏置 × 光源正交深度跨度（单级恒为 59；多级取本片跨度），使世界量级与 NDC 偏置量一致；
+	法线为零向量（未提供法线）时不偏移，保持既有网格行为。
+	*/
+	vec3 sample_pos = world_pos;
+	if (length(normal) > 0.000001)
+		sample_pos += normalize(normal) * (scene.shadow_params.y * cascade_span_of(index));
+	//光源空间裁剪坐标
+	vec4 light_clip = cascade_matrix_of(index) * vec4(sample_pos, 1.0);
+	//位于光源背后
+	if (light_clip.w <= 0.000001)
+		return 1.0;
+	vec3 ndc = light_clip.xyz / light_clip.w;
+	vec2 uv = ndc.xy * 0.5 + 0.5;
+	//阴影图外一律受光（避免边界拉伸）
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
+		return 1.0;
+	//多级时把级联局部坐标映射到对应小片（X 按片序偏移，Y 恒收缩到顶格）
+	if (count == 2)
+	{
+		uv.x = uv.x * 0.5 + (index == 1 ? 0.5 : 0.0);
+		uv.y = uv.y * 0.5;
+	}
+	else if (count >= 3)
+	{
+		float slice = 1.0 / 3.0;
+		uv.x = uv.x * slice + float(index) * slice;
+		uv.y = uv.y * slice;
+	}
+	int size = int(scene.shadow_params.z + 0.5);
+	//纹素坐标（最近点，避免插值得到无意义的打包字节）
+	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
+	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
+	float current = ndc.z - scene.shadow_params.y;
+	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
+	if (scene.shadow_params.w <= 0.0)
+		return shadow_compare(texel, current, size);
+	//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
+	float softness = clamp(scene.shadow_params.w, 0.0, 1.0);
+	int radius = softness <= 0.25 ? 1 : (softness <= 0.75 ? 2 : 3);
+	float sum = 0.0;
+	int samples = 0;
+	for (int offset_y = -radius; offset_y <= radius; ++offset_y)
+		for (int offset_x = -radius; offset_x <= radius; ++offset_x)
+		{
+			sum += shadow_compare(texel + ivec2(offset_x, offset_y), current, size);
+			++samples;
+		}
+	return sum / float(samples);
+}
+
 float shadow_factor(vec3 world_pos, vec3 normal)
 {
 	//未启用阴影
@@ -203,85 +279,36 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 		cascade = 1;
 	if (cascade_count >= 3 && view_distance > scene.cascade_params2.x)
 		cascade = 2;
+	float factor = shadow_sample(cascade, cascade_count, world_pos, normal);
 	/*
-	法线偏移（第五十九轮）
-	沿片元法线推出一小段后再取阴影深度，抵消深度量化与掠射角造成的自阴影（shadow acne）；
-	偏移量 = 深度偏置 × 光源正交深度跨度（单级恒为 59；多级取本片跨度），使世界量级与 NDC 偏置量一致；
-	法线为零向量（未提供法线）时不偏移，保持既有网格行为。
+	级联接缝淡化（第一百四十八轮；cascade_params2.z = 淡化带宽比例，0 = 硬切换）
+	在切换阈值两侧各取「阈值 × 比例」的带宽，对相邻两片因子做平滑混合，
+	消除分辨率突变造成的可见接缝；带宽为 0 时完全跳过，画面逐字节不变。
 	*/
-	mat4 light_matrix = scene.light_view_proj;
-	float depth_span = 59.0;
-	if (cascade_count == 2)
+	float blend = clamp(scene.cascade_params2.z, 0.0, 0.5);
+	if (blend > 0.0 && cascade_count >= 2)
 	{
-		light_matrix = cascade == 1 ? scene.light_view_proj_far : scene.light_view_proj;
-		depth_span = cascade == 1 ? scene.cascade_params.w : scene.cascade_params.z;
-	}
-	else if (cascade_count >= 3)
-	{
-		if (cascade == 0)
+		//第 1 个阈值（近区 / 第 2 片）
+		float split_near = scene.cascade_params.y;
+		float band_near = max(split_near * blend, 0.0001);
+		if (abs(view_distance - split_near) < band_near)
 		{
-			light_matrix = scene.light_view_proj;
-			depth_span = scene.cascade_params.z;
+			float weight = smoothstep(-band_near, band_near, view_distance - split_near);
+			factor = mix(shadow_sample(0, cascade_count, world_pos, normal),
+				shadow_sample(1, cascade_count, world_pos, normal), weight);
 		}
-		else if (cascade == 1)
+		//第 2 个阈值（第 2 片 / 第 3 片；仅三级）
+		if (cascade_count >= 3)
 		{
-			light_matrix = scene.light_view_proj_far;
-			depth_span = scene.cascade_params.w;
-		}
-		else
-		{
-			light_matrix = scene.light_view_proj_far2;
-			depth_span = scene.cascade_params2.y;
-		}
-	}
-	vec3 sample_pos = world_pos;
-	if (length(normal) > 0.000001)
-		sample_pos += normalize(normal) * (scene.shadow_params.y * depth_span);
-	//光源空间裁剪坐标
-	vec4 light_clip = light_matrix * vec4(sample_pos, 1.0);
-	//位于光源背后
-	if (light_clip.w <= 0.000001)
-		return 1.0;
-	vec3 ndc = light_clip.xyz / light_clip.w;
-	vec2 uv = ndc.xy * 0.5 + 0.5;
-	//阴影图外一律受光（避免边界拉伸）
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-		return 1.0;
-	//多级时把级联局部坐标映射到对应小片（X 按片序偏移，Y 恒收缩到顶格）
-	if (cascade_count == 2)
-	{
-		uv.x = uv.x * 0.5 + (cascade == 1 ? 0.5 : 0.0);
-		uv.y = uv.y * 0.5;
-	}
-	else if (cascade_count >= 3)
-	{
-		float slice = 1.0 / 3.0;
-		uv.x = uv.x * slice + float(cascade) * slice;
-		uv.y = uv.y * slice;
-	}
-	int size = int(scene.shadow_params.z + 0.5);
-	//纹素坐标（最近点，避免插值得到无意义的打包字节）
-	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
-	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
-	float current = ndc.z - scene.shadow_params.y;
-	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
-	float factor;
-	if (scene.shadow_params.w <= 0.0)
-		factor = shadow_compare(texel, current, size);
-	else
-	{
-		//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
-		float softness = clamp(scene.shadow_params.w, 0.0, 1.0);
-		int radius = softness <= 0.25 ? 1 : (softness <= 0.75 ? 2 : 3);
-		float sum = 0.0;
-		int samples = 0;
-		for (int offset_y = -radius; offset_y <= radius; ++offset_y)
-			for (int offset_x = -radius; offset_x <= radius; ++offset_x)
+			float split_far = scene.cascade_params2.x;
+			float band_far = max(split_far * blend, 0.0001);
+			if (abs(view_distance - split_far) < band_far)
 			{
-				sum += shadow_compare(texel + ivec2(offset_x, offset_y), current, size);
-				++samples;
+				float weight = smoothstep(-band_far, band_far, view_distance - split_far);
+				factor = mix(shadow_sample(1, cascade_count, world_pos, normal),
+					shadow_sample(2, cascade_count, world_pos, normal), weight);
 			}
-		factor = sum / float(samples);
+		}
 	}
 	//按阴影强度在「无阴影」与「全遮蔽」之间插值
 	return mix(1.0, factor, clamp(scene.shadow_strength, 0.0, 1.0));

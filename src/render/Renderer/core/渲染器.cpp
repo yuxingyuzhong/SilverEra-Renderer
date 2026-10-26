@@ -1876,6 +1876,8 @@ namespace engine
 			scene_block[272 + index] = impl->light_view_proj_far2[index];
 		scene_block[288] = impl->cascade_split_distance * impl->cascade_far_scale;
 		scene_block[289] = impl->cascade_depth_span[2];
+		//级联接缝淡化带宽比例（第一百四十八轮；z 槽）
+		scene_block[290] = impl->cascade_blend;
 		/*
 		相机近远平面（第一百二十三轮）
 		264 = 近平面、265 = 远平面（世界单位）；供景深片元把深度缓冲换算成以相机为原点的距离。
@@ -6108,6 +6110,30 @@ namespace engine
 			*far_scale_out = far_scale;
 		if (split_distance_out != nullptr)
 			*split_distance_out = split_distance;
+	}
+
+	//设置级联接缝淡化比例（第一百四十八轮）
+	void Renderer::shadow_cascade_blend_set(float blend)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//比例须在 [0, 0.5]（取反比较使 NaN 判非法）
+		if (!(blend >= 0.0f && blend <= 0.5f))
+		{
+			logger.warn("渲染器:: 级联接缝淡化比例非法（{}），本次忽略", blend);
+			return;
+		}
+		impl->cascade_blend = blend;
+	}
+
+	//当前级联接缝淡化比例（第一百四十八轮）
+	float Renderer::shadow_cascade_blend(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->cascade_blend;
 	}
 
 	//累计实际执行的阴影 pass 次数（第五十五轮）
