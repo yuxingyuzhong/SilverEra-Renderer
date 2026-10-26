@@ -252,6 +252,90 @@ namespace engine
 		return ok;
 	}
 
+	//上传像素到图像的子区域（第一百五十一轮）
+	bool Memory_Context::upload_image_region(VkImage dst_image, const void* data, uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height)
+	{
+		//前置：上下文与队列就绪、目标句柄与源数据齐备、区域非空
+		if (!valid() || dst_image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE
+			|| width == 0 || height == 0)
+		{
+			logger.error("上传批次:: 上传图像区域的参数不完整");
+			return false;
+		}
+		//源字节数（RGBA8 紧排）
+		const VkDeviceSize data_size = static_cast<VkDeviceSize>(width) * height * 4;
+		//创建暂存缓冲（主机可见、仅顺序写入，并用作传输源）
+		VkBuffer staging_buffer = VK_NULL_HANDLE;
+		VmaAllocation staging_alloc = VK_NULL_HANDLE;
+		if (!buffer_create(staging_buffer, staging_alloc, data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true, true))
+			return false;
+		//写入暂存缓冲
+		if (!buffer_write(staging_buffer, staging_alloc, data, data_size, 0))
+		{
+			buffer_destroy(staging_buffer, staging_alloc);
+			return false;
+		}
+		//确保上传命令池与栅栏就绪
+		if (!upload_resources_ensure())
+		{
+			buffer_destroy(staging_buffer, staging_alloc);
+			return false;
+		}
+		//提交「布局转换 → 区域拷贝 → 布局转换」三步（旧布局为着色器可读）
+		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
+		{
+			//布局：着色器可读 → 传输目标
+			VkImageMemoryBarrier to_transfer{};
+			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_transfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.image = dst_image;
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
+
+			//暂存缓冲 → 图像子区域
+			VkBufferImageCopy copy_region{};
+			copy_region.bufferOffset = 0;
+			copy_region.bufferRowLength = 0;
+			copy_region.bufferImageHeight = 0;
+			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.baseArrayLayer = 0;
+			copy_region.imageSubresource.layerCount = 1;
+			copy_region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
+			copy_region.imageExtent = { width, height, 1 };
+			vkCmdCopyBufferToImage(command_buffer, staging_buffer, dst_image,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+
+			//布局：传输目标 → 着色器可读（恢复默认终态）
+			VkImageMemoryBarrier to_shader{};
+			to_shader.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_shader.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			to_shader.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_shader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_shader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_shader.image = dst_image;
+			to_shader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0, 0, nullptr, 0, nullptr, 1, &to_shader);
+		});
+		//回收暂存缓冲（无论成败）
+		buffer_destroy(staging_buffer, staging_alloc);
+		if (ok)
+			logger.info("上传批次:: 图像区域上传完成（{}x{} @ {},{}）", width, height, x, y);
+		return ok;
+	}
+
 	/*
 	从图像读回像素（第 0 级、整幅；RGBA8 紧排）
 	流程：SHADER_READ_ONLY → TRANSFER_SRC → 拷贝到主机暂存缓冲 → 转回 SHADER_READ_ONLY

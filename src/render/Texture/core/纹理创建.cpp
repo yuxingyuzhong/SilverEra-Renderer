@@ -437,4 +437,22 @@ namespace engine
 			*height_out = region_height;
 		return true;
 	}
+
+        //更新纹理第 0 级的子区域（第一百五十一轮）
+        bool Texture_Context::texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
+                uint32_t width, uint32_t height, const uint8_t* pixels)
+        {
+                //句柄 0 无效
+                if (handle == 0 || handle > records.size())
+                        return false;
+                Texture_Record& record = records[handle - 1];
+                //若记录无效 / 尺寸缺失 / 源数据为空 / 区域越界
+                if (!record.valid || record.width == 0 || record.height == 0 || pixels == nullptr
+                        || x >= record.width || y >= record.height
+                        || width == 0 || height == 0
+                        || width > record.width - x || height > record.height - y)
+                        return false;
+                //转交内存模块（子区域同步上传；前后保持着色器可读布局）
+                return memory->upload_image_region(record.image, pixels, x, y, width, height);
+        }
 }

@@ -3661,6 +3661,20 @@ namespace engine
 			pixels, capacity, width_out, height_out);
 	}
 
+	//更新纹理第 0 级的子区域（第一百五十一轮）
+	bool Renderer::texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height, const uint8_t* pixels)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽（避免改写仍在采样中的图像）
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（子区域同步上传）
+		return impl->texture.texture_update_region(handle, x, y, width, height, pixels);
+	}
+
 	//查询纹理尺寸
 	bool Renderer::texture_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
 	{

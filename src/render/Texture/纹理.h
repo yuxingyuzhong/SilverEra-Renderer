@@ -92,6 +92,13 @@ namespace engine
 		//取纹理尺寸（第九十轮新增；句柄无效返回假且出参归零）
 		bool texture_size_get(uint64_t handle, uint32_t& width_out, uint32_t& height_out) const;
 		/*
+		更新纹理第 0 级的子区域（第一百五十一轮新增）
+		pixels 为 RGBA8 紧排（每行 width 个纹素）；区域须完整落在纹理内；
+		成功后纹理处于着色器可读布局，其余区域保持不变。句柄无效 / 区域越界返回假。
+		*/
+		bool texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t width, uint32_t height, const uint8_t* pixels);
+		/*
 		读回纹理第 0 级像素（第二十七轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 宽×高×4；
 		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。调用方须保证无在途帧引用该纹理（门面先 frames_wait）。

@@ -94,6 +94,14 @@ namespace engine
 		bool upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
 			uint32_t width, uint32_t height, uint32_t row_pixels, uint32_t layer = 0);
 		/*
+		上传像素到图像的子区域（第一百五十一轮新增）
+		x / y 为区域左上角，width / height 为区域尺寸；data 为 RGBA8 紧排（每行 width 个纹素）。
+		图像的第 0 级须已处于 SHADER_READ_ONLY_OPTIMAL（即由 upload_image 创建）；
+		调用前后保持该布局。区域须完整落在图像内（由调用方保证）。
+		*/
+		bool upload_image_region(VkImage dst_image, const void* data, uint32_t x, uint32_t y,
+			uint32_t width, uint32_t height);
+		/*
 		从图像读回像素（第二十七轮新增）
 		读取第 0 级、整幅图像到 data（RGBA8 紧排，data_size 须为 宽×高×4）；
 		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL（复用一次性上传命令池同步完成）。

@@ -458,6 +458,14 @@ namespace engine
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
+		更新纹理第 0 级的子区域（第一百五十一轮新增）
+		pixels 为 RGBA8 紧排（每行 width 个纹素）；区域须完整落在纹理内，否则整次拒绝。
+		更新前会等尽在途帧（避免采样中的图像被改写）；成功后纹理仍处于着色器可读布局，
+		其余区域与 mip 链内容保持不变。
+		*/
+		bool texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t width, uint32_t height, const uint8_t* pixels);
+		/*
 		查询纹理尺寸（第九十轮新增）
 		成功时写出宽 / 高（任一非空）并返回真；未初始化 / 句柄无效返回假且出参归零。
 		*/
