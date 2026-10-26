@@ -48,6 +48,17 @@ namespace engine
 		void view_proj_get(float out[16]) const;
 		//写出相机世界位置（3 浮点；第三十一轮新增，供片元计算镜面高光的视线方向）
 		void position_get(float out[3]) const;
+		/*
+		世界点 → 屏幕坐标（第一百四十九轮）
+		u / v 以左上角为原点（0..1 表示视口内，允许越界），depth 为裁剪空间深度（0..1）；
+		点位于相机背后（裁剪 w ≤ 0）时返回假，出参保持原值。
+		*/
+		bool project_to_screen(const float world[3], float* u_out, float* v_out, float* depth_out) const;
+		/*
+		屏幕坐标 → 世界点（第一百四十九轮）
+		与 project_to_screen 互逆；视图投影矩阵不可逆时返回假，出参保持原值。
+		*/
+		bool unproject_from_screen(float u, float v, float depth, float world_out[3]) const;
 	private:
 		//位置（默认值取自 Scene_Data，见构造）
 		float position[3];

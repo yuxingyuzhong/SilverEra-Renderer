@@ -148,4 +148,56 @@ namespace engine
 		for (uint32_t index = 0; index < 3; ++index)
 			out[index] = position[index];
 	}
+
+	//世界点 → 屏幕坐标（第一百四十九轮）
+	bool Camera::project_to_screen(const float world[3], float* u_out, float* v_out, float* depth_out) const
+	{
+		//世界点为空则拒绝
+		if (world == nullptr)
+			return false;
+		//视图投影矩阵（列主序 → glm）
+		float matrix[16] = {};
+		view_proj_get(matrix);
+		glm::mat4 view_proj = glm::make_mat4(matrix);
+		//裁剪空间坐标
+		glm::vec4 clip = view_proj * glm::vec4(world[0], world[1], world[2], 1.0f);
+		//位于相机背后（w ≤ 0 无法透视除法）
+		if (clip.w <= 0.000001f)
+			return false;
+		glm::vec3 ndc(clip.x / clip.w, clip.y / clip.w, clip.z / clip.w);
+		//NDC → 左上原点的屏幕坐标（投影已做 Y 翻转）
+		float u = ndc.x * 0.5f + 0.5f;
+		float v = ndc.y * 0.5f + 0.5f;
+		if (u_out != nullptr)
+			*u_out = u;
+		if (v_out != nullptr)
+			*v_out = v;
+		if (depth_out != nullptr)
+			*depth_out = ndc.z;
+		return true;
+	}
+
+	//屏幕坐标 → 世界点（第一百四十九轮）
+	bool Camera::unproject_from_screen(float u, float v, float depth, float world_out[3]) const
+	{
+		//世界点出参为空则拒绝
+		if (world_out == nullptr)
+			return false;
+		//视图投影矩阵及其逆
+		float matrix[16] = {};
+		view_proj_get(matrix);
+		glm::mat4 view_proj = glm::make_mat4(matrix);
+		glm::mat4 inverse = glm::inverse(view_proj);
+		//屏幕坐标 → NDC（与 project_to_screen 的映射互逆）
+		glm::vec4 ndc(u * 2.0f - 1.0f, v * 2.0f - 1.0f, depth, 1.0f);
+		glm::vec4 world = inverse * ndc;
+		//齐次 w 近零视为不可逆
+		if (world.w < 0.000001f && world.w > -0.000001f)
+			return false;
+		world /= world.w;
+		world_out[0] = world.x;
+		world_out[1] = world.y;
+		world_out[2] = world.z;
+		return true;
+	}
 }

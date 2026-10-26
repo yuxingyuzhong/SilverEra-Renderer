@@ -5131,6 +5131,24 @@ namespace engine
 		impl->camera.near_far_set(near_plane, far_plane);
 	}
 
+	//世界点 → 屏幕坐标（第一百四十九轮）
+	bool Renderer::camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->camera.project_to_screen(world, u_out, v_out, depth_out);
+	}
+
+	//屏幕坐标 → 世界点（第一百四十九轮）
+	bool Renderer::camera_unproject(float u, float v, float depth, float world_out[3]) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->camera.unproject_from_screen(u, v, depth, world_out);
+	}
+
 	//应用场景描述（三组入参；第四十七轮）
 	void Renderer::scene_apply(const Camera_Data& camera, const Light_Data& light, const Fog_Data& fog)
 	{

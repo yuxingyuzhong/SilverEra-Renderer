@@ -800,6 +800,17 @@ namespace engine
 		void camera_fov_set(float radians);
 		//相机：设置近远平面
 		void camera_near_far_set(float near_plane, float far_plane);
+		/*
+		世界点 → 屏幕坐标（第一百四十九轮新增）
+		u / v 以左上角为原点（0..1 为视口内，允许越界），depth 为裁剪空间深度（0..1）。
+		点位于相机背后（裁剪 w ≤ 0）或未初始化时返回假，出参保持原值。
+		*/
+		bool camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const;
+		/*
+		屏幕坐标 → 世界点（第一百四十九轮新增）
+		与 camera_project 互逆；未初始化 / 矩阵不可逆 / 出参为空时返回假。
+		*/
+		bool camera_unproject(float u, float v, float depth, float world_out[3]) const;
 
 		/*
 		应用场景描述（相机位置 / 注视点 / 视场角 / 近远平面 ＋ 清屏色）
