@@ -453,6 +453,11 @@ namespace engine
                         || width > record.width - x || height > record.height - y)
                         return false;
                 //转交内存模块（子区域同步上传；前后保持着色器可读布局）
-                return memory->upload_image_region(record.image, pixels, x, y, width, height);
+                if (!memory->upload_image_region(record.image, pixels, x, y, width, height))
+                        return false;
+                //含 mip 链的纹理需重建降采样级，避免低级别仍是旧内容（第一百五十四轮）
+                if (record.mip_levels > 1)
+                        return memory->image_generate_mips(record.image, record.width, record.height, record.mip_levels);
+                return true;
         }
 }
