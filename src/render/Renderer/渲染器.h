@@ -656,6 +656,13 @@ namespace engine
 		*/
 		void text_color_set(const float color[4]);
 		/*
+		设置文字描边（第一百四十轮）
+		uv_width 为描边半宽（图集 UV 单位，0 = 关闭；按 0..0.05 钳制），color 为描边色（分量 0..1 逐分量钳制）。
+		自**下一次** text_draw / text_draw_layout 起生效（经推送常量 offset 80 下发）；width 为 0 时与旧版逐像素一致。
+		未初始化或 color 为空时静默返回。
+		*/
+		void text_outline_set(float uv_width, const float color[3]);
+		/*
 		设置泛光参数（阈值 / 软膝 / 强度；均为线性空间量）
 		阈值与软膝须满足「阈值 > 0 且软膝 ≥ 0 且软膝 < 阈值」，强度须为有限正值；非法即整次忽略（保持原值）。
 		默认 0.6 / 0.1 / 1.0（与既有 `亮部提取.frag` / `泛光叠加.frag` 的常量一致，故不调用时画面不变）。

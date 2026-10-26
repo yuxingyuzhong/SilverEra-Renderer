@@ -411,6 +411,12 @@ namespace engine
 		bool cull_enabled = true;
 		//是否启用静态合批（第一百二十七轮；默认开启）
 		bool static_batching = true;
+		/*
+		文字描边参数（第一百四十轮；经推送常量 offset 80 下发）
+		text_outline_uv_width = 描边半宽（图集 UV；0 = 关闭），text_outline_color = 描边色（0..1）。
+		*/
+		float text_outline_uv_width = 0.0f;
+		float text_outline_color[3] = { 0.0f, 0.0f, 0.0f };
 		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
 		std::deque<std::array<float, 24>> pending_push_constants;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）

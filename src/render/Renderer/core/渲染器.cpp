@@ -3219,9 +3219,20 @@ namespace engine
 			/*
 			材质贴图参数（第一百二十四轮；offset 80 的 vec4）
 			x = 法线强度（0 = 不启用），y = 粗糙度贴图启用标志（贴图恒绑定，默认白纹理即恒等），zw 保留。
+			文字绘制时该 vec4 改作描边参数（第一百四十轮）：x = 描边半宽（UV）、yzw = 描边色。
 			*/
-			push[20] = impl->material_normal_strength;
-			push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+			if (impl->in_text_draw)
+			{
+				push[20] = impl->text_outline_uv_width;
+				push[21] = impl->text_outline_color[0];
+				push[22] = impl->text_outline_color[1];
+				push[23] = impl->text_outline_color[2];
+			}
+			else
+			{
+				push[20] = impl->material_normal_strength;
+				push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+			}
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		}
@@ -4840,6 +4851,31 @@ namespace engine
 			return;
 		//转发文字绘制子系统（逐分量钳制）
 		impl->text.color_set(color);
+	}
+
+	//设置文字描边（第一百四十轮；UV 半宽 ＋ 描边色）
+	void Renderer::text_outline_set(float uv_width, const float color[3])
+	{
+		//未初始化或颜色为空则静默返回
+		if (impl == nullptr || !impl->initialized || color == nullptr)
+			return;
+		//半宽按 0..0.05 钳制（负值 / 非数归 0，避免无意义的大范围采样）
+		if (!(uv_width > 0.0f))
+			uv_width = 0.0f;
+		if (uv_width > 0.05f)
+			uv_width = 0.05f;
+		impl->text_outline_uv_width = uv_width;
+		//描边色逐分量钳制到 0..1
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			float value = color[index];
+			//非数 / 负值归 0、大于 1 归 1
+			if (!(value > 0.0f))
+				value = 0.0f;
+			if (value > 1.0f)
+				value = 1.0f;
+			impl->text_outline_color[index] = value;
+		}
 	}
 
 	//取该字体累计被跳过的码点数（诊断入口）
