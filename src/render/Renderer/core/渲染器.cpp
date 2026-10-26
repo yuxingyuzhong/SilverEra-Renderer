@@ -1588,6 +1588,8 @@ namespace engine
 			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
 			{
 				//阴影图复用，主 pass 直接采样
+				++impl->shadow_reuses;
+				impl->shadow_last_redrawn = 0;
 			}
 			else if (shadow_item_count != 0)
 			{
@@ -1704,6 +1706,10 @@ namespace engine
 				impl->shadow_signature = shadow_signature;
 				impl->shadow_pass_ready = true;
 				++impl->shadow_pass_count;
+				//重绘观测（第一百四十五轮）
+				++impl->shadow_redraws;
+				impl->last_shadow_items = static_cast<uint32_t>(shadow_item_count);
+				impl->shadow_last_redrawn = 1;
 			}
 		}
 
@@ -2624,6 +2630,9 @@ namespace engine
 		impl->culled_items = 0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
+		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
+		impl->shadow_redraws = 0;
+		impl->shadow_reuses = 0;
 	}
 
 	//取帧统计快照
@@ -2679,6 +2688,11 @@ namespace engine
 		//合批收益（第一百三十五轮）
 		stats.last_merged_items = impl->last_merged_items;
 		stats.merged_items = impl->merged_items;
+		//阴影按需重绘观测（第一百四十五轮）
+		stats.shadow_redraws = impl->shadow_redraws;
+		stats.shadow_reuses = impl->shadow_reuses;
+		stats.last_shadow_items = impl->last_shadow_items;
+		stats.shadow_last_redrawn = impl->shadow_last_redrawn;
 		//累计按需上传字节（第七十二轮）
 		stats.scene_upload_bytes = impl->scene_upload_bytes;
 		stats.instance_upload_bytes = impl->instance_upload_bytes;

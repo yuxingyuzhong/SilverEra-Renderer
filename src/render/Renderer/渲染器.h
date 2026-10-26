@@ -161,6 +161,15 @@ namespace engine
 		uint64_t last_merged_items = 0;
 		uint64_t merged_items = 0;
 		/*
+		阴影按需重绘观测（第一百四十五轮）
+		shadow_redraws / shadow_reuses 为自 init 以来「重绘 / 复用」的累计次数；
+		last_shadow_items 为最近一次重绘的绘制项数，shadow_last_redrawn 为最近一帧是否重绘（1 / 0）。
+		*/
+		uint64_t shadow_redraws = 0;
+		uint64_t shadow_reuses = 0;
+		uint32_t last_shadow_items = 0;
+		uint32_t shadow_last_redrawn = 0;
+		/*
 		累计按需上传字节（第七十二轮新增；与门面 scene_upload_bytes / instance_upload_bytes 同源）
 		场景 UBO 以 16 字节为单元、实例缓冲以一个实例（80 字节）为单元，仅写入变化区间。
 		*/

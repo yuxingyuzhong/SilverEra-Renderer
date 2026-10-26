@@ -255,6 +255,14 @@ namespace engine
 		bool shadow_pass_ready = false;
 		//累计实际执行的阴影 pass 次数（第五十五轮；观测与测试）
 		uint64_t shadow_pass_count = 0;
+		//累计阴影重绘次数（第一百四十五轮）
+		uint64_t shadow_redraws = 0;
+		//累计阴影图复用次数（签名一致跳过重绘；第一百四十五轮）
+		uint64_t shadow_reuses = 0;
+		//最近一次阴影重绘的绘制项数（第一百四十五轮）
+		uint32_t last_shadow_items = 0;
+		//最近一帧是否重绘了阴影图（1 = 重绘、0 = 复用或未执行；第一百四十五轮）
+		uint32_t shadow_last_redrawn = 0;
 		//阴影管线句柄（第五十二轮；0 = 未登记）
 		uint64_t shadow_pipeline = 0;
 		//阴影目标句柄（第五十二轮；0 = 未创建）
