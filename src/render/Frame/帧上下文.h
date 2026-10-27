@@ -91,6 +91,19 @@ namespace engine
 		VkDescriptorSet sampler_set = VK_NULL_HANDLE;
 		//描述符集数量（0/1/2）
 		uint32_t descriptor_set_count = 0;
+		/*
+		逐绘制项采样状态（第一百七十四轮）
+		登记绘制项时从门面的当前绑定状态快照，帧渲染阶段据此写一条专属采样器集；
+		使同帧内不同绘制项可各自采样不同纹理（含文字图集与场景纹理共存）。
+		视图为空时回落该帧槽的共享采样器集。
+		*/
+		VkSampler draw_sampler = VK_NULL_HANDLE;
+		VkImageView draw_albedo = VK_NULL_HANDLE;
+		VkImageView draw_normal = VK_NULL_HANDLE;
+		VkImageView draw_roughness = VK_NULL_HANDLE;
+		VkImageView draw_emissive = VK_NULL_HANDLE;
+		VkImageView draw_ao = VK_NULL_HANDLE;
+		VkImageView draw_metallic = VK_NULL_HANDLE;
 		//顶点缓冲
 		VkBuffer vertex_buffer = VK_NULL_HANDLE;
 		//索引缓冲

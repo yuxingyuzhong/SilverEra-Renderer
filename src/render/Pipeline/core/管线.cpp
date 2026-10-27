@@ -106,12 +106,14 @@ namespace engine
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 9;
+		//采样器类描述符按「场景集 ＋ 后处理集 ＋ 逐绘制项集」三部分计
+		pool_sizes[1].descriptorCount = config.frame_overlap
+			* (1 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 9;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		pool_info.maxSets = config.frame_overlap * (2 + POST_SET_PER_SLOT);
+		pool_info.maxSets = config.frame_overlap * (2 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
 		pool_info.poolSizeCount = 2;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
@@ -170,6 +172,22 @@ namespace engine
 			return false;
 		}
 
+		//分配逐绘制项采样器描述符集（set 1 同布局，按「帧槽 × DRAW_SET_PER_SLOT」独立分配；第一百七十四轮）
+		draw_sets.resize(static_cast<std::size_t>(config.frame_overlap) * DRAW_SET_PER_SLOT);
+		vector<VkDescriptorSetLayout> draw_layouts(draw_sets.size(), sampler_set_layout);
+		VkDescriptorSetAllocateInfo draw_alloc{};
+		draw_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		draw_alloc.descriptorPool = descriptor_pool;
+		draw_alloc.descriptorSetCount = static_cast<uint32_t>(draw_layouts.size());
+		draw_alloc.pSetLayouts = draw_layouts.data();
+		//若分配失败
+		if (!vk_result_check(vkAllocateDescriptorSets(device, &draw_alloc, draw_sets.data()), "vkAllocateDescriptorSets（逐绘制项）"))
+		{
+			logger.error("管线:: 逐绘制项描述符集分配失败，回退");
+			destroy();
+			return false;
+		}
+
 		logger.info("管线:: 管线基础设施构建完成（在途帧 {}，颜色格式 {}，深度格式 {}）",
 			config.frame_overlap, static_cast<int32_t>(config.color_format), static_cast<int32_t>(config.depth_format));
 		return true;
@@ -210,6 +228,7 @@ namespace engine
 		scene_sets.clear();
 		sampler_sets.clear();
 		post_sets.clear();
+		draw_sets.clear();
 		next_handle = 1;
 		active_handle = 0;
 		descriptor_pool = VK_NULL_HANDLE;
@@ -623,6 +642,62 @@ namespace engine
 
 		//更新描述符集
 		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	//取第 slot 帧槽第 index 条逐绘制项采样器集（越界返回空）
+	VkDescriptorSet Pipeline_Context::draw_set_get(uint32_t slot, uint32_t index) const
+	{
+		//下标 = slot × DRAW_SET_PER_SLOT + index
+		const std::size_t flat = static_cast<std::size_t>(slot) * DRAW_SET_PER_SLOT + index;
+		//若越界
+		if (slot >= config.frame_overlap || index >= DRAW_SET_PER_SLOT || flat >= draw_sets.size())
+			return VK_NULL_HANDLE;
+		return draw_sets[flat];
+	}
+
+	/*
+	逐绘制项采样器集一次性写入（第一百七十四轮）
+	binding 0 = 反照率、1 = 阴影图、3 = 法线、4 = 粗糙度、5 = 天空盒、6 = 自发光、7 = 遮蔽、8 = 金属度；
+	binding 2（场景深度）在场景绘制中不被采样，写默认白纹理占位以保持描述符完整。
+	*/
+	bool Pipeline_Context::draw_set_bind(uint32_t slot, uint32_t index, VkSampler sampler,
+		VkImageView albedo_view, VkImageView normal_view, VkImageView roughness_view,
+		VkImageView emissive_view, VkImageView ao_view, VkImageView metallic_view,
+		VkImageView shadow_view, VkImageView sky_view)
+	{
+		//目标集
+		VkDescriptorSet target = draw_set_get(slot, index);
+		//前置：设备、目标集、采样器与各视图齐备
+		if (device == VK_NULL_HANDLE || target == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE
+			|| albedo_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE || roughness_view == VK_NULL_HANDLE
+			|| emissive_view == VK_NULL_HANDLE || ao_view == VK_NULL_HANDLE || metallic_view == VK_NULL_HANDLE
+			|| shadow_view == VK_NULL_HANDLE || sky_view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 逐绘制项采样集写入参数不完整");
+			return false;
+		}
+
+		//九条绑定的图像描述（binding 2 以反照率视图占位，场景着色器不采样它）
+		const VkImageView views[9] = { albedo_view, shadow_view, albedo_view, normal_view, roughness_view,
+			sky_view, emissive_view, ao_view, metallic_view };
+		VkDescriptorImageInfo infos[9]{};
+		VkWriteDescriptorSet writes[9]{};
+		for (uint32_t binding = 0; binding < 9; ++binding)
+		{
+			infos[binding].sampler = sampler;
+			infos[binding].imageView = views[binding];
+			infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[binding].dstSet = target;
+			writes[binding].dstBinding = binding;
+			writes[binding].dstArrayElement = 0;
+			writes[binding].descriptorCount = 1;
+			writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			writes[binding].pImageInfo = &infos[binding];
+		}
+		//一次提交全部绑定
+		vkUpdateDescriptorSets(device, 9, writes, 0, nullptr);
 		return true;
 	}
 

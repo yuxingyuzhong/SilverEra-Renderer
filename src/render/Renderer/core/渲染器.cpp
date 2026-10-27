@@ -85,7 +85,18 @@ namespace engine
 						&& last.index_offset == item.index_offset
 						&& last.index_count == item.index_count
 						&& last.cast_shadow == item.cast_shadow
-						&& last.sample_count == item.sample_count;
+						&& last.sample_count == item.sample_count
+						/*
+						采样状态须一致（第一百七十四轮）
+						合批会让多个实例共用一条采样器集，纹理不同则不能合并。
+						*/
+						&& last.draw_sampler == item.draw_sampler
+						&& last.draw_albedo == item.draw_albedo
+						&& last.draw_normal == item.draw_normal
+						&& last.draw_roughness == item.draw_roughness
+						&& last.draw_emissive == item.draw_emissive
+						&& last.draw_ao == item.draw_ao
+						&& last.draw_metallic == item.draw_metallic;
 				}
 				//可合并则把实例数并入前一项（实例数据仍按原顺序连续）
 				if (can_merge)
@@ -980,6 +991,11 @@ namespace engine
 			shutdown();
 			return false;
 		}
+		//初始采样状态（逐绘制项采样集按此快照写入；第一百七十四轮）
+		impl->bound_view = default_view;
+		impl->bound_sampler = default_sampler;
+		for (VkImageView& material_view : impl->material_views)
+			material_view = default_view;
 		//把默认纹理写入所有帧槽 set1（长命资源，一次写满）
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
@@ -2218,16 +2234,62 @@ namespace engine
 		if (impl->static_batching)
 			impl->frame_merged_items += batch_adjacent_items(impl->pending_items, impl->batch_scratch);
 
-		//为本帧待绘制项填装描述符集与实例缓冲句柄
-		for (auto& item : impl->pending_items)
+		/*
+		为本帧待绘制项填装描述符集与实例缓冲句柄
+		逐绘制项采样集（第一百七十四轮）：每项按登记时的纹理快照写一条独立 set1，
+		使同帧内不同物体（含文字图集）各自采样自己的纹理；超出预留条数的项回落共享集。
+		*/
 		{
-			//本帧槽的实例缓冲（模型矩阵来源）
-			item.instance_buffer = impl->instance_buffers[slot];
-			//本帧槽的场景 UBO 描述符集（set0）
-			item.scene_set = impl->pipeline.scene_set_get(slot);
-			//本帧槽的采样器描述符集（set1）
-			item.sampler_set = impl->pipeline.sampler_set_get(slot);
-			item.descriptor_set_count = 2;
+			//默认采样资源（回落用）
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler default_sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+			//阴影图视图（未建立阴影目标时以默认白纹理占位）
+			VkImageView shadow_view = default_view;
+			if (impl->shadow_target != 0)
+			{
+				VkImage shadow_image = VK_NULL_HANDLE;
+				VkImageView shadow_depth_view = VK_NULL_HANDLE;
+				VkExtent2D shadow_extent{};
+				impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
+					shadow_depth_view, shadow_extent);
+			}
+			//天空盒立方体视图（未设置时用内置纯白立方体）
+			VkImageView sky_view = VK_NULL_HANDLE;
+			VkSampler sky_sampler = VK_NULL_HANDLE;
+			const uint64_t sky_texture = impl->sky_texture != 0 ? impl->sky_texture : impl->default_sky_texture;
+			impl->texture.texture_bind_get(sky_texture, sky_view, sky_sampler);
+			//写逐绘制项集前等尽在途帧（这些集会被下一轮同槽帧复用）
+			impl->frame.frames_wait();
+			//本帧逐绘制项集游标
+			uint32_t draw_index = 0;
+			for (auto& item : impl->pending_items)
+			{
+				//本帧槽的实例缓冲（模型矩阵来源）
+				item.instance_buffer = impl->instance_buffers[slot];
+				//本帧槽的场景 UBO 描述符集（set0）
+				item.scene_set = impl->pipeline.scene_set_get(slot);
+				//默认回落共享采样器集（set1）
+				item.sampler_set = impl->pipeline.sampler_set_get(slot);
+				item.descriptor_set_count = 2;
+				//若该项有采样快照且预留未用尽则写专属集
+				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
+					&& draw_index < Pipeline_Context::DRAW_SET_PER_SLOT)
+				{
+					const bool written = impl->pipeline.draw_set_bind(slot, draw_index, item.draw_sampler,
+						item.draw_albedo,
+						item.draw_normal != VK_NULL_HANDLE ? item.draw_normal : default_view,
+						item.draw_roughness != VK_NULL_HANDLE ? item.draw_roughness : default_view,
+						item.draw_emissive != VK_NULL_HANDLE ? item.draw_emissive : default_view,
+						item.draw_ao != VK_NULL_HANDLE ? item.draw_ao : default_view,
+						item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view,
+						shadow_view != VK_NULL_HANDLE ? shadow_view : default_view,
+						sky_view != VK_NULL_HANDLE ? sky_view : default_view);
+					if (written)
+						item.sampler_set = impl->pipeline.draw_set_get(slot, draw_index);
+					++draw_index;
+				}
+			}
 		}
 		/*
 		追加天空盒绘制项（第一百二十五轮）
@@ -3307,6 +3369,14 @@ namespace engine
 		item.instance_buffer = VK_NULL_HANDLE;
 		item.instance_offset = instance_offset;
 		item.instance_count = 1;
+		//采样状态快照（第一百七十四轮；帧渲染阶段据此写专属采样器集）
+		item.draw_sampler = impl->bound_sampler;
+		item.draw_albedo = impl->bound_view;
+		item.draw_normal = impl->material_views[0];
+		item.draw_roughness = impl->material_views[1];
+		item.draw_emissive = impl->material_views[2];
+		item.draw_ao = impl->material_views[3];
+		item.draw_metallic = impl->material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
 		//透明标记（第一百三十轮：文字等非不透明混合项不参与合批，避免混叠顺序改变）
@@ -3470,6 +3540,14 @@ namespace engine
 		item.instance_buffer = VK_NULL_HANDLE;
 		item.instance_offset = instance_offset;
 		item.instance_count = count;
+		//采样状态快照（第一百七十四轮；帧渲染阶段据此写专属采样器集）
+		item.draw_sampler = impl->bound_sampler;
+		item.draw_albedo = impl->bound_view;
+		item.draw_normal = impl->material_views[0];
+		item.draw_roughness = impl->material_views[1];
+		item.draw_emissive = impl->material_views[2];
+		item.draw_ao = impl->material_views[3];
+		item.draw_metallic = impl->material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
 		item.cast_shadow = !impl->in_text_draw;
 		//透明标记（第一百三十轮：非不透明混合项不参与合批）
@@ -3890,8 +3968,9 @@ namespace engine
 				return;
 			}
 		}
-		//记录当前绑定视图（采样器状态切换后据此重写 set1）
+		//记录当前绑定视图与采样器（逐绘制项采样集按此快照写入）
 		impl->bound_view = view;
+		impl->bound_sampler = sampler;
 		/*
 		写满全部帧槽 set1 之前先等全部在途帧完成
 		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
@@ -3909,9 +3988,14 @@ namespace engine
 			VkImageView white_view = VK_NULL_HANDLE;
 			VkSampler white_sampler = VK_NULL_HANDLE;
 			if (impl->texture.texture_bind_get(impl->default_texture, white_view, white_sampler))
+			{
 				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 					impl->pipeline.material_textures_bind(slot, white_sampler,
 						white_view, white_view, white_view, white_view, white_view);
+				//材质贴图状态同步回落白纹理（逐绘制项采样集按该快照写入）
+				for (VkImageView& material_view : impl->material_views)
+					material_view = white_view;
+			}
 		}
 	}
 
@@ -3976,8 +4060,9 @@ namespace engine
 		}
 		//当前绑定视图为空则回落内置默认白纹理视图
 		VkImageView view = impl->bound_view != VK_NULL_HANDLE ? impl->bound_view : default_view;
-		//记录当前绑定视图（保持与 set1 一致）
+		//记录当前绑定视图与重建后的共享采样器（逐绘制项集按此快照写入）
 		impl->bound_view = view;
+		impl->bound_sampler = sampler;
 		//以新采样器重写全部帧槽 set1（binding 0）
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
@@ -4410,9 +4495,17 @@ namespace engine
 			*/
 			if (normal_view != VK_NULL_HANDLE && roughness_view != VK_NULL_HANDLE
 				&& emissive_view != VK_NULL_HANDLE && ao_view != VK_NULL_HANDLE && metallic_view != VK_NULL_HANDLE)
+			{
 				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 					impl->pipeline.material_textures_bind(slot, material_sampler,
 						normal_view, roughness_view, emissive_view, ao_view, metallic_view);
+				//同步材质贴图状态（逐绘制项采样集按该快照写入）
+				impl->material_views[0] = normal_view;
+				impl->material_views[1] = roughness_view;
+				impl->material_views[2] = emissive_view;
+				impl->material_views[3] = ao_view;
+				impl->material_views[4] = metallic_view;
+			}
 		}
 		//按记录的 PBR 覆盖标志设置 / 清除逐物体材质（第六十八轮）
 		if (record.pbr_override)

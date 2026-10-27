@@ -192,6 +192,18 @@ namespace engine
 		//向第 slot 帧槽写采样器（set 1 binding 0；binding 1 由 shadow_bind 独立维护）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 		/*
+		逐绘制项采样器集（第一百七十四轮）
+		每个帧槽预留 DRAW_SET_PER_SLOT 条与 set1 同布局的独立描述符集；
+		draw_set_bind 一次性写入反照率、五张材质贴图、阴影图与天空盒，
+		使同帧内不同绘制项可各自采样不同纹理（不再被最后一次绑定覆盖）。
+		*/
+		VkDescriptorSet draw_set_get(uint32_t slot, uint32_t index) const;
+		bool draw_set_bind(uint32_t slot, uint32_t index, VkSampler sampler, VkImageView albedo_view,
+			VkImageView normal_view, VkImageView roughness_view, VkImageView emissive_view,
+			VkImageView ao_view, VkImageView metallic_view, VkImageView shadow_view, VkImageView sky_view);
+		//每帧槽预留的逐绘制项采样器集数量
+		static constexpr uint32_t DRAW_SET_PER_SLOT = 128;
+		/*
 		向第 slot 帧槽的场景采样器集写阴影图（set 1 binding 1；第五十二轮）
 		场景片元以 binding 1 采样阴影图；后处理集的 binding 1 由 post_scene_bind 独立维护。
 		*/
@@ -264,6 +276,8 @@ namespace engine
 		std::vector<VkDescriptorSet> sampler_sets;
 		//后处理采样器描述符集（长度 = frame_overlap × POST_SET_PER_SLOT；同布局、独立分配；下标 = slot × 2 + index）
 		std::vector<VkDescriptorSet> post_sets;
+		//逐绘制项采样器描述符集（长度 = frame_overlap × DRAW_SET_PER_SLOT；第一百七十四轮）
+		std::vector<VkDescriptorSet> draw_sets;
 		//图形管线条目（句柄 0 为默认场景管线，其余为具名管线）
 		std::vector<Pipeline_Entry> pipelines;
 		//下一个待分配的具名管线句柄（自 1 起递增）

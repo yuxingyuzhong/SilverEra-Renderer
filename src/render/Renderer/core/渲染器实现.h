@@ -499,6 +499,13 @@ namespace engine
 		故采样器状态切换后可直接以该视图重写 set1（处置 R-FACADE-06：不再按句柄回落后覆盖目标绑定）。
 		*/
 		VkImageView bound_view = VK_NULL_HANDLE;
+		//当前绑定采样器（逐绘制项采样集写用；第一百七十四轮）
+		VkSampler bound_sampler = VK_NULL_HANDLE;
+		/*
+		当前材质贴图视图（第一百七十四轮）
+		依次为 法线 / 粗糙度 / 自发光 / 环境光遮蔽 / 金属度；无贴图时为内置默认白纹理视图。
+		*/
+		VkImageView material_views[5] = {};
 		//当前 3D LUT 纹理句柄（第一百四十四轮；0 = 未绑定）
 		uint64_t lut_texture = 0;
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
