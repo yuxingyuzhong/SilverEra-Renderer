@@ -726,115 +726,49 @@ namespace engine
 		return true;
 	}
 
-	//向第 slot 帧槽的场景采样器集写材质贴图（set 1 binding 3 / 4；第一百二十四轮）
-	bool Pipeline_Context::material_texture_bind(uint32_t slot, VkSampler sampler,
-		VkImageView normal_view, VkImageView roughness_view)
-	{
-		//前置：帧槽范围、采样器与两个视图齐备
-		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
-			|| sampler == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE || roughness_view == VK_NULL_HANDLE)
-		{
-			logger.error("管线:: 材质贴图绑定参数不完整（帧槽 {}）", slot);
-			return false;
-		}
-
-		//图像描述（两项共用同一采样器与终态布局）
-		VkDescriptorImageInfo image_infos[2]{};
-		for (std::size_t index = 0; index < 2; ++index)
-		{
-			image_infos[index].sampler = sampler;
-			image_infos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		}
-		image_infos[0].imageView = normal_view;
-		image_infos[1].imageView = roughness_view;
-
-		//描述符写（set 1 binding 3 与 4）
-		VkWriteDescriptorSet writes[2]{};
-		for (std::size_t index = 0; index < 2; ++index)
-		{
-			writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			writes[index].dstSet = sampler_sets[slot];
-			writes[index].dstBinding = static_cast<uint32_t>(3 + index);
-			writes[index].dstArrayElement = 0;
-			writes[index].descriptorCount = 1;
-			writes[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			writes[index].pImageInfo = &image_infos[index];
-		}
-
-		//更新描述符集
-		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
-		return true;
-	}
-
-	//向第 slot 帧槽的场景采样器集写自发光颜色贴图（set 1 binding 6；第一百六十八轮）
-	bool Pipeline_Context::material_emissive_bind(uint32_t slot, VkSampler sampler, VkImageView view)
-	{
-		//前置：帧槽范围、采样器与视图齐备
-		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
-			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
-		{
-			logger.error("管线:: 自发光贴图绑定参数不完整（帧槽 {}）", slot);
-			return false;
-		}
-
-		//图像描述（终态为着色器可读）
-		VkDescriptorImageInfo image_info{};
-		image_info.sampler = sampler;
-		image_info.imageView = view;
-		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		//描述符写（set 1 binding 6）
-		VkWriteDescriptorSet write{};
-		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		write.dstSet = sampler_sets[slot];
-		write.dstBinding = 6;
-		write.dstArrayElement = 0;
-		write.descriptorCount = 1;
-		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		write.pImageInfo = &image_info;
-
-		//更新描述符集
-		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-		return true;
-	}
-
-	//向第 slot 帧槽的场景采样器集写环境光遮蔽与金属度贴图（set 1 binding 7 / 8；第一百六十九轮）
-	bool Pipeline_Context::material_ao_metallic_bind(uint32_t slot, VkSampler sampler,
+	/*
+	向第 slot 帧槽的场景采样器集批量写全部材质贴图（set 1 binding 3 / 4 / 6 / 7 / 8；第一百七十轮）
+	一次 vkUpdateDescriptorSets 更新五个绑定：法线 / 粗糙度 / 自发光 / 环境光遮蔽 / 金属度；
+	无贴图时由门面传入内置默认白纹理，使各乘子恒为 1 从而不影响画面。
+	（纹理模块的全部纹理共用同一采样器，故此处只接收一个采样器。）
+	*/
+	bool Pipeline_Context::material_textures_bind(uint32_t slot, VkSampler sampler,
+		VkImageView normal_view, VkImageView roughness_view, VkImageView emissive_view,
 		VkImageView ao_view, VkImageView metallic_view)
 	{
-		//前置：帧槽范围、采样器与两个视图齐备
+		//前置：帧槽范围、采样器与五个视图齐备
 		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
-			|| sampler == VK_NULL_HANDLE || ao_view == VK_NULL_HANDLE || metallic_view == VK_NULL_HANDLE)
+			|| sampler == VK_NULL_HANDLE
+			|| normal_view == VK_NULL_HANDLE || roughness_view == VK_NULL_HANDLE
+			|| emissive_view == VK_NULL_HANDLE || ao_view == VK_NULL_HANDLE || metallic_view == VK_NULL_HANDLE)
 		{
-			logger.error("管线:: 遮蔽 / 金属度贴图绑定参数不完整（帧槽 {}）", slot);
+			logger.error("管线:: 材质贴图批量绑定参数不完整（帧槽 {}）", slot);
 			return false;
 		}
 
-		//图像描述（两项共用同一采样器与终态布局）
-		VkDescriptorImageInfo image_infos[2]{};
-		for (std::size_t index = 0; index < 2; ++index)
+		//五个绑定编号（与场景片元声明一致）
+		const uint32_t bindings[5] = { 3, 4, 6, 7, 8 };
+		//五个视图（与绑定编号一一对应）
+		const VkImageView views[5] = { normal_view, roughness_view, emissive_view, ao_view, metallic_view };
+		//图像描述与描述符写（共用同一采样器与终态布局）
+		VkDescriptorImageInfo image_infos[5]{};
+		VkWriteDescriptorSet writes[5]{};
+		for (std::size_t index = 0; index < 5; ++index)
 		{
 			image_infos[index].sampler = sampler;
+			image_infos[index].imageView = views[index];
 			image_infos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		}
-		image_infos[0].imageView = ao_view;
-		image_infos[1].imageView = metallic_view;
-
-		//描述符写（set 1 binding 7 与 8）
-		VkWriteDescriptorSet writes[2]{};
-		for (std::size_t index = 0; index < 2; ++index)
-		{
 			writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			writes[index].dstSet = sampler_sets[slot];
-			writes[index].dstBinding = static_cast<uint32_t>(7 + index);
+			writes[index].dstBinding = bindings[index];
 			writes[index].dstArrayElement = 0;
 			writes[index].descriptorCount = 1;
 			writes[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			writes[index].pImageInfo = &image_infos[index];
 		}
 
-		//更新描述符集
-		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		//一次更新五个描述符
+		vkUpdateDescriptorSets(device, 5, writes, 0, nullptr);
 		return true;
 	}
 
