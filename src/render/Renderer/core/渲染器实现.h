@@ -44,6 +44,13 @@ namespace engine
 		*/
 		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
 		/*
+		登记具名图形管线（第一百七十二轮抽出；门面 pipeline_load 与材质共享管线共用）
+		加载着色器对并登记一条具名管线；cull_none 为真时关闭背面剔除（双面渲染）。
+		成功时写出句柄并把着色器模块所有权记入门面；失败时回收已加载模块并返回假。
+		*/
+		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
+			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none);
+		/*
 		确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
 		全屏四边形（NDC -1..1）随 mesh 模块销毁。
 		*/
@@ -227,22 +234,20 @@ namespace engine
 			float uv_offset[2] = { 0.0f, 0.0f };
 			//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时生效）
 			bool alpha_to_coverage = false;
+			//双面渲染（第一百七十二轮；true 时关闭背面剔除）
+			bool double_sided = false;
 			//记录是否有效
 			bool valid = false;
 		};
 		//材质集合（下标 = 句柄 - 1）
 		std::vector<Material_Record> materials;
 		/*
-		按混合档缓存的具名管线（下标 = 档位序，0 表该档尚未登记）
-		非不透明档材质**共享**该档的具名管线（以默认场景着色器对登记），故同档多个材质不再各自登记；
+		按「混合档 × 覆盖率写入 × 双面渲染」组合缓存的具名管线（第一百七十二轮合并为单表）
+		下标 = 档位序 × 4 + 组合位（bit1 = 覆盖率写入、bit0 = 双面渲染），0 表该组合尚未登记；
+		材质共享同组合的具名管线（以默认场景着色器对登记），故同组合多个材质不再各自登记；
 		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
 		*/
-		std::vector<uint64_t> blend_pipelines;
-		/*
-		覆盖率写入档共用管线（第一百二十六轮；下标 = 混合档序）
-		与 blend_pipelines 同构，但登记的管线带 alphaToCoverage；仅在材质显式要求时使用。
-		*/
-		std::vector<uint64_t> blend_pipelines_alpha_coverage;
+		std::vector<uint64_t> material_pipelines;
 		//当前绘制所选管线句柄（0 = 默认场景管线）
 		uint64_t bound_pipeline_request = 0;
 		//网格模块

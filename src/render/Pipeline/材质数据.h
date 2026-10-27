@@ -86,5 +86,11 @@ namespace engine
 		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。
 		*/
 		bool alpha_to_coverage = false;
+		/*
+		双面渲染（第一百七十二轮）
+		true 时该材质使用关闭背面剔除的共享管线（背面照常着色）；
+		false（默认）沿用背面剔除，画面与引入前逐字节一致。
+		*/
+		bool double_sided = false;
 	};
 }
