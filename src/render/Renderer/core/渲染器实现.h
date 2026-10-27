@@ -221,6 +221,10 @@ namespace engine
 			uint64_t ao_texture = 0;
 			//金属度贴图句柄（第一百六十九轮；0 = 无）
 			uint64_t metallic_texture = 0;
+			//贴图 UV 缩放（第一百七十一轮；默认 (1,1)）
+			float uv_scale[2] = { 1.0f, 1.0f };
+			//贴图 UV 偏移（第一百七十一轮；默认 (0,0)）
+			float uv_offset[2] = { 0.0f, 0.0f };
 			//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时生效）
 			bool alpha_to_coverage = false;
 			//记录是否有效
@@ -448,8 +452,8 @@ namespace engine
 		*/
 		float text_outline_uv_width = 0.0f;
 		float text_outline_color[3] = { 0.0f, 0.0f, 0.0f };
-		//本帧推送常量存储（每项 20 浮点 = mat4 矩阵 ＋ vec4 颜色；deque 保证元素引用稳定，绘制项持其指针）
-		std::deque<std::array<float, 24>> pending_push_constants;
+		//本帧推送常量存储（每项 28 浮点 = mat4 矩阵 ＋ 色调 ＋ 材质贴图参数 ＋ UV 变换；deque 保证元素引用稳定，绘制项持其指针）
+		std::deque<std::array<float, 28>> pending_push_constants;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
@@ -514,6 +518,10 @@ namespace engine
 		float material_emissive = 0.0f;
 		//逐物体法线强度（第一百二十四轮；0 = 不启用，随推送常量 offset 80 的 x 分量下发）
 		float material_normal_strength = 0.0f;
+		//逐物体贴图 UV 缩放（第一百七十一轮；默认 (1,1)，随推送常量 offset 96 的 xy 下发）
+		float material_uv_scale[2] = { 1.0f, 1.0f };
+		//逐物体贴图 UV 偏移（第一百七十一轮；默认 (0,0)，随推送常量 offset 96 的 zw 下发）
+		float material_uv_offset[2] = { 0.0f, 0.0f };
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

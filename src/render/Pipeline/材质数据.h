@@ -74,6 +74,13 @@ namespace engine
 		uint64_t ao_texture = 0;
 		uint64_t metallic_texture = 0;
 		/*
+		贴图 UV 变换（第一百七十一轮）
+		全部材质贴图（反照率 / 法线 / 粗糙度 / 自发光 / 遮蔽 / 金属度）共用同一变换：
+		uv' = uv × uv_scale + uv_offset；默认 scale (1,1) 与 offset (0,0) 时 uv' = uv，画面逐字节不变。
+		*/
+		float uv_scale[2] = { 1.0f, 1.0f };
+		float uv_offset[2] = { 0.0f, 0.0f };
+		/*
 		覆盖率写入（第一百二十六轮）
 		true 时该材质的共享管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效）；
 		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。

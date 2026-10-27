@@ -5,6 +5,8 @@
 #include "src/render/Renderer/core/结果检查.h"
 //std::nothrow
 #include <new>
+//std::isfinite（第一百七十一轮：材质 UV 变换的有限性校验）
+#include <cmath>
 //管线缓存文件读写（第一百零六轮）
 #include <fstream>
 #include <filesystem>
@@ -2246,7 +2248,7 @@ namespace engine
 			{
 				//推送常量（16 浮点逆视图投影矩阵）
 				impl->pending_push_constants.emplace_back();
-				std::array<float, 24>& sky_push = impl->pending_push_constants.back();
+				std::array<float, 28>& sky_push = impl->pending_push_constants.back();
 				sky_push.fill(0.0f);
 				glm::mat4 inverse_view_proj = glm::inverse(glm::make_mat4(view_proj));
 				const float* inverse_data = glm::value_ptr(inverse_view_proj);
@@ -3326,7 +3328,7 @@ namespace engine
 		if (push_color != nullptr)
 		{
 			impl->pending_push_constants.emplace_back();
-			std::array<float, 24>& push = impl->pending_push_constants.back();
+			std::array<float, 28>& push = impl->pending_push_constants.back();
 			//前 64 字节 = 单位矩阵
 			push.fill(0.0f);
 			push[0] = 1.0f;
@@ -3352,6 +3354,22 @@ namespace engine
 			{
 				push[20] = impl->material_normal_strength;
 				push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+			}
+			/*
+			贴图 UV 变换（第一百七十一轮；offset 96 的 vec4）
+			xy = 缩放、zw = 偏移；文字绘制不采样材质贴图，保持恒等变换（1,1,0,0）。
+			*/
+			if (impl->in_text_draw)
+			{
+				push[24] = 1.0f;
+				push[25] = 1.0f;
+			}
+			else
+			{
+				push[24] = impl->material_uv_scale[0];
+				push[25] = impl->material_uv_scale[1];
+				push[26] = impl->material_uv_offset[0];
+				push[27] = impl->material_uv_offset[1];
 			}
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
@@ -3463,7 +3481,7 @@ namespace engine
 		吸附色调或白色（未设置时），否则未设置的推送常量取值未定义。
 		*/
 		impl->pending_push_constants.emplace_back();
-		std::array<float, 24>& push = impl->pending_push_constants.back();
+		std::array<float, 28>& push = impl->pending_push_constants.back();
 		push.fill(0.0f);
 		push[0] = 1.0f;
 		push[5] = 1.0f;
@@ -3471,6 +3489,11 @@ namespace engine
 		push[15] = 1.0f;
 		for (std::size_t index = 0; index < 4; ++index)
 			push[16 + index] = impl->material_tint_active ? impl->material_tint[index] : 1.0f;
+		//贴图 UV 变换（第一百七十一轮；实例化绘制同样使用吸附的材质 UV）
+		push[24] = impl->material_uv_scale[0];
+		push[25] = impl->material_uv_scale[1];
+		push[26] = impl->material_uv_offset[0];
+		push[27] = impl->material_uv_offset[1];
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
@@ -4200,6 +4223,15 @@ namespace engine
 		record.emissive_texture = data.emissive_texture;
 		record.ao_texture = data.ao_texture;
 		record.metallic_texture = data.metallic_texture;
+		/*
+		贴图 UV 变换（第一百七十一轮）
+		非有限值按默认登记（缩放 1、偏移 0），避免把脏值写进推送常量。
+		*/
+		for (std::size_t index = 0; index < 2; ++index)
+		{
+			record.uv_scale[index] = std::isfinite(data.uv_scale[index]) ? data.uv_scale[index] : 1.0f;
+			record.uv_offset[index] = std::isfinite(data.uv_offset[index]) ? data.uv_offset[index] : 0.0f;
+		}
 		record.normal_strength = (data.normal_strength > 0.0f && data.normal_strength <= 4.0f)
 			? data.normal_strength : 0.0f;
 		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
@@ -4290,6 +4322,10 @@ namespace engine
 			material_tint_clear();
 			material_emissive_clear();
 			impl->material_normal_strength = 0.0f;
+			impl->material_uv_scale[0] = 1.0f;
+			impl->material_uv_scale[1] = 1.0f;
+			impl->material_uv_offset[0] = 0.0f;
+			impl->material_uv_offset[1] = 0.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -4302,6 +4338,10 @@ namespace engine
 			material_tint_clear();
 			material_emissive_clear();
 			impl->material_normal_strength = 0.0f;
+			impl->material_uv_scale[0] = 1.0f;
+			impl->material_uv_scale[1] = 1.0f;
+			impl->material_uv_offset[0] = 0.0f;
+			impl->material_uv_offset[1] = 0.0f;
 			return;
 		}
 		//取目标记录
@@ -4368,6 +4408,12 @@ namespace engine
 			impl->material_tint[index] = record.tint_override ? record.tint[index] : 1.0f;
 		//同步逐物体自发光（第七十轮）
 		impl->material_emissive = record.emissive;
+		//同步贴图 UV 变换（第一百七十一轮；材质默认 (1,1)/(0,0) 即恒等）
+		for (std::size_t index = 0; index < 2; ++index)
+		{
+			impl->material_uv_scale[index] = record.uv_scale[index];
+			impl->material_uv_offset[index] = record.uv_offset[index];
+		}
 	}
 
 	/*

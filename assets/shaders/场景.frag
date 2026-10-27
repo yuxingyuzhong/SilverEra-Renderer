@@ -19,6 +19,8 @@ layout(push_constant) uniform Push_Tint
 	layout(offset = 64) vec4 tint;
 	//材质贴图参数（第一百二十四轮；x = 法线强度（0 = 不启用）、y = 粗糙度贴图启用、zw 保留）
 	layout(offset = 80) vec4 material_extras;
+	//材质贴图 UV 变换（第一百七十一轮；xy = 缩放、zw = 偏移；默认 (1,1)/(0,0)）
+	layout(offset = 96) vec4 material_uv;
 } push_tint;
 
 //颜色附件输出
@@ -101,28 +103,28 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 const int POINT_LIGHT_MAX = 8;
 
 /*
-逐物体 PBR 粗糙度缩放（第六十八轮）
+逐物体 PBR 粗糙度缩放（第六十八轮；第一百七十一轮改为按变换后 UV 采样）
 覆盖标志有效时取实例属性（钳到合法域），否则沿用场景 UBO 的全局 pbr_params.y。
 */
-float material_roughness_scale()
+float material_roughness_scale(vec2 uv)
 {
 	float base = in_material.z > 0.5 ? clamp(in_material.x, 0.05, 4.0) : max(scene.pbr_params.y, 0.05);
 	/*
 	粗糙度贴图（第一百二十四轮）
 	取红通道作乘子；默认绑定为内置白纹理（采样值 1），故无贴图路径与引入前逐字节一致。
 	*/
-	return base * texture(roughness_map, in_uv).r;
+	return base * texture(roughness_map, uv).r;
 }
 
 /*
-逐物体金属度（第六十八轮；第一百六十九轮乘金属度贴图）
+逐物体金属度（第六十八轮；第一百六十九轮乘金属度贴图；第一百七十一轮按变换后 UV 采样）
 覆盖标志有效时取实例属性（钳到 0..1），否则沿用场景 UBO 的全局 pbr_params.z；
 再乘金属度贴图红通道（默认绑定白纹理 → ×1），结果钳回 0..1。
 */
-float material_metallic()
+float material_metallic(vec2 uv)
 {
 	float base = in_material.z > 0.5 ? clamp(in_material.y, 0.0, 1.0) : clamp(scene.pbr_params.z, 0.0, 1.0);
-	return clamp(base * texture(metallic_map, in_uv).r, 0.0, 1.0);
+	return clamp(base * texture(metallic_map, uv).r, 0.0, 1.0);
 }
 
 /*
@@ -324,14 +326,20 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 
 void main()
 {
+	/*
+	材质贴图 UV 变换（第一百七十一轮）
+	全部材质贴图共用同一变换：uv' = uv × scale + offset；
+	默认 scale (1,1)、offset (0,0) 时 uv' 与原 UV 完全一致，画面逐字节不变。
+	*/
+	vec2 uv_material = in_uv * push_tint.material_uv.xy + push_tint.material_uv.zw;
 	//采样反照率并乘逐物体色调（默认白色 → 不变）
-	vec4 albedo_color = texture(albedo, in_uv) * push_tint.tint;
+	vec4 albedo_color = texture(albedo, uv_material) * push_tint.tint;
 	/*
 	环境光遮蔽（第一百六十九轮）
 	取红通道作环境光乘子；默认绑定白纹理时恒为 1，故未配置贴图路径逐字节不变。
 	仅作用于环境光基底与天空 IBL 漫反射，不衰减方向光 / 点光源的直接照度。
 	*/
-	float occlusion = texture(ao_map, in_uv).r;
+	float occlusion = texture(ao_map, uv_material).r;
 	/*
 	多光源累加（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源）
 	未提供法线（长度近零）时按「朝向相机」处理，等价于满照（辐射度 = 1），
@@ -353,7 +361,7 @@ void main()
 		if (push_tint.material_extras.x > 0.0)
 		{
 			//切线空间法线（[0,1] 编码 → [-1,1]）
-			vec3 tangent_normal = texture(normal_map, in_uv).xyz * 2.0 - 1.0;
+			vec3 tangent_normal = texture(normal_map, uv_material).xyz * 2.0 - 1.0;
 			//屏幕空间导数构造切线 / 副切线
 			vec3 dp1 = dFdx(in_world);
 			vec3 dp2 = dFdy(in_world);
@@ -420,8 +428,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale()),
-					pbr_f0(albedo_color.rgb, material_metallic()))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale(uv_material)),
+					pbr_f0(albedo_color.rgb, material_metallic(uv_material)))
 					* scene.camera_pos.w * dir_shadow * scene.light_dir.w);
 			else
 			{
@@ -442,8 +450,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, fill_to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale()),
-					pbr_f0(albedo_color.rgb, material_metallic()))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale(uv_material)),
+					pbr_f0(albedo_color.rgb, material_metallic(uv_material)))
 					* scene.fill_color.w * scene.fill_dir_intensity.w);
 			else
 			{
@@ -508,8 +516,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(shininess, material_roughness_scale()),
-					pbr_f0(albedo_color.rgb, material_metallic())) * attenuation * cone * scene.point_spot_cone[index].w
+					pbr_roughness(shininess, material_roughness_scale(uv_material)),
+					pbr_f0(albedo_color.rgb, material_metallic(uv_material))) * attenuation * cone * scene.point_spot_cone[index].w
 					* scene.point_color_intensity[index].w);
 			else
 			{
@@ -523,10 +531,10 @@ void main()
 	/*
 	最终颜色：反照率 × 累加辐射度 × 漫反射权重 ＋ 镜面（强度由 light_common.y 统一缩放），钳制到 [0,1]
 	漫反射权重（第六十五轮）：PBR 开启时按金属度做能量守恒（1 − metallic），关闭时恒 1；
-	金属度来源由 material_metallic() 决定（第六十八轮：逐物体覆盖或全局）。
+	金属度来源由 material_metallic(uv_material) 决定（第六十八轮：逐物体覆盖或全局）。
 	*/
 	float diffuse_weight = scene.pbr_params.x > 0.5
-		? clamp(1.0 - material_metallic(), 0.0, 1.0) : 1.0;
+		? clamp(1.0 - material_metallic(uv_material), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
 	/*
 	距离雾（第三十八轮；密度 0 = 关闭；第一百四十三轮补指数平方模式）
@@ -540,7 +548,7 @@ void main()
 	再乘自发光贴图颜色（默认绑定白纹理 → 乘子 1）；
 	强度为 0 时表达式恒为 0，默认画面逐字节不变。
 	*/
-	vec3 emissive_rgb = albedo_color.rgb * clamp(in_material.w, 0.0, 8.0) * texture(emissive_map, in_uv).rgb;
+	vec3 emissive_rgb = albedo_color.rgb * clamp(in_material.w, 0.0, 8.0) * texture(emissive_map, uv_material).rgb;
 	vec3 final_rgb = lit + emissive_rgb;
 	if (scene.fog_color_density.w > 0.0)
 	{
