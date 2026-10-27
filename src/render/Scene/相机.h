@@ -59,6 +59,13 @@ namespace engine
 		与 project_to_screen 互逆；视图投影矩阵不可逆时返回假，出参保持原值。
 		*/
 		bool unproject_from_screen(float u, float v, float depth, float world_out[3]) const;
+		/*
+		世界空间轴对齐包围盒是否与视锥相交（第一百六十轮）
+		采用「裁剪空间六面」的保守判定：任一面的 8 角点全部在其外侧才判不可见，
+		故「判可见」可能包含盒体跨在平面两侧的情形（不会误剔），「判不可见」为精确。
+		min / max 为世界空间下界 / 上界（分量顺序 x / y / z）。
+		*/
+		bool aabb_visible(const float min[3], const float max[3]) const;
 	private:
 		//位置（默认值取自 Scene_Data，见构造）
 		float position[3];

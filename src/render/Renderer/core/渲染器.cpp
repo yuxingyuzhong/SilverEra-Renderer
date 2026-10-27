@@ -3157,6 +3157,20 @@ namespace engine
 		return impl->mesh.mesh_update_vertices(handle, first_vertex, count, vertices);
 	}
 
+	//更新网格索引区域（第一百六十轮）
+	bool Renderer::mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
+		const uint32_t* indices)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽（避免改写仍被绘制命令读取的索引缓冲）
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交网格模块（索引区覆盖写入并校验取值）
+		return impl->mesh.mesh_update_indices(handle, first_index, count, indices);
+	}
+
 	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
@@ -5232,6 +5246,16 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return false;
 		return impl->camera.unproject_from_screen(u, v, depth, world_out);
+	}
+
+	//世界空间 AABB 是否与视锥相交（第一百六十轮）
+	bool Renderer::camera_aabb_visible(const float min[3], const float max[3]) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交相机模块（六面保守判定）
+		return impl->camera.aabb_visible(min, max);
 	}
 
 	//应用场景描述（三组入参；第四十七轮）

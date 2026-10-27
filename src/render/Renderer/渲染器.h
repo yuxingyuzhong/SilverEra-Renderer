@@ -395,6 +395,13 @@ namespace engine
 		bool mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
 			const Vertex* vertices);
 		/*
+		更新网格索引区域（第一百六十轮新增）
+		first_index 起、count 个索引以 indices 覆盖；每个索引须小于该网格顶点数，否则整次拒绝。
+		更新前会等尽在途帧；顶点区与网格计数不变。
+		*/
+		bool mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
+			const uint32_t* indices);
+		/*
 		绘制网格
 		transform 为列主序 16 浮点模型矩阵，可为 nullptr 表示单位矩阵；
 		color 为可选的 RGBA 颜色（长度 ≥ 4，分量 0..1）：非空时随绘制项推送常量下发（offset 64），
@@ -851,6 +858,11 @@ namespace engine
 		与 camera_project 互逆；未初始化 / 矩阵不可逆 / 出参为空时返回假。
 		*/
 		bool camera_unproject(float u, float v, float depth, float world_out[3]) const;
+		/*
+		世界空间 AABB 是否与视锥相交（第一百六十轮新增）
+		保守判定：任一面 8 角点全在外侧才判不可见（不会误剔）；未初始化 / 入参为空返回假。
+		*/
+		bool camera_aabb_visible(const float min[3], const float max[3]) const;
 
 		/*
 		应用场景描述（相机位置 / 注视点 / 视场角 / 近远平面 ＋ 清屏色）

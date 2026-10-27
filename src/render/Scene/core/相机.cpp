@@ -200,4 +200,58 @@ namespace engine
 		world_out[2] = world.z;
 		return true;
 	}
+
+	//世界空间 AABB 是否与视锥相交（第一百六十轮）
+	bool Camera::aabb_visible(const float min[3], const float max[3]) const
+	{
+		//入参为空或上下界颠倒则按不可见处理
+		if (min == nullptr || max == nullptr)
+			return false;
+		//视图投影矩阵（列主序 → glm）
+		float matrix[16] = {};
+		view_proj_get(matrix);
+		glm::mat4 view_proj = glm::make_mat4(matrix);
+		/*
+		逐面保守判定
+		Vulkan 裁剪空间内：-w ≤ x ≤ w、-w ≤ y ≤ w、0 ≤ z ≤ w；
+		某一面的 8 角点全部在外侧即整盒不可见；六面都不满足时判可见。
+		*/
+		bool any_inside = true;
+		//六个裁剪面（1 = 左、2 = 右、3 = 下、4 = 上、5 = 近、6 = 远）
+		for (int face = 1; face <= 6 && any_inside; ++face)
+		{
+			//该面是否对所有角点都在外侧
+			bool all_outside = true;
+			for (int index = 0; index < 8 && all_outside; ++index)
+			{
+				//角点（按 3 位二进制在 min / max 间取分量）
+				glm::vec3 corner(
+					(index & 1) != 0 ? max[0] : min[0],
+					(index & 2) != 0 ? max[1] : min[1],
+					(index & 4) != 0 ? max[2] : min[2]);
+				glm::vec4 clip = view_proj * glm::vec4(corner, 1.0f);
+				//按面求内测判定量（> 0 表示在该面内侧）
+				float value = 0.0f;
+				if (face == 1)
+					value = clip.x + clip.w;
+				else if (face == 2)
+					value = clip.w - clip.x;
+				else if (face == 3)
+					value = clip.y + clip.w;
+				else if (face == 4)
+					value = clip.w - clip.y;
+				else if (face == 5)
+					value = clip.z;
+				else
+					value = clip.w - clip.z;
+				//该角点落在内侧则本面不再是「全外」
+				if (value > 0.0f)
+					all_outside = false;
+			}
+			//任一面全外即整个盒体不可见
+			if (all_outside)
+				any_inside = false;
+		}
+		return any_inside;
+	}
 }

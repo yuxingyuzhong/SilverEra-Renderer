@@ -305,4 +305,31 @@ namespace engine
 			}
 		return true;
 	}
+
+	//更新网格索引区域（第一百六十轮）
+	bool Mesh_Context::mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
+		const uint32_t* indices)
+	{
+		//句柄为零或越界即拒绝
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		Mesh_Record& record = records[handle - 1];
+		//若记录无效 / 数据为空 / 数量为零 / 区间越界
+		if (!record.valid || indices == nullptr || count == 0
+			|| first_index >= record.index_count || count > record.index_count - first_index)
+			return false;
+		//逐个校验索引落在顶点范围内（避免越界取顶点）
+		for (uint32_t index = 0; index < count; ++index)
+			if (indices[index] >= record.vertex_count)
+				return false;
+		//目标字节数与缓冲内偏移（索引区自 index_offset 起连续排列）
+		const VkDeviceSize update_bytes = static_cast<VkDeviceSize>(sizeof(uint32_t)) * count;
+		const VkDeviceSize update_offset = record.index_offset
+			+ static_cast<VkDeviceSize>(sizeof(uint32_t)) * first_index;
+		//写入共用缓冲的索引区（不影响其前的顶点区）
+		if (memory == nullptr || !memory->upload_buffer(record.buffer, indices, update_bytes, update_offset))
+			return false;
+		return true;
+	}
 }

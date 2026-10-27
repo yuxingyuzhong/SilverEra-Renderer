@@ -94,6 +94,13 @@ namespace engine
 		*/
 		bool mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
 			const Vertex* vertices);
+		/*
+		更新网格索引区域（第一百六十轮新增）
+		first_index 起、count 个索引以 indices 覆盖（写入共用缓冲的索引区）；
+		每个索引须小于该网格顶点数；句柄无效 / 数据为空 / 区间越界 / 索引越界返回假。
+		*/
+		bool mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
+			const uint32_t* indices);
 
 		//生成三角形（顶点 3 / 索引 3）
 		static Mesh_Data triangle_generate(void);
