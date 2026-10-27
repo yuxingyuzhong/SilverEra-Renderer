@@ -387,6 +387,14 @@ namespace engine
 		*/
 		bool mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
 		/*
+		更新网格顶点区域（第一百五十九轮新增）
+		first_vertex 起、count 个顶点以 vertices 覆盖（结构须与创建时一致）；索引区不变。
+		更新前会等尽在途帧；局部包围盒只扩不缩（保守），确保剔除不会误剔。
+		未初始化 / 句柄无效 / 数据为空 / 区间越界返回假且内容不变。
+		*/
+		bool mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
+			const Vertex* vertices);
+		/*
 		绘制网格
 		transform 为列主序 16 浮点模型矩阵，可为 nullptr 表示单位矩阵；
 		color 为可选的 RGBA 颜色（长度 ≥ 4，分量 0..1）：非空时随绘制项推送常量下发（offset 64），

@@ -3143,6 +3143,20 @@ namespace engine
 		return impl->mesh.mesh_bounds_get(handle, min_out, max_out);
 	}
 
+	//更新网格顶点区域（第一百五十九轮）
+	bool Renderer::mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
+		const Vertex* vertices)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽（避免改写仍被绘制命令读取的顶点缓冲）
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交网格模块（顶点区覆盖写入并保守扩张包围盒）
+		return impl->mesh.mesh_update_vertices(handle, first_vertex, count, vertices);
+	}
+
 	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,

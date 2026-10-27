@@ -86,6 +86,14 @@ namespace engine
 		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;
 		//取网格局部包围盒（句柄无效返回假；第二十二轮新增）
 		bool mesh_bounds_get(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
+		/*
+		更新网格顶点区域（第一百五十九轮新增）
+		first_vertex 起、count 个顶点以 vertices 覆盖（结构须与创建时一致）；索引区不动。
+		局部包围盒按更新后的顶点做**保守扩张**（只扩不缩），保证已有剔除结果不会误剔。
+		句柄无效 / 记录已空 / 数据为空 / 区间越界返回假。
+		*/
+		bool mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
+			const Vertex* vertices);
 
 		//生成三角形（顶点 3 / 索引 3）
 		static Mesh_Data triangle_generate(void);

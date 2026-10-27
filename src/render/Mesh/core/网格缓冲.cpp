@@ -267,4 +267,42 @@ namespace engine
 				max_out[axis] = record.bounds_max[axis];
 		return true;
 	}
+
+	//更新网格顶点区域（第一百五十九轮）
+	bool Mesh_Context::mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
+		const Vertex* vertices)
+	{
+		//句柄为零或越界即拒绝
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		Mesh_Record& record = records[handle - 1];
+		//若记录无效 / 数据为空 / 数量为零 / 区间越界
+		if (!record.valid || vertices == nullptr || count == 0
+			|| first_vertex >= record.vertex_count || count > record.vertex_count - first_vertex)
+			return false;
+		//目标字节数与缓冲内偏移（顶点区自缓冲起点连续排列）
+		const VkDeviceSize update_bytes = static_cast<VkDeviceSize>(sizeof(Vertex)) * count;
+		const VkDeviceSize update_offset = static_cast<VkDeviceSize>(sizeof(Vertex)) * first_vertex;
+		//写入共用缓冲的顶点区（不影响其后的索引区）
+		if (memory == nullptr || !memory->upload_buffer(record.buffer, vertices, update_bytes, update_offset))
+			return false;
+		/*
+		包围盒保守扩张
+		更新后的顶点可能把网格撑大；只扩不缩，避免「旧包围盒小于实际几何」导致视锥剔除误剔。
+		*/
+		for (uint32_t index = 0; index < count; ++index)
+			for (std::size_t axis = 0; axis < 3; ++axis)
+			{
+				//该轴坐标
+				const float value = vertices[index].position[axis];
+				//若小于当前下界则下扩
+				if (value < record.bounds_min[axis])
+					record.bounds_min[axis] = value;
+				//若大于当前上界则上扩
+				if (value > record.bounds_max[axis])
+					record.bounds_max[axis] = value;
+			}
+		return true;
+	}
 }
