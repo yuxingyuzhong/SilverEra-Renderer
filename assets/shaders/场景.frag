@@ -36,6 +36,10 @@ layout(set = 1, binding = 4) uniform sampler2D roughness_map;
 layout(set = 1, binding = 5) uniform samplerCube sky_map;
 //自发光颜色贴图（第一百六十八轮；set 1 binding 6；默认绑定白纹理 → 乘子恒 1）
 layout(set = 1, binding = 6) uniform sampler2D emissive_map;
+//环境光遮蔽贴图（第一百六十九轮；set 1 binding 7；取红通道；默认白 → 乘子 1）
+layout(set = 1, binding = 7) uniform sampler2D ao_map;
+//金属度贴图（第一百六十九轮；set 1 binding 8；取红通道乘到金属度；默认白 → ×1）
+layout(set = 1, binding = 8) uniform sampler2D metallic_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -111,12 +115,14 @@ float material_roughness_scale()
 }
 
 /*
-逐物体金属度（第六十八轮）
-覆盖标志有效时取实例属性（钳到 0..1），否则沿用场景 UBO 的全局 pbr_params.z。
+逐物体金属度（第六十八轮；第一百六十九轮乘金属度贴图）
+覆盖标志有效时取实例属性（钳到 0..1），否则沿用场景 UBO 的全局 pbr_params.z；
+再乘金属度贴图红通道（默认绑定白纹理 → ×1），结果钳回 0..1。
 */
 float material_metallic()
 {
-	return in_material.z > 0.5 ? clamp(in_material.y, 0.0, 1.0) : clamp(scene.pbr_params.z, 0.0, 1.0);
+	float base = in_material.z > 0.5 ? clamp(in_material.y, 0.0, 1.0) : clamp(scene.pbr_params.z, 0.0, 1.0);
+	return clamp(base * texture(metallic_map, in_uv).r, 0.0, 1.0);
 }
 
 /*
@@ -321,11 +327,17 @@ void main()
 	//采样反照率并乘逐物体色调（默认白色 → 不变）
 	vec4 albedo_color = texture(albedo, in_uv) * push_tint.tint;
 	/*
+	环境光遮蔽（第一百六十九轮）
+	取红通道作环境光乘子；默认绑定白纹理时恒为 1，故未配置贴图路径逐字节不变。
+	仅作用于环境光基底与天空 IBL 漫反射，不衰减方向光 / 点光源的直接照度。
+	*/
+	float occlusion = texture(ao_map, in_uv).r;
+	/*
 	多光源累加（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源）
 	未提供法线（长度近零）时按「朝向相机」处理，等价于满照（辐射度 = 1），
 	保证既有只写位置 / 纹理坐标的网格画面不变。
 	*/
-	vec3 radiance = vec3(1.0);
+	vec3 radiance = vec3(occlusion);
 	vec3 specular = vec3(0.0);
 	//天空盒镜面 IBL 累加（第一百二十五轮；不受全局高光强度缩放）
 	vec3 sky_specular = vec3(0.0);
@@ -381,7 +393,7 @@ void main()
 			vec3 hemisphere_rgb = mix(scene.ambient_ground.rgb, scene.ambient_color.rgb, up_mix);
 			ambient_rgb = mix(scene.ambient_color.rgb, hemisphere_rgb, scene.ambient_ground.w);
 		}
-		radiance = ambient_rgb * scene.light_common.x;
+		radiance = ambient_rgb * scene.light_common.x * occlusion;
 		/*
 		天空盒简易 IBL（第一百二十五轮）
 		启用时以立方体贴图作环境补光：法线方向采样近似漫反射（加入辐射度），
@@ -390,7 +402,7 @@ void main()
 		*/
 		if (scene.sky_params.x > 0.5)
 		{
-			radiance += texture(sky_map, normal).rgb * scene.sky_params.y;
+			radiance += texture(sky_map, normal).rgb * scene.sky_params.y * occlusion;
 			vec3 reflected = reflect(-to_view, normal);
 			sky_specular = texture(sky_map, reflected).rgb * scene.sky_params.z;
 		}

@@ -95,17 +95,18 @@ namespace engine
 
 		/*
 		描述符池与每帧槽描述符集
-		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 7；
-		采样器布局已含 7 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
-		3 = 法线贴图、4 = 粗糙度贴图、5 = 天空盒、6 = 自发光贴图；第一百六十八轮由 6 增为 7），
-		故采样器类描述符按七倍计；
+		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 9；
+		采样器布局已含 9 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
+		3 = 法线贴图、4 = 粗糙度贴图、5 = 天空盒、6 = 自发光贴图、
+		7 = 环境光遮蔽贴图、8 = 金属度贴图；第一百六十九轮由 7 增为 9），
+		故采样器类描述符按九倍计；
 		最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)。
 		*/
 		VkDescriptorPoolSize pool_sizes[2]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 7;
+		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 9;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -794,6 +795,46 @@ namespace engine
 
 		//更新描述符集
 		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽的场景采样器集写环境光遮蔽与金属度贴图（set 1 binding 7 / 8；第一百六十九轮）
+	bool Pipeline_Context::material_ao_metallic_bind(uint32_t slot, VkSampler sampler,
+		VkImageView ao_view, VkImageView metallic_view)
+	{
+		//前置：帧槽范围、采样器与两个视图齐备
+		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || ao_view == VK_NULL_HANDLE || metallic_view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 遮蔽 / 金属度贴图绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//图像描述（两项共用同一采样器与终态布局）
+		VkDescriptorImageInfo image_infos[2]{};
+		for (std::size_t index = 0; index < 2; ++index)
+		{
+			image_infos[index].sampler = sampler;
+			image_infos[index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+		image_infos[0].imageView = ao_view;
+		image_infos[1].imageView = metallic_view;
+
+		//描述符写（set 1 binding 7 与 8）
+		VkWriteDescriptorSet writes[2]{};
+		for (std::size_t index = 0; index < 2; ++index)
+		{
+			writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[index].dstSet = sampler_sets[slot];
+			writes[index].dstBinding = static_cast<uint32_t>(7 + index);
+			writes[index].dstArrayElement = 0;
+			writes[index].descriptorCount = 1;
+			writes[index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			writes[index].pImageInfo = &image_infos[index];
+		}
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
 		return true;
 	}
 

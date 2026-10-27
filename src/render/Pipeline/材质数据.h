@@ -66,6 +66,14 @@ namespace engine
 		*/
 		uint64_t emissive_texture = 0;
 		/*
+		环境光遮蔽与金属度贴图（第一百六十九轮）
+		ao_texture：环境光遮蔽贴图句柄（0 = 无，按 1 处理）；取红通道乘到环境光基底与天空 IBL 漫反射上。
+		metallic_texture：金属度贴图句柄（0 = 无，按 1 处理）；取红通道乘到金属度上（仅 PBR 开启时参与着色）。
+		两者默认（无贴图）与引入前逐字节一致。
+		*/
+		uint64_t ao_texture = 0;
+		uint64_t metallic_texture = 0;
+		/*
 		覆盖率写入（第一百二十六轮）
 		true 时该材质的共享管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效）；
 		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。
