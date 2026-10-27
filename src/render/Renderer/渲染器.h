@@ -866,6 +866,16 @@ namespace engine
 		//相机：设置近远平面
 		void camera_near_far_set(float near_plane, float far_plane);
 		/*
+		切换正交 / 透视投影（第一百六十四轮新增）
+		enabled 为真时改用正交投影（垂直可见高度 ortho_height 世界单位，宽按宽高比推出）；
+		ortho_height 非正时忽略本次调用；未初始化时静默返回。
+		*/
+		void camera_ortho_set(bool enabled, float ortho_height);
+		//查询视场角（弧度；未初始化返回假且出参不变）
+		bool camera_fov_get(float* radians_out) const;
+		//查询投影模式与正交高度（未初始化返回假且出参不变）
+		bool camera_ortho_get(bool* enabled_out, float* height_out) const;
+		/*
 		世界点 → 屏幕坐标（第一百四十九轮新增）
 		u / v 以左上角为原点（0..1 为视口内，允许越界），depth 为裁剪空间深度（0..1）。
 		点位于相机背后（裁剪 w ≤ 0）或未初始化时返回假，出参保持原值。

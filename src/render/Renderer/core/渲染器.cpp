@@ -5284,6 +5284,35 @@ namespace engine
 		impl->camera.near_far_set(near_plane, far_plane);
 	}
 
+	//切换正交 / 透视投影（第一百六十四轮）
+	void Renderer::camera_ortho_set(bool enabled, float ortho_height)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.ortho_set(enabled, ortho_height);
+	}
+
+	//查询视场角（第一百六十四轮）
+	bool Renderer::camera_fov_get(float* radians_out) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		impl->camera.fov_get(radians_out);
+		return true;
+	}
+
+	//查询投影模式与正交高度（第一百六十四轮）
+	bool Renderer::camera_ortho_get(bool* enabled_out, float* height_out) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		impl->camera.ortho_get(enabled_out, height_out);
+		return true;
+	}
+
 	//世界点 → 屏幕坐标（第一百四十九轮）
 	bool Renderer::camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const
 	{

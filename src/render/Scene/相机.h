@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 //预编译头
 #include "Application/Renderer/common/前置头文件包含.h"
 
@@ -34,6 +34,10 @@ namespace engine
 		void near_far_set(float near_plane, float far_plane);
 		//写出近远平面（第一百二十三轮新增；供景深把深度缓冲换算为世界距离）
 		void clip_get(float* near_out, float* far_out) const;
+		//写出视场角（弧度；第一百六十四轮）
+		void fov_get(float* radians_out) const;
+		//写出正交投影状态与垂直可见高度（第一百六十四轮）
+		void ortho_get(bool* enabled_out, float* height_out) const;
 		/*
 		设置投影模式
 		enabled 为真时改用正交投影（垂直可见高度 = ortho_height 世界单位，宽按 aspect 推出）；

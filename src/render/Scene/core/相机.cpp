@@ -1,4 +1,4 @@
-#include "src/render/Scene/局部命名空间使用.h"
+﻿#include "src/render/Scene/局部命名空间使用.h"
 //glm 数学库（含矩阵变换与矩阵取址；深零到一与弧度已由 CMake 私有定义给出）
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -106,6 +106,24 @@ namespace engine
 			return;
 		ortho = enabled;
 		this->ortho_height = ortho_height;
+	}
+
+	//写出视场角（第一百六十四轮）
+	void Camera::fov_get(float* radians_out) const
+	{
+		//出参非空则写出
+		if (radians_out != nullptr)
+			*radians_out = fov;
+	}
+
+	//写出正交投影状态（第一百六十四轮）
+	void Camera::ortho_get(bool* enabled_out, float* height_out) const
+	{
+		//出参非空则写出
+		if (enabled_out != nullptr)
+			*enabled_out = ortho;
+		if (height_out != nullptr)
+			*height_out = ortho_height;
 	}
 
 	//写出「视图 × 投影」矩阵（列主序 16 浮点）
