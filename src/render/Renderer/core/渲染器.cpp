@@ -4749,16 +4749,18 @@ namespace engine
 		logger.info("渲染器:: 渲染目标已绑定为当前纹理（句柄 {}）", handle);
 	}
 
-	//绑定 3D LUT 纹理（第一百四十四轮）
+	//绑定 3D LUT 纹理（第一百四十四轮；第一百五十七轮补清除语义）
 	void Renderer::post_lut_bind(uint64_t texture_handle)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
-		//取目标纹理的视图与采样器（无效句柄则告警并保持原绑定）
+		//句柄 0 表示清除：改写为内置默认白纹理（2×2，使查找级原样输出）
+		const uint64_t target_handle = texture_handle == 0 ? impl->default_texture : texture_handle;
+		//取目标纹理的视图与采样器（非零且未登记则告警并保持原绑定）
 		VkImageView view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (texture_handle == 0 || !impl->texture.texture_bind_get(texture_handle, view, sampler))
+		if (!impl->texture.texture_bind_get(target_handle, view, sampler))
 		{
 			logger.warn("渲染器:: 查找表纹理句柄 {} 无效，绑定忽略", texture_handle);
 			return;
@@ -4775,10 +4777,10 @@ namespace engine
 				//任一集写入失败即记为不完整
 				if (!impl->pipeline.post_lut_bind(slot, sampler, view, index))
 					all_bound = false;
-		//全部写入成功才记录句柄
+		//全部写入成功才记录句柄（清除时记录 0）
 		if (all_bound)
-			impl->lut_texture = texture_handle;
-		logger.info("渲染器:: 3D LUT 已绑定（句柄 {}）", texture_handle);
+			impl->lut_texture = texture_handle == 0 ? 0 : texture_handle;
+		logger.info("渲染器:: 3D LUT 绑定已更新（句柄 {}）；清除时为 0", texture_handle);
 	}
 
 	//当前 3D LUT 句柄（第一百四十四轮）
