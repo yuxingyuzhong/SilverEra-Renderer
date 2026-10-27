@@ -116,6 +116,11 @@ namespace engine
 		bool texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
+		查询指定级尺寸（第一百六十一轮新增）
+		级号无效返回假且出参归零；否则写出该级宽 / 高（不小于 1）。
+		*/
+		bool texture_size_level(uint64_t handle, uint32_t level, uint32_t* width_out, uint32_t* height_out) const;
+		/*
 		读回纹理第 0 级像素（第二十七轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 宽×高×4；
 		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。调用方须保证无在途帧引用该纹理（门面先 frames_wait）。

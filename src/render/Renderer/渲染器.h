@@ -503,6 +503,12 @@ namespace engine
 		bool texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
+		查询纹理指定级尺寸（第一百六十一轮新增）
+		level 须小于纹理 mip 级数；成功写出该级宽 / 高（任一可为空）并返回真，
+		否则返回假且两出参归零。
+		*/
+		bool texture_size_level(uint64_t handle, uint32_t level, uint32_t* width_out, uint32_t* height_out) const;
+		/*
 		查询纹理尺寸（第九十轮新增）
 		成功时写出宽 / 高（任一非空）并返回真；未初始化 / 句柄无效返回假且出参归零。
 		*/
@@ -863,6 +869,12 @@ namespace engine
 		保守判定：任一面 8 角点全在外侧才判不可见（不会误剔）；未初始化 / 入参为空返回假。
 		*/
 		bool camera_aabb_visible(const float min[3], const float max[3]) const;
+		/*
+		导出相机「视图 × 投影」矩阵（第一百六十一轮新增）
+		out 为列主序 16 浮点（同 UBO 布局，可直接用于外部几何 / 拾取计算）；
+		未初始化或 out 为空返回假且不写出。
+		*/
+		bool camera_view_proj(float out[16]) const;
 
 		/*
 		应用场景描述（相机位置 / 注视点 / 视场角 / 近远平面 ＋ 清屏色）

@@ -475,6 +475,32 @@ namespace engine
 		return true;
 	}
 
+	//查询指定级尺寸（第一百六十一轮）
+	bool Texture_Context::texture_size_level(uint64_t handle, uint32_t level,
+		uint32_t* width_out, uint32_t* height_out) const
+	{
+		//出参先归零
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 0 / 越界 / 记录无效 / 级号越界均拒绝
+		if (handle == 0 || handle > records.size())
+			return false;
+		const Texture_Record& record = records[handle - 1];
+		if (!record.valid || record.width == 0 || record.height == 0 || level >= record.mip_levels)
+			return false;
+		//该级尺寸（每降一级取半，最小 1）
+		const uint32_t level_width = (record.width >> level) > 0 ? record.width >> level : 1;
+		const uint32_t level_height = (record.height >> level) > 0 ? record.height >> level : 1;
+		//写出尺寸
+		if (width_out != nullptr)
+			*width_out = level_width;
+		if (height_out != nullptr)
+			*height_out = level_height;
+		return true;
+	}
+
 	//读回指定级整幅像素（第一百五十八轮）
 	bool Texture_Context::texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels,
 		uint32_t capacity, uint32_t* width_out, uint32_t* height_out)

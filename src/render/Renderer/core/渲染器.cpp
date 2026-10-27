@@ -3758,6 +3758,21 @@ namespace engine
 		return impl->texture.texture_readback_level(handle, level, pixels, capacity, width_out, height_out);
 	}
 
+	//查询纹理指定级尺寸（第一百六十一轮）
+	bool Renderer::texture_size_level(uint64_t handle, uint32_t level, uint32_t* width_out, uint32_t* height_out) const
+	{
+		//出参先归零
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交纹理模块（按级换算尺寸）
+		return impl->texture.texture_size_level(handle, level, width_out, height_out);
+	}
+
 	//查询纹理尺寸
 	bool Renderer::texture_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
 	{
@@ -5256,6 +5271,17 @@ namespace engine
 			return false;
 		//转交相机模块（六面保守判定）
 		return impl->camera.aabb_visible(min, max);
+	}
+
+	//导出相机「视图 × 投影」矩阵（第一百六十一轮）
+	bool Renderer::camera_view_proj(float out[16]) const
+	{
+		//未初始化或出参为空则拒绝
+		if (impl == nullptr || !impl->initialized || out == nullptr)
+			return false;
+		//写出列主序矩阵
+		impl->camera.view_proj_get(out);
+		return true;
 	}
 
 	//应用场景描述（三组入参；第四十七轮）
