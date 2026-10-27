@@ -3739,6 +3739,27 @@ namespace engine
 		return impl->texture.texture_update_region_level(handle, level, x, y, width, height, pixels);
 	}
 
+	//读回纹理指定级的子区域（第一百六十六轮）
+	bool Renderer::texture_readback_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先归零
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（该级子区域同步读回）
+		return impl->texture.texture_readback_region_level(handle, level, x, y, region_width, region_height,
+			pixels, capacity, width_out, height_out);
+	}
+
 	//读回纹理指定级整幅像素（第一百五十八轮）
 	bool Renderer::texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)

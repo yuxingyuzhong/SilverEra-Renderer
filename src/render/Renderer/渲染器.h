@@ -496,6 +496,14 @@ namespace engine
 		bool texture_update_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
 			uint32_t width, uint32_t height, const uint8_t* pixels);
 		/*
+		读回纹理指定级的子区域（第一百六十六轮新增）
+		x / y 按该级尺寸计，区域须完整落在该级内；pixels 为该区域 RGBA8 紧排。
+		未初始化 / 级号无效 / 越界 / 容量不足返回假且尺寸出参归零。
+		*/
+		bool texture_readback_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
 		读回纹理指定级整幅像素（第一百五十八轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 该级宽×高×4；
 		成功时写出该级宽 / 高。未初始化 / 级号无效 / 容量不足返回假（尺寸出参为 0）。
