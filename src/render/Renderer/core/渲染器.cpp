@@ -4044,9 +4044,10 @@ namespace engine
 		return impl->pipeline_load_ex(handle_out, vert_shader, frag_shader, blend_mode, alpha_to_coverage, false);
 	}
 
-	//登记具名图形管线（内部实现；可指定是否关闭背面剔除）
+	//登记具名图形管线（内部实现；可指定是否关闭背面剔除与是否写深度）
 	bool Renderer::Impl::pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
-		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none)
+		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
+		bool depth_write)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -4070,7 +4071,7 @@ namespace engine
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
 		if (!pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
-			VK_FORMAT_UNDEFINED, cull_none, 0, vert_input_locations, true, false, alpha_to_coverage))
+			VK_FORMAT_UNDEFINED, cull_none, 0, vert_input_locations, depth_write, false, alpha_to_coverage))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -4248,19 +4249,22 @@ namespace engine
 		record.alpha_to_coverage = data.alpha_to_coverage;
 		//双面渲染（第一百七十二轮；true 时使用关闭背面剔除的共享管线）
 		record.double_sided = data.double_sided;
+		//深度写入（第一百七十三轮；false 时使用不写深度的共享管线）
+		record.depth_write = data.depth_write;
 		/*
-		若未指定管线且需要共享管线：混合档非不透明，或显式要求覆盖率写入 / 双面渲染
-		（覆盖率写入与双面渲染均不能沿用默认场景管线，故不透明档也须登记专用管线）
+		若未指定管线且需要共享管线：混合档非不透明，或显式要求覆盖率写入 / 双面渲染 / 关闭深度写入
+		（覆盖率写入、双面渲染与关闭深度写入均不能沿用默认场景管线，故不透明档也须登记专用管线）
 		*/
-		if (record.pipeline == 0 && (data.blend != Blend_Mode::Opaque || data.alpha_to_coverage || data.double_sided))
+		if (record.pipeline == 0 && (data.blend != Blend_Mode::Opaque
+			|| data.alpha_to_coverage || data.double_sided || !data.depth_write))
 		{
 			/*
-			组合键缓存（第一百七十二轮）
-			下标 = 档位序 × 4 + 组合位（bit1 = 覆盖率写入、bit0 = 双面渲染）；
+			组合键缓存（第一百七十三轮扩为八组合）
+			下标 = 档位序 × 8 + 组合位（bit2 = 关闭深度写入、bit1 = 覆盖率写入、bit0 = 双面渲染）；
 			同组合材质共享一条具名管线，不足则扩容。
 			*/
-			std::size_t index = static_cast<std::size_t>(data.blend) * 4
-				+ (data.alpha_to_coverage ? 2 : 0) + (data.double_sided ? 1 : 0);
+			std::size_t index = static_cast<std::size_t>(data.blend) * 8
+				+ (data.depth_write ? 0 : 4) + (data.alpha_to_coverage ? 2 : 0) + (data.double_sided ? 1 : 0);
 			std::vector<uint64_t>& table = impl->material_pipelines;
 			if (table.size() <= index)
 				table.resize(index + 1, 0);
@@ -4268,7 +4272,7 @@ namespace engine
 			if (table[index] == 0)
 			{
 				if (!impl->pipeline_load_ex(table[index], "场景.vert.spv", "场景.frag.spv",
-					data.blend, data.alpha_to_coverage, data.double_sided))
+					data.blend, data.alpha_to_coverage, data.double_sided, data.depth_write))
 				{
 					logger.error("渲染器:: 材质登记失败：具名管线登记失败");
 					return false;

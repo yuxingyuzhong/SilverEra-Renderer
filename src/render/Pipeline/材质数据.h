@@ -92,5 +92,11 @@ namespace engine
 		false（默认）沿用背面剔除，画面与引入前逐字节一致。
 		*/
 		bool double_sided = false;
+		/*
+		深度写入开关（第一百七十三轮）
+		true（默认）时该材质的共享管线写深度，与引入前一致；
+		false 时不写深度（透明叠加等场景可由上层显式关闭）。
+		*/
+		bool depth_write = true;
 	};
 }

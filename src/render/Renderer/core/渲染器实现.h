@@ -49,7 +49,8 @@ namespace engine
 		成功时写出句柄并把着色器模块所有权记入门面；失败时回收已加载模块并返回假。
 		*/
 		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
-			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none);
+			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
+			bool depth_write = true);
 		/*
 		确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
 		全屏四边形（NDC -1..1）随 mesh 模块销毁。
@@ -236,14 +237,16 @@ namespace engine
 			bool alpha_to_coverage = false;
 			//双面渲染（第一百七十二轮；true 时关闭背面剔除）
 			bool double_sided = false;
+			//深度写入（第一百七十三轮；false 时不写深度）
+			bool depth_write = true;
 			//记录是否有效
 			bool valid = false;
 		};
 		//材质集合（下标 = 句柄 - 1）
 		std::vector<Material_Record> materials;
 		/*
-		按「混合档 × 覆盖率写入 × 双面渲染」组合缓存的具名管线（第一百七十二轮合并为单表）
-		下标 = 档位序 × 4 + 组合位（bit1 = 覆盖率写入、bit0 = 双面渲染），0 表该组合尚未登记；
+		按「混合档 × 覆盖率写入 × 双面渲染 × 深度写入」组合缓存的具名管线（第一百七十三轮扩为单表八组合）
+		下标 = 档位序 × 8 + 组合位（bit2 = 关闭深度写入、bit1 = 覆盖率写入、bit0 = 双面渲染），0 表该组合尚未登记；
 		材质共享同组合的具名管线（以默认场景着色器对登记），故同组合多个材质不再各自登记；
 		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
 		*/
