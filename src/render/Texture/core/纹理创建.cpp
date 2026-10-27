@@ -475,6 +475,22 @@ namespace engine
 		return true;
 	}
 
+	//查询纹理 mip 级数（第一百六十二轮）
+	bool Texture_Context::texture_mip_levels_get(uint64_t handle, uint32_t& mip_levels_out) const
+	{
+		//出参先归零
+		mip_levels_out = 0;
+		//句柄 0 / 越界 / 记录无效均拒绝
+		if (handle == 0 || handle > records.size())
+			return false;
+		const Texture_Record& record = records[handle - 1];
+		if (!record.valid || record.mip_levels == 0)
+			return false;
+		//写出级数
+		mip_levels_out = record.mip_levels;
+		return true;
+	}
+
 	//查询指定级尺寸（第一百六十一轮）
 	bool Texture_Context::texture_size_level(uint64_t handle, uint32_t level,
 		uint32_t* width_out, uint32_t* height_out) const

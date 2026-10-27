@@ -1,4 +1,4 @@
-#include "src/render/Renderer/局部命名空间使用.h"
+﻿#include "src/render/Renderer/局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
@@ -3756,6 +3756,24 @@ namespace engine
 			return false;
 		//转交纹理模块（该级整幅同步读回）
 		return impl->texture.texture_readback_level(handle, level, pixels, capacity, width_out, height_out);
+	}
+
+	//查询纹理 mip 级数（第一百六十二轮）
+	bool Renderer::texture_mip_levels(uint64_t handle, uint32_t* mip_levels_out) const
+	{
+		//出参先归零
+		if (mip_levels_out != nullptr)
+			*mip_levels_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//转交纹理模块
+		uint32_t levels = 0;
+		if (!impl->texture.texture_mip_levels_get(handle, levels))
+			return false;
+		if (mip_levels_out != nullptr)
+			*mip_levels_out = levels;
+		return true;
 	}
 
 	//查询纹理指定级尺寸（第一百六十一轮）

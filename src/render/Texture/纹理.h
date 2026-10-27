@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 //预编译头
 #include "Application/Renderer/common/前置头文件包含.h"
 /*
@@ -115,6 +115,11 @@ namespace engine
 		*/
 		bool texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		查询纹理 mip 级数（第一百六十二轮新增）
+		句柄无效或记录已空返回假且出参归零；否则写出级数（≥ 1）。
+		*/
+		bool texture_mip_levels_get(uint64_t handle, uint32_t& mip_levels_out) const;
 		/*
 		查询指定级尺寸（第一百六十一轮新增）
 		级号无效返回假且出参归零；否则写出该级宽 / 高（不小于 1）。
