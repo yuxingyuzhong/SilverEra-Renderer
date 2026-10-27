@@ -147,6 +147,14 @@ namespace engine
 		*/
 		bool target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回深度图像的子区域（第一百六十三轮新增）
+		x / y 为左上角，区域须完整落在目标内；values 为该区域 32 位深度原始值（按 float 解释）。
+		MSAA 目标不可用（实际深度写入多重采样附件）；失败时尺寸出参归零。
+		*/
+		bool target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:

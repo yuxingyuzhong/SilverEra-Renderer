@@ -662,6 +662,14 @@ namespace engine
 		bool render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		/*
+		读回离屏渲染目标的深度子区域（第一百六十三轮新增）
+		values 为 32 位深度原始值（按 float 解释）；区域须完整落在目标内；先等尽在途帧。
+		未初始化 / MSAA 目标 / 越界 / 容量不足返回假且尺寸出参归零。
+		*/
+		bool render_target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
 		设置「本帧渲染到目标」
 		handle 为 0 时渲染到交换链（默认）；否则本帧把场景渲染进该目标且**不呈现到窗口**，
 		离屏结果在帧间恒处于可采样布局，可用 texture_bind_target 在后续帧采样合成（后处理闭环）。

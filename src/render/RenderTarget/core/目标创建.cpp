@@ -652,6 +652,25 @@ namespace engine
 	bool Render_Target_Context::target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
+		//整幅即「原点 ＋ 完整尺寸」的区域读回（尺寸由记录取得）
+		VkExtent2D extent{};
+		if (!target_extent_get(handle, extent))
+		{
+			if (width_out != nullptr)
+				*width_out = 0;
+			if (height_out != nullptr)
+				*height_out = 0;
+			return false;
+		}
+		return target_readback_depth_region(handle, 0, 0, extent.width, extent.height, values, capacity,
+			width_out, height_out);
+	}
+
+	//读回深度图像的子区域（第一百六十三轮）
+	bool Render_Target_Context::target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
 		//出参先复位
 		if (width_out != nullptr)
 			*width_out = 0;
@@ -675,8 +694,17 @@ namespace engine
 			logger.error("渲染目标:: MSAA 开启时深度读回不可用（采样数 {}）", record.sample_count);
 			return false;
 		}
+		//子区域须完整落在目标范围内（含右 / 下边界）
+		if (x >= record.extent.width || y >= record.extent.height
+			|| region_width == 0 || region_height == 0
+			|| region_width > record.extent.width - x || region_height > record.extent.height - y)
+		{
+			logger.error("渲染目标:: 深度读回区域越界（{}×{} 目标，区域 {}×{} @ {},{}）",
+				record.extent.width, record.extent.height, region_width, region_height, x, y);
+			return false;
+		}
 		//容量（元素个数）校验
-		VkDeviceSize value_count = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height;
+		VkDeviceSize value_count = static_cast<VkDeviceSize>(region_width) * region_height;
 		if (value_count > capacity)
 		{
 			logger.error("渲染目标:: 深度读回容量不足（需要 {} 个元素，给出 {}）", value_count, capacity);
@@ -741,8 +769,8 @@ namespace engine
 			region.bufferRowLength = 0;
 			region.bufferImageHeight = 0;
 			region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 };
-			region.imageOffset = { 0, 0, 0 };
-			region.imageExtent = { record.extent.width, record.extent.height, 1 };
+			region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
+			region.imageExtent = { region_width, region_height, 1 };
 			vkCmdCopyImageToBuffer(command_buffer, record.depth_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
 
 			//传输源 → 深度附件（恢复帧间不变量）
@@ -778,13 +806,13 @@ namespace engine
 		//归还暂存缓冲
 		memory->buffer_destroy(staging, staging_alloc);
 
-		//写出尺寸
+		//写出尺寸（区域尺寸）
 		if (recorded)
 		{
 			if (width_out != nullptr)
-				*width_out = record.extent.width;
+				*width_out = region_width;
 			if (height_out != nullptr)
-				*height_out = record.extent.height;
+				*height_out = region_height;
 		}
 		return recorded;
 	}
