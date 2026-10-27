@@ -36,6 +36,12 @@ namespace engine
 		void clip_get(float* near_out, float* far_out) const;
 		//写出视场角（弧度；第一百六十四轮）
 		void fov_get(float* radians_out) const;
+		/*
+		写出指定视深处可见的垂直世界高度（第一百六十五轮）
+		透视：``2 · tan(fov/2) · 视深``；正交：恒为 ortho_height（与视深无关）。
+		视深非正时按 0 处理（不写出负值）。
+		*/
+		void world_height_at_get(float view_depth, float* height_out) const;
 		//写出正交投影状态与垂直可见高度（第一百六十四轮）
 		void ortho_get(bool* enabled_out, float* height_out) const;
 		/*

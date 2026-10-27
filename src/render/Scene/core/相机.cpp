@@ -1,5 +1,6 @@
 ﻿#include "src/render/Scene/局部命名空间使用.h"
 //glm 数学库（含矩阵变换与矩阵取址；深零到一与弧度已由 CMake 私有定义给出）
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -114,6 +115,23 @@ namespace engine
 		//出参非空则写出
 		if (radians_out != nullptr)
 			*radians_out = fov;
+	}
+
+	//写出指定视深处可见的垂直世界高度（第一百六十五轮）
+	void Camera::world_height_at_get(float view_depth, float* height_out) const
+	{
+		//出参为空则无需计算
+		if (height_out == nullptr)
+			return;
+		//正交：与视深无关
+		if (ortho)
+		{
+			*height_out = ortho_height;
+			return;
+		}
+		//透视：视深非正按 0 处理
+		const float depth = view_depth > 0.0f ? view_depth : 0.0f;
+		*height_out = 2.0f * std::tan(fov * 0.5f) * depth;
 	}
 
 	//写出正交投影状态（第一百六十四轮）

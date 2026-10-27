@@ -5313,6 +5313,16 @@ namespace engine
 		return true;
 	}
 
+	//查询指定视深处可见的垂直世界高度（第一百六十五轮）
+	bool Renderer::camera_world_height_at(float view_depth, float* height_out) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		impl->camera.world_height_at_get(view_depth, height_out);
+		return true;
+	}
+
 	//世界点 → 屏幕坐标（第一百四十九轮）
 	bool Renderer::camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const
 	{

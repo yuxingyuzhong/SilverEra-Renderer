@@ -873,6 +873,12 @@ namespace engine
 		void camera_ortho_set(bool enabled, float ortho_height);
 		//查询视场角（弧度；未初始化返回假且出参不变）
 		bool camera_fov_get(float* radians_out) const;
+		/*
+		查询指定视深处可见的垂直世界高度（第一百六十五轮新增）
+		透视：``2 · tan(fov/2) · 视深``；正交：恒为正交高度；视深非正按 0 处理。
+		未初始化返回假且不改写出参；出参可为空（仅查询状态）。
+		*/
+		bool camera_world_height_at(float view_depth, float* height_out) const;
 		//查询投影模式与正交高度（未初始化返回假且出参不变）
 		bool camera_ortho_get(bool* enabled_out, float* height_out) const;
 		/*
