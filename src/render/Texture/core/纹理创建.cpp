@@ -1,4 +1,4 @@
-#include "src/render/Texture/局部命名空间使用.h"
+﻿#include "src/render/Texture/局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（图像创建 / 上传 / 销毁）
@@ -438,26 +438,76 @@ namespace engine
 		return true;
 	}
 
-        //更新纹理第 0 级的子区域（第一百五十一轮）
-        bool Texture_Context::texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
-                uint32_t width, uint32_t height, const uint8_t* pixels)
-        {
-                //句柄 0 无效
-                if (handle == 0 || handle > records.size())
-                        return false;
-                Texture_Record& record = records[handle - 1];
-                //若记录无效 / 尺寸缺失 / 源数据为空 / 区域越界
-                if (!record.valid || record.width == 0 || record.height == 0 || pixels == nullptr
-                        || x >= record.width || y >= record.height
-                        || width == 0 || height == 0
-                        || width > record.width - x || height > record.height - y)
-                        return false;
-                //转交内存模块（子区域同步上传；前后保持着色器可读布局）
-                if (!memory->upload_image_region(record.image, pixels, x, y, width, height))
-                        return false;
-                //含 mip 链的纹理需重建降采样级，避免低级别仍是旧内容（第一百五十四轮）
-                if (record.mip_levels > 1)
-                        return memory->image_generate_mips(record.image, record.width, record.height, record.mip_levels);
-                return true;
-        }
+	//更新纹理第 0 级的子区域（第一百五十一轮；第一百五十八轮委托分级入口）
+	bool Texture_Context::texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height, const uint8_t* pixels)
+	{
+		//第 0 级即分级入口的 level = 0
+		return texture_update_region_level(handle, 0, x, y, width, height, pixels);
+	}
+
+	//更新纹理指定级的子区域（第一百五十八轮）
+	bool Texture_Context::texture_update_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height, const uint8_t* pixels)
+	{
+		//句柄 0 无效
+		if (handle == 0 || handle > records.size())
+			return false;
+		Texture_Record& record = records[handle - 1];
+		//若记录无效 / 尺寸缺失 / 级号越界 / 源数据为空
+		if (!record.valid || record.width == 0 || record.height == 0 || pixels == nullptr
+			|| level >= record.mip_levels)
+			return false;
+		//该级尺寸（每降一级取半，最小 1）
+		const uint32_t level_width = (record.width >> level) > 0 ? record.width >> level : 1;
+		const uint32_t level_height = (record.height >> level) > 0 ? record.height >> level : 1;
+		//若区域不完整落在该级内则拒绝
+		if (x >= level_width || y >= level_height || width == 0 || height == 0
+			|| width > level_width - x || height > level_height - y)
+			return false;
+		//转交内存模块（子区域同步上传；前后保持着色器可读布局）
+		if (!memory->upload_image_region(record.image, pixels, x, y, width, height, level))
+			return false;
+		//重建该级的下游降采样级，避免低级别仍是旧内容
+		if (level + 1 < record.mip_levels)
+			return memory->image_generate_mips_from(record.image, level, level_width, level_height,
+				record.mip_levels);
+		return true;
+	}
+
+	//读回指定级整幅像素（第一百五十八轮）
+	bool Texture_Context::texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels,
+		uint32_t capacity, uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先归零
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 0 无效
+		if (handle == 0 || handle > records.size())
+			return false;
+		//记录无效 / 级号越界则拒绝
+		const Texture_Record& record = records[handle - 1];
+		if (!record.valid || record.width == 0 || record.height == 0 || level >= record.mip_levels)
+			return false;
+		//该级尺寸（每降一级取半，最小 1）
+		const uint32_t level_width = (record.width >> level) > 0 ? record.width >> level : 1;
+		const uint32_t level_height = (record.height >> level) > 0 ? record.height >> level : 1;
+		//区域字节数（RGBA8 紧排）
+		const VkDeviceSize byte_size = static_cast<VkDeviceSize>(level_width) * level_height * 4;
+		//若容量不足或输出缓冲为空
+		if (byte_size > capacity || pixels == nullptr)
+			return false;
+		//转交内存模块（该级整幅同步读回）
+		if (!memory->image_readback_region(record.image, 0, 0, level_width, level_height, pixels,
+				byte_size, level))
+			return false;
+		//写出该级尺寸
+		if (width_out != nullptr)
+			*width_out = level_width;
+		if (height_out != nullptr)
+			*height_out = level_height;
+		return true;
+	}
 }

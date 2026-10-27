@@ -252,9 +252,9 @@ namespace engine
 		return ok;
 	}
 
-	//上传像素到图像的子区域（第一百五十一轮）
+	//上传像素到图像的子区域（第一百五十一轮；第一百五十八轮补 mip 级）
 	bool Memory_Context::upload_image_region(VkImage dst_image, const void* data, uint32_t x, uint32_t y,
-		uint32_t width, uint32_t height)
+		uint32_t width, uint32_t height, uint32_t mip_level)
 	{
 		//前置：上下文与队列就绪、目标句柄与源数据齐备、区域非空
 		if (!valid() || dst_image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE
@@ -285,7 +285,7 @@ namespace engine
 		//提交「布局转换 → 区域拷贝 → 布局转换」三步（旧布局为着色器可读）
 		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
 		{
-			//布局：着色器可读 → 传输目标
+			//布局：着色器可读 → 传输目标（仅目标级）
 			VkImageMemoryBarrier to_transfer{};
 			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 			to_transfer.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -293,20 +293,20 @@ namespace engine
 			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.image = dst_image;
-			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, mip_level, 1, 0, 1 };
 			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			vkCmdPipelineBarrier(command_buffer,
 				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
 
-			//暂存缓冲 → 图像子区域
+			//暂存缓冲 → 图像子区域（目标级）
 			VkBufferImageCopy copy_region{};
 			copy_region.bufferOffset = 0;
 			copy_region.bufferRowLength = 0;
 			copy_region.bufferImageHeight = 0;
 			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.mipLevel = mip_level;
 			copy_region.imageSubresource.baseArrayLayer = 0;
 			copy_region.imageSubresource.layerCount = 1;
 			copy_region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
@@ -322,7 +322,7 @@ namespace engine
 			to_shader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_shader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_shader.image = dst_image;
-			to_shader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_shader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, mip_level, 1, 0, 1 };
 			to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			vkCmdPipelineBarrier(command_buffer,
@@ -332,7 +332,7 @@ namespace engine
 		//回收暂存缓冲（无论成败）
 		buffer_destroy(staging_buffer, staging_alloc);
 		if (ok)
-			logger.info("上传批次:: 图像区域上传完成（{}x{} @ {},{}）", width, height, x, y);
+			logger.info("上传批次:: 图像区域上传完成（{}x{} @ {},{}, 级 {}）", width, height, x, y, mip_level);
 		return ok;
 	}
 
@@ -348,9 +348,10 @@ namespace engine
 		return image_readback_region(image, 0, 0, width, height, data, data_size);
 	}
 
-	//从图像读回指定子区域
+	//从图像读回指定子区域（第一百五十八轮补 mip 级）
 	bool Memory_Context::image_readback_region(VkImage image, uint32_t x, uint32_t y,
-		uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size)
+		uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size,
+		uint32_t mip_level)
 	{
 		//前置：上下文与队列就绪、图像与出参齐备、尺寸与容量一致
 		if (!valid() || image == VK_NULL_HANDLE || data == nullptr || graphics_queue == VK_NULL_HANDLE
@@ -385,20 +386,20 @@ namespace engine
 			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.image = image;
-			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, mip_level, 1, 0, 1 };
 			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 			vkCmdPipelineBarrier(command_buffer,
 				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 				0, 0, nullptr, 0, nullptr, 1, &to_transfer);
 
-			//图像子区域 → 暂存缓冲（第 0 级、紧排）
+			//图像子区域 → 暂存缓冲（目标级、紧排）
 			VkBufferImageCopy copy_region{};
 			copy_region.bufferOffset = 0;
 			copy_region.bufferRowLength = 0;
 			copy_region.bufferImageHeight = 0;
 			copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			copy_region.imageSubresource.mipLevel = 0;
+			copy_region.imageSubresource.mipLevel = mip_level;
 			copy_region.imageSubresource.baseArrayLayer = 0;
 			copy_region.imageSubresource.layerCount = 1;
 			copy_region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
@@ -425,17 +426,25 @@ namespace engine
 	}
 
 	/*
-	生成 mip 链
+	生成 mip 链（整链入口；第一百五十八轮改为委托 image_generate_mips_from）
 	第 0 级须已由 upload_image 写入且处于着色器可读布局；
 	第 1..mip_levels-1 级逐级以线性过滤降采样（源 = 上一级、目标 = 本级，同图像不同级）；
 	每级用「源级转传输源 + 目标级转传输目标」→ blit →「目标级转着色器可读」三段完成，
-	循环结束后把 0..mip_levels-2 这些「曾作 blit 源」的级由传输源一并恢复为着色器可读
+	循环结束后把起始级..mip_levels-2 这些「曾作 blit 源」的级由传输源一并恢复为着色器可读
 	（末级仅作目标级、已是着色器可读）。全部命令一次提交完成。
 	*/
 	bool Memory_Context::image_generate_mips(VkImage image, uint32_t width, uint32_t height, uint32_t mip_levels)
 	{
-		//级数 ≤ 1 时为空操作
-		if (mip_levels <= 1)
+		//整链生成即「从第 0 级起重生成」
+		return image_generate_mips_from(image, 0, width, height, mip_levels);
+	}
+
+	//从指定级起重生成 mip 链（第一百五十八轮）
+	bool Memory_Context::image_generate_mips_from(VkImage image, uint32_t base_level,
+		uint32_t base_width, uint32_t base_height, uint32_t mip_levels)
+	{
+		//起始级已是末级（或级数不足）时为空操作
+		if (mip_levels <= 1 || base_level + 1 >= mip_levels)
 			return true;
 		//前置：上下文与队列就绪、目标句柄齐备
 		if (!valid() || image == VK_NULL_HANDLE || graphics_queue == VK_NULL_HANDLE)
@@ -450,12 +459,12 @@ namespace engine
 		//提交全部降采样命令（一次栅栏等待）
 		bool ok = upload_submit_once(device, upload_pool, upload_fence, graphics_queue, [&](VkCommandBuffer command_buffer)
 		{
-			//当前源级尺寸（第 0 级起始尺寸）
-			uint32_t source_width = width;
-			uint32_t source_height = height;
+			//当前源级尺寸（起始级尺寸）
+			uint32_t source_width = base_width;
+			uint32_t source_height = base_height;
 
-			//逐级生成
-			for (uint32_t level = 1; level < mip_levels; ++level)
+			//逐级生成（起始级之后到末级）
+			for (uint32_t level = base_level + 1; level < mip_levels; ++level)
 			{
 				//目标级尺寸（不小于 1）
 				uint32_t target_width = source_width > 1 ? source_width / 2 : 1;
@@ -527,8 +536,8 @@ namespace engine
 			}
 
 			/*
-			第 0 .. mip_levels-2 级由传输源恢复为着色器可读
-			循环中每级的「上一级」（即 0 .. mip_levels-2 级）都被转入传输源作 blit 源，且各轮只恢复
+			起始级 .. 末级前一级由传输源恢复为着色器可读
+			循环中每级的「上一级」（即 base_level .. mip_levels-2 级）都被转入传输源作 blit 源，且各轮只恢复
 			「本级」（目标级）的布局，故这些源级在循环结束后仍停在传输源，必须一并恢复为着色器可读，
 			否则后续采样该图像的这些 mip 级会因布局不符触发布局校验错误。
 			末级（mip_levels-1）仅作目标级、已是着色器可读，故不纳入本屏障。
@@ -540,7 +549,8 @@ namespace engine
 			source_levels_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			source_levels_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			source_levels_barrier.image = image;
-			source_levels_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mip_levels - 1, 0, 1 };
+			source_levels_barrier.subresourceRange = {
+				VK_IMAGE_ASPECT_COLOR_BIT, base_level, mip_levels - 1 - base_level, 0, 1 };
 			source_levels_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 			source_levels_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			vkCmdPipelineBarrier(command_buffer,
@@ -549,7 +559,8 @@ namespace engine
 		});
 
 		if (ok)
-			logger.info("上传批次:: mip 链已生成（{} 级，{}x{}）", mip_levels, width, height);
+			logger.info("上传批次:: mip 链已生成（起始级 {}，共 {} 级，{}x{}）",
+				base_level, mip_levels, base_width, base_height);
 		return ok;
 	}
 }

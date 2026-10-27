@@ -3697,6 +3697,39 @@ namespace engine
 		return impl->texture.texture_update_region(handle, x, y, width, height, pixels);
 	}
 
+	//更新纹理指定级的子区域（第一百五十八轮）
+	bool Renderer::texture_update_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
+		uint32_t width, uint32_t height, const uint8_t* pixels)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽（避免改写仍在采样中的图像）
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（分级子区域同步上传）
+		return impl->texture.texture_update_region_level(handle, level, x, y, width, height, pixels);
+	}
+
+	//读回纹理指定级整幅像素（第一百五十八轮）
+	bool Renderer::texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先归零（未初始化 / 等帧失败时也须满足文档口径）
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//先把在途帧等尽
+		if (!impl->frame.frames_wait())
+			return false;
+		//转交纹理模块（该级整幅同步读回）
+		return impl->texture.texture_readback_level(handle, level, pixels, capacity, width_out, height_out);
+	}
+
 	//查询纹理尺寸
 	bool Renderer::texture_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
 	{

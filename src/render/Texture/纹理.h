@@ -95,10 +95,26 @@ namespace engine
 		更新纹理第 0 级的子区域（第一百五十一轮新增；第一百五十四轮补 mip 重建）
 		pixels 为 RGBA8 紧排（每行 width 个纹素）；区域须完整落在纹理内；
 		成功后纹理处于着色器可读布局，其余区域保持不变；含 mip 链的纹理会重建第 1..N 级。
-		句柄无效 / 区域越界返回假。
+		句柄无效 / 区域越界返回假。第一百五十八轮起委托 texture_update_region_level(0)。
 		*/
 		bool texture_update_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t width, uint32_t height, const uint8_t* pixels);
+		/*
+		更新纹理指定级的子区域（第一百五十八轮新增）
+		level 须小于该纹理的 mip 级数；x / y / width / height 按该级尺寸计，
+		pixels 为 RGBA8 紧排（每行 width 个纹素），区域须完整落在该级内；
+		成功后仅重建该级下游（level+1 .. 末级），更精细的级号不会影响上游内容。
+		句柄 / 级号无效或区域越界返回假。
+		*/
+		bool texture_update_region_level(uint64_t handle, uint32_t level, uint32_t x, uint32_t y,
+			uint32_t width, uint32_t height, const uint8_t* pixels);
+		/*
+		读回指定级整幅像素（第一百五十八轮新增）
+		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 该级宽×高×4；
+		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。级号无效返回假且出参归零。
+		*/
+		bool texture_readback_level(uint64_t handle, uint32_t level, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		/*
 		读回纹理第 0 级像素（第二十七轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下），capacity 须不小于 宽×高×4；

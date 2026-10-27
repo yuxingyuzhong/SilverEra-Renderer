@@ -94,13 +94,13 @@ namespace engine
 		bool upload_image(VkImage dst_image, const void* data, VkDeviceSize data_size,
 			uint32_t width, uint32_t height, uint32_t row_pixels, uint32_t layer = 0);
 		/*
-		上传像素到图像的子区域（第一百五十一轮新增）
+		上传像素到图像的子区域（第一百五十一轮新增；第一百五十八轮补 mip 级）
 		x / y 为区域左上角，width / height 为区域尺寸；data 为 RGBA8 紧排（每行 width 个纹素）。
-		图像的第 0 级须已处于 SHADER_READ_ONLY_OPTIMAL（即由 upload_image 创建）；
-		调用前后保持该布局。区域须完整落在图像内（由调用方保证）。
+		目标级 mip_level 须已处于 SHADER_READ_ONLY_OPTIMAL（由 upload_image 或 image_generate_mips 建立）；
+		调用前后保持该布局。区域须完整落在该级内（由调用方保证）。
 		*/
 		bool upload_image_region(VkImage dst_image, const void* data, uint32_t x, uint32_t y,
-			uint32_t width, uint32_t height);
+			uint32_t width, uint32_t height, uint32_t mip_level = 0);
 		/*
 		从图像读回像素（第二十七轮新增）
 		读取第 0 级、整幅图像到 data（RGBA8 紧排，data_size 须为 宽×高×4）；
@@ -109,12 +109,13 @@ namespace engine
 		*/
 		bool image_readback(VkImage image, uint32_t width, uint32_t height, void* data, VkDeviceSize data_size);
 		/*
-		从图像读回指定子区域（第二十八轮新增；第 0 级、RGBA8 紧排）
-		x / y 为左上角，region_width / region_height 为区域尺寸（须落在图像内，由调用方保证）；
+		从图像读回指定子区域（第二十八轮新增；第一百五十八轮补 mip 级）
+		x / y 为左上角，region_width / region_height 为区域尺寸（须落在该级内，由调用方保证）；
 		读回前后图像均保持 SHADER_READ_ONLY_OPTIMAL。
 		*/
 		bool image_readback_region(VkImage image, uint32_t x, uint32_t y,
-			uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size);
+			uint32_t region_width, uint32_t region_height, void* data, VkDeviceSize data_size,
+			uint32_t mip_level = 0);
 		/*
 		生成 mip 链（第 0 级须已由 upload_image 写入并处于着色器可读布局）
 		对第 1..mip_levels-1 级逐级 vkCmdBlitImage 降采样（线性过滤），
@@ -122,6 +123,14 @@ namespace engine
 		mip_levels ≤ 1 时为空操作（返回真）。
 		*/
 		bool image_generate_mips(VkImage image, uint32_t width, uint32_t height, uint32_t mip_levels);
+		/*
+		从指定级起重生成 mip 链（第一百五十八轮新增）
+		以 base_level 级（尺寸 base_width × base_height、须处于着色器可读布局）为源，
+		逐级向下生成 base_level+1 .. mip_levels-1（级总数仍为 mip_levels）；
+		用于「只更新某一级子区域」后刷新其下游级。base_level ≥ mip_levels-1 时为空操作。
+		*/
+		bool image_generate_mips_from(VkImage image, uint32_t base_level,
+			uint32_t base_width, uint32_t base_height, uint32_t mip_levels);
 
 		//获取 VMA 分配器（供上层创建自有资源时复用）
 		VmaAllocator allocator_get(void) const;
