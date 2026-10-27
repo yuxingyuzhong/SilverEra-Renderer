@@ -220,6 +220,11 @@ namespace engine
 		*/
 		bool material_texture_bind(uint32_t slot, VkSampler sampler, VkImageView normal_view, VkImageView roughness_view);
 		/*
+		向第 slot 帧槽的场景采样器集写「自发光颜色贴图」（set 1 binding 6；第一百六十八轮）
+		无贴图时由门面传入内置默认白纹理，使乘子恒为 1 从而不影响画面。
+		*/
+		bool material_emissive_bind(uint32_t slot, VkSampler sampler, VkImageView view);
+		/*
 		向第 slot 帧槽的场景采样器集写「天空盒立方体贴图」（set 1 binding 5；第一百二十五轮）
 		view 须为 CUBE 视图；未绑定时场景片元不会采样该 binding（由 UBO 的 sky_params 开关控制）。
 		*/

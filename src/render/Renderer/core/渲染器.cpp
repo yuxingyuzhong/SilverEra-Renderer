@@ -987,6 +987,18 @@ namespace engine
 				shutdown();
 				return false;
 			}
+			/*
+			材质贴图槽同步写入默认白纹理（第一百二十四轮；第一百六十八轮补自发光贴图）
+			场景片元静态声明 binding 3 / 4 / 6，即使未使用材质也必须有有效绑定；
+			白纹理使法线 / 粗糙度 / 自发光乘子恒为 1，故不影响默认画面。
+			*/
+			if (!impl->pipeline.material_texture_bind(slot, default_sampler, default_view, default_view)
+				|| !impl->pipeline.material_emissive_bind(slot, default_sampler, default_view))
+			{
+				logger.error("渲染器:: 默认材质贴图绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
 		}
 		/*
 		内置纯白立方体（第一百二十五轮）
@@ -3867,16 +3879,19 @@ namespace engine
 		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			impl->pipeline.texture_bind(slot, sampler, view);
 		/*
-		材质贴图回落（第一百二十四轮）
-		单独切换反照率时把 set1 binding 3 / 4 复位为内置默认白纹理，
-		避免上一材质的法线 / 粗糙度贴图残留；材质路径随后会再写自己的贴图。
+		材质贴图回落（第一百二十四轮；第一百六十八轮补自发光贴图）
+		单独切换反照率时把 set1 binding 3 / 4 / 6 复位为内置默认白纹理，
+		避免上一材质的法线 / 粗糙度 / 自发光贴图残留；材质路径随后会再写自己的贴图。
 		*/
 		{
 			VkImageView white_view = VK_NULL_HANDLE;
 			VkSampler white_sampler = VK_NULL_HANDLE;
 			if (impl->texture.texture_bind_get(impl->default_texture, white_view, white_sampler))
 				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+				{
 					impl->pipeline.material_texture_bind(slot, white_sampler, white_view, white_view);
+					impl->pipeline.material_emissive_bind(slot, white_sampler, white_view);
+				}
 		}
 	}
 
@@ -4184,6 +4199,7 @@ namespace engine
 		*/
 		record.normal_texture = data.normal_texture;
 		record.roughness_texture = data.roughness_texture;
+		record.emissive_texture = data.emissive_texture;
 		record.normal_strength = (data.normal_strength > 0.0f && data.normal_strength <= 4.0f)
 			? data.normal_strength : 0.0f;
 		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
@@ -4318,6 +4334,17 @@ namespace engine
 			if (normal_view != VK_NULL_HANDLE && roughness_view != VK_NULL_HANDLE)
 				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 					impl->pipeline.material_texture_bind(slot, normal_sampler, normal_view, roughness_view);
+			/*
+			自发光颜色贴图（第一百六十八轮）
+			无效句柄回落默认白纹理（乘子 1）；与标量自发光相乘，故未配置贴图时画面逐字节不变。
+			*/
+			VkImageView emissive_view = white_view;
+			VkSampler emissive_sampler = white_sampler;
+			if (record.emissive_texture != 0)
+				impl->texture.texture_bind_get(record.emissive_texture, emissive_view, emissive_sampler);
+			if (emissive_view != VK_NULL_HANDLE)
+				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					impl->pipeline.material_emissive_bind(slot, emissive_sampler, emissive_view);
 		}
 		//按记录的 PBR 覆盖标志设置 / 清除逐物体材质（第六十八轮）
 		if (record.pbr_override)

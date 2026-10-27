@@ -60,6 +60,12 @@ namespace engine
 		uint64_t roughness_texture = 0;
 		float normal_strength = 0.0f;
 		/*
+		自发光贴图（第一百六十八轮）
+		emissive_texture：自发光颜色贴图句柄（0 = 无，按纯白乘子处理，画面与引入前逐字节一致）；
+		与标量 emissive 相乘：自发光 = 反照率 × 强度 × 贴图颜色。
+		*/
+		uint64_t emissive_texture = 0;
+		/*
 		覆盖率写入（第一百二十六轮）
 		true 时该材质的共享管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效）；
 		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。

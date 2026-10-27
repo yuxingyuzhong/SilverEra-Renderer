@@ -95,16 +95,17 @@ namespace engine
 
 		/*
 		描述符池与每帧槽描述符集
-		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 5；
-		采样器布局已含 5 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
-		3 = 法线贴图、4 = 粗糙度贴图；第一百二十四轮由 3 增为 5），故采样器类描述符按五倍计；
+		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 7；
+		采样器布局已含 7 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
+		3 = 法线贴图、4 = 粗糙度贴图、5 = 天空盒、6 = 自发光贴图；第一百六十八轮由 6 增为 7），
+		故采样器类描述符按七倍计；
 		最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)。
 		*/
 		VkDescriptorPoolSize pool_sizes[2]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 6;
+		pool_sizes[1].descriptorCount = config.frame_overlap * (1 + POST_SET_PER_SLOT) * 7;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -761,6 +762,38 @@ namespace engine
 
 		//更新描述符集
 		vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+		return true;
+	}
+
+	//向第 slot 帧槽的场景采样器集写自发光颜色贴图（set 1 binding 6；第一百六十八轮）
+	bool Pipeline_Context::material_emissive_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//前置：帧槽范围、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 自发光贴图绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 6）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sampler_sets[slot];
+		write.dstBinding = 6;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 		return true;
 	}
 

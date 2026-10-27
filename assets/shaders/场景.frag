@@ -34,6 +34,8 @@ layout(set = 1, binding = 3) uniform sampler2D normal_map;
 layout(set = 1, binding = 4) uniform sampler2D roughness_map;
 //天空盒立方体贴图（第一百二十五轮；set 1 binding 5；默认绑定内置纯白立方体）
 layout(set = 1, binding = 5) uniform samplerCube sky_map;
+//自发光颜色贴图（第一百六十八轮；set 1 binding 6；默认绑定白纹理 → 乘子恒 1）
+layout(set = 1, binding = 6) uniform sampler2D emissive_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -521,11 +523,12 @@ void main()
 	雾前的照度与雾后的混合都在线性空间完成，最后统一钳制。
 	*/
 	/*
-	逐物体自发光（第七十轮）
+	逐物体自发光（第七十轮；第一百六十八轮乘自发光贴图）
 	实例材质第 4 分量（w）为自发光强度（默认 0 = 无自发光），叠加在受光结果之上；
-	0 时表达式恒为 0，默认画面逐字节不变。
+	再乘自发光贴图颜色（默认绑定白纹理 → 乘子 1）；
+	强度为 0 时表达式恒为 0，默认画面逐字节不变。
 	*/
-	vec3 emissive_rgb = albedo_color.rgb * clamp(in_material.w, 0.0, 8.0);
+	vec3 emissive_rgb = albedo_color.rgb * clamp(in_material.w, 0.0, 8.0) * texture(emissive_map, in_uv).rgb;
 	vec3 final_rgb = lit + emissive_rgb;
 	if (scene.fog_color_density.w > 0.0)
 	{

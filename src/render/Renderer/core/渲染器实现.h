@@ -215,6 +215,8 @@ namespace engine
 			uint64_t roughness_texture = 0;
 			//法线强度（第一百二十四轮；0 = 不启用）
 			float normal_strength = 0.0f;
+			//自发光颜色贴图句柄（第一百六十八轮；0 = 无）
+			uint64_t emissive_texture = 0;
 			//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时生效）
 			bool alpha_to_coverage = false;
 			//记录是否有效
