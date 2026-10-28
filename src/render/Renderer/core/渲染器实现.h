@@ -393,6 +393,8 @@ namespace engine
 		uint32_t msaa_samples = 1;
 		//MSAA 深度解析开关（第一百九十轮；默认开启，仅影响采样数 > 1 且走后处理链的路径）
 		bool msaa_depth_resolve = true;
+		//并行录制的最小绘制项数（第二百零二轮；默认 32）
+		uint32_t parallel_min_items = 32;
 		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）
 		uint32_t scene_input_locations = 0;
 		/*

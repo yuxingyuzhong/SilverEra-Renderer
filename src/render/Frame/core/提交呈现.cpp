@@ -191,7 +191,7 @@ namespace engine
 		场景 pass 并行录制准备（第一百九十九轮；交换链直通路径）
 		条件与同帧后处理链一致：线程 > 1、绘制项 ≥ 32、段数 = min(线程, 8, 项 / 16) ≥ 2、次级缓冲就绪。
 		*/
-		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= 32
+		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= parallel_min_items
 			&& thread_pool->active())
 		{
 			uint32_t wanted = thread_pool->thread_count_get();
@@ -340,7 +340,7 @@ namespace engine
 		其余条件与交换链直通路径一致。
 		*/
 		if (!shadow_pass && thread_pool != nullptr && thread_pool->thread_count_get() > 1
-			&& item_count >= 32 && thread_pool->active())
+			&& item_count >= parallel_min_items && thread_pool->active())
 		{
 			uint32_t wanted = thread_pool->thread_count_get();
 			if (wanted > 8)
@@ -581,7 +581,7 @@ namespace engine
 		条件：线程池已启动（> 1 线程）、绘制项 ≥ 32、可切出 ≥ 2 段且次级缓冲分配成功；
 		段数 = min(线程数, 8, 项数 / 16)。任一条件不满足即保持单线程录制（active_secondary_count = 0）。
 		*/
-		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= 32
+		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= parallel_min_items
 			&& thread_pool->active())
 		{
 			//候选段数

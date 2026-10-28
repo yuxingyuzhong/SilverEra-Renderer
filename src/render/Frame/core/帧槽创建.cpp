@@ -525,6 +525,17 @@ namespace engine
 		thread_pool = pool;
 	}
 
+	//设置并行录制的最小绘制项数（第二百零二轮）
+	void Frame_Context::parallel_min_items_set(uint32_t count)
+	{
+		//钳到 2..4096（低于 2 段没有并行意义，高于 4096 失去实际收益）
+		if (count < 2)
+			count = 2;
+		if (count > 4096)
+			count = 4096;
+		parallel_min_items = count;
+	}
+
 	//确保该帧槽的次级命令缓冲数量（第一百九十七轮）
 	bool Frame_Context::secondary_buffers_ensure(Frame_Slot& slot, uint32_t count)
 	{

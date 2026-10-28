@@ -279,6 +279,11 @@ namespace engine
 		线程池未启动或绘制项过少时自动退回单线程录制（画面与统计逐字节一致）。
 		*/
 		void thread_pool_set(Thread_Pool* pool);
+		/*
+		设置并行录制的最小绘制项数（第二百零二轮；钳到 2..4096）
+		绘制项少于此值时即使有工作线程也走单线程录制。
+		*/
+		void parallel_min_items_set(uint32_t count);
 
 		/*
 		渲染一帧（取图像 → 录制 → 提交 → 呈现，可选像素回读）
@@ -605,6 +610,8 @@ namespace engine
 		uint32_t active_sample_count = 1;
 		//并行段统计（按段索引收集，录制结束后汇总到 frame_recorded）
 		std::vector<Recorded_Counts> parallel_counts;
+		//并行录制的最小绘制项数（第二百零二轮；默认 32）
+		uint32_t parallel_min_items = 32;
 		//最近一帧并行录制的段数（第一百九十八轮；0 = 单线程录制）
 		uint32_t last_parallel_segments = 0;
 		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
