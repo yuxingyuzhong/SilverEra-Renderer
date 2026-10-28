@@ -730,6 +730,17 @@ namespace engine
 			impl->parallel_min_items = parallel_min_items;
 			//把阈值同步给帧模块（第二百零二轮）
 			impl->frame.parallel_min_items_set(parallel_min_items);
+			/*
+			并行段数上限（第二百零三轮；钳到 2..32）
+			段数 = min(线程数, 上限, 项数 / 16)。
+			*/
+			uint32_t parallel_max_segments = effective.parallel_max_segments;
+			if (parallel_max_segments < 2)
+				parallel_max_segments = 2;
+			if (parallel_max_segments > 32)
+				parallel_max_segments = 32;
+			impl->parallel_max_segments = parallel_max_segments;
+			impl->frame.parallel_max_segments_set(parallel_max_segments);
 			//把线程池交给帧模块（第一百九十七轮：场景 pass 次级缓冲并行录制；空 / 0 线程时退回单线程）
 			impl->frame.thread_pool_set(&impl->thread_pool);
 			logger.info("渲染器:: 渲染工作线程 {}（每帧实例容量 {}）", render_threads, instance_capacity);

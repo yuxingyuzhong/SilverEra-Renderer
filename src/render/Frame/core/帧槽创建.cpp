@@ -536,6 +536,17 @@ namespace engine
 		parallel_min_items = count;
 	}
 
+	//设置并行录制的最大段数（第二百零三轮）
+	void Frame_Context::parallel_max_segments_set(uint32_t count)
+	{
+		//钳到 2..32（低于 2 段没有并行意义，过高会让单段过短）
+		if (count < 2)
+			count = 2;
+		if (count > 32)
+			count = 32;
+		parallel_max_segments = count;
+	}
+
 	//确保该帧槽的次级命令缓冲数量（第一百九十七轮）
 	bool Frame_Context::secondary_buffers_ensure(Frame_Slot& slot, uint32_t count)
 	{

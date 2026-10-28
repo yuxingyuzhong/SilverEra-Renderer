@@ -195,8 +195,8 @@ namespace engine
 			&& thread_pool->active())
 		{
 			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > 8)
-				wanted = 8;
+			if (wanted > parallel_max_segments)
+				wanted = parallel_max_segments;
 			const uint32_t by_items = item_count / 16;
 			if (wanted > by_items)
 				wanted = by_items;
@@ -343,8 +343,8 @@ namespace engine
 			&& item_count >= parallel_min_items && thread_pool->active())
 		{
 			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > 8)
-				wanted = 8;
+			if (wanted > parallel_max_segments)
+				wanted = parallel_max_segments;
 			const uint32_t by_items = item_count / 16;
 			if (wanted > by_items)
 				wanted = by_items;
@@ -586,8 +586,8 @@ namespace engine
 		{
 			//候选段数
 			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > 8)
-				wanted = 8;
+			if (wanted > parallel_max_segments)
+				wanted = parallel_max_segments;
 			const uint32_t by_items = item_count / 16;
 			if (wanted > by_items)
 				wanted = by_items;

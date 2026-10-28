@@ -395,6 +395,8 @@ namespace engine
 		bool msaa_depth_resolve = true;
 		//并行录制的最小绘制项数（第二百零二轮；默认 32）
 		uint32_t parallel_min_items = 32;
+		//并行录制的最大段数（第二百零三轮；默认 8）
+		uint32_t parallel_max_segments = 8;
 		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）
 		uint32_t scene_input_locations = 0;
 		/*

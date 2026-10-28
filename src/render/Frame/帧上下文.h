@@ -284,6 +284,10 @@ namespace engine
 		绘制项少于此值时即使有工作线程也走单线程录制。
 		*/
 		void parallel_min_items_set(uint32_t count);
+		/*
+		设置并行录制的最大段数（第二百零三轮；钳到 2..32）
+		*/
+		void parallel_max_segments_set(uint32_t count);
 
 		/*
 		渲染一帧（取图像 → 录制 → 提交 → 呈现，可选像素回读）
@@ -612,6 +616,8 @@ namespace engine
 		std::vector<Recorded_Counts> parallel_counts;
 		//并行录制的最小绘制项数（第二百零二轮；默认 32）
 		uint32_t parallel_min_items = 32;
+		//并行录制的最大段数（第二百零三轮；默认 8）
+		uint32_t parallel_max_segments = 8;
 		//最近一帧并行录制的段数（第一百九十八轮；0 = 单线程录制）
 		uint32_t last_parallel_segments = 0;
 		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
