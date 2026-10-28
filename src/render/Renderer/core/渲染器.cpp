@@ -3714,14 +3714,20 @@ namespace engine
 		push[15] = 1.0f;
 		for (std::size_t index = 0; index < 4; ++index)
 			push[16 + index] = impl->material_tint_active ? impl->material_tint[index] : 1.0f;
+		/*
+		材质贴图参数（第一百二十四 / 一百八十四轮；offset 80 的 vec4）
+		x = 法线强度、y = 粗糙度贴图启用标志、z = Alpha 裁剪阈值、w = UV 旋转角。
+		实例化路径此前未写 x / y（法线映射与粗糙度贴图在实例化绘制下失效），本轮补齐。
+		*/
+		push[20] = impl->material_normal_strength;
+		push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+		push[22] = impl->material_alpha_cutoff;
+		push[23] = impl->material_uv_rotation;
 		//贴图 UV 变换（第一百七十一轮；实例化绘制同样使用吸附的材质 UV）
 		push[24] = impl->material_uv_scale[0];
 		push[25] = impl->material_uv_scale[1];
 		push[26] = impl->material_uv_offset[0];
 		push[27] = impl->material_uv_offset[1];
-		//Alpha 裁剪阈值与 UV 旋转（第一百八十三轮；默认 0 = 关闭 / 不旋转）
-		push[22] = impl->material_alpha_cutoff;
-		push[23] = impl->material_uv_rotation;
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
