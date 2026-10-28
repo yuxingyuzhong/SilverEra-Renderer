@@ -17,11 +17,12 @@ layout(set = 1, binding = 0) uniform sampler2D source_image;
 //场景深度（主 pass 后已转为着色器可读，空区域为 1.0）
 layout(set = 1, binding = 2) uniform sampler2D depth_image;
 
-//推送常量：源 / 宿尺寸（offset 80）与逐级后处理参数（offset 96）
+//推送常量：源 / 宿尺寸（offset 80）、逐级后处理参数（offset 96）与描边色（offset 112）
 layout(push_constant) uniform Push_Post
 {
 	layout(offset = 80) vec4 size_xy;
 	layout(offset = 96) vec4 post_param;
+	layout(offset = 112) vec4 outline_color;
 } push;
 
 //按偏移取深度（越界钳到边缘）
@@ -55,7 +56,7 @@ void main()
 	//边缘权重与强度
 	float edge = clamp(laplacian / max(threshold, 0.00001), 0.0, 1.0);
 	float strength = clamp(push.post_param.x, 0.0, 1.0);
-	//原色按权重压暗
+	//原色按权重混向描边色（默认黑 = 压暗轮廓，与引入参数前逐字节一致；第一百八十一轮）
 	vec4 source = texelFetch(source_image, source_coord, 0);
-	out_color = vec4(source.rgb * (1.0 - edge * strength), 1.0);
+	out_color = vec4(mix(source.rgb, push.outline_color.rgb, clamp(edge * strength, 0.0, 1.0)), 1.0);
 }

@@ -421,6 +421,13 @@ namespace engine
 		*/
 		float post_stage_param[POST_CHAIN_MAX_STAGES][4] = {};
 		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
+		/*
+		逐级描边色（第一百八十一轮）
+		post_stage_color[stage] 为该级的描边色（rgb 0..1；默认 (0,0,0) = 压暗到黑）；
+		随「源 / 宿尺寸 ＋ 泛光参数」一并经推送常量（offset 112）下发；post_chain_set 时整体清除。
+		*/
+		float post_stage_color[POST_CHAIN_MAX_STAGES][4] = {};
+		bool post_stage_color_valid[POST_CHAIN_MAX_STAGES] = {};
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
 		/*

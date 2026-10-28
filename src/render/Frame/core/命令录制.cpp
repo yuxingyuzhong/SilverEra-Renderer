@@ -906,15 +906,18 @@ namespace engine
 			//本级源目标（第 stage 级读第 stage % 目标数 个中间目标）
 			const Frame_Render_Target& source = targets[stage % target_count];
 			/*
-			本级「源 / 宿尺寸 ＋ 泛光参数」推送（offset 80，共 8 个浮点）
+			本级「源 / 宿尺寸 ＋ 泛光参数 ＋ 描边色」推送（offset 80，共 12 个浮点）
 			前 4 个为源宽 / 源高 / 宿宽 / 宿高（后处理片元据此映射像素坐标）；
-			后 4 个为泛光阈值 / 软膝 / 强度 / 保留（由门面写在绘制项里）。
+			其后 4 个为泛光阈值 / 软膝 / 强度 / 保留（由门面写在绘制项里）；
+			最后 4 个为描边色（rgb ＋ 保留；第一百八十一轮，默认黑 = 压暗轮廓）。
 			*/
-			float stage_uniform[8] = {
+			float stage_uniform[12] = {
 				static_cast<float>(source.extent.width), static_cast<float>(source.extent.height),
 				static_cast<float>(stage_extent.width), static_cast<float>(stage_extent.height),
 				post_items[stage].post_params[0], post_items[stage].post_params[1],
 				post_items[stage].post_params[2], post_items[stage].post_params[3],
+				post_items[stage].post_color[0], post_items[stage].post_color[1],
+				post_items[stage].post_color[2], post_items[stage].post_color[3],
 			};
 			//本级绘制项（复制后补推送数据；不改调用方数组）
 			Frame_Render_Item stage_item = post_items[stage];

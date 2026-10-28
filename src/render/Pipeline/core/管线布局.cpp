@@ -22,7 +22,8 @@ namespace engine
 		VkPushConstantRange push_range{};
 		push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		push_range.offset = 0;
-		push_range.size = 112;
+		//第一百八十一轮由 112 扩为 128：后处理描边色（offset 112，vec4）
+		push_range.size = 128;
 
 		//管线布局创建信息
 		VkPipelineLayoutCreateInfo layout_info{};

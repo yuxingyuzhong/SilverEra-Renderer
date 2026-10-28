@@ -817,6 +817,12 @@ namespace engine
 		*/
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
 		/*
+		设置某一级后处理链的描边色（第一百八十一轮新增；配合 `深度描边.frag`）
+		stage 为链内级序（0 起，须小于当前链级数）；rgb 为描边色（0..1，非有限值按 0，其余逐分量钳制）。
+		默认黑 (0,0,0) 表示把轮廓压暗到黑，与引入该参数前逐字节一致；post_chain_set 会清除全部逐级专设色。
+		*/
+		void post_stage_color_set(uint32_t stage, float r, float g, float b);
+		/*
 		批量读回当前链各级的专设参数（第八十二轮新增；只读诊断）
 		out 按「级序 × 4 浮点」紧排（阈值 / 软膝 / 强度 / 保留），最多写 capacity / 4 级；
 		返回值 = 实际写入的级数 = min(链级数, capacity / 4)；未专设的级写 0。

@@ -72,6 +72,9 @@ namespace engine
 							&& memcmp(last.push_constants, item.push_constants, last.push_constant_size) == 0;
 					//后处理参数是否一致（场景项恒相等）
 					bool post_same = memcmp(last.post_params, item.post_params, sizeof(last.post_params)) == 0;
+					//描边色是否一致（第一百八十一轮；场景项恒全零）
+					if (post_same)
+						post_same = memcmp(last.post_color, item.post_color, sizeof(last.post_color)) == 0;
 					//实例区是否首尾相接
 					bool instance_adjacent = last.instance_buffer == item.instance_buffer
 						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
@@ -1321,9 +1324,12 @@ namespace engine
 		impl->ssaa_extent_failed = false;
 		//复位 MSAA 采样数（第九十六轮）
 		impl->msaa_samples = 1;
-		//复位逐级泛光参数覆盖与剔除观测
+		//复位逐级泛光参数覆盖与描边色专设，并复位剔除观测
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+		{
 			impl->post_stage_param_valid[stage] = false;
+			impl->post_stage_color_valid[stage] = false;
+		}
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
 		impl->cull_enabled = true;
@@ -2663,6 +2669,19 @@ namespace engine
 						//否则用全局泛光参数
 						for (std::size_t each = 0; each < 4; ++each)
 							post_item.post_params[each] = impl->bloom_param[each];
+					}
+					//描边色（第一百八十一轮；未专设时为黑 = 压暗轮廓）
+					if (index < Impl::POST_CHAIN_MAX_STAGES && impl->post_stage_color_valid[index])
+					{
+						//该级有专设描边色则取专设值
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_color[each] = impl->post_stage_color[index][each];
+					}
+					else
+					{
+						//否则保持默认黑
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_color[each] = 0.0f;
 					}
 					post_items.push_back(post_item);
 				}
@@ -4336,7 +4355,10 @@ namespace engine
 				逐级专设参数按旧下标存放，压缩后会错位到别的级，故整体清除（宁可回到全局参数，不可错配）。
 				*/
 				for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+				{
 					impl->post_stage_param_valid[stage] = false;
+					impl->post_stage_color_valid[stage] = false;
+				}
 				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）；逐级参数已整体清除",
 					handle, impl->post_chain.size());
 			}
@@ -5068,9 +5090,13 @@ namespace engine
 		if (count == 0)
 		{
 			impl->post_chain.clear();
-			//链已清空 → 逐级专设参数一并失效
+			//链已清空 → 逐级专设参数与描边色一并失效
 			for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+			{
 				impl->post_stage_param_valid[stage] = false;
+				impl->post_stage_color_valid[stage] = false;
+			}
+
 			logger.info("渲染器:: 后处理链已清除（回落单级默认后处理）");
 			return true;
 		}
@@ -5102,9 +5128,13 @@ namespace engine
 		}
 		//写入链（保持各句柄的登记顺序不变）
 		impl->post_chain.assign(handles, handles + count);
-		//链已变 → 逐级专设参数失效（旧下标对应旧级序）
+		//链已变 → 逐级专设参数与描边色失效（旧下标对应旧级序）
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
+		{
 			impl->post_stage_param_valid[stage] = false;
+			impl->post_stage_color_valid[stage] = false;
+		}
+
 		logger.info("渲染器:: 后处理链已设置（{} 级）", count);
 		return true;
 	}
@@ -5404,6 +5434,31 @@ namespace engine
 		impl->post_stage_param[stage][2] = z;
 		impl->post_stage_param[stage][3] = w;
 		impl->post_stage_param_valid[stage] = true;
+	}
+
+	//设置某一级后处理链的描边色（第一百八十一轮）
+	void Renderer::post_stage_color_set(uint32_t stage, float r, float g, float b)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级描边色设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		//逐分量归一：非有限值按 0（黑），否则钳到 [0, 1]
+		const float channels[3] = { r, g, b };
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			float value = std::isfinite(channels[index]) ? channels[index] : 0.0f;
+			impl->post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+		}
+		//第四分量保留（恒 0）
+		impl->post_stage_color[stage][3] = 0.0f;
+		impl->post_stage_color_valid[stage] = true;
 	}
 
 	//启用 / 关闭视锥剔除
