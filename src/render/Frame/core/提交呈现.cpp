@@ -187,6 +187,29 @@ namespace engine
 
 		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
+		/*
+		场景 pass 并行录制准备（第一百九十九轮；交换链直通路径）
+		条件与同帧后处理链一致：线程 > 1、绘制项 ≥ 32、段数 = min(线程, 8, 项 / 16) ≥ 2、次级缓冲就绪。
+		*/
+		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= 32
+			&& thread_pool->active())
+		{
+			uint32_t wanted = thread_pool->thread_count_get();
+			if (wanted > 8)
+				wanted = 8;
+			const uint32_t by_items = item_count / 16;
+			if (wanted > by_items)
+				wanted = by_items;
+			if (wanted >= 2 && secondary_buffers_ensure(slot, wanted))
+			{
+				active_secondary = slot.secondary_buffers.data();
+				active_secondary_count = wanted;
+				active_color_format = swapchain.format_get();
+				active_depth_format = swapchain.depth_format_get();
+				active_sample_count = swapchain.sample_count_get();
+				parallel_counts.assign(wanted, Recorded_Counts{});
+			}
+		}
 		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
@@ -194,6 +217,9 @@ namespace engine
 			slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
 			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
+		//并行上下文只对本帧录制有效
+		active_secondary = nullptr;
+		active_secondary_count = 0;
 		//录制阶段耗时（第一百三十三轮）
 		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 
