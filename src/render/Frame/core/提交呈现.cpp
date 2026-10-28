@@ -334,10 +334,37 @@ namespace engine
 
 		//本帧计时起点（主机侧录制 ＋ 提交）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
+		/*
+		场景 pass 并行录制准备（第二百轮；离屏目标路径）
+		阴影 pass 不并行（其颜色格式固定为 RGBA8，与交换链格式不同，继承信息需按目标格式声明）；
+		其余条件与交换链直通路径一致。
+		*/
+		if (!shadow_pass && thread_pool != nullptr && thread_pool->thread_count_get() > 1
+			&& item_count >= 32 && thread_pool->active())
+		{
+			uint32_t wanted = thread_pool->thread_count_get();
+			if (wanted > 8)
+				wanted = 8;
+			const uint32_t by_items = item_count / 16;
+			if (wanted > by_items)
+				wanted = by_items;
+			if (wanted >= 2 && secondary_buffers_ensure(slot, wanted))
+			{
+				active_secondary = slot.secondary_buffers.data();
+				active_secondary_count = wanted;
+				active_color_format = target.color_format;
+				active_depth_format = target.depth_format;
+				active_sample_count = target.sample_count > 1 ? target.sample_count : 1;
+				parallel_counts.assign(wanted, Recorded_Counts{});
+			}
+		}
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
 		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
 			readback_target, shadow_pass ? slot.shadow_timestamp_pool : slot.timestamp_pool, shadow_pass);
+		//并行上下文只对本帧录制有效
+		active_secondary = nullptr;
+		active_secondary_count = 0;
 		//录制阶段耗时（第一百三十三轮）
 		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
 

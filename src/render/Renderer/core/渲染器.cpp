@@ -2499,6 +2499,9 @@ namespace engine
 				&& impl->render_target.target_msaa_get(impl->ssaa_resolve_target, targets[1].msaa_color_image,
 					targets[1].msaa_color_view, targets[1].msaa_depth_view, targets[1].sample_count)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+			//并行录制格式（第二百轮；SSAA 目标与交换链同格式）
+			targets[0].color_format = impl->swapchain.format_get();
+			targets[0].depth_format = impl->swapchain.depth_format_get();
 			//取共享采样器（用于写后处理采样集）
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler shared_sampler = VK_NULL_HANDLE;
@@ -2593,6 +2596,9 @@ namespace engine
 				&& impl->render_target.target_msaa_get(impl->present_target, targets[0].msaa_color_image,
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+			//并行录制格式（第二百轮；场景目标与交换链同格式）
+			targets[0].color_format = impl->swapchain.format_get();
+			targets[0].depth_format = impl->swapchain.depth_format_get();
 			/*
 			MSAA 深度解析目标（第一百九十轮）
 			开启深度解析时取场景目标的多重采样深度图像，帧模块据此在场景 pass 结束时
@@ -2759,6 +2765,9 @@ namespace engine
 				&& impl->render_target.target_msaa_get(impl->active_target, target.msaa_color_image,
 					target.msaa_color_view, target.msaa_depth_view, target.sample_count))
 			{
+				//并行录制格式（第二百轮；离屏目标与交换链同格式）
+				target.color_format = impl->swapchain.format_get();
+				target.depth_format = impl->swapchain.depth_format_get();
 				offscreen = true;
 				//渲染到离屏目标（不取交换链图像、不呈现）
 				if (!impl->frame.render_to_target(target, impl->pending_items.data(),

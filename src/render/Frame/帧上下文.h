@@ -191,6 +191,13 @@ namespace engine
 		*/
 		VkImage msaa_depth_image = VK_NULL_HANDLE;
 		uint32_t sample_count = 1;
+		/*
+		颜色 / 深度格式（第二百轮）
+		供并行录制时次级命令缓冲的 VkCommandBufferInheritanceRenderingInfo 使用；
+		离屏目标通常与交换链同格式，阴影目标为独立固定格式。
+		*/
+		VkFormat color_format = VK_FORMAT_UNDEFINED;
+		VkFormat depth_format = VK_FORMAT_UNDEFINED;
 		//渲染范围
 		VkExtent2D extent = { 0, 0 };
 		/*
