@@ -176,6 +176,12 @@ namespace engine
 		VkImage msaa_color_image = VK_NULL_HANDLE;
 		VkImageView msaa_color_view = VK_NULL_HANDLE;
 		VkImageView msaa_depth_view = VK_NULL_HANDLE;
+		/*
+		MSAA 深度图像（第一百九十轮；sample_count > 1 且开启深度解析时非空）
+		场景 pass 结束时由动态渲染的深度解析写入单采样深度（depth_image）；
+		该字段为空即表示本路径不做深度解析（后处理深度类阶段读到未定义内容）。
+		*/
+		VkImage msaa_depth_image = VK_NULL_HANDLE;
 		uint32_t sample_count = 1;
 		//渲染范围
 		VkExtent2D extent = { 0, 0 };

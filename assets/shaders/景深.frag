@@ -9,7 +9,8 @@
 	w = 保留
 深度换算：透视投影下 depth ∈ [0,1]，距离 = near × far / (far − depth × (far − near))；
 	双级级联阴影与景深互不影响（后者只读深度图）。
-注意：MSAA 开启时主 pass 的深度写入多重采样附件，单采样深度图未被写入，故景深需在 1× 采样下使用。
+注意：MSAA 开启时主 pass 的深度写入多重采样附件，由场景 pass 结束时按样本 0 解析到单采样深度图
+	（第一百九十轮；Renderer_Config::msaa_depth_resolve 默认开启），故本阶段可直接使用。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;

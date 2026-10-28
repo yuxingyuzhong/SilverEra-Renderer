@@ -1215,6 +1215,8 @@ namespace engine
 		impl->ssaa_extent_failed = false;
 		//记录生效的 MSAA 采样数（已按设备支持钳制）
 		impl->config.msaa_samples = impl->msaa_samples;
+		//MSAA 深度解析开关（第一百九十轮；默认开启）
+		impl->msaa_depth_resolve = effective.msaa_depth_resolve;
 		impl->initialized = true;
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
@@ -1330,6 +1332,8 @@ namespace engine
 		impl->ssaa_extent_failed = false;
 		//复位 MSAA 采样数（第九十六轮）
 		impl->msaa_samples = 1;
+		//复位 MSAA 深度解析开关（第一百九十轮；默认开启）
+		impl->msaa_depth_resolve = true;
 		//复位逐级泛光参数覆盖与描边色专设，并复位剔除观测
 		for (std::size_t stage = 0; stage < Impl::POST_CHAIN_MAX_STAGES; ++stage)
 		{
@@ -2578,6 +2582,14 @@ namespace engine
 				&& impl->render_target.target_msaa_get(impl->present_target, targets[0].msaa_color_image,
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
 				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+			/*
+			MSAA 深度解析目标（第一百九十轮）
+			开启深度解析时取场景目标的多重采样深度图像，帧模块据此在场景 pass 结束时
+			把深度解析到 targets[0].depth_image（后处理阶段采样那张）；
+			关闭或目标无多重采样深度时留空（帧模块跳过解析，保持既有行为）。
+			*/
+			if (ready && impl->msaa_depth_resolve)
+				impl->render_target.target_msaa_depth_image_get(impl->present_target, targets[0].msaa_depth_image);
 			//逐个取额外中间目标附件
 			for (std::size_t each = 1; ready && each < targets.size(); ++each)
 				ready = impl->render_target.target_get(impl->present_extra[each - 1], targets[each].color_image,
@@ -3055,6 +3067,27 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 1;
 		return impl->msaa_samples;
+	}
+
+	//设置 MSAA 深度解析开关（第一百九十轮）
+	void Renderer::msaa_depth_resolve_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//记录开关（下一帧起由帧模块据此决定是否取多重采样深度图像）
+		impl->msaa_depth_resolve = enabled;
+		impl->config.msaa_depth_resolve = enabled;
+		logger.info("渲染器:: MSAA 深度解析已{}（下一帧生效）", enabled ? "开启" : "关闭");
+	}
+
+	//当前 MSAA 深度解析开关（第一百九十轮）
+	bool Renderer::msaa_depth_resolve(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->msaa_depth_resolve;
 	}
 
 	//当前颜色 / 深度格式共同支持的最大 MSAA 采样数（第九十九轮）

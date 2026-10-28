@@ -48,6 +48,13 @@ namespace engine
 		uint32_t ssaa_factor = 1;
 		//多重采样抗锯齿采样数（第九十六轮；1 = 关闭，2/4/8 = MSAA；默认 1 保持既有画面逐字节不变）
 		uint32_t msaa_samples = 1;
+		/*
+		MSAA 深度解析（第一百九十轮；默认开启）
+		采样数 > 1 时，场景 pass 结束时把多重采样深度按「样本 0」解析到单采样深度图像，
+		使景深 / 深度描边 / 屏幕空间遮蔽等深度类后处理在 MSAA 下读到有效深度（此前读到的是未定义内容）。
+		采样数为 1 或目标无多重采样深度时该开关无作用（画面逐字节不变）。
+		*/
+		bool msaa_depth_resolve = true;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*
@@ -297,6 +304,15 @@ namespace engine
 		void msaa_samples_set(uint32_t samples);
 		//当前 MSAA 采样数（未初始化或关闭时为 1）
 		uint32_t msaa_samples(void) const;
+		/*
+		设置 MSAA 深度解析开关（第一百九十轮；默认开启）
+		开启时采样数 > 1 的场景 pass 结束时把多重采样深度按「样本 0」解析到单采样深度图像，
+		使深度类后处理（景深 / 深度描边 / 屏幕空间遮蔽）可读到有效深度；
+		自调用后下一次 frame_render 起生效（不重建任何资源）；未初始化时静默忽略。
+		*/
+		void msaa_depth_resolve_set(bool enabled);
+		//当前 MSAA 深度解析开关（未初始化时为假）
+		bool msaa_depth_resolve(void) const;
 		/*
 		当前颜色 / 深度格式共同支持的最大 MSAA 采样数（第九十九轮）
 		返回 1 / 2 / 4 / 8；未初始化或均不支持时返回 1。

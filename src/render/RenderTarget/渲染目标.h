@@ -125,6 +125,12 @@ namespace engine
 		bool target_msaa_get(uint64_t handle, VkImage& msaa_color_image_out, VkImageView& msaa_color_view_out,
 			VkImageView& msaa_depth_view_out, uint32_t& sample_count_out) const;
 		/*
+		取目标 MSAA 深度图像（第一百九十轮）
+		供场景 pass 结束时以「深度解析」把多重采样深度写入单采样深度图像（后处理阶段采样那张）。
+		关闭 MSAA 时写出空图像（调用方据此跳过解析）。句柄无效或记录已空时返回假且出参为空。
+		*/
+		bool target_msaa_depth_image_get(uint64_t handle, VkImage& msaa_depth_image_out) const;
+		/*
 		读回渲染目标的颜色图像到主机缓冲（第二十六轮新增）
 		pixels 为 RGBA8 紧排（逐行自上而下、无行填充），capacity 须不小于 宽×高×4；
 		width_out / height_out 非空时回填实际尺寸。读取完成后颜色图像仍回到 SHADER_READ_ONLY。

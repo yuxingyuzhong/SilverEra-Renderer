@@ -391,6 +391,8 @@ namespace engine
 		float sky_specular = 0.0f;
 		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
 		uint32_t msaa_samples = 1;
+		//MSAA 深度解析开关（第一百九十轮；默认开启，仅影响采样数 > 1 且走后处理链的路径）
+		bool msaa_depth_resolve = true;
 		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）
 		uint32_t scene_input_locations = 0;
 		/*

@@ -460,6 +460,24 @@ namespace engine
 		return true;
 	}
 
+	//取目标 MSAA 深度图像（第一百九十轮）
+	bool Render_Target_Context::target_msaa_depth_image_get(uint64_t handle, VkImage& msaa_depth_image_out) const
+	{
+		//出参先复位
+		msaa_depth_image_out = VK_NULL_HANDLE;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出 MSAA 深度图像（关闭 MSAA 时为空）
+		msaa_depth_image_out = record.msaa_depth_image;
+		return true;
+	}
+
 	//归还单个记录的图像与视图（颜色与深度各自先视图后图像）
 	void Render_Target_Context::record_resources_destroy(Render_Target_Record& record)
 	{
