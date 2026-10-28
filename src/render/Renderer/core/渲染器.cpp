@@ -1849,6 +1849,8 @@ namespace engine
 					logger.error("渲染器:: 阴影 pass 等待完成失败");
 					return false;
 				}
+				//记录阴影 pass 的并行段数（最后一次分片录制的结果；第二百一十二轮）
+				impl->last_shadow_parallel_segments = impl->frame.last_parallel_segments_get();
 				//读回阴影 pass 的 GPU 耗时（第一百二十八轮；此时该提交已完成）
 				impl->shadow_gpu_ms = impl->frame.shadow_gpu_ms_read();
 				//记录本帧签名并标记阴影图可复用
@@ -2984,6 +2986,8 @@ namespace engine
 		stats.shadow_reuses = impl->shadow_reuses;
 		stats.last_shadow_items = impl->last_shadow_items;
 		stats.shadow_last_redrawn = impl->shadow_last_redrawn;
+		//最近一次阴影 pass 的并行段数（第二百一十二轮）
+		stats.shadow_parallel_segments = impl->last_shadow_parallel_segments;
 		//累计按需上传字节（第七十二轮）
 		stats.scene_upload_bytes = impl->scene_upload_bytes;
 		stats.instance_upload_bytes = impl->instance_upload_bytes;

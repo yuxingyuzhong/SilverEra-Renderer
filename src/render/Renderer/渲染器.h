@@ -206,6 +206,12 @@ namespace engine
 		uint32_t last_shadow_items = 0;
 		uint32_t shadow_last_redrawn = 0;
 		/*
+		最近一次阴影 pass 的并行段数（第二百一十二轮）
+		0 = 单线程录制（默认、投影项未达 `parallel_min_items`、线程数不足）；
+		≥ 2 表示阴影命令由多段次级缓冲并行录制。与 parallel_segments（最近一帧场景 pass）分列，便于分别观测两条录制链路。
+		*/
+		uint32_t shadow_parallel_segments = 0;
+		/*
 		累计按需上传字节（第七十二轮新增；与门面 scene_upload_bytes / instance_upload_bytes 同源）
 		场景 UBO 以 16 字节为单元、实例缓冲以一个实例（80 字节）为单元，仅写入变化区间。
 		*/
