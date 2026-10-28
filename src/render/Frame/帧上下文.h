@@ -514,6 +514,28 @@ namespace engine
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
 		*/
 		Recorded_Counts items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
+		/*
+		并行录制规划（实现见 core/并行录制.cpp；第二百零八轮统一口径）
+		条件：线程池已启动（> 1 线程）、绘制项 ≥ parallel_min_items、
+		段数 = min(线程数, parallel_max_segments, 项数 / 16) ≥ 2、该帧槽次级缓冲就绪；
+		满足时填充并行上下文并返回段数，否则返回 0（调用方走单线程录制）。
+		链 / 直通 / 离屏三条录制路径共用本方法，避免段数口径分叉。
+		*/
+		uint32_t parallel_plan(Frame_Slot& slot, uint32_t item_count, VkFormat color_format,
+			VkFormat depth_format, uint32_t sample_count);
+		/*
+		场景 pass 并行段录制（实现见 core/并行录制.cpp；第二百零八轮统一口径）
+		active_secondary_count ≥ 2 且存在绘制项时，把绘制项按「项数均分」切成若干段，
+		每段由一个次级命令缓冲**完整包含**一个动态渲染实例（首段沿用入参 loadOp、其余保留；
+		多重采样解析只在末段开启）；单采样时 UI 回调放在末段（与单线程位置一致）；
+		主缓冲一次 vkCmdExecuteCommands 顺序执行各段（GPU 执行顺序与单线程一致）。
+		成功返回实际段数，并把各段绘制量汇总进 frame_recorded、回填 last_parallel_segments；
+		返回 0 表示未并行（调用方须自行录制单线程路径）。
+		*/
+		uint32_t scene_parallel_record(VkCommandBuffer command_buffer, const VkRenderingInfo& rendering_info,
+			const VkRenderingAttachmentInfo& color_attachment, const VkRenderingAttachmentInfo& depth_attachment,
+			VkViewport viewport, VkRect2D scissor, const Frame_Render_Item* items, uint32_t item_count,
+			uint32_t sample_count, const Frame_Ui_Callback* ui_callback);
 		//提交并呈现（实现见 core/提交呈现.cpp；render_finished 为按交换链图像持有的呈现完成信号量）
 		/*
 		提交并呈现
@@ -602,9 +624,8 @@ namespace engine
 		//本帧已录制期间累计的实际绘制量（每次 render 起始处清零，录制时由 items_record 递增）
 		Recorded_Counts frame_recorded{};
 		/*
-		并行录制上下文（第一百九十七轮）
-		由 render_chain_present 在调用 command_record_chain_present 前填充；段数为 0 表示单线程录制。
-		次级缓冲须与主缓冲同属该帧槽（由 secondary_buffers_ensure 分配）。
+		并行录制上下文（第一百九十七轮；第二百零八轮起统一由 parallel_plan 填充）
+		段数为 0 表示单线程录制；次级缓冲须与主缓冲同属该帧槽（由 secondary_buffers_ensure 分配）。
 		*/
 		Thread_Pool* thread_pool = nullptr;
 		VkCommandBuffer* active_secondary = nullptr;

@@ -228,88 +228,13 @@ namespace engine
 		scissor.offset = { 0, 0 };
 		scissor.extent = extent;
 		/*
-		场景 pass 的并行录制（第一百九十九轮；交换链直通路径）
-		与同帧后处理链同口径：段内完整渲染实例、首段 CLEAR / 其余 LOAD、MSAA 解析仅末段；
+		场景 pass 的并行录制（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
+		段内完整渲染实例、首段清屏、其余保留；MSAA 解析仅末段；
 		单采样时 UI 与场景共用本通道，故 UI 回调放在末段（位置与单线程一致）。
+		返回 0 表示未规划并行（线程数 / 项数 / 次级缓冲不满足），走下方单线程录制。
 		*/
-		if (active_secondary_count >= 2 && active_secondary != nullptr && item_count > 0
-			&& parallel_counts.size() >= active_secondary_count)
-		{
-			//段数（不超过绘制项数）
-			const uint32_t segment_count = active_secondary_count < item_count ? active_secondary_count : item_count;
-			//视口 / 裁剪（与单线程路径同值）
-			VkViewport segment_viewport{};
-			segment_viewport.x = 0.0f;
-			segment_viewport.y = 0.0f;
-			segment_viewport.width = static_cast<float>(extent.width);
-			segment_viewport.height = static_cast<float>(extent.height);
-			segment_viewport.minDepth = 0.0f;
-			segment_viewport.maxDepth = 1.0f;
-			VkRect2D segment_scissor{};
-			segment_scissor.offset = { 0, 0 };
-			segment_scissor.extent = extent;
-			//逐段录制（每段由单一工作线程完整录制）
-			thread_pool->ranges_run(segment_count, 1, [&](std::size_t begin, std::size_t end) {
-				for (std::size_t segment = begin; segment < end; ++segment)
-				{
-					//本段项区间（按索引均分）
-					const uint32_t start = static_cast<uint32_t>(segment * item_count / segment_count);
-					const uint32_t finish = static_cast<uint32_t>((segment + 1) * item_count / segment_count);
-					VkCommandBuffer segment_buffer = active_secondary[segment];
-					//继承的渲染信息（声明附件格式与采样数）
-					VkCommandBufferInheritanceRenderingInfo inheritance_rendering{};
-					inheritance_rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
-					inheritance_rendering.colorAttachmentCount = 1;
-					inheritance_rendering.pColorAttachmentFormats = &active_color_format;
-					inheritance_rendering.depthAttachmentFormat = active_depth_format;
-					inheritance_rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(active_sample_count);
-					VkCommandBufferInheritanceInfo inheritance{};
-					inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-					inheritance.pNext = &inheritance_rendering;
-					VkCommandBufferBeginInfo segment_begin{};
-					segment_begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-					segment_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-					segment_begin.pInheritanceInfo = &inheritance;
-					vk_result_check(vkBeginCommandBuffer(segment_buffer, &segment_begin), "vkBeginCommandBuffer(次级)");
-					//本段附件：首段清屏、其余保留；解析只在末段
-					VkRenderingAttachmentInfo segment_color = color_attachment;
-					segment_color.loadOp = segment == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-					VkRenderingAttachmentInfo segment_depth = depth_attachment;
-					segment_depth.loadOp = segment == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-					if (segment + 1 != segment_count)
-					{
-						segment_color.resolveMode = VK_RESOLVE_MODE_NONE;
-						segment_color.resolveImageView = VK_NULL_HANDLE;
-					}
-					VkRenderingInfo segment_rendering = rendering_info;
-					segment_rendering.pColorAttachments = &segment_color;
-					segment_rendering.pDepthAttachment = &segment_depth;
-					vkCmdBeginRendering(segment_buffer, &segment_rendering);
-					vkCmdSetViewport(segment_buffer, 0, 1, &segment_viewport);
-					vkCmdSetScissor(segment_buffer, 0, 1, &segment_scissor);
-					//本段绘制（各段只写自己的统计槽）
-					parallel_counts[segment] = items_record(segment_buffer, items + start, finish - start);
-					//单采样时 UI 与场景共用通道：放在末段
-					if (segment + 1 == segment_count && sample_count <= 1
-						&& ui_callback != nullptr && ui_callback->fn != nullptr)
-						ui_callback->fn(segment_buffer, ui_callback->user_data);
-					vkCmdEndRendering(segment_buffer);
-					vk_result_check(vkEndCommandBuffer(segment_buffer), "vkEndCommandBuffer(次级)");
-				}
-			});
-			//主缓冲顺序执行各段
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-				vkCmdExecuteCommands(command_buffer, 1, &active_secondary[segment]);
-			//汇总各段实际绘制量
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-			{
-				frame_recorded.items += parallel_counts[segment].items;
-				frame_recorded.instances += parallel_counts[segment].instances;
-			}
-			last_parallel_segments = segment_count;
-		}
-		//否则走单线程录制（既有路径）
-		else
+		if (scene_parallel_record(command_buffer, rendering_info, color_attachment, depth_attachment,
+			viewport, scissor, items, item_count, sample_count, ui_callback) == 0)
 		{
 		//进入动态渲染
 		vkCmdBeginRendering(command_buffer, &rendering_info);
@@ -605,72 +530,13 @@ namespace engine
 			scissor = target.viewport_rect;
 		}
 		/*
-		场景 pass 的并行录制（第二百轮；离屏目标路径）
-		与其余路径同口径：段内完整渲染实例、首段 CLEAR / 其余 LOAD、MSAA 解析仅末段；
-		单采样时 UI 与场景共用本通道，故 UI 回调放在末段。
+		场景 pass 的并行录制（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
+		段内完整渲染实例、首段沿用清屏、其余保留；MSAA 解析仅末段；
+		单采样时 UI 与场景共用本通道，故 UI 回调放在末段（位置与单线程一致）。
+		返回 0 表示未规划并行（线程数 / 项数 / 次级缓冲不满足），走下方单线程录制。
 		*/
-		if (active_secondary_count >= 2 && active_secondary != nullptr && item_count > 0
-			&& parallel_counts.size() >= active_secondary_count)
-		{
-			const uint32_t segment_count = active_secondary_count < item_count ? active_secondary_count : item_count;
-			thread_pool->ranges_run(segment_count, 1, [&](std::size_t begin, std::size_t end) {
-				for (std::size_t segment = begin; segment < end; ++segment)
-				{
-					const uint32_t start = static_cast<uint32_t>(segment * item_count / segment_count);
-					const uint32_t finish = static_cast<uint32_t>((segment + 1) * item_count / segment_count);
-					VkCommandBuffer segment_buffer = active_secondary[segment];
-					VkCommandBufferInheritanceRenderingInfo inheritance_rendering{};
-					inheritance_rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
-					inheritance_rendering.colorAttachmentCount = 1;
-					inheritance_rendering.pColorAttachmentFormats = &active_color_format;
-					inheritance_rendering.depthAttachmentFormat = active_depth_format;
-					inheritance_rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(active_sample_count);
-					VkCommandBufferInheritanceInfo inheritance{};
-					inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-					inheritance.pNext = &inheritance_rendering;
-					VkCommandBufferBeginInfo segment_begin{};
-					segment_begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-					segment_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-					segment_begin.pInheritanceInfo = &inheritance;
-					vk_result_check(vkBeginCommandBuffer(segment_buffer, &segment_begin), "vkBeginCommandBuffer(次级)");
-					//本段附件：首段清屏（或被要求保留）、其余保留；解析只在末段
-					VkRenderingAttachmentInfo segment_color = color_attachment;
-					segment_color.loadOp = segment == 0 ? color_attachment.loadOp : VK_ATTACHMENT_LOAD_OP_LOAD;
-					VkRenderingAttachmentInfo segment_depth = depth_attachment;
-					segment_depth.loadOp = segment == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-					if (segment + 1 != segment_count)
-					{
-						segment_color.resolveMode = VK_RESOLVE_MODE_NONE;
-						segment_color.resolveImageView = VK_NULL_HANDLE;
-					}
-					VkRenderingInfo segment_rendering = rendering_info;
-					segment_rendering.pColorAttachments = &segment_color;
-					segment_rendering.pDepthAttachment = &segment_depth;
-					vkCmdBeginRendering(segment_buffer, &segment_rendering);
-					vkCmdSetViewport(segment_buffer, 0, 1, &viewport);
-					vkCmdSetScissor(segment_buffer, 0, 1, &scissor);
-					parallel_counts[segment] = items_record(segment_buffer, items + start, finish - start);
-					//单采样时 UI 与场景共用通道：放在末段
-					if (segment + 1 == segment_count && target.sample_count <= 1
-						&& ui_callback != nullptr && ui_callback->fn != nullptr)
-						ui_callback->fn(segment_buffer, ui_callback->user_data);
-					vkCmdEndRendering(segment_buffer);
-					vk_result_check(vkEndCommandBuffer(segment_buffer), "vkEndCommandBuffer(次级)");
-				}
-			});
-			//主缓冲顺序执行各段
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-				vkCmdExecuteCommands(command_buffer, 1, &active_secondary[segment]);
-			//汇总各段实际绘制量
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-			{
-				frame_recorded.items += parallel_counts[segment].items;
-				frame_recorded.instances += parallel_counts[segment].instances;
-			}
-			last_parallel_segments = segment_count;
-		}
-		//否则走单线程录制（既有路径）
-		else
+		if (scene_parallel_record(command_buffer, rendering_info, color_attachment, depth_attachment,
+			viewport, scissor, items, item_count, target.sample_count, ui_callback) == 0)
 		{
 		//进入动态渲染
 		vkCmdBeginRendering(command_buffer, &rendering_info);
@@ -960,104 +826,27 @@ namespace engine
 		//清零并行段数（并行分支按实际段数回填；第一百九十八轮）
 		last_parallel_segments = 0;
 		/*
-		场景 pass 的并行录制（第一百九十七轮）
-		active_secondary_count ≥ 2 时把绘制项按「项数均分」切成若干段，每段由一个次级命令缓冲
-		**完整包含**一个动态渲染实例（首段 CLEAR、其余 LOAD；多重采样解析只在末段开启），
-		主缓冲再以 vkCmdExecuteCommands 顺序执行：GPU 执行顺序与单线程完全一致，画面与统计逐字节相同。
+		场景 pass 的并行录制（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
+		段内完整渲染实例、首段清屏、其余保留；多重采样解析只在末段开启；
+		主缓冲以 vkCmdExecuteCommands 顺序执行：GPU 执行顺序与单线程完全一致，画面与统计逐字节相同。
+		链路径不绘制 UI（UI 由上层在此帧之外处理），故回调传空指针。
 		*/
-		if (active_secondary_count >= 2 && active_secondary != nullptr && item_count > 0
-			&& parallel_counts.size() >= active_secondary_count)
-		{
-			//段数（不超过绘制项数）
-			const uint32_t segment_count = active_secondary_count < item_count ? active_secondary_count : item_count;
-			//视口 / 裁剪（与单线程路径同值）
-			VkViewport segment_viewport{};
-			segment_viewport.x = 0.0f;
-			segment_viewport.y = 0.0f;
-			segment_viewport.width = static_cast<float>(scene_target.extent.width);
-			segment_viewport.height = static_cast<float>(scene_target.extent.height);
-			segment_viewport.minDepth = 0.0f;
-			segment_viewport.maxDepth = 1.0f;
-			VkRect2D segment_scissor{};
-			segment_scissor.offset = { 0, 0 };
-			segment_scissor.extent = scene_target.extent;
-			//逐段录制（线程池按段索引分派；每段由单一工作线程完整录制）
-			thread_pool->ranges_run(segment_count, 1, [&](std::size_t begin, std::size_t end) {
-				for (std::size_t segment = begin; segment < end; ++segment)
-				{
-					//本段项区间（按索引均分，余数自然落在后段）
-					const uint32_t start = static_cast<uint32_t>(segment * item_count / segment_count);
-					const uint32_t finish = static_cast<uint32_t>((segment + 1) * item_count / segment_count);
-					VkCommandBuffer segment_buffer = active_secondary[segment];
-					/*
-					继承的渲染信息（动态渲染在次级缓冲中需声明附件格式与采样数，
-					供校验层核对与该段 vkCmdBeginRendering 的兼容性）
-					*/
-					VkCommandBufferInheritanceRenderingInfo inheritance_rendering{};
-					inheritance_rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
-					inheritance_rendering.colorAttachmentCount = 1;
-					inheritance_rendering.pColorAttachmentFormats = &active_color_format;
-					inheritance_rendering.depthAttachmentFormat = active_depth_format;
-					inheritance_rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(active_sample_count);
-					VkCommandBufferInheritanceInfo inheritance{};
-					inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
-					inheritance.pNext = &inheritance_rendering;
-					VkCommandBufferBeginInfo segment_begin{};
-					segment_begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-					segment_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-					segment_begin.pInheritanceInfo = &inheritance;
-					vk_result_check(vkBeginCommandBuffer(segment_buffer, &segment_begin), "vkBeginCommandBuffer(次级)");
-					//本段附件：首段清屏、其余保留；解析只在末段执行
-					VkRenderingAttachmentInfo segment_color = scene_color;
-					segment_color.loadOp = segment == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-					VkRenderingAttachmentInfo segment_depth = scene_depth;
-					segment_depth.loadOp = segment == 0 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-					if (segment + 1 != segment_count)
-					{
-						segment_color.resolveMode = VK_RESOLVE_MODE_NONE;
-						segment_color.resolveImageView = VK_NULL_HANDLE;
-						segment_depth.resolveMode = VK_RESOLVE_MODE_NONE;
-						segment_depth.resolveImageView = VK_NULL_HANDLE;
-					}
-					VkRenderingInfo segment_rendering = scene_rendering;
-					segment_rendering.pColorAttachments = &segment_color;
-					segment_rendering.pDepthAttachment = &segment_depth;
-					vkCmdBeginRendering(segment_buffer, &segment_rendering);
-					vkCmdSetViewport(segment_buffer, 0, 1, &segment_viewport);
-					vkCmdSetScissor(segment_buffer, 0, 1, &segment_scissor);
-					//本段绘制（各段只写自己的统计槽）
-					parallel_counts[segment] = items_record(segment_buffer, items + start, finish - start);
-					vkCmdEndRendering(segment_buffer);
-					vk_result_check(vkEndCommandBuffer(segment_buffer), "vkEndCommandBuffer(次级)");
-				}
-			});
-			//一次性提交全部段（减少 API 调用次数；执行顺序不变）
-			vkCmdExecuteCommands(command_buffer, segment_count, active_secondary);
-			//汇总各段实际绘制量
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-			{
-				frame_recorded.items += parallel_counts[segment].items;
-				frame_recorded.instances += parallel_counts[segment].instances;
-			}
-			//记录本帧并行段数（第一百九十八轮；观测用）
-			last_parallel_segments = segment_count;
-		}
-		//否则走单线程录制（既有路径）
-		else
+		VkViewport scene_viewport{};
+		scene_viewport.x = 0.0f;
+		scene_viewport.y = 0.0f;
+		scene_viewport.width = static_cast<float>(scene_target.extent.width);
+		scene_viewport.height = static_cast<float>(scene_target.extent.height);
+		scene_viewport.minDepth = 0.0f;
+		scene_viewport.maxDepth = 1.0f;
+		VkRect2D scene_scissor{};
+		scene_scissor.offset = { 0, 0 };
+		scene_scissor.extent = scene_target.extent;
+		if (scene_parallel_record(command_buffer, scene_rendering, scene_color, scene_depth,
+			scene_viewport, scene_scissor, items, item_count, scene_target.sample_count, nullptr) == 0)
 		{
 			//场景 pass · 进入动态渲染并设置视口 / 裁剪（按场景目标范围）
 			vkCmdBeginRendering(command_buffer, &scene_rendering);
-			VkViewport scene_viewport{};
-			scene_viewport.x = 0.0f;
-			scene_viewport.y = 0.0f;
-			scene_viewport.width = static_cast<float>(scene_target.extent.width);
-			scene_viewport.height = static_cast<float>(scene_target.extent.height);
-			scene_viewport.minDepth = 0.0f;
-			scene_viewport.maxDepth = 1.0f;
 			vkCmdSetViewport(command_buffer, 0, 1, &scene_viewport);
-			VkRect2D scene_scissor{};
-			scene_scissor.offset = { 0, 0 };
-			scene_scissor.extent = scene_target.extent;
 			vkCmdSetScissor(command_buffer, 0, 1, &scene_scissor);
 			//场景 pass · 场景绘制
 			frame_recorded = items_record(command_buffer, items, item_count);

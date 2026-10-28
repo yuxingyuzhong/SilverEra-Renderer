@@ -188,28 +188,11 @@ namespace engine
 		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		/*
-		场景 pass 并行录制准备（第一百九十九轮；交换链直通路径）
-		条件与同帧后处理链一致：线程 > 1、绘制项 ≥ 32、段数 = min(线程, 8, 项 / 16) ≥ 2、次级缓冲就绪。
+		场景 pass 的并行录制规划（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
+		链 / 直通 / 离屏三条路径同口径：线程数、绘制项、段数上限、次级缓冲任一不满足即保持单线程（返回 0）。
 		*/
-		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= parallel_min_items
-			&& thread_pool->active())
-		{
-			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > parallel_max_segments)
-				wanted = parallel_max_segments;
-			const uint32_t by_items = item_count / 16;
-			if (wanted > by_items)
-				wanted = by_items;
-			if (wanted >= 2 && secondary_buffers_ensure(slot, wanted))
-			{
-				active_secondary = slot.secondary_buffers.data();
-				active_secondary_count = wanted;
-				active_color_format = swapchain.format_get();
-				active_depth_format = swapchain.depth_format_get();
-				active_sample_count = swapchain.sample_count_get();
-				parallel_counts.assign(wanted, Recorded_Counts{});
-			}
-		}
+		parallel_plan(slot, item_count, swapchain.format_get(), swapchain.depth_format_get(),
+			swapchain.sample_count_get());
 		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
@@ -335,29 +318,12 @@ namespace engine
 		//本帧计时起点（主机侧录制 ＋ 提交）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		/*
-		场景 pass 并行录制准备（第二百轮；离屏目标路径）
+		场景 pass 的并行录制规划（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
 		阴影 pass 不并行（其颜色格式固定为 RGBA8，与交换链格式不同，继承信息需按目标格式声明）；
-		其余条件与交换链直通路径一致。
+		其余条件与链 / 直通路径一致。
 		*/
-		if (!shadow_pass && thread_pool != nullptr && thread_pool->thread_count_get() > 1
-			&& item_count >= parallel_min_items && thread_pool->active())
-		{
-			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > parallel_max_segments)
-				wanted = parallel_max_segments;
-			const uint32_t by_items = item_count / 16;
-			if (wanted > by_items)
-				wanted = by_items;
-			if (wanted >= 2 && secondary_buffers_ensure(slot, wanted))
-			{
-				active_secondary = slot.secondary_buffers.data();
-				active_secondary_count = wanted;
-				active_color_format = target.color_format;
-				active_depth_format = target.depth_format;
-				active_sample_count = target.sample_count > 1 ? target.sample_count : 1;
-				parallel_counts.assign(wanted, Recorded_Counts{});
-			}
-		}
+		if (!shadow_pass)
+			parallel_plan(slot, item_count, target.color_format, target.depth_format, target.sample_count);
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
 		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
@@ -577,31 +543,11 @@ namespace engine
 		//本帧计时起点（主机侧录制 ＋ 提交 ＋ 呈现调用）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		/*
-		场景 pass 并行录制准备（第一百九十七轮）
-		条件：线程池已启动（> 1 线程）、绘制项 ≥ 32、可切出 ≥ 2 段且次级缓冲分配成功；
-		段数 = min(线程数, 8, 项数 / 16)。任一条件不满足即保持单线程录制（active_secondary_count = 0）。
+		场景 pass 的并行录制规划（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
+		链路径的采样数取场景目标（后处理各级宿为其轮转目标）；其余条件与直通 / 离屏路径一致。
 		*/
-		if (thread_pool != nullptr && thread_pool->thread_count_get() > 1 && item_count >= parallel_min_items
-			&& thread_pool->active())
-		{
-			//候选段数
-			uint32_t wanted = thread_pool->thread_count_get();
-			if (wanted > parallel_max_segments)
-				wanted = parallel_max_segments;
-			const uint32_t by_items = item_count / 16;
-			if (wanted > by_items)
-				wanted = by_items;
-			//次级缓冲就绪后填充并行上下文
-			if (wanted >= 2 && secondary_buffers_ensure(slot, wanted))
-			{
-				active_secondary = slot.secondary_buffers.data();
-				active_secondary_count = wanted;
-				active_color_format = swapchain.format_get();
-				active_depth_format = swapchain.depth_format_get();
-				active_sample_count = targets[0].sample_count > 1 ? targets[0].sample_count : 1;
-				parallel_counts.assign(wanted, Recorded_Counts{});
-			}
-		}
+		parallel_plan(slot, item_count, swapchain.format_get(), swapchain.depth_format_get(),
+			targets[0].sample_count > 1 ? targets[0].sample_count : 1);
 		//录制命令缓冲（场景 pass ＋ N 级后处理 pass ＋ 可选回读 ＋ 呈现前布局转换）
 		command_record_chain_present(slot.command_buffer, swapchain.image_get(image_index),
 			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index), swapchain.extent_get(),

@@ -30,6 +30,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Frame/core/像素回读.cpp"
     "src/render/Frame/core/命令录制.cpp"
     "src/render/Frame/core/帧槽创建.cpp"
+    "src/render/Frame/core/并行录制.cpp"
     "src/render/Frame/core/延迟销毁.cpp"
     "src/render/Frame/core/提交呈现.cpp"
     "src/render/Memory/core/VMA实现.cpp"
