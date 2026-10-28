@@ -610,6 +610,8 @@ namespace engine
 		*/
 		std::vector<Frame_Render_Item> shadow_items_scratch;
 		std::vector<Frame_Render_Item> post_items_scratch;
+		//后处理级管线序列复用缓冲（第一百八十七轮；避免逐帧为「链 / 单级」序列分配向量）
+		std::vector<uint64_t> post_stage_pipelines_scratch;
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 		//是否已初始化

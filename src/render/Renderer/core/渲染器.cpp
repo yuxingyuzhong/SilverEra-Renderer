@@ -726,6 +726,8 @@ namespace engine
 		//阴影列表与后处理绘制项的复用缓冲（第一百八十二轮；避免逐帧堆分配）
 		impl->shadow_items_scratch.reserve(64);
 		impl->post_items_scratch.reserve(Impl::POST_CHAIN_MAX_STAGES + 2);
+		//后处理级管线序列复用缓冲（第一百八十七轮）
+		impl->post_stage_pipelines_scratch.reserve(Impl::POST_CHAIN_MAX_STAGES + 1);
 
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
@@ -2616,20 +2618,23 @@ namespace engine
 				把各目标图像写入各帧槽后处理采样器集（下标 = 目标组内序号）
 				binding 0 = 该级源；binding 1 恒写目标组首项（场景目标），供双源片元（泛光叠加）采样原画面；
 				签名未变时为空操作（避免逐帧更新在途描述符集）。
+				视图数组用固定容量栈数组（第一百八十七轮；目标数上限 PRESENT_TARGET_MAX）。
 				*/
-				std::vector<VkImageView> post_views(targets.size());
-				for (std::size_t index = 0; index < targets.size(); ++index)
+				VkImageView post_views[Impl::PRESENT_TARGET_MAX] = {};
+				const uint32_t post_view_count = static_cast<uint32_t>(targets.size());
+				for (uint32_t index = 0; index < post_view_count; ++index)
 					post_views[index] = targets[index].color_view;
 				//取场景目标的深度图像（第一百二十三轮；帧模块据此做采样前后的布局转换）
 				impl->render_target.target_depth_get(impl->present_target, targets[0].depth_image, targets[0].depth_view);
-				if (!impl->post_sets_bind(post_views.data(), static_cast<uint32_t>(post_views.size()),
+				if (!impl->post_sets_bind(post_views, post_view_count,
 					shared_sampler, targets[0].depth_view))
 				{
 					logger.error("渲染器:: 后处理失败：采样集绑定失败");
 					ready = false;
 				}
-				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线）
-				std::vector<uint64_t> stage_pipelines;
+				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线；复用缓冲）
+				std::vector<uint64_t>& stage_pipelines = impl->post_stage_pipelines_scratch;
+				stage_pipelines.clear();
 				//链路径取注册链
 				if (post_chain_mode)
 					stage_pipelines = impl->post_chain;
