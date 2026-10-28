@@ -9,6 +9,8 @@ Vulkan 头
 #include <vulkan/vulkan.h>
 //交换链模块对外头（帧需取其图像、范围与图像可用信号量）
 #include "Application/Renderer/src/render/Swapchain/交换链.h"
+//线程池（第一百九十七轮：场景 pass 的次级命令缓冲并行录制）
+#include "Application/Renderer/src/render/Thread/线程池.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -25,6 +27,12 @@ namespace engine
 		VkCommandPool command_pool = VK_NULL_HANDLE;
 		//主命令缓冲（逐帧录制）
 		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+		/*
+		次级命令缓冲（第一百九十七轮；按需分配，数量 = 并行段数）
+		场景 pass 被切成若干段后分别记录在这里，主缓冲以 vkCmdExecuteCommands 顺序执行；
+		每帧 vkResetCommandPool 后仍可复用（其录制内容随之失效）。
+		*/
+		std::vector<VkCommandBuffer> secondary_buffers;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
 		//GPU 时间戳查询池（每槽四个查询：帧始 / 场景结束 / 后处理结束 / 帧末；设备不支持时为空）
@@ -258,6 +266,12 @@ namespace engine
 		void destroy(void);
 		//是否已构建完成（至少一个帧槽）
 		bool valid(void) const;
+		/*
+		设置并行录制线程池（第一百九十七轮；可空 = 全部单线程）
+		仅影响「场景目标 → 同帧后处理链」路径的场景 pass：绘制项按段切给次级命令缓冲并行录制；
+		线程池未启动或绘制项过少时自动退回单线程录制（画面与统计逐字节一致）。
+		*/
+		void thread_pool_set(Thread_Pool* pool);
 
 		/*
 		渲染一帧（取图像 → 录制 → 提交 → 呈现，可选像素回读）
@@ -436,6 +450,11 @@ namespace engine
 		//销毁单个帧槽及其对象（实现见 core/帧槽创建.cpp）
 		void frame_slot_destroy(Frame_Slot& slot);
 		/*
+		确保该帧槽的次级命令缓冲数量（第一百九十七轮；实现见 core/帧槽创建.cpp）
+		不足时经该槽命令池以 SECONDARY 级别追加分配；失败返回假并保持已有数量。
+		*/
+		bool secondary_buffers_ensure(Frame_Slot& slot, uint32_t count);
+		/*
 		录制命令缓冲（实现见 core/命令录制.cpp）
 		颜色 / 深度附件布局转换为动态渲染，随后按渲染项依次绑定并 vkCmdDrawIndexed；
 		场景 pass 结束后若给定 UI 回调则交还上层绘制 UI；
@@ -564,6 +583,19 @@ namespace engine
 		uint64_t total_drawn_instances = 0;
 		//本帧已录制期间累计的实际绘制量（每次 render 起始处清零，录制时由 items_record 递增）
 		Recorded_Counts frame_recorded{};
+		/*
+		并行录制上下文（第一百九十七轮）
+		由 render_chain_present 在调用 command_record_chain_present 前填充；段数为 0 表示单线程录制。
+		次级缓冲须与主缓冲同属该帧槽（由 secondary_buffers_ensure 分配）。
+		*/
+		Thread_Pool* thread_pool = nullptr;
+		VkCommandBuffer* active_secondary = nullptr;
+		uint32_t active_secondary_count = 0;
+		VkFormat active_color_format = VK_FORMAT_UNDEFINED;
+		VkFormat active_depth_format = VK_FORMAT_UNDEFINED;
+		uint32_t active_sample_count = 1;
+		//并行段统计（按段索引收集，录制结束后汇总到 frame_recorded）
+		std::vector<Recorded_Counts> parallel_counts;
 		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
 		bool timestamp_supported = false;
 		//时间戳周期（纳秒 / tick；用于把 tick 差换算为时间）

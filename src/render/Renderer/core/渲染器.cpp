@@ -699,11 +699,10 @@ namespace engine
 				instance_capacity = 1048576;
 			impl->instance_capacity = instance_capacity;
 			/*
-			帧内登记缓冲预保留（第一百九十四轮，优化）
-			pending_items / pending_instances 每帧 clear 后复用，但首次扩容发生在帧循环内；
-			按「常用绘制项数」与实例容量预先分配，避免运行期扩容抖动（行为不变）。
+			实例登记缓冲预保留（第一百九十四轮，优化）
+			pending_items 已在下方按实例容量预留（第一百三十六轮）；此处补 pending_instances 的同类预留，
+			避免帧循环内首次扩容（行为不变）。
 			*/
-			impl->pending_items.reserve(64);
 			impl->pending_instances.reserve(impl->instance_capacity);
 			//掩码缓冲按容量预留（避免逐次调用分配）
 			impl->instanced_cull_mask.reserve(instance_capacity);
@@ -719,6 +718,8 @@ namespace engine
 				render_threads = 0;
 			}
 			impl->render_threads = render_threads;
+			//把线程池交给帧模块（第一百九十七轮：场景 pass 次级缓冲并行录制；空 / 0 线程时退回单线程）
+			impl->frame.thread_pool_set(&impl->thread_pool);
 			logger.info("渲染器:: 渲染工作线程 {}（每帧实例容量 {}）", render_threads, instance_capacity);
 		}
 		/*

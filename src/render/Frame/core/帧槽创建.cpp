@@ -507,5 +507,42 @@ namespace engine
 		slot.in_flight_fence = VK_NULL_HANDLE;
 		slot.command_pool = VK_NULL_HANDLE;
 		slot.command_buffer = VK_NULL_HANDLE;
+		slot.secondary_buffers.clear();
+	}
+
+	/*
+	设置并行录制线程池（第一百九十七轮）
+	只影响「场景目标 → 同帧后处理链」路径的场景 pass；空指针即退回单线程录制。
+	*/
+	void Frame_Context::thread_pool_set(Thread_Pool* pool)
+	{
+		thread_pool = pool;
+	}
+
+	//确保该帧槽的次级命令缓冲数量（第一百九十七轮）
+	bool Frame_Context::secondary_buffers_ensure(Frame_Slot& slot, uint32_t count)
+	{
+		//数量已足够则空操作
+		if (slot.secondary_buffers.size() >= count)
+			return true;
+		//前置：设备与命令池必须就绪
+		if (device == VK_NULL_HANDLE || slot.command_pool == VK_NULL_HANDLE)
+			return false;
+		//待追加数量
+		const uint32_t missing = count - static_cast<uint32_t>(slot.secondary_buffers.size());
+		std::vector<VkCommandBuffer> created(missing, VK_NULL_HANDLE);
+		VkCommandBufferAllocateInfo allocate_info{};
+		allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocate_info.commandPool = slot.command_pool;
+		allocate_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+		allocate_info.commandBufferCount = missing;
+		//分配失败则不留半初始化资源
+		if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, created.data()),
+			"vkAllocateCommandBuffers(次级)"))
+			return false;
+		//追加到该帧槽
+		for (VkCommandBuffer buffer : created)
+			slot.secondary_buffers.push_back(buffer);
+		return true;
 	}
 }
