@@ -1816,6 +1816,14 @@ namespace engine
 				*/
 				uint32_t cascade_total = impl->cascade_count == 3 ? 3u : (impl->cascade_count == 2 ? 2u : 1u);
 				uint32_t tile_size = cascade_total > 1 ? (impl->shadow_size / cascade_total) : impl->shadow_size;
+				/*
+				阴影列表合批（第一百二十九轮；第二百一十七轮移到分片循环外）
+				各分片的投影项完全相同、仅推送常量（光源矩阵）不同，而合批判据只比较项内静态字段
+				与推送常量的**内容**；此处各类项尚未改写的推送常量完全一致，故合批结果与逐片合批等价，
+				单级 / 多级级联下都只需合并一次，省去重复扫描。
+				*/
+				if (impl->static_batching)
+					impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
 				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
 				{
 					//本片目标（多级时收缩视口到对应方形小格；X 按片序偏移、Y 恒为顶格）
@@ -1831,9 +1839,6 @@ namespace engine
 						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
 					for (auto& shadow_item : shadow_items)
 						shadow_item.push_constants = cascade_matrix;
-					//阴影列表同样合批（第一百二十九轮；相邻等价项，投影顺序无关）
-					if (impl->static_batching)
-						impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
