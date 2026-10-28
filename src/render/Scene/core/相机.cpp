@@ -60,6 +60,19 @@ namespace engine
 		this->aspect = aspect;
 	}
 
+	//设置宽高比覆盖（第一百八十六轮）
+	void Camera::aspect_override_set(float aspect)
+	{
+		//非有限或非正值按「跟随窗口」处理
+		aspect_override = (std::isfinite(aspect) && aspect > 0.0f) ? aspect : 0.0f;
+	}
+
+	//当前生效宽高比（覆盖优先；第一百八十六轮）
+	float Camera::aspect_effective_get(void) const
+	{
+		return aspect_override > 0.0f ? aspect_override : aspect;
+	}
+
 	//设置近远平面
 	void Camera::near_far_set(float near_plane, float far_plane)
 	{
@@ -158,15 +171,17 @@ namespace engine
 		透视模式：沿用 fov。
 		*/
 		glm::mat4 proj;
+		//生效宽高比（覆盖优先；第一百八十六轮）
+		const float effective_aspect = aspect_override > 0.0f ? aspect_override : aspect;
 		if (ortho)
 		{
 			//垂直 / 水平半尺寸
 			float half_height = ortho_height * 0.5f;
-			float half_width = half_height * aspect;
+			float half_width = half_height * effective_aspect;
 			proj = glm::ortho(-half_width, half_width, -half_height, half_height, near_plane, far_plane);
 		}
 		else
-			proj = glm::perspective(fov, aspect, near_plane, far_plane);
+			proj = glm::perspective(fov, effective_aspect, near_plane, far_plane);
 		//Y 翻转：Vulkan 的 NDC Y 轴向下（K1）
 		proj[1][1] *= -1.0f;
 		//组合「视图 × 投影」（列主序）

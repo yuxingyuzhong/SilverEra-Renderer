@@ -30,6 +30,15 @@ namespace engine
 		void fov_set(float radians);
 		//设置宽高比
 		void aspect_set(float aspect);
+		/*
+		设置宽高比覆盖（第一百八十六轮；0 = 跟随窗口）
+		大于 0 时 view_proj_get 改用该固定宽高比（离屏渲染 / 非窗口比例输出的场景使用）；
+		为 0 时回到「由交换链范围自动设置」的宽高比（既有行为不变）。
+		*/
+		void aspect_override_set(float aspect);
+		//当前生效宽高比（覆盖优先；第一百八十六轮）
+		float aspect_effective_get(void) const;
+
 		//设置近远平面
 		void near_far_set(float near_plane, float far_plane);
 		//写出近远平面（第一百二十三轮新增；供景深把深度缓冲换算为世界距离）
@@ -87,6 +96,8 @@ namespace engine
 		float fov;
 		//宽高比（本层自有默认）
 		float aspect = 16.0f / 9.0f;
+		//宽高比覆盖（第一百八十六轮；0 = 跟随窗口，> 0 时优先于 aspect）
+		float aspect_override = 0.0f;
 		//近平面（默认值取自 Scene_Data，见构造）
 		float near_plane;
 		//远平面（默认值取自 Scene_Data，见构造）

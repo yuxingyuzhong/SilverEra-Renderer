@@ -914,6 +914,20 @@ namespace engine
 		ortho_height 非正时忽略本次调用；未初始化时静默返回。
 		*/
 		void camera_ortho_set(bool enabled, float ortho_height);
+		/*
+		设置相机上方向（第一百八十六轮）
+		(x, y, z) 为世界坐标上方向（默认 (0,1,0)）；全零或含非有限分量时整次忽略。
+		数据侧对应 `Camera_Data::up` / `Scene_Data::up`。未初始化时静默返回。
+		*/
+		void camera_up_set(float x, float y, float z);
+		/*
+		设置宽高比覆盖（第一百八十六轮；0 = 跟随窗口）
+		aspect > 0 时投影固定按该比例（离屏 / 非窗口比例输出）；≤ 0 或非有限值时回到跟随窗口。
+		数据侧对应 `Camera_Data::aspect` / `Scene_Data::aspect`。
+		*/
+		void camera_aspect_set(float aspect);
+		//查询当前生效宽高比（覆盖优先；未初始化返回 0；第一百八十六轮）
+		float camera_aspect_get(void) const;
 		//查询视场角（弧度；未初始化返回假且出参不变）
 		bool camera_fov_get(float* radians_out) const;
 		/*

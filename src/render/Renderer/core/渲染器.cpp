@@ -5748,6 +5748,42 @@ namespace engine
 		impl->camera.ortho_set(enabled, ortho_height);
 	}
 
+	//设置相机上方向（第一百八十六轮）
+	void Renderer::camera_up_set(float x, float y, float z)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//全零向量会使视图矩阵退化，整次忽略
+		if (x == 0.0f && y == 0.0f && z == 0.0f)
+		{
+			logger.warn("渲染器:: 相机上方向全零，整次忽略");
+			return;
+		}
+		//非有限分量按忽略处理
+		if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+			return;
+		impl->camera.up_set(x, y, z);
+	}
+
+	//设置宽高比覆盖（第一百八十六轮）
+	void Renderer::camera_aspect_set(float aspect)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->camera.aspect_override_set(aspect);
+	}
+
+	//查询当前生效宽高比（第一百八十六轮）
+	float Renderer::camera_aspect_get(void) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->camera.aspect_effective_get();
+	}
+
 	//查询视场角（第一百六十四轮）
 	bool Renderer::camera_fov_get(float* radians_out) const
 	{
@@ -5847,6 +5883,9 @@ namespace engine
 		impl->camera.near_far_set(camera.near_plane, camera.far_plane);
 		//投影模式（正交 / 透视；高度合法性已在上方整体校验）
 		impl->camera.ortho_set(camera.ortho, camera.ortho_height);
+		//上方向与宽高比覆盖（第一百八十六轮；非法值由各自入口归一）
+		impl->camera.up_set(camera.up[0], camera.up[1], camera.up[2]);
+		impl->camera.aspect_override_set(camera.aspect);
 		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
 		clear_color_set(camera.clear_color);
 		//光照（统一走 light_set：非法参数由后者整次拒绝）
@@ -5939,6 +5978,10 @@ namespace engine
 		camera.far_plane = scene.far_plane;
 		camera.ortho = scene.ortho;
 		camera.ortho_height = scene.ortho_height;
+		//上方向与宽高比覆盖（第一百八十六轮）
+		for (std::size_t index = 0; index < 3; ++index)
+			camera.up[index] = scene.up[index];
+		camera.aspect = scene.aspect;
 		for (std::size_t index = 0; index < 4; ++index)
 			camera.clear_color[index] = scene.clear_color[index];
 		//光照组

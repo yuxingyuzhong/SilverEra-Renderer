@@ -29,6 +29,13 @@ namespace engine
 		bool ortho = false;
 		//正交投影的垂直可见高度（世界单位；仅 ortho 为真时生效）
 		float ortho_height = 2.0f;
+		/*
+		上方向与宽高比（第一百八十六轮）
+		up：相机上方向（世界坐标；默认 +Y，长度须非零，view 矩阵内部按 glm 语义处理）。
+		aspect：宽高比覆盖（0 = 跟随窗口，默认；> 0 时固定该比例，供离屏 / 非窗口比例输出）。
+		*/
+		float up[3] = { 0.0f, 1.0f, 0.0f };
+		float aspect = 0.0f;
 		//清屏色（RGBA，分量取值 0..1）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 	};
@@ -240,6 +247,9 @@ namespace engine
 		bool ortho = false;
 		//正交投影的垂直可见高度（世界单位；仅 ortho 为真时生效；须为正）
 		float ortho_height = 2.0f;
+		//上方向与宽高比覆盖（第一百八十六轮；语义见 Camera_Data::up / aspect）
+		float up[3] = { 0.0f, 1.0f, 0.0f };
+		float aspect = 0.0f;
 		//清屏色（RGBA，分量取值 0..1）
 		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
 		/*
