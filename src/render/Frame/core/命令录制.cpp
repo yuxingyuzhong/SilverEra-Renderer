@@ -1031,9 +1031,8 @@ namespace engine
 					vk_result_check(vkEndCommandBuffer(segment_buffer), "vkEndCommandBuffer(次级)");
 				}
 			});
-			//主缓冲顺序执行各段（GPU 顺序与单线程一致）
-			for (uint32_t segment = 0; segment < segment_count; ++segment)
-				vkCmdExecuteCommands(command_buffer, 1, &active_secondary[segment]);
+			//一次性提交全部段（减少 API 调用次数；执行顺序不变）
+			vkCmdExecuteCommands(command_buffer, segment_count, active_secondary);
 			//汇总各段实际绘制量
 			for (uint32_t segment = 0; segment < segment_count; ++segment)
 			{
