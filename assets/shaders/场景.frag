@@ -356,6 +356,14 @@ void main()
 	float toon_levels = scene.pbr_params.w;
 	float toon_rim = scene.sky_params.w;
 	/*
+	二次元暗部色调（第一百七十八轮；三个保留分量拼 RGB）
+	266 / 267（camera_range.zw）= 红 / 绿，291（cascade_params2.w）= 蓝；
+	默认 (1,1,1) 时下方乘子恒为 1，画面与引入前逐字节一致。
+	*/
+	vec3 toon_shadow_tint = vec3(scene.camera_range.z, scene.camera_range.w, scene.cascade_params2.w);
+	//主方向光量化后的受光系数（未提供法线 / 方向光关闭时保持 1，即不参与暗部判定）
+	float toon_primary_shade = 1.0;
+	/*
 	多光源累加（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源）
 	未提供法线（长度近零）时按「朝向相机」处理，等价于满照（辐射度 = 1），
 	保证既有只写位置 / 纹理坐标的网格画面不变。
@@ -439,6 +447,8 @@ void main()
 			float ndotl = max(dot(normal, to_light), 0.0);
 			//色阶量化（第一百七十四轮；关闭时原样返回）
 			ndotl = toon_quantize(ndotl, toon_levels);
+			//记录主方向光受光系数（第一百七十八轮；供暗部色调化使用）
+			toon_primary_shade = ndotl;
 			//方向光阴影系数（第五十二轮；未启用时恒 1；第五十九轮传入法线做偏移）
 			float dir_shadow = shadow_factor(in_world, normal);
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
@@ -557,6 +567,17 @@ void main()
 	float diffuse_weight = scene.pbr_params.x > 0.5
 		? clamp(1.0 - material_metallic(uv_material), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
+	/*
+	二次元风格化 · 暗部色调化（第一百七十八轮）
+	按主方向光量化后的受光系数把暗部乘上色调：权重 = 1 − smoothstep(0, 0.5, shade)，
+	照度越低权重越高（系数 ≥ 0.5 的受光面完全不受影响）；
+	色调为 (1,1,1)（默认）时乘子恒为 1，整段等价于不执行，画面逐字节不变。
+	*/
+	if (any(notEqual(clamp(toon_shadow_tint, 0.0, 1.0), vec3(1.0))))
+	{
+		float toon_shadow_weight = 1.0 - smoothstep(0.0, 0.5, toon_primary_shade);
+		lit *= mix(vec3(1.0), clamp(toon_shadow_tint, 0.0, 1.0), toon_shadow_weight);
+	}
 	/*
 	二次元风格化 · 菲涅尔边缘光（第一百七十四轮）
 	强度 > 0 且提供了法线时，按「视线与法线」夹角在轮廓处叠加反照率亮边（三次方收窄）；

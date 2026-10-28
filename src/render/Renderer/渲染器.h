@@ -1186,6 +1186,15 @@ namespace engine
 		//当前边缘光强度（0 = 关闭；未初始化时为 0）
 		float toon_rim(void) const;
 		/*
+		设置二次元暗部色调（第一百七十八轮新增）
+		rgb 为暗部（主方向光量化受光系数低于 0.5 的区域）乘用的色调，各分量 0..1（非有限值按 1）；
+		(1,1,1) 为关闭（乘性恒等），默认值即 (1,1,1)，故不调用时画面逐字节不变。
+		数据侧对应 `Light_Data::toon_shadow_tint` / `Scene_Data::toon_shadow_tint`。
+		*/
+		void toon_shadow_tint_set(float r, float g, float b);
+		//读取暗部色调（第一百七十八轮新增；未初始化写默认 (1,1,1)）
+		void toon_shadow_tint(float out[3]) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 80 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

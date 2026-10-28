@@ -1412,6 +1412,9 @@ namespace engine
 		//二次元风格化状态复位（第一百七十四轮；默认关闭）
 		impl->toon_steps = 0;
 		impl->toon_rim = 0.0f;
+		//暗部色调恢复默认（白色 = 乘性恒等；第一百七十八轮）
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->toon_shadow_tint[index] = 1.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
@@ -1960,6 +1963,13 @@ namespace engine
 		scene_block[264] = clip_near;
 		scene_block[265] = clip_far;
 		/*
+		二次元暗部色调（第一百七十八轮；复用三个保留分量）
+		266 = 红、267 = 绿（camera_range.zw），291 = 蓝（cascade_params2.w）；
+		默认 (1,1,1) 时着色器乘性恒等，画面与引入前逐字节一致。
+		*/
+		scene_block[266] = impl->toon_shadow_tint[0];
+		scene_block[267] = impl->toon_shadow_tint[1];
+		/*
 		天空盒参数（第一百二十五轮）
 		268 = 启用（> 0.5 生效）、269 = 漫反射（环境）强度、270 = 镜面强度、271 保留；
 		未启用时着色器整段跳过，画面与引入前逐字节一致。
@@ -1969,6 +1979,8 @@ namespace engine
 		scene_block[270] = impl->sky_specular;
 		//二次元风格化边缘光强度（第一百七十四轮；w 槽；0 = 关闭）
 		scene_block[271] = impl->toon_rim;
+		//二次元暗部色调蓝分量（第一百七十八轮；w 槽；与 266 / 267 共同构成 RGB）
+		scene_block[291] = impl->toon_shadow_tint[2];
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的 292 浮点，按 16 字节（4 浮点）单元比较；
@@ -5794,6 +5806,8 @@ namespace engine
 		pbr_metallic_set(light.pbr_metallic);
 		//二次元风格化（第一百七十四轮；非法参数由 setter 归一）
 		toon_set(light.toon_steps, light.toon_rim);
+		//二次元暗部色调（第一百七十八轮）
+		toon_shadow_tint_set(light.toon_shadow_tint[0], light.toon_shadow_tint[1], light.toon_shadow_tint[2]);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -5847,6 +5861,9 @@ namespace engine
 		//二次元风格化（第一百七十四轮）
 		light.toon_steps = scene.toon_steps;
 		light.toon_rim = scene.toon_rim;
+		//二次元暗部色调（第一百七十八轮）
+		for (std::size_t index = 0; index < 3; ++index)
+			light.toon_shadow_tint[index] = scene.toon_shadow_tint[index];
 		//PBR 金属度（第六十五轮）
 		light.pbr_metallic = scene.pbr_metallic;
 		light.intensity = scene.light_intensity;
@@ -6850,6 +6867,33 @@ namespace engine
 	{
 		//未初始化返回默认 0（关闭）
 		return impl != nullptr && impl->initialized ? impl->toon_rim : 0.0f;
+	}
+
+	//设置暗部色调（第一百七十八轮新增）
+	void Renderer::toon_shadow_tint_set(float r, float g, float b)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//逐分量归一：非有限值按 1（白 = 关闭），否则钳到 [0, 1]
+		const float channels[3] = { r, g, b };
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			float value = std::isfinite(channels[index]) ? channels[index] : 1.0f;
+			impl->toon_shadow_tint[index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+		}
+	}
+
+	//读取暗部色调（第一百七十八轮新增）
+	void Renderer::toon_shadow_tint(float out[3]) const
+	{
+		//出参为空则无内容可写
+		if (out == nullptr)
+			return;
+		//未初始化时写默认白（关闭）
+		const bool ready = impl != nullptr && impl->initialized;
+		for (std::size_t index = 0; index < 3; ++index)
+			out[index] = ready ? impl->toon_shadow_tint[index] : 1.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）

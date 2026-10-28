@@ -145,6 +145,12 @@ namespace engine
 		*/
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;
+		/*
+		二次元风格化 · 暗部色调化（第一百七十八轮）
+		toon_shadow_tint：暗部（主方向光量化受光系数低于 0.5）乘用的色调（RGB，0..1）；
+		默认 (1,1,1) 时乘性恒等，画面与引入前逐字节不变。
+		*/
+		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 	};
 
 	/*
@@ -352,5 +358,7 @@ namespace engine
 		//二次元风格化（第一百七十四轮；语义见 Light_Data::toon_steps / toon_rim）
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;
+		//二次元暗部色调（第一百七十八轮；语义见 Light_Data::toon_shadow_tint）
+		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 	};
 }
