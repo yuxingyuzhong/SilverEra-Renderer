@@ -50,6 +50,18 @@ namespace engine
 		uint32_t msaa_samples = 1;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
+		/*
+		渲染工作线程数（第一百七十七轮；0 = 单线程，默认）
+		大于 0 时初始化阶段启动该数量的工作线程，把「实例级视锥剔除」与「实例缓冲差异扫描」按块并行；
+		块之间互不重叠，结果与单线程完全一致（画面与统计逐字节相同），仅主机侧耗时下降。
+		*/
+		uint32_t render_threads = 0;
+		/*
+		每帧实例存储容量（第一百七十七轮；默认 256，钳到 [16, 1048576]）
+		决定单帧可登记的实例上限（实例缓冲按该容量 × 80 字节 × 在途帧数分配）；
+		大批量实例化绘制（数千以上）时才需要上调，默认值与引入该配置前一致。
+		*/
+		uint32_t instance_capacity = 256;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 		/*
@@ -184,6 +196,14 @@ namespace engine
 		uint64_t instance_upload_bytes = 0;
 		//最近一帧实际使用的 MSAA 采样数（第一百零一轮；1 = 单采样）
 		uint32_t msaa_samples = 1;
+		/*
+		渲染工作线程观测（第一百七十七轮）
+		render_threads = 当前生效的工作线程数（0 = 单线程）；
+		parallel_dispatches = 自 init 以来实际派发的并行任务次数（退化为调用线程整段执行的任务不计）。
+		两者均不影响画面与绘制统计。
+		*/
+		uint32_t render_threads = 0;
+		uint64_t parallel_dispatches = 0;
 	};
 
 	/*
@@ -820,6 +840,15 @@ namespace engine
 		void static_batching_set(bool enabled);
 		//查询静态合批是否启用（未初始化返回默认值 true）
 		bool static_batching(void) const;
+		/*
+		设置渲染工作线程数（第一百七十七轮；0 = 单线程，默认）
+		count 钳到 0..64；与当前值相同时为空操作；线程创建失败时回落为 0 并告警。
+		仅并行化纯 CPU 的「实例级视锥剔除」与「实例缓冲差异扫描」，结果与单线程逐字节一致。
+		未初始化时静默忽略。
+		*/
+		void render_threads_set(uint32_t count);
+		//查询当前渲染工作线程数（未初始化返回 0）
+		uint32_t render_threads(void) const;
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →

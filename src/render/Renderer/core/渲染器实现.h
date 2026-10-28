@@ -18,6 +18,8 @@
 #include "Application/Renderer/src/render/Scene/相机.h"
 //渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 #include "Application/Renderer/src/render/RenderTarget/渲染目标.h"
+//线程池模块（帧内粗粒度并行执行器；第一百七十七轮）
+#include "Application/Renderer/src/render/Thread/线程池.h"
 //字体模块（TTF → 字形图集；文字绘制取用）
 #include "Application/Renderer/src/render/Text/字体.h"
 //文字绘制子系统（网格缓存 / 文字颜色 / 管线句柄；第四十七轮下沉）
@@ -437,6 +439,28 @@ namespace engine
 		uint64_t frame_culled_instances = 0;
 		uint64_t last_culled_instances = 0;
 		std::vector<float> instanced_cull_scratch;
+		/*
+		实例级剔除的可见性掩码（第一百七十七轮）
+		并行判定时每个实例只写自己的掩码槽（1 = 可见、0 = 剔除），压缩阶段仍单线程按原顺序执行，
+		故实例顺序（即绘制顺序）与单线程路径一致；按实例上限预留，避免逐次调用分配。
+		*/
+		std::vector<uint8_t> instanced_cull_mask;
+		/*
+		实例缓冲差异掩码（第一百七十七轮）
+		按「一个实例 = 80 字节」逐实例比较上一次写入内容，并行只写各自的掩码槽；
+		连续变化段仍单线程按掩码扫描，故上传区间与单线程路径完全一致。
+		*/
+		std::vector<uint8_t> instance_changed_mask;
+		/*
+		线程池（第一百七十七轮）
+		render_threads > 0 时启动工作线程，把「实例级剔除」与「实例缓冲差异扫描」按块分派；
+		0（默认）不启动任何线程，ranges_run 退化为调用线程整段执行，行为与引入并行前逐字节一致。
+		*/
+		Thread_Pool thread_pool;
+		//实例级剔除转为并行的最小实例数（低于此值线程唤醒开销大于收益）
+		static constexpr std::size_t CULL_PARALLEL_MIN_INSTANCES = 256;
+		//实例缓冲差异扫描转为并行的最小实例数
+		static constexpr std::size_t INSTANCE_SCAN_PARALLEL_MIN = 512;
 		uint64_t last_culled_items = 0;
 		uint64_t last_draw_items = 0;
 		uint64_t last_instances = 0;
@@ -452,6 +476,8 @@ namespace engine
 		double shadow_gpu_ms = 0.0;
 		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
 		bool cull_enabled = true;
+		//当前生效的渲染工作线程数（第一百七十七轮；0 = 单线程）
+		uint32_t render_threads = 0;
 		//是否启用静态合批（第一百二十七轮；默认开启）
 		bool static_batching = true;
 		/*

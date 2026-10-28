@@ -683,6 +683,35 @@ namespace engine
 		}
 		//⑧ 帧（像素回读缓冲依赖内存模块，故传入 memory）
 		/*
+		实例存储容量与渲染工作线程（第一百七十七轮）
+		容量钳到 [16, 1048576]，随后按该容量分配逐帧实例缓冲（默认 256，与引入该配置前一致）；
+		线程数大于 0 时启动工作线程，启动失败回落为单线程（仅影响耗时，不影响结果）。
+		*/
+		{
+			//容量归一
+			uint32_t instance_capacity = effective.instance_capacity;
+			if (instance_capacity < 16)
+				instance_capacity = 16;
+			if (instance_capacity > 1048576)
+				instance_capacity = 1048576;
+			impl->instance_capacity = instance_capacity;
+			//掩码缓冲按容量预留（避免逐次调用分配）
+			impl->instanced_cull_mask.reserve(instance_capacity);
+			impl->instance_changed_mask.reserve(instance_capacity);
+			//线程数归一
+			uint32_t render_threads = effective.render_threads;
+			if (render_threads > 64)
+				render_threads = 64;
+			//启动工作线程（0 = 单线程）
+			if (render_threads > 0 && !impl->thread_pool.threads_start(render_threads))
+			{
+				logger.warn("渲染器:: 渲染工作线程启动失败，回落为单线程");
+				render_threads = 0;
+			}
+			impl->render_threads = render_threads;
+			logger.info("渲染器:: 渲染工作线程 {}（每帧实例容量 {}）", render_threads, instance_capacity);
+		}
+		/*
 		预留帧内待绘制项与实例存储容量（第一百三十六轮）
 		容量取自实例上限，避免逐帧扩容；仅在初始化时执行一次。
 		*/
@@ -1231,6 +1260,13 @@ namespace engine
 		//若实现体未分配
 		if (impl == nullptr)
 			return;
+		/*
+		先回收渲染工作线程（第一百七十七轮）
+		并行任务均为同步调用（调用方阻塞到全部块完成），故 shutdown 时不存在在途任务；
+		此处直接停止可保证后续任何模块销毁都不会被工作线程访问。
+		*/
+		impl->thread_pool.threads_stop();
+		impl->render_threads = 0;
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		/*
 		阴影资源（第五十二轮）
@@ -2180,18 +2216,39 @@ namespace engine
 			}
 			else
 			{
+				/*
+				差异掩码（第一百七十七轮）
+				逐实例只写自己的掩码槽，故可分块并行；后续连续段扫描仍单线程按掩码进行，
+				扫描结果与逐实例比较完全一致（上传区间不变）。
+				*/
+				impl->instance_changed_mask.assign(instance_count, 0);
+				//判定单实例是否变化（只读本帧实例与上轮缓存，写自己的掩码槽）
+				auto mark_changed_instance = [this, cached_count, instance_cache](std::size_t begin, std::size_t end)
+				{
+					for (std::size_t index = begin; index < end; ++index)
+					{
+						//超出上次缓存长度的实例一律视为变化
+						bool changed = index >= cached_count;
+						//未超出则逐浮点比较
+						for (std::size_t offset = 0; !changed && offset < INSTANCE_FLOAT_COUNT; ++offset)
+							if (impl->pending_instances[index][offset] != instance_cache[index * INSTANCE_FLOAT_COUNT + offset])
+								changed = true;
+						impl->instance_changed_mask[index] = changed ? 1 : 0;
+					}
+				};
+				//实例数达到阈值且工作线程可用时并行判定，否则由调用线程整段执行
+				if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
+					impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN, mark_changed_instance);
+				else
+					mark_changed_instance(0, instance_count);
 				//当前变化段的起始实例与是否处于段内
 				std::size_t run_start = 0;
 				bool in_run = false;
-				//逐实例扫描并合并连续变化区间
+				//按掩码扫描并合并连续变化区间
 				for (std::size_t index = 0; index < instance_count; ++index)
 				{
-					//超出上次缓存长度的实例一律视为变化
-					bool changed = index >= cached_count;
-					//未超出则逐浮点比较
-					for (std::size_t offset = 0; !changed && offset < INSTANCE_FLOAT_COUNT; ++offset)
-						if (impl->pending_instances[index][offset] != instance_cache[index * INSTANCE_FLOAT_COUNT + offset])
-							changed = true;
+					//该实例本帧是否变化
+					const bool changed = impl->instance_changed_mask[index] != 0;
 					//若变化段遇到未变化实例则收束并写入
 					if (!changed && in_run)
 					{
@@ -2808,6 +2865,9 @@ namespace engine
 		//累计按需上传字节（第七十二轮）
 		stats.scene_upload_bytes = impl->scene_upload_bytes;
 		stats.instance_upload_bytes = impl->instance_upload_bytes;
+		//渲染工作线程观测（第一百七十七轮）
+		stats.render_threads = impl->thread_pool.thread_count_get();
+		stats.parallel_dispatches = impl->thread_pool.dispatch_count_get();
 		return stats;
 	}
 
@@ -3489,16 +3549,40 @@ namespace engine
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
 			impl->camera.view_proj_get(view_proj);
-			//筛选可见实例（复用缓冲；保持原相对顺序）
+			/*
+			可见性掩码（第一百七十七轮）
+			逐实例只写自己的掩码槽（1 = 可见、0 = 剔除），故可分块并行且与单线程结果完全一致；
+			实例数达到阈值且工作线程可用时走并行，否则由调用线程整段执行。
+			*/
+			impl->instanced_cull_mask.assign(count, 0);
+			if (impl->thread_pool.active() && count >= Impl::CULL_PARALLEL_MIN_INSTANCES)
+			{
+				//并行判定（块之间无共享写入）
+				impl->thread_pool.ranges_run(count, Impl::CULL_PARALLEL_MIN_INSTANCES,
+					[this, view_proj, transforms, bounds_min, bounds_max](std::size_t begin, std::size_t end)
+					{
+						for (std::size_t instance = begin; instance < end; ++instance)
+							impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
+								transforms + instance * 16, bounds_min, bounds_max) ? 0 : 1;
+					});
+			}
+			else
+			{
+				//单线程判定（与引入并行前逐字节一致）
+				for (uint32_t instance = 0; instance < count; ++instance)
+					impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
+						transforms + static_cast<std::size_t>(instance) * 16, bounds_min, bounds_max) ? 0 : 1;
+			}
+			//筛选可见实例（按原相对顺序压缩；整块拷贝 16 浮点）
 			impl->instanced_cull_scratch.clear();
 			impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(count) * 16);
 			for (uint32_t instance = 0; instance < count; ++instance)
-			{
-				const float* matrix = transforms + static_cast<std::size_t>(instance) * 16;
-				//可见实例整块拷贝（16 浮点）
-				if (!frustum_cull_aabb(view_proj, matrix, bounds_min, bounds_max))
+				//仅可见实例写入压缩缓冲
+				if (impl->instanced_cull_mask[instance] != 0)
+				{
+					const float* matrix = transforms + static_cast<std::size_t>(instance) * 16;
 					impl->instanced_cull_scratch.insert(impl->instanced_cull_scratch.end(), matrix, matrix + 16);
-			}
+				}
 			//可见 / 剔除的实例数
 			const uint32_t visible_count = static_cast<uint32_t>(impl->instanced_cull_scratch.size() / 16);
 			const uint32_t culled_count = count - visible_count;
@@ -5334,6 +5418,39 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return true;
 		return impl->static_batching;
+	}
+
+	//设置渲染工作线程数（第一百七十七轮）
+	void Renderer::render_threads_set(uint32_t count)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//线程数钳到 0..64
+		if (count > 64)
+			count = 64;
+		//同值重复设置为空操作
+		if (count == impl->thread_pool.thread_count_get())
+			return;
+		//先回收旧线程，再按新数量启动
+		impl->thread_pool.threads_stop();
+		impl->render_threads = 0;
+		if (count > 0 && !impl->thread_pool.threads_start(count))
+		{
+			logger.warn("渲染器:: 渲染工作线程切换失败，保持单线程");
+			return;
+		}
+		impl->render_threads = impl->thread_pool.thread_count_get();
+		logger.info("渲染器:: 渲染工作线程已设为 {}", impl->render_threads);
+	}
+
+	//查询当前渲染工作线程数
+	uint32_t Renderer::render_threads(void) const
+	{
+		//未初始化时返回默认值（0 = 单线程）
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->thread_pool.thread_count_get();
 	}
 
 	//读取某一级的泛光专设参数（只读诊断）
