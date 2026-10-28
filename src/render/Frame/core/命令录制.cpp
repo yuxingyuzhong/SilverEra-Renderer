@@ -97,6 +97,51 @@ namespace engine
 		return counts;
 	}
 
+	//UI 阶段录制（MSAA 解析后；单采样通道，仅颜色附件）
+	void Frame_Context::ui_pass_record(VkCommandBuffer command_buffer, VkImage color_image, VkImageView color_view,
+		VkExtent2D extent, VkViewport viewport, VkRect2D scissor, const Frame_Ui_Callback* ui_callback)
+	{
+		//解析写入 → 下一通道读取 / 写入的依赖屏障（同布局）
+		VkImageMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = color_image;
+		barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		vkCmdPipelineBarrier(command_buffer,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+			0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+		//UI 颜色附件（载入解析结果）
+		VkRenderingAttachmentInfo ui_color{};
+		ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		ui_color.imageView = color_view;
+		ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+		//UI 渲染信息（无深度附件）
+		VkRenderingInfo ui_rendering{};
+		ui_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+		ui_rendering.renderArea.offset = { 0, 0 };
+		ui_rendering.renderArea.extent = extent;
+		ui_rendering.layerCount = 1;
+		ui_rendering.colorAttachmentCount = 1;
+		ui_rendering.pColorAttachments = &ui_color;
+
+		//进入 UI 通道并恢复视口 / 裁剪（上层 UI 后端按当前动态状态绘制）
+		vkCmdBeginRendering(command_buffer, &ui_rendering);
+		vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+		vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+		ui_callback->fn(command_buffer, ui_callback->user_data);
+		vkCmdEndRendering(command_buffer);
+	}
+
 	//录制命令缓冲：颜色 / 深度布局转换 + 动态渲染（清屏 + 逐项绘制 + UI 阶段）+ 可选像素回读 + 呈现前布局转换
 	void Frame_Context::command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
 		VkImageView depth_view, VkExtent2D extent,
@@ -274,47 +319,11 @@ namespace engine
 		}
 
 		/*
-		UI 阶段（MSAA；第九十六轮）
-		UI 管线为单采样（ImGui 后端按 MSAASamples=1 创建），故解析完成后以「加载后保留」的
-		单采样通道绘制 UI；通道仅含颜色附件（UI 不使用深度）。
+		UI 阶段（MSAA；第九十六轮；第二百一十四轮改走公共实现）
+		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；通道仅含颜色附件。
 		*/
 		if (sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
-		{
-			//解析写入 → 下一通道读取 / 写入的依赖屏障（同布局）
-			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			barrier.image = image;
-			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			vkCmdPipelineBarrier(command_buffer,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-			//UI 颜色附件（单采样交换链图像；载入解析结果）
-			VkRenderingAttachmentInfo ui_color{};
-			ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			ui_color.imageView = image_view;
-			ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-			ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-			//UI 渲染信息（无深度附件）
-			VkRenderingInfo ui_rendering{};
-			ui_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-			ui_rendering.renderArea.offset = { 0, 0 };
-			ui_rendering.renderArea.extent = extent;
-			ui_rendering.layerCount = 1;
-			ui_rendering.colorAttachmentCount = 1;
-			ui_rendering.pColorAttachments = &ui_color;
-
-			//进入 UI 通道并恢复视口 / 裁剪（上层 UI 后端按当前动态状态绘制）
-			vkCmdBeginRendering(command_buffer, &ui_rendering);
-			vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-			ui_callback->fn(command_buffer, ui_callback->user_data);
-			vkCmdEndRendering(command_buffer);
-		}
+			ui_pass_record(command_buffer, image, image_view, extent, viewport, scissor, ui_callback);
 
 		/*
 		像素回读（可选）
@@ -567,47 +576,12 @@ namespace engine
 		}
 
 		/*
-		UI 阶段（MSAA；第九十六轮）
-		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；
-		通道仅含颜色附件（UI 不使用深度）。
+		UI 阶段（MSAA；第九十六轮；第二百一十四轮改走公共实现）
+		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；通道仅含颜色附件。
 		*/
 		if (target.sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
-		{
-			//解析写入 → 下一通道读取 / 写入的依赖屏障（同布局）
-			barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			barrier.image = target.color_image;
-			barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-			vkCmdPipelineBarrier(command_buffer,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-				0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-			//UI 颜色附件（载入解析结果）
-			VkRenderingAttachmentInfo ui_color{};
-			ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-			ui_color.imageView = target.color_view;
-			ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-			ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-			//UI 渲染信息（无深度附件）
-			VkRenderingInfo ui_rendering{};
-			ui_rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-			ui_rendering.renderArea.offset = { 0, 0 };
-			ui_rendering.renderArea.extent = target.extent;
-			ui_rendering.layerCount = 1;
-			ui_rendering.colorAttachmentCount = 1;
-			ui_rendering.pColorAttachments = &ui_color;
-
-			//进入 UI 通道并恢复视口 / 裁剪
-			vkCmdBeginRendering(command_buffer, &ui_rendering);
-			vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-			ui_callback->fn(command_buffer, ui_callback->user_data);
-			vkCmdEndRendering(command_buffer);
-		}
+			ui_pass_record(command_buffer, target.color_image, target.color_view, target.extent,
+				viewport, scissor, ui_callback);
 
 		//若请求回读：颜色附件 → 传输源，拷贝到回读缓冲，再转到着色器可读
 		if (readback_buffer != VK_NULL_HANDLE)

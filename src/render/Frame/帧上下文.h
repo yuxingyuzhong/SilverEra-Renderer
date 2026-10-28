@@ -515,6 +515,14 @@ namespace engine
 		*/
 		Recorded_Counts items_record(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count);
 		/*
+		UI 阶段录制（实现见 core/命令录制.cpp；第二百一十四轮从两处内联代码抽取）
+		MSAA 解析完成后以「加载后保留」的单采样通道绘制 UI：先做同布局依赖屏障，
+		再开仅含颜色附件的动态渲染，恢复视口 / 裁剪后调用上层回调。
+		链路径不绘制 UI（UI 由上层在帧外处理），故仅交换链直通与离屏目标两处调用。
+		*/
+		void ui_pass_record(VkCommandBuffer command_buffer, VkImage color_image, VkImageView color_view,
+			VkExtent2D extent, VkViewport viewport, VkRect2D scissor, const Frame_Ui_Callback* ui_callback);
+		/*
 		并行录制规划（实现见 core/并行录制.cpp；第二百零八轮统一口径）
 		条件：线程池已启动（> 1 线程）、绘制项 ≥ parallel_min_items、
 		段数 = min(线程数, parallel_max_segments, 项数 / 16) ≥ 2、该帧槽次级缓冲就绪；
