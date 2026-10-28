@@ -1799,6 +1799,14 @@ namespace engine
 					logger.error("渲染器:: 阴影目标附件查询失败");
 					return false;
 				}
+				/*
+				阴影目标格式（第二百一十轮）
+				并行录制需在次级命令缓冲的继承信息里声明附件的颜色 / 深度格式与采样数，
+				故此处补齐（阴影颜色恒为 RGBA8 UNORM，深度取交换链深度格式，恒单采样）。
+				*/
+				shadow_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
+				shadow_target.depth_format = impl->swapchain.depth_format_get();
+				shadow_target.sample_count = 1;
 				//阴影图清空为全 0（打包深度 0 = 最远）
 				const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 				/*

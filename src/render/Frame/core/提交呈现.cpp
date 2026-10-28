@@ -319,11 +319,10 @@ namespace engine
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
 		/*
 		场景 pass 的并行录制规划（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
-		阴影 pass 不并行（其颜色格式固定为 RGBA8，与交换链格式不同，继承信息需按目标格式声明）；
-		其余条件与链 / 直通路径一致。
+		格式与采样数取目标结构体字段（第二百一十轮起阴影 pass 亦补齐目标格式，故不再排除阴影）；
+		链 / 直通 / 离屏 / 阴影四条路径同口径：线程数、绘制项、段数上限、次级缓冲任一不满足即保持单线程（返回 0）。
 		*/
-		if (!shadow_pass)
-			parallel_plan(slot, item_count, target.color_format, target.depth_format, target.sample_count);
+		parallel_plan(slot, item_count, target.color_format, target.depth_format, target.sample_count);
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
 		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
