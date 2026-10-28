@@ -76,18 +76,17 @@ namespace engine
 					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 					item.push_constant_offset, item.push_constant_size, item.push_constants);
 
-			//绑定顶点缓冲（binding 0，偏移 0）
-			VkDeviceSize offset = 0;
-			vkCmdBindVertexBuffers(command_buffer, 0, 1, &item.vertex_buffer, &offset);
+			/*
+			绑定顶点与实例缓冲（第二百一十一轮：binding 0 与 binding 1 合并为一次调用）
+			实例缓冲承载逐实例模型矩阵；实例数为 1 时即「逐次绘制」的等价路径，
+			故 binding 1 在任何合法绘制项下都必须有有效缓冲（管线已恒定声明实例属性）。
+			两条绑定互不依赖，合并调用可把逐项的顶点缓冲绑定 API 次数由 2 降为 1（行为不变）。
+			*/
+			VkBuffer vertex_buffers[2] = { item.vertex_buffer, item.instance_buffer };
+			VkDeviceSize vertex_offsets[2] = { 0, item.instance_offset };
+			vkCmdBindVertexBuffers(command_buffer, 0, 2, vertex_buffers, vertex_offsets);
 			//绑定索引缓冲（uint32 索引；偏移由网格记录给出，顶点与索引可共用一个缓冲）
 			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
-			/*
-			绑定实例缓冲（binding 1）
-			模型矩阵逐实例步进读取；实例数为 1 时即「逐次绘制」的等价路径，
-			故绑定 1 在任何合法绘制项下都必须有有效缓冲（管线已恒定声明实例属性）。
-			*/
-			VkDeviceSize instance_offset = item.instance_offset;
-			vkCmdBindVertexBuffers(command_buffer, 1, 1, &item.instance_buffer, &instance_offset);
 
 			//绘制索引几何（实例数由渲染项给出；实例数 ≥ 1）
 			vkCmdDrawIndexed(command_buffer, item.index_count, item.instance_count, 0, 0, 0);
