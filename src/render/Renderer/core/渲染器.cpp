@@ -723,6 +723,10 @@ namespace engine
 		//实例级剔除的筛选缓冲（第一百五十三轮；按实例上限预留，避免逐帧扩容）
 		impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(impl->instance_capacity) * 16);
 		impl->batch_scratch.reserve(impl->instance_capacity);
+		//阴影列表与后处理绘制项的复用缓冲（第一百八十二轮；避免逐帧堆分配）
+		impl->shadow_items_scratch.reserve(64);
+		impl->post_items_scratch.reserve(Impl::POST_CHAIN_MAX_STAGES + 2);
+
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
 			impl->device.present_family_get(), impl->device.present_queue_get(),
@@ -1718,7 +1722,9 @@ namespace engine
 					impl->instance_upload_bytes += static_cast<uint64_t>(instance_bytes);
 				}
 				//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
-				std::vector<Frame_Render_Item> shadow_items;
+				//阴影列表复用缓冲（第一百八十二轮；避免逐帧新建向量）
+				std::vector<Frame_Render_Item>& shadow_items = impl->shadow_items_scratch;
+				shadow_items.clear();
 				shadow_items.reserve(shadow_item_count);
 				VkPipeline shadow_pipeline = impl->pipeline.pipeline_by_handle_get(impl->shadow_pipeline);
 				VkPipelineLayout shadow_layout = impl->pipeline.layout_get();
@@ -2495,7 +2501,9 @@ namespace engine
 				}
 				//两级管线：0 = 降采样（N 倍 → 输出），1 = 默认后处理（输出 → 交换链）
 				uint64_t stage_pipelines[2] = { impl->ssaa_pipeline, impl->post_pipeline };
-				std::vector<Frame_Render_Item> post_items;
+				//后处理绘制项复用缓冲（第一百八十二轮）
+				std::vector<Frame_Render_Item>& post_items = impl->post_items_scratch;
+				post_items.clear();
 				bool items_ready = true;
 				for (uint32_t index = 0; index < 2; ++index)
 				{
@@ -2626,7 +2634,9 @@ namespace engine
 				else
 					stage_pipelines.push_back(impl->post_pipeline);
 				//组装各级后处理绘制项（全屏四边形 ＋ 各级管线 ＋ set0 场景 UBO / set1 对应源采样集）
-				std::vector<Frame_Render_Item> post_items;
+				//后处理绘制项复用缓冲（第一百八十二轮；与 SSAA 路径共用同一成员，两条路径互斥）
+				std::vector<Frame_Render_Item>& post_items = impl->post_items_scratch;
+				post_items.clear();
 				//任一级管线缺失即整帧回落
 				bool items_ready = true;
 				for (std::size_t index = 0; index < stage_pipelines.size(); ++index)

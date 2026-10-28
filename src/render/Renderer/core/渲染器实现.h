@@ -594,6 +594,14 @@ namespace engine
 		std::vector<Frame_Render_Item> pending_items;
 		//合批复用缓冲（第一百三十六轮；避免每帧为合并结果分配新向量）
 		std::vector<Frame_Render_Item> batch_scratch;
+		/*
+		阴影列表复用缓冲（第一百八十二轮）
+		阴影 pass 与后处理链原本逐帧在栈上新建 std::vector 并 reserve，
+		改为复用这两个成员（每帧 clear 后 push_back），避免逐帧堆分配与释放；
+		内容在 frame_render 返回前不再被使用（render_to_target / render_chain_present 均为同步调用）。
+		*/
+		std::vector<Frame_Render_Item> shadow_items_scratch;
+		std::vector<Frame_Render_Item> post_items_scratch;
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 		//是否已初始化
