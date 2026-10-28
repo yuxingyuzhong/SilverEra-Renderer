@@ -795,6 +795,8 @@ namespace engine
 
 		//清零本帧实际绘制量（本次录制重新累计；链路径的各级另在下方逐级累加）
 		frame_recorded = Recorded_Counts{};
+		//清零并行段数（并行分支按实际段数回填；第一百九十八轮）
+		last_parallel_segments = 0;
 		/*
 		场景 pass 的并行录制（第一百九十七轮）
 		active_secondary_count ≥ 2 时把绘制项按「项数均分」切成若干段，每段由一个次级命令缓冲
@@ -876,6 +878,8 @@ namespace engine
 				frame_recorded.items += parallel_counts[segment].items;
 				frame_recorded.instances += parallel_counts[segment].instances;
 			}
+			//记录本帧并行段数（第一百九十八轮；观测用）
+			last_parallel_segments = segment_count;
 		}
 		//否则走单线程录制（既有路径）
 		else

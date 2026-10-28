@@ -206,11 +206,13 @@ namespace engine
 		/*
 		渲染工作线程观测（第一百七十七轮）
 		render_threads = 当前生效的工作线程数（0 = 单线程）；
-		parallel_dispatches = 自 init 以来实际派发的并行任务次数（退化为调用线程整段执行的任务不计）。
-		两者均不影响画面与绘制统计。
+		parallel_dispatches = 自 init 以来实际派发的并行任务次数（退化为调用线程整段执行的任务不计）；
+		parallel_segments = 最近一帧并行录制的段数（第一百九十八轮；0 = 单线程录制，仅同帧后处理链路径非 0）。
+		三者均不影响画面与绘制统计。
 		*/
 		uint32_t render_threads = 0;
 		uint64_t parallel_dispatches = 0;
+		uint32_t parallel_segments = 0;
 	};
 
 	/*

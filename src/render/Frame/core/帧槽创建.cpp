@@ -363,6 +363,12 @@ namespace engine
 		return last_sample_count;
 	}
 
+	//最近一帧并行录制的段数（第一百九十八轮）
+	uint32_t Frame_Context::last_parallel_segments_get(void) const
+	{
+		return last_parallel_segments;
+	}
+
 	//等待某帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 	bool Frame_Context::slot_fence_wait(Frame_Slot& slot)
 	{

@@ -2950,6 +2950,8 @@ namespace engine
 		//渲染工作线程观测（第一百七十七轮）
 		stats.render_threads = impl->thread_pool.thread_count_get();
 		stats.parallel_dispatches = impl->thread_pool.dispatch_count_get();
+		//最近一帧并行录制段数（第一百九十八轮）
+		stats.parallel_segments = impl->frame.last_parallel_segments_get();
 		return stats;
 	}
 

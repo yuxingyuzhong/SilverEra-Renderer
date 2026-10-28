@@ -430,6 +430,8 @@ namespace engine
 		uint64_t gpu_sample_count_get(void) const;
 		//最近一帧实际执行的后处理级数（0 = 未走后处理链；第二十二轮新增）
 		uint32_t last_post_stages_get(void) const;
+		//最近一帧并行录制的段数（第一百九十八轮；0 = 单线程录制）
+		uint32_t last_parallel_segments_get(void) const;
 		//最近一帧实际使用的采样数（第一百零一轮；1 = 单采样）
 		uint32_t last_sample_count_get(void) const;
 		/*
@@ -596,6 +598,8 @@ namespace engine
 		uint32_t active_sample_count = 1;
 		//并行段统计（按段索引收集，录制结束后汇总到 frame_recorded）
 		std::vector<Recorded_Counts> parallel_counts;
+		//最近一帧并行录制的段数（第一百九十八轮；0 = 单线程录制）
+		uint32_t last_parallel_segments = 0;
 		//GPU 时间戳是否可用（设备支持图形与计算时间戳 ＋ 周期有效 ＋ 图形队列族有效位非零）
 		bool timestamp_supported = false;
 		//时间戳周期（纳秒 / tick；用于把 tick 差换算为时间）
