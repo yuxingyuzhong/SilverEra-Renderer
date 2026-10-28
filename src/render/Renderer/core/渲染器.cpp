@@ -698,6 +698,13 @@ namespace engine
 			if (instance_capacity > 1048576)
 				instance_capacity = 1048576;
 			impl->instance_capacity = instance_capacity;
+			/*
+			帧内登记缓冲预保留（第一百九十四轮，优化）
+			pending_items / pending_instances 每帧 clear 后复用，但首次扩容发生在帧循环内；
+			按「常用绘制项数」与实例容量预先分配，避免运行期扩容抖动（行为不变）。
+			*/
+			impl->pending_items.reserve(64);
+			impl->pending_instances.reserve(impl->instance_capacity);
 			//掩码缓冲按容量预留（避免逐次调用分配）
 			impl->instanced_cull_mask.reserve(instance_capacity);
 			impl->instance_changed_mask.reserve(instance_capacity);
@@ -2474,8 +2481,9 @@ namespace engine
 		*/
 		if (ssaa_frame)
 		{
-			//两个目标：场景目标（N 倍）与解析目标（输出尺寸）
-			std::vector<Frame_Render_Target> targets(2);
+			//两个目标：场景目标（N 倍）与解析目标（输出尺寸）；复用缓冲避免逐帧堆分配（第一百九十四轮）
+			std::vector<Frame_Render_Target>& targets = impl->chain_targets_scratch;
+			targets.assign(2, Frame_Render_Target{});
 			//全屏四边形网格缓冲信息
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;
@@ -2571,7 +2579,9 @@ namespace engine
 			首项为场景目标（present_target），其余为额外中间目标（present_extra）；
 			链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时目标数必须 ≥ 2（上方已保证）。
 			*/
-			std::vector<Frame_Render_Target> targets(1 + impl->present_extra.size());
+			std::vector<Frame_Render_Target>& targets = impl->chain_targets_scratch;
+			//按目标组数量重置元素（容量保留，避免逐帧堆分配；第一百九十四轮）
+			targets.assign(1 + impl->present_extra.size(), Frame_Render_Target{});
 			//全屏四边形网格的共用缓冲 / 索引区偏移 / 索引数
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;

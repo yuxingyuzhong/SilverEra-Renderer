@@ -614,6 +614,13 @@ namespace engine
 		std::vector<Frame_Render_Item> post_items_scratch;
 		//后处理级管线序列复用缓冲（第一百八十七轮；避免逐帧为「链 / 单级」序列分配向量）
 		std::vector<uint64_t> post_stage_pipelines_scratch;
+		/*
+		后处理链目标组复用缓冲（第一百九十四轮）
+		SSAA 路径与同帧后处理链路径原本逐帧在栈上新建 std::vector<Frame_Render_Target>；
+		改为复用该成员（每帧 assign 重置元素、容量保留），避免逐帧堆分配。
+		两条路径互斥，可共用；内容在 render_chain_present 返回前有效。
+		*/
+		std::vector<Frame_Render_Target> chain_targets_scratch;
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 		//是否已初始化
