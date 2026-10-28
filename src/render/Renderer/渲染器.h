@@ -1195,6 +1195,14 @@ namespace engine
 		//读取暗部色调（第一百七十八轮新增；未初始化写默认 (1,1,1)）
 		void toon_shadow_tint(float out[3]) const;
 		/*
+		设置卡通高光阈值（第一百七十九轮新增）
+		threshold 为高光亮度二值化阈值（0 = 关闭；0..1）：高于阈值的高光整块保留、低于阈值整块归零，
+		形成硬边高光块；默认 0 使画面与引入前逐字节不变。数据侧对应 `Light_Data::toon_specular`。
+		*/
+		void toon_specular_set(float threshold);
+		//读取卡通高光阈值（第一百七十九轮新增；未初始化返回 0）
+		float toon_specular(void) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 80 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

@@ -97,6 +97,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	mat4 light_view_proj_far2;
 	//第三级参数（x = 第 2 个切换距离、y = 第 3 片深度跨度、zw 保留；第一百四十六轮）
 	vec4 cascade_params2;
+	//卡通高光参数（第一百七十九轮；x = 阈值 0..1、0 = 关闭；yzw 保留）
+	vec4 toon_specular_params;
 } scene;
 
 //点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
@@ -567,6 +569,20 @@ void main()
 	float diffuse_weight = scene.pbr_params.x > 0.5
 		? clamp(1.0 - material_metallic(uv_material), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
+	/*
+	二次元风格化 · 卡通高光（第一百七十九轮）
+	阈值 > 0 时按「三通道最大高光亮度」二值化：低于阈值整块归零、不低于阈值整块保留，
+	形成硬边高光块（配合色阶量化的硬边阴影）；默认 0 时整段跳过，画面逐字节不变。
+	*/
+	if (scene.toon_specular_params.x > 0.0)
+	{
+		float specular_level = max(max(specular.r, specular.g), specular.b);
+		//高光阈值化（低于阈值的高光整块抹除）
+		if (specular_level < scene.toon_specular_params.x)
+			specular = vec3(0.0);
+		//重新合成以应用阈值化后的高光
+		lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
+	}
 	/*
 	二次元风格化 · 暗部色调化（第一百七十八轮）
 	按主方向光量化后的受光系数把暗部乘上色调：权重 = 1 − smoothstep(0, 0.5, shade)，

@@ -552,6 +552,16 @@ namespace engine
 		float toon_rim = 0.0f;
 		//二次元风格化：暗部色调（第一百七十八轮；RGB 0..1，默认 (1,1,1) = 关闭）
 		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
+		//二次元风格化：卡通高光阈值（第一百七十九轮；0 = 关闭，0..1）
+		float toon_specular = 0.0f;
+		/*
+		场景 UBO 浮点数与字节数（第一百七十九轮抽出常量）
+		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）；
+		本轮由 292 浮点扩为 296（字节 1168 → 1184），追加的 vec4 只被场景片元着色器读取。
+		*/
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 296;
+		//场景 UBO 字节数（浮点数 × 4）
+		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*
 		逐物体反照率色调吸附状态（第六十九轮）
 		material_tint_set 之后，后续非文字网格绘制在推送常量中携带该色调（albedo × tint）；

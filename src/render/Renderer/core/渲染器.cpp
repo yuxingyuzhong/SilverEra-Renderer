@@ -806,8 +806,9 @@ namespace engine
 		impl->instance_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
-			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数；第一百四十六轮扩为 1168：追加第三级级联矩阵与参数）
-			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], 1168,
+			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数；第一百四十六轮扩为 1168；第一百七十九轮扩为 1184：追加卡通高光参数）
+			if (!impl->memory.buffer_create(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
+				static_cast<VkDeviceSize>(Impl::SCENE_BLOCK_BYTES),
 				VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, true))
 			{
 				logger.error("渲染器:: 场景 UBO 创建失败（帧槽 {}）", slot);
@@ -1415,6 +1416,8 @@ namespace engine
 		//暗部色调恢复默认（白色 = 乘性恒等；第一百七十八轮）
 		for (std::size_t index = 0; index < 3; ++index)
 			impl->toon_shadow_tint[index] = 1.0f;
+		//卡通高光阈值复位（0 = 关闭；第一百七十九轮）
+		impl->toon_specular = 0.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
@@ -1820,16 +1823,17 @@ namespace engine
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		impl->text.frame_begin(impl->config.frame_overlap);
 		/*
-		场景 UBO 整块组装（1168 字节 = 292 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
+		场景 UBO 整块组装（1184 字节 = 296 浮点；第六十二轮 960、第六十四轮追加 PBR-lite 参数；
 		第一百二十一轮追加远区级联矩阵与级联参数；第一百二十五轮追加天空盒参数；
-		第一百四十六轮追加第三级级联矩阵与第三级参数）
+		第一百四十六轮追加第三级级联矩阵与第三级参数；第一百七十九轮追加卡通高光参数）
 		各段浮点偏移与 std140 契约一致：0 视图投影、16 光照块、32 点光源位置、64 点光源颜色、
 		96 聚光方向、128 聚光锥参数、160 雾、168 环境光颜色、172 半球环境光、176 补光方向与强度、
 		180 补光颜色、184 逐盏光泽度（8 盏 × 4）、216 光源空间矩阵、232 阴影参数、236 阴影强度、
 		240 PBR-lite 参数（x 启用 / y 粗糙度缩放）、244 远区级联矩阵、260 级联参数、264 相机近远平面、
-		268 天空盒参数（x 启用 / y 漫反射强度 / z 镜面强度）、272 第三级级联矩阵、288 第三级参数。
+		268 天空盒参数（x 启用 / y 漫反射强度 / z 镜面强度）、272 第三级级联矩阵、288 第三级参数、
+		292 卡通高光参数（x 阈值）。
 		*/
-		float scene_block[292] = {};
+		float scene_block[Impl::SCENE_BLOCK_FLOATS] = {};
 		//视图 × 投影矩阵（列主序 16 浮点）
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
@@ -1982,39 +1986,45 @@ namespace engine
 		//二次元暗部色调蓝分量（第一百七十八轮；w 槽；与 266 / 267 共同构成 RGB）
 		scene_block[291] = impl->toon_shadow_tint[2];
 		/*
+		卡通高光参数（第一百七十九轮；x = 阈值 0..1、0 = 关闭；yzw 保留）
+		场景片元按「高光亮度 ≥ 阈值」二值化高光，形成硬边高光块；阈值为 0 时整段短路。
+		*/
+		scene_block[292] = impl->toon_specular;
+		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的 292 浮点，按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的全部浮点（296），按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 1168 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 1184 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();
 		//若缓存规模与帧槽数不一致则重建（帧槽数由在途帧数决定，运行期恒定）
-		if (impl->scene_block_cache.size() != scene_slot_count * 292)
+		if (impl->scene_block_cache.size() != scene_slot_count * Impl::SCENE_BLOCK_FLOATS)
 		{
-			impl->scene_block_cache.assign(scene_slot_count * 292, 0.0f);
+			impl->scene_block_cache.assign(scene_slot_count * Impl::SCENE_BLOCK_FLOATS, 0.0f);
 			impl->scene_block_cached.assign(scene_slot_count, 0);
 		}
-		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * 292;
+		float* slot_cache = impl->scene_block_cache.data() + static_cast<std::size_t>(slot) * Impl::SCENE_BLOCK_FLOATS;
 		//本帧实际上传字节数
 		std::size_t uploaded_bytes = 0;
 		//若该帧槽尚未建立缓存
 		if (impl->scene_block_cached[slot] == 0)
 		{
 			//整块写入（与既有行为一致）
-			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block, 1168, 0))
+			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], scene_block,
+				Impl::SCENE_BLOCK_BYTES, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
 				return false;
 			}
-			uploaded_bytes = 1168;
+			uploaded_bytes = Impl::SCENE_BLOCK_BYTES;
 		}
 		else
 		{
 			//比较单元：4 浮点 = 16 字节（std140 vec4 对齐）
 			constexpr std::size_t UNIT_FLOATS = 4;
 			constexpr std::size_t UNIT_BYTES = 16;
-			constexpr std::size_t UNIT_COUNT = 292 / UNIT_FLOATS;
+			constexpr std::size_t UNIT_COUNT = Impl::SCENE_BLOCK_FLOATS / UNIT_FLOATS;
 			//当前变化段的起始单元与是否处于段内
 			std::size_t run_start = 0;
 			bool in_run = false;
@@ -2059,8 +2069,8 @@ namespace engine
 				uploaded_bytes += segment_bytes;
 			}
 		}
-		//更新该帧槽缓存（与已写入内容一致；第一百四十六轮起 292 浮点）
-		for (std::size_t index = 0; index < 292; ++index)
+		//更新该帧槽缓存（与已写入内容一致；第一百七十九轮起 296 浮点）
+		for (std::size_t index = 0; index < Impl::SCENE_BLOCK_FLOATS; ++index)
 			slot_cache[index] = scene_block[index];
 		impl->scene_block_cached[slot] = 1;
 		//累计上传字节（观测用）
@@ -5808,6 +5818,8 @@ namespace engine
 		toon_set(light.toon_steps, light.toon_rim);
 		//二次元暗部色调（第一百七十八轮）
 		toon_shadow_tint_set(light.toon_shadow_tint[0], light.toon_shadow_tint[1], light.toon_shadow_tint[2]);
+		//二次元卡通高光（第一百七十九轮；非法值由 setter 归一）
+		toon_specular_set(light.toon_specular);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -5864,6 +5876,8 @@ namespace engine
 		//二次元暗部色调（第一百七十八轮）
 		for (std::size_t index = 0; index < 3; ++index)
 			light.toon_shadow_tint[index] = scene.toon_shadow_tint[index];
+		//二次元卡通高光（第一百七十九轮）
+		light.toon_specular = scene.toon_specular;
 		//PBR 金属度（第六十五轮）
 		light.pbr_metallic = scene.pbr_metallic;
 		light.intensity = scene.light_intensity;
@@ -6894,6 +6908,24 @@ namespace engine
 		const bool ready = impl != nullptr && impl->initialized;
 		for (std::size_t index = 0; index < 3; ++index)
 			out[index] = ready ? impl->toon_shadow_tint[index] : 1.0f;
+	}
+
+	//设置卡通高光阈值（第一百七十九轮新增）
+	void Renderer::toon_specular_set(float threshold)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//阈值钳到 [0, 1]（非有限值按 0 = 关闭）
+		const float effective = std::isfinite(threshold) ? threshold : 0.0f;
+		impl->toon_specular = effective > 1.0f ? 1.0f : (effective > 0.0f ? effective : 0.0f);
+	}
+
+	//读取卡通高光阈值（第一百七十九轮新增）
+	float Renderer::toon_specular(void) const
+	{
+		//未初始化返回默认 0（关闭）
+		return impl != nullptr && impl->initialized ? impl->toon_specular : 0.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）
