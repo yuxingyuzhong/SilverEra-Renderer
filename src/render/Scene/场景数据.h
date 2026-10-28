@@ -137,6 +137,14 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属）
 		float pbr_metallic = 0.0f;
+		/*
+		二次元风格化（第一百七十四轮）
+		toon_steps：光照色阶数（0 = 关闭，原样光照；1..8 = 把各光源 N·L 量化到 N 档）；
+		toon_rim：菲涅尔边缘光强度（0 = 关闭；0..1）。
+		默认 0 使画面与引入前逐字节不变。
+		*/
+		uint32_t toon_steps = 0;
+		float toon_rim = 0.0f;
 	};
 
 	/*
@@ -341,5 +349,8 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//PBR 金属度（第六十五轮；语义见 Light_Data::pbr_metallic）
 		float pbr_metallic = 0.0f;
+		//二次元风格化（第一百七十四轮；语义见 Light_Data::toon_steps / toon_rim）
+		uint32_t toon_steps = 0;
+		float toon_rim = 0.0f;
 	};
 }

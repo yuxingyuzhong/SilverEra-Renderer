@@ -1146,6 +1146,17 @@ namespace engine
 		//当前 PBR 金属度（未初始化时为默认 0）
 		float pbr_metallic(void) const;
 		/*
+		二次元风格化 · 光照色阶量化与边缘光（第一百七十四轮新增）
+		steps：色阶数（0 = 关闭，原样光照；1..8 = 把各光源的 N·L 量化到 N 档，形成硬边明暗分界）；
+		rim：菲涅尔边缘光强度（0 = 关闭；0..1，轮廓处叠加反照率亮边）。
+		默认 (0, 0) 使画面与引入前逐字节不变；数据侧对应 `Light_Data::toon_steps` / `toon_rim`。
+		*/
+		void toon_set(uint32_t steps, float rim);
+		//当前色阶数（0 = 关闭；未初始化时为 0）
+		uint32_t toon_steps(void) const;
+		//当前边缘光强度（0 = 关闭；未初始化时为 0）
+		float toon_rim(void) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 80 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

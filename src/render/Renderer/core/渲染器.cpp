@@ -1373,6 +1373,9 @@ namespace engine
 		impl->sky_pipeline = 0;
 		impl->sky_ambient = 0.0f;
 		impl->sky_specular = 0.0f;
+		//二次元风格化状态复位（第一百七十四轮；默认关闭）
+		impl->toon_steps = 0;
+		impl->toon_rim = 0.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
@@ -1889,6 +1892,8 @@ namespace engine
 		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
 		scene_block[241] = impl->pbr_roughness;
 		scene_block[242] = impl->pbr_metallic;
+		//二次元风格化色阶数（第一百七十四轮；w 槽；0 = 关闭）
+		scene_block[243] = static_cast<float>(impl->toon_steps);
 		/*
 		级联阴影参数（第一百二十一轮；第一百四十六轮扩为三级）
 		244..259 为远区级联矩阵（单级时为零矩阵）；260..263 为级联参数：
@@ -1926,6 +1931,8 @@ namespace engine
 		scene_block[268] = impl->sky_enabled ? 1.0f : 0.0f;
 		scene_block[269] = impl->sky_ambient;
 		scene_block[270] = impl->sky_specular;
+		//二次元风格化边缘光强度（第一百七十四轮；w 槽；0 = 关闭）
+		scene_block[271] = impl->toon_rim;
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的 292 浮点，按 16 字节（4 浮点）单元比较；
@@ -5668,6 +5675,8 @@ namespace engine
 		pbr_roughness_set(light.pbr_roughness);
 		//PBR 金属度（第六十五轮；非法值由 setter 整次忽略）
 		pbr_metallic_set(light.pbr_metallic);
+		//二次元风格化（第一百七十四轮；非法参数由 setter 归一）
+		toon_set(light.toon_steps, light.toon_rim);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -5718,6 +5727,9 @@ namespace engine
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
+		//二次元风格化（第一百七十四轮）
+		light.toon_steps = scene.toon_steps;
+		light.toon_rim = scene.toon_rim;
 		//PBR 金属度（第六十五轮）
 		light.pbr_metallic = scene.pbr_metallic;
 		light.intensity = scene.light_intensity;
@@ -6689,6 +6701,38 @@ namespace engine
 	{
 		//未初始化返回默认 0
 		return impl != nullptr && impl->initialized ? impl->pbr_metallic : 0.0f;
+	}
+
+	/*
+	二次元风格化 · 光照色阶量化与边缘光（第一百七十四轮新增）
+	steps：0 = 关闭；1..8 = 量化档数（越界钳制）。
+	rim：0 = 关闭；0..1（越界钳制，非有限值按 0）。
+	两者均只写场景 UBO 的保留分量，默认值下画面逐字节不变。
+	*/
+	void Renderer::toon_set(uint32_t steps, float rim)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//色阶数钳到 [0, 8]
+		impl->toon_steps = steps > 8 ? 8 : steps;
+		//边缘光强度钳到 [0, 1]（非有限值按 0）
+		float effective_rim = std::isfinite(rim) ? rim : 0.0f;
+		impl->toon_rim = effective_rim > 1.0f ? 1.0f : (effective_rim > 0.0f ? effective_rim : 0.0f);
+	}
+
+	//当前色阶数（第一百七十四轮新增）
+	uint32_t Renderer::toon_steps(void) const
+	{
+		//未初始化返回默认 0（关闭）
+		return impl != nullptr && impl->initialized ? impl->toon_steps : 0;
+	}
+
+	//当前边缘光强度（第一百七十四轮新增）
+	float Renderer::toon_rim(void) const
+	{
+		//未初始化返回默认 0（关闭）
+		return impl != nullptr && impl->initialized ? impl->toon_rim : 0.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）

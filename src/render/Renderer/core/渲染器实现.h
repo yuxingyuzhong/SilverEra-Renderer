@@ -520,6 +520,10 @@ namespace engine
 		float material_pbr_roughness = 1.0f;
 		//逐物体材质金属度（0..1）
 		float material_pbr_metallic = 0.0f;
+		//二次元风格化：色阶数（第一百七十四轮；0 = 关闭，1..8 = 量化档数）
+		uint32_t toon_steps = 0;
+		//二次元风格化：边缘光强度（第一百七十四轮；0 = 关闭，0..1）
+		float toon_rim = 0.0f;
 		/*
 		逐物体反照率色调吸附状态（第六十九轮）
 		material_tint_set 之后，后续非文字网格绘制在推送常量中携带该色调（albedo × tint）；

@@ -128,6 +128,18 @@ float material_metallic(vec2 uv)
 }
 
 /*
+二次元风格化：光照色阶量化（第一百七十四轮）
+steps <= 0.5（关闭）时原样返回；否则把照度量化到 steps 档（四舍五入到最近档），
+形成硬边的明暗分界（卡通 / 二次元常用的二值、三值阴影）。
+*/
+float toon_quantize(float ndotl, float steps)
+{
+	if (steps <= 0.5)
+		return ndotl;
+	return floor(clamp(ndotl, 0.0, 1.0) * steps + 0.5) / steps;
+}
+
+/*
 PBR-lite 粗糙度换算（第六十四轮；第六十八轮增加逐物体缩放入参）
 由 Blinn-Phong 光泽度换算 GGX 粗糙度：roughness = sqrt(2 / (shininess + 2))，
 再乘缩放入参并钳到 [0.03, 1]。
@@ -340,6 +352,9 @@ void main()
 	仅作用于环境光基底与天空 IBL 漫反射，不衰减方向光 / 点光源的直接照度。
 	*/
 	float occlusion = texture(ao_map, uv_material).r;
+	//二次元风格化参数（第一百七十四轮；均复用 UBO 保留分量）
+	float toon_levels = scene.pbr_params.w;
+	float toon_rim = scene.sky_params.w;
 	/*
 	多光源累加（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源）
 	未提供法线（长度近零）时按「朝向相机」处理，等价于满照（辐射度 = 1），
@@ -422,6 +437,8 @@ void main()
 		{
 			vec3 to_light = -scene.light_dir.xyz;
 			float ndotl = max(dot(normal, to_light), 0.0);
+			//色阶量化（第一百七十四轮；关闭时原样返回）
+			ndotl = toon_quantize(ndotl, toon_levels);
 			//方向光阴影系数（第五十二轮；未启用时恒 1；第五十九轮传入法线做偏移）
 			float dir_shadow = shadow_factor(in_world, normal);
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
@@ -446,6 +463,8 @@ void main()
 		{
 			vec3 fill_to_light = -scene.fill_dir_intensity.xyz;
 			float fill_ndotl = max(dot(normal, fill_to_light), 0.0);
+			//色阶量化（第一百七十四轮）
+			fill_ndotl = toon_quantize(fill_ndotl, toon_levels);
 			radiance += scene.fill_color.rgb * scene.fill_dir_intensity.w * fill_ndotl;
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
@@ -506,6 +525,8 @@ void main()
 				cone = smoothstep(scene.point_spot_cone[index].y, scene.point_spot_cone[index].x, cos_angle);
 			}
 			float ndotl = max(dot(normal, to_light), 0.0);
+			//色阶量化（第一百七十四轮）
+			ndotl = toon_quantize(ndotl, toon_levels);
 			radiance += scene.point_color_intensity[index].rgb * scene.point_color_intensity[index].w
 				* ndotl * attenuation * cone;
 			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
@@ -536,6 +557,17 @@ void main()
 	float diffuse_weight = scene.pbr_params.x > 0.5
 		? clamp(1.0 - material_metallic(uv_material), 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
+	/*
+	二次元风格化 · 菲涅尔边缘光（第一百七十四轮）
+	强度 > 0 且提供了法线时，按「视线与法线」夹角在轮廓处叠加反照率亮边（三次方收窄）；
+	默认 0 时整段跳过，画面与引入前逐字节一致。
+	*/
+	if (toon_rim > 0.0 && length(in_normal) > 0.000001)
+	{
+		vec3 rim_view = normalize(scene.camera_pos.xyz - in_world);
+		float rim = 1.0 - clamp(dot(normalize(in_normal), rim_view), 0.0, 1.0);
+		lit += albedo_color.rgb * (rim * rim * rim) * clamp(toon_rim, 0.0, 1.0) * 2.0;
+	}
 	/*
 	距离雾（第三十八轮；密度 0 = 关闭；第一百四十三轮补指数平方模式）
 	线性（fog_range.z ≤ 0.5）：按「相机 → 片元」距离在 [起始, 结束] 间归一化，取 t² × 密度混合雾色；
