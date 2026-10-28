@@ -113,6 +113,12 @@ namespace engine
 		*/
 		static Mesh_Data sphere_generate(float radius, uint32_t slices, uint32_t stacks);
 		/*
+		生成正二十面体球（第一百八十九轮）
+		radius 半径；subdivisions 细分次数（0..4，0 = 正二十面体：12 顶点 / 20 面）；
+		每细分一次面数 ×4；顶点按球面归一化，法线 = 归一化位置，UV 按球坐标展开。
+		*/
+		static Mesh_Data icosphere_generate(float radius, uint32_t subdivisions);
+		/*
 		生成带端盖圆柱（第六十六轮新增）
 		radius 半径、height 总高（沿 Y 轴、中心在原点）；segments 圆周分段（>= 3）；
 		侧面法线径向，上下端盖法线朝 ±Y。

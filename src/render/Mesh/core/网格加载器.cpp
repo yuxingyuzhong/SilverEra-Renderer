@@ -131,6 +131,106 @@ namespace engine
 	}
 
 	/*
+	生成正二十面体球（第一百八十九轮）
+	基础为 12 顶点 / 20 面正二十面体；每次细分把每个三角面拆成 4 个（中点缓存复用，避免裂缝），
+	最后把所有顶点归一化到半径 radius、法线取归一化位置、UV 按球坐标展开。
+	绕序沿用正二十面体标准外向逆时针表，故背面剔除行为与其它程序化图元一致。
+	*/
+	Mesh_Data Mesh_Context::icosphere_generate(float radius, uint32_t subdivisions)
+	{
+		//半径兜底与细分上限
+		if (!(radius > 0.0f))
+			radius = 1.0f;
+		if (subdivisions > 4)
+			subdivisions = 4;
+		//基础正二十面体顶点（未归一化）
+		const float golden = (1.0f + std::sqrt(5.0f)) * 0.5f;
+		std::vector<std::array<float, 3>> points = {
+			{ -1.0f, golden, 0.0f }, { 1.0f, golden, 0.0f }, { -1.0f, -golden, 0.0f }, { 1.0f, -golden, 0.0f },
+			{ 0.0f, -1.0f, golden }, { 0.0f, 1.0f, golden }, { 0.0f, -1.0f, -golden }, { 0.0f, 1.0f, -golden },
+			{ golden, 0.0f, -1.0f }, { golden, 0.0f, 1.0f }, { -golden, 0.0f, -1.0f }, { -golden, 0.0f, 1.0f },
+		};
+		//基础 20 个三角面（外向逆时针）
+		std::vector<std::array<uint32_t, 3>> faces = {
+			{ 0, 11, 5 }, { 0, 5, 1 }, { 0, 1, 7 }, { 0, 7, 10 }, { 0, 10, 11 },
+			{ 1, 5, 9 }, { 5, 11, 4 }, { 11, 10, 2 }, { 10, 7, 6 }, { 7, 1, 8 },
+			{ 3, 9, 4 }, { 3, 4, 2 }, { 3, 2, 6 }, { 3, 6, 8 }, { 3, 8, 9 },
+			{ 4, 9, 5 }, { 2, 4, 11 }, { 6, 2, 10 }, { 8, 6, 7 }, { 9, 8, 1 },
+		};
+		//逐次细分（每次面数 ×4，中点按顶点对缓存复用）
+		for (uint32_t level = 0; level < subdivisions; ++level)
+		{
+			//中点索引缓存（键 = 低位顶点索引 × 基数 ＋ 高位顶点索引）
+			std::unordered_map<uint64_t, uint32_t> mid_cache;
+			const uint64_t cache_base = static_cast<uint64_t>(points.size()) + 1;
+			std::vector<std::array<uint32_t, 3>> next_faces;
+			next_faces.reserve(faces.size() * 4);
+			//取两点中点的索引（不存在则新建并归一化）
+			auto midpoint_of = [&points, &mid_cache, cache_base](uint32_t a, uint32_t b) -> uint32_t
+			{
+				//键按大小顺序存放，保证 a→b 与 b→a 命中同一条目
+				const uint64_t low = a < b ? a : b;
+				const uint64_t high = a < b ? b : a;
+				const uint64_t key = low * cache_base + high;
+				auto it = mid_cache.find(key);
+				//命中直接返回
+				if (it != mid_cache.end())
+					return it->second;
+				//新建中点并归一化到单位球
+				std::array<float, 3> mid = {
+					(points[a][0] + points[b][0]) * 0.5f,
+					(points[a][1] + points[b][1]) * 0.5f,
+					(points[a][2] + points[b][2]) * 0.5f,
+				};
+				const float length = std::sqrt(mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2]);
+				if (length > 0.0f)
+					for (std::size_t axis = 0; axis < 3; ++axis)
+						mid[axis] /= length;
+				points.push_back(mid);
+				const uint32_t index = static_cast<uint32_t>(points.size() - 1);
+				mid_cache.emplace(key, index);
+				return index;
+			};
+			//逐面拆四
+			for (const std::array<uint32_t, 3>& face : faces)
+			{
+				const uint32_t ab = midpoint_of(face[0], face[1]);
+				const uint32_t bc = midpoint_of(face[1], face[2]);
+				const uint32_t ca = midpoint_of(face[2], face[0]);
+				next_faces.push_back({ face[0], ab, ca });
+				next_faces.push_back({ face[1], bc, ab });
+				next_faces.push_back({ face[2], ca, bc });
+				next_faces.push_back({ ab, bc, ca });
+			}
+			faces.swap(next_faces);
+		}
+		//组装网格数据（顶点归一化到 radius，UV 按球坐标展开）
+		Mesh_Data data;
+		data.vertices.reserve(points.size());
+		for (const std::array<float, 3>& point : points)
+		{
+			//单位方向
+			const float length = std::sqrt(point[0] * point[0] + point[1] * point[1] + point[2] * point[2]);
+			const float nx = length > 0.0f ? point[0] / length : 0.0f;
+			const float ny = length > 0.0f ? point[1] / length : 1.0f;
+			const float nz = length > 0.0f ? point[2] / length : 0.0f;
+			//球面 UV（经度 u、纬度 v；纬度钳到 [-1,1] 防浮点误差越界）
+			const float clamped_y = ny < -1.0f ? -1.0f : (ny > 1.0f ? 1.0f : ny);
+			const float u = std::atan2(nz, nx) / 6.2831853f + 0.5f;
+			const float v = 0.5f - std::asin(clamped_y) / 3.14159265f;
+			data.vertices.push_back({ { nx * radius, ny * radius, nz * radius }, { u, v }, { nx, ny, nz } });
+		}
+		data.indices.reserve(faces.size() * 3);
+		for (const std::array<uint32_t, 3>& face : faces)
+		{
+			data.indices.push_back(face[0]);
+			data.indices.push_back(face[1]);
+			data.indices.push_back(face[2]);
+		}
+		return data;
+	}
+
+	/*
 	生成带端盖圆柱（第六十六轮）
 	沿 Y 轴、中心在原点；侧面两圈（底部 / 顶部，接缝复制列）法线径向；
 	上下端盖各一中心顶点 ＋ 扇形（法线朝向 ±Y）。

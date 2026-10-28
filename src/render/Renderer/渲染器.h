@@ -351,6 +351,13 @@ namespace engine
 		*/
 		bool mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks);
 		/*
+		加载程序化正二十面体球（第一百八十九轮新增）
+		radius 为正；subdivisions 细分次数 0..4（0 = 正二十面体 12 顶点 / 20 面，每级面数 ×4）；
+		非法参数整次拒绝（句柄置 0 并告警）。顶点按球面归一化，法线朝外，UV 按球坐标展开；
+		与 UV 球相比三角形更均匀（适合展示与物理近似）。
+		*/
+		bool mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions);
+		/*
 		加载程序化圆柱（第六十六轮新增）
 		radius / height 为正（沿 Y 轴、中心在原点）；segments 圆周分段 3..128；
 		非法参数整次拒绝（句柄置 0 并告警）。侧面法线径向，上下端盖法线朝 ±Y。

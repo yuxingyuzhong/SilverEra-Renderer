@@ -3140,6 +3140,20 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::sphere_generate(radius, slices, stacks));
 	}
 
+	//按正二十面体球加载网格（第一百八十九轮）
+	bool Renderer::mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions)
+	{
+		//前置：已初始化、半径为正（非数亦拒）、细分次数在 0..4
+		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || subdivisions > 4)
+		{
+			logger.warn("渲染器:: 正二十面体球参数非法（半径 {}、细分 {}）", radius, subdivisions);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::icosphere_generate(radius, subdivisions));
+	}
+
 	//按程序化圆柱加载网格（第六十六轮新增）
 	bool Renderer::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
