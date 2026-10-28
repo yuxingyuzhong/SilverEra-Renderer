@@ -1,0 +1,41 @@
+#version 450
+/*
+后处理片元着色器 · 指数色调映射（链式后处理预设；第一百八十五轮）
+指数曲线逐通道压缩高光：1 − exp(−x)，高光滚降比 Reinhard 更硬、暗区更接近线性。
+
+口径：
+1. 输入先钳到 [0,1]（本层后处理源为 8 位附件，不会超过 1）；
+2. 输出仍落在 [0,1]：x=1 → ≈0.632、x=0.18 → ≈0.165；
+3. alpha 恒置 1；只做逐像素映射，不读任何参数（与 ACES / Reinhard 预设互补）。
+*/
+//颜色附件输出
+layout(location = 0) out vec4 out_color;
+
+//源纹理（描述符集 1）：上一级的输出
+layout(set = 1, binding = 0) uniform sampler2D source_image;
+
+//推送常量：后处理「源 / 宿尺寸」（offset 80；x/y = 源宽高，z/w = 宿宽高）
+layout(push_constant) uniform Push_Size
+{
+	layout(offset = 80) vec4 size_xy;
+} push_size;
+
+//指数曲线（单通道）
+float exponential(float x)
+{
+	//钳制输入后按 1 − exp(−x) 映射
+	float v = clamp(x, 0.0, 1.0);
+	return 1.0 - exp(-v);
+}
+
+void main()
+{
+	//源纹理尺寸（用于越界钳制）
+	ivec2 source_size = textureSize(source_image, 0);
+	//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
+	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
+	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
+	//取源颜色并逐通道映射
+	vec4 source = texelFetch(source_image, coord, 0);
+	out_color = vec4(vec3(exponential(source.r), exponential(source.g), exponential(source.b)), 1.0);
+}
