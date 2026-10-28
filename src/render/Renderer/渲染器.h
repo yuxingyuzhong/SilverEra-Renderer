@@ -374,6 +374,14 @@ namespace engine
 		*/
 		bool mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions);
 		/*
+		加载程序化 XZ 平面细分网格（第一百九十三轮新增）
+		width / depth 为正（世界单位，沿 X / Z、中心在原点）；segments_x / segments_z 分段数 1..512；
+		顶点 (segments_x+1) × (segments_z+1)、索引 segments_x × segments_z × 6；
+		法线恒 +Y、UV 覆盖 [0,1]；非法参数整次拒绝（句柄置 0 并告警）。适合作地形 / 水面底板。
+		*/
+		bool mesh_ground_grid_load(Mesh_Handle& handle_out, float width, float depth,
+			uint32_t segments_x, uint32_t segments_z);
+		/*
 		加载程序化圆柱（第六十六轮新增）
 		radius / height 为正（沿 Y 轴、中心在原点）；segments 圆周分段 3..128；
 		非法参数整次拒绝（句柄置 0 并告警）。侧面法线径向，上下端盖法线朝 ±Y。

@@ -119,6 +119,13 @@ namespace engine
 		*/
 		static Mesh_Data icosphere_generate(float radius, uint32_t subdivisions);
 		/*
+		生成 XZ 平面细分网格（第一百九十三轮）
+		width / depth 为世界单位（沿 X / Z、中心在原点）；segments_x / segments_z 分段数（1..512）；
+		顶点 (segments_x+1) × (segments_z+1)、索引 segments_x × segments_z × 6；
+		法线恒 +Y、UV 在 [0,1] 上线性分布；正面绕序为「从 +Y 看逆时针」（与其它程序化图元一致）。
+		*/
+		static Mesh_Data ground_grid_generate(float width, float depth, uint32_t segments_x, uint32_t segments_z);
+		/*
 		生成带端盖圆柱（第六十六轮新增）
 		radius 半径、height 总高（沿 Y 轴、中心在原点）；segments 圆周分段（>= 3）；
 		侧面法线径向，上下端盖法线朝 ±Y。

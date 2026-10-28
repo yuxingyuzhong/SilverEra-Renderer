@@ -231,6 +231,58 @@ namespace engine
 	}
 
 	/*
+	生成 XZ 平面细分网格（第一百九十三轮）
+	以原点为中心、Y = 0 的水平网格；法线恒 +Y、UV 在 [0,1] 上线性分布；
+	正面绕序为「从 +Y 看逆时针」，与其它程序化图元一致。
+	*/
+	Mesh_Data Mesh_Context::ground_grid_generate(float width, float depth, uint32_t segments_x, uint32_t segments_z)
+	{
+		//参数兜底（非法值按 1 处理；门面已先行校验）
+		if (!(width > 0.0f))
+			width = 1.0f;
+		if (!(depth > 0.0f))
+			depth = 1.0f;
+		if (segments_x < 1)
+			segments_x = 1;
+		if (segments_z < 1)
+			segments_z = 1;
+		//每行顶点数
+		const uint32_t columns = segments_x + 1;
+		Mesh_Data data;
+		data.vertices.reserve(static_cast<std::size_t>(columns) * (segments_z + 1));
+		//逐行（Z）逐列（X）铺顶点
+		for (uint32_t row = 0; row <= segments_z; ++row)
+		{
+			const float v = static_cast<float>(row) / static_cast<float>(segments_z);
+			const float z = (v - 0.5f) * depth;
+			for (uint32_t column = 0; column <= segments_x; ++column)
+			{
+				const float u = static_cast<float>(column) / static_cast<float>(segments_x);
+				const float x = (u - 0.5f) * width;
+				data.vertices.push_back({ { x, 0.0f, z }, { u, v }, { 0.0f, 1.0f, 0.0f } });
+			}
+		}
+		//逐格生成两个三角（从 +Y 看逆时针）
+		data.indices.reserve(static_cast<std::size_t>(segments_x) * segments_z * 6);
+		for (uint32_t row = 0; row < segments_z; ++row)
+		{
+			for (uint32_t column = 0; column < segments_x; ++column)
+			{
+				//本格左上角顶点与下一行同列顶点
+				const uint32_t base = row * columns + column;
+				const uint32_t next_row = base + columns;
+				data.indices.push_back(base);
+				data.indices.push_back(next_row);
+				data.indices.push_back(next_row + 1);
+				data.indices.push_back(base);
+				data.indices.push_back(next_row + 1);
+				data.indices.push_back(base + 1);
+			}
+		}
+		return data;
+	}
+
+	/*
 	生成带端盖圆柱（第六十六轮）
 	沿 Y 轴、中心在原点；侧面两圈（底部 / 顶部，接缝复制列）法线径向；
 	上下端盖各一中心顶点 ＋ 扇形（法线朝向 ±Y）。

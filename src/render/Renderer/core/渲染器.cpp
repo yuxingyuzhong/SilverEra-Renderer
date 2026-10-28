@@ -3187,6 +3187,27 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::icosphere_generate(radius, subdivisions));
 	}
 
+	//按 XZ 平面细分网格加载网格（第一百九十三轮）
+	bool Renderer::mesh_ground_grid_load(Mesh_Handle& handle_out, float width, float depth,
+		uint32_t segments_x, uint32_t segments_z)
+	{
+		//顶点总数（分段乘积上限约 100 万，防止误传超大分段耗尽内存）
+		const uint64_t vertex_count = (static_cast<uint64_t>(segments_x) + 1)
+			* (static_cast<uint64_t>(segments_z) + 1);
+		//前置：已初始化、宽深为正（非数亦拒）、分段在 1..512 且顶点总数受限
+		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(depth > 0.0f)
+			|| segments_x < 1 || segments_x > 512 || segments_z < 1 || segments_z > 512
+			|| vertex_count > (1ull << 20))
+		{
+			logger.warn("渲染器:: 细分平面参数非法（宽 {}、深 {}、分段 {}×{}）",
+				width, depth, segments_x, segments_z);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::ground_grid_generate(width, depth, segments_x, segments_z));
+	}
+
 	//按程序化圆柱加载网格（第六十六轮新增）
 	bool Renderer::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
