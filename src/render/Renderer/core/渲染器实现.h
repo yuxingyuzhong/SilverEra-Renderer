@@ -235,6 +235,10 @@ namespace engine
 			float uv_scale[2] = { 1.0f, 1.0f };
 			//贴图 UV 偏移（第一百七十一轮；默认 (0,0)）
 			float uv_offset[2] = { 0.0f, 0.0f };
+			//贴图 UV 旋转（第一百八十三轮；弧度，默认 0 = 不旋转）
+			float uv_rotation = 0.0f;
+			//Alpha 裁剪阈值（第一百八十三轮；默认 0 = 关闭）
+			float alpha_cutoff = 0.0f;
 			//覆盖率写入（第一百二十六轮；仅 MSAA > 1× 时生效）
 			bool alpha_to_coverage = false;
 			//双面渲染（第一百七十二轮；true 时关闭背面剔除）
@@ -586,6 +590,10 @@ namespace engine
 		float material_uv_scale[2] = { 1.0f, 1.0f };
 		//逐物体贴图 UV 偏移（第一百七十一轮；默认 (0,0)，随推送常量 offset 96 的 zw 下发）
 		float material_uv_offset[2] = { 0.0f, 0.0f };
+		//逐物体贴图 UV 旋转（第一百八十三轮；默认 0，随推送常量 offset 80 的 w 下发）
+		float material_uv_rotation = 0.0f;
+		//逐物体 Alpha 裁剪阈值（第一百八十三轮；默认 0 = 关闭，随推送常量 offset 80 的 z 下发）
+		float material_alpha_cutoff = 0.0f;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

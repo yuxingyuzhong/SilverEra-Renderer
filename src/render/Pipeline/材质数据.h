@@ -81,6 +81,15 @@ namespace engine
 		float uv_scale[2] = { 1.0f, 1.0f };
 		float uv_offset[2] = { 0.0f, 0.0f };
 		/*
+		贴图 UV 旋转与 Alpha 裁剪（第一百八十三轮）
+		uv_rotation：贴图 UV 绕 (0,0) 的旋转角（弧度，−π..π）；0（默认）时与未旋转逐字节一致。
+		            变换顺序为「先缩放、再旋转、最后偏移」。
+		alpha_cutoff：Alpha 裁剪阈值（0 = 关闭；0..1）；反照率 alpha 低于阈值时丢弃该片元（discard），
+		             用于镂空 / 树叶类贴图；默认 0 时不做任何裁剪，画面与引入前逐字节一致。
+		*/
+		float uv_rotation = 0.0f;
+		float alpha_cutoff = 0.0f;
+		/*
 		覆盖率写入（第一百二十六轮）
 		true 时该材质的共享管线启用 alphaToCoverage（仅 MSAA 采样数 > 1 时生效）；
 		false（默认）保持既有 alpha 混合，1× 下两者逐字节一致。

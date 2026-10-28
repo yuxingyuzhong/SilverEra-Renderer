@@ -341,13 +341,28 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 void main()
 {
 	/*
-	材质贴图 UV 变换（第一百七十一轮）
-	全部材质贴图共用同一变换：uv' = uv × scale + offset；
-	默认 scale (1,1)、offset (0,0) 时 uv' 与原 UV 完全一致，画面逐字节不变。
+	材质贴图 UV 变换（第一百七十一轮；第一百八十三轮加旋转）
+	全部材质贴图共用同一变换：先缩放、再绕 (0,0) 旋转、最后偏移；
+	默认 scale (1,1)、rotation 0、offset (0,0) 时 uv' 与原 UV 完全一致，画面逐字节不变。
 	*/
-	vec2 uv_material = in_uv * push_tint.material_uv.xy + push_tint.material_uv.zw;
+	vec2 uv_scaled = in_uv * push_tint.material_uv.xy;
+	//UV 旋转（角度 0 时 cos=1 / sin=0，结果与未旋转逐字节一致）
+	if (push_tint.material_extras.w != 0.0)
+	{
+		float rotation_cos = cos(push_tint.material_extras.w);
+		float rotation_sin = sin(push_tint.material_extras.w);
+		uv_scaled = vec2(uv_scaled.x * rotation_cos - uv_scaled.y * rotation_sin,
+			uv_scaled.x * rotation_sin + uv_scaled.y * rotation_cos);
+	}
+	vec2 uv_material = uv_scaled + push_tint.material_uv.zw;
 	//采样反照率并乘逐物体色调（默认白色 → 不变）
 	vec4 albedo_color = texture(albedo, uv_material) * push_tint.tint;
+	/*
+	Alpha 裁剪（第一百八十三轮）
+	阈值 > 0 且反照率 alpha 低于阈值时丢弃该片元（镂空 / 树叶类贴图）；默认 0 不做任何裁剪。
+	*/
+	if (push_tint.material_extras.z > 0.0 && albedo_color.a < push_tint.material_extras.z)
+		discard;
 	/*
 	环境光遮蔽（第一百六十九轮）
 	取红通道作环境光乘子；默认绑定白纹理时恒为 1，故未配置贴图路径逐字节不变。

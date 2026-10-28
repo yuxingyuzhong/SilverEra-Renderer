@@ -1350,6 +1350,9 @@ namespace engine
 		//逐物体自发光恢复默认（0，第七十轮）
 		impl->material_emissive = 0.0f;
 		impl->material_normal_strength = 0.0f;
+		//UV 旋转与 Alpha 裁剪恢复默认（0 = 不旋转 / 关闭；第一百八十三轮）
+		impl->material_uv_rotation = 0.0f;
+		impl->material_alpha_cutoff = 0.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -3541,6 +3544,9 @@ namespace engine
 			{
 				push[20] = impl->material_normal_strength;
 				push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+				//Alpha 裁剪阈值与 UV 旋转（第一百八十三轮；默认 0 = 关闭 / 不旋转）
+				push[22] = impl->material_alpha_cutoff;
+				push[23] = impl->material_uv_rotation;
 			}
 			/*
 			贴图 UV 变换（第一百七十一轮；offset 96 的 vec4）
@@ -3713,6 +3719,9 @@ namespace engine
 		push[25] = impl->material_uv_scale[1];
 		push[26] = impl->material_uv_offset[0];
 		push[27] = impl->material_uv_offset[1];
+		//Alpha 裁剪阈值与 UV 旋转（第一百八十三轮；默认 0 = 关闭 / 不旋转）
+		push[22] = impl->material_alpha_cutoff;
+		push[23] = impl->material_uv_rotation;
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
@@ -4471,6 +4480,13 @@ namespace engine
 			record.uv_scale[index] = std::isfinite(data.uv_scale[index]) ? data.uv_scale[index] : 1.0f;
 			record.uv_offset[index] = std::isfinite(data.uv_offset[index]) ? data.uv_offset[index] : 0.0f;
 		}
+		/*
+		UV 旋转与 Alpha 裁剪（第一百八十三轮）
+		旋转角非有限值按 0（不旋转）；裁剪阈值非有限值或越界按 0（关闭），避免脏值影响片元丢弃。
+		*/
+		record.uv_rotation = std::isfinite(data.uv_rotation) ? data.uv_rotation : 0.0f;
+		record.alpha_cutoff = (std::isfinite(data.alpha_cutoff) && data.alpha_cutoff > 0.0f && data.alpha_cutoff <= 1.0f)
+			? data.alpha_cutoff : 0.0f;
 		record.normal_strength = (data.normal_strength > 0.0f && data.normal_strength <= 4.0f)
 			? data.normal_strength : 0.0f;
 		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
@@ -4575,6 +4591,8 @@ namespace engine
 			impl->material_uv_scale[1] = 1.0f;
 			impl->material_uv_offset[0] = 0.0f;
 			impl->material_uv_offset[1] = 0.0f;
+			impl->material_uv_rotation = 0.0f;
+			impl->material_alpha_cutoff = 0.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -4591,6 +4609,8 @@ namespace engine
 			impl->material_uv_scale[1] = 1.0f;
 			impl->material_uv_offset[0] = 0.0f;
 			impl->material_uv_offset[1] = 0.0f;
+			impl->material_uv_rotation = 0.0f;
+			impl->material_alpha_cutoff = 0.0f;
 			return;
 		}
 		//取目标记录
@@ -4671,6 +4691,9 @@ namespace engine
 			impl->material_uv_scale[index] = record.uv_scale[index];
 			impl->material_uv_offset[index] = record.uv_offset[index];
 		}
+		//同步 UV 旋转与 Alpha 裁剪（第一百八十三轮；默认 0 即关闭）
+		impl->material_uv_rotation = record.uv_rotation;
+		impl->material_alpha_cutoff = record.alpha_cutoff;
 	}
 
 	/*
