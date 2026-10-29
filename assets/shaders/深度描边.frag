@@ -2,12 +2,14 @@
 /*
 后处理片元着色器 · 深度描边（第一百七十六轮；二次元风格化阶段 B）
 用 5 点 Laplacian 在场景深度上求边缘，按强度把原色压暗，形成粗细均匀的深色轮廓线。
-参数经推送常量 post_param 下发：x = 强度（0..1）、z = 深度差阈值（0..10，映射为 0.0005..0.05）。
+参数经推送常量 post_param 下发：x = 强度（0..1）、z = 深度差阈值（0..10，映射为 0.0005..0.05）、
+w = 描边半径（0 或 1 = 单像素，2..4 = 更粗的轮廓；第二百二十轮）。
 
 口径：
 1. 邻域采样一律 texelFetch，越界钳到边缘；深度取 set1 binding 2；
 2. 阈值为「常数 + 中心视深比例」自适应：远处深度变化平缓，阈值放宽，减少远景破碎线；
-3. 强度 0 时压暗权重恒 0，输出与直通逐字节一致；alpha 恒置 1。
+3. 强度 0 时压暗权重恒 0，输出与直通逐字节一致；alpha 恒置 1；
+4. 半径缺省（0）归一到 1，故默认画面与引入半径前逐字节一致。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -44,10 +46,12 @@ void main()
 	ivec2 depth_coord = clamp(ivec2(gl_FragCoord.xy * depth_scale), ivec2(0), depth_size - ivec2(1));
 	//中心深度与 4 邻域
 	float center = texelFetch(depth_image, depth_coord, 0).r;
-	float neighbors = depth_at(depth_coord, depth_size, ivec2(-1, 0))
-		+ depth_at(depth_coord, depth_size, ivec2(1, 0))
-		+ depth_at(depth_coord, depth_size, ivec2(0, -1))
-		+ depth_at(depth_coord, depth_size, ivec2(0, 1));
+	//描边半径（缺省 0 归一到 1，与单像素实现完全一致）
+	int radius = int(clamp(round(push.post_param.w), 1.0, 4.0));
+	float neighbors = depth_at(depth_coord, depth_size, ivec2(-radius, 0))
+		+ depth_at(depth_coord, depth_size, ivec2(radius, 0))
+		+ depth_at(depth_coord, depth_size, ivec2(0, -radius))
+		+ depth_at(depth_coord, depth_size, ivec2(0, radius));
 	//5 点 Laplacian（深度断层的响应）
 	float laplacian = abs(center * 4.0 - neighbors);
 	//阈值：0..10 映射到 0.0005..0.05，并按中心视深自适应

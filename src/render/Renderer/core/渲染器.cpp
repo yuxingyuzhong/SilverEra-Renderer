@@ -2371,9 +2371,31 @@ namespace engine
 					uploaded_bytes += segment_bytes;
 				}
 			}
-			//更新该帧槽缓存（与已写入内容一致）
-			for (std::size_t index = 0; index < instance_count * INSTANCE_FLOAT_COUNT; ++index)
-				instance_cache[index] = impl->pending_instances[index / INSTANCE_FLOAT_COUNT][index % INSTANCE_FLOAT_COUNT];
+			/*
+			更新该帧槽缓存（与已写入内容一致；第二百一十九轮改为按块并行）
+			每个实例只写自己的 20 浮点槽，块间区间不重叠，故可分块并行；
+			结果与单线程逐元素拷贝完全一致，仅降低大批量实例时的主机耗时。
+			*/
+			auto refresh_instance_cache = [instance_cache](const std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& pending,
+				std::size_t begin, std::size_t end)
+			{
+				for (std::size_t index = begin; index < end; ++index)
+				{
+					for (std::size_t offset = 0; offset < INSTANCE_FLOAT_COUNT; ++offset)
+						instance_cache[index * INSTANCE_FLOAT_COUNT + offset] = pending[index][offset];
+				}
+			};
+			//实例数达到阈值且工作线程可用时并行回写，否则由调用线程整段执行
+			if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
+			{
+				impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN,
+					[this, &refresh_instance_cache](std::size_t begin, std::size_t end)
+					{
+						refresh_instance_cache(impl->pending_instances, begin, end);
+					});
+			}
+			else
+				refresh_instance_cache(impl->pending_instances, 0, instance_count);
 			impl->instance_block_count[slot] = static_cast<uint32_t>(instance_count);
 			impl->instance_block_cached[slot] = 1;
 			//累计上传字节（观测用）
