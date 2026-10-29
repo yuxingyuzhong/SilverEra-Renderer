@@ -729,6 +729,16 @@ namespace engine
 				cull_parallel_min = 65536;
 			impl->cull_parallel_min_instances = cull_parallel_min;
 			/*
+			差异扫描 / 缓存回写并行阈值（第二百二十六轮；钳 1..65536）
+			默认 512 与引入该配置前一致。
+			*/
+			uint32_t scan_parallel_min = effective.instance_scan_parallel_min;
+			if (scan_parallel_min < 1)
+				scan_parallel_min = 1;
+			if (scan_parallel_min > 65536)
+				scan_parallel_min = 65536;
+			impl->instance_scan_parallel_min = scan_parallel_min;
+			/*
 			并行录制最小项数（第二百零二轮；钳到 2..4096）
 			线程数为 0 时该值无作用（始终单线程）。
 			*/
@@ -2337,12 +2347,14 @@ namespace engine
 						impl->instance_changed_mask[index] = changed ? 1 : 0;
 					}
 				};
+				//本帧生效的扫描阈值（默认 512；可由配置调整，第二百二十六轮）
+				const std::size_t scan_parallel_min = impl->instance_scan_parallel_min;
 				//实例数达到阈值且工作线程可用时并行判定，否则由调用线程整段执行
-				if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
+				if (impl->thread_pool.active() && instance_count >= scan_parallel_min)
 				{
 					//派发计数差值（第二百二十四轮：按用途归入差异扫描）
 					const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
-					impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN, mark_changed_instance);
+					impl->thread_pool.ranges_run(instance_count, scan_parallel_min, mark_changed_instance);
 					impl->scan_parallel_dispatches += impl->thread_pool.dispatch_count_get() - dispatch_before;
 				}
 				else
@@ -2402,12 +2414,14 @@ namespace engine
 						instance_cache[index * INSTANCE_FLOAT_COUNT + offset] = pending[index][offset];
 				}
 			};
+			//本帧生效的扫描 / 回写阈值（默认 512；可由配置调整，第二百二十六轮）
+			const std::size_t scan_parallel_min = impl->instance_scan_parallel_min;
 			//实例数达到阈值且工作线程可用时并行回写，否则由调用线程整段执行
-			if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
+			if (impl->thread_pool.active() && instance_count >= scan_parallel_min)
 			{
 				//派发计数差值（第二百二十四轮：按用途归入缓存回写）
 				const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
-				impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN,
+				impl->thread_pool.ranges_run(instance_count, scan_parallel_min,
 					[this, &refresh_instance_cache](std::size_t begin, std::size_t end)
 					{
 						refresh_instance_cache(impl->pending_instances, begin, end);
@@ -5814,6 +5828,33 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return static_cast<uint32_t>(impl->cull_parallel_min_instances);
+	}
+
+	//设置实例缓冲差异扫描 / 缓存回写的并行阈值（第二百二十六轮）
+	void Renderer::instance_scan_parallel_min_set(uint32_t count)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//钳到 1..65536
+		if (count < 1)
+			count = 1;
+		if (count > 65536)
+			count = 65536;
+		//同值重复设置为空操作
+		if (impl->instance_scan_parallel_min == count)
+			return;
+		impl->instance_scan_parallel_min = count;
+		logger.info("渲染器:: 实例扫描并行阈值已设为 {}", count);
+	}
+
+	//查询实例缓冲差异扫描 / 缓存回写的并行阈值
+	uint32_t Renderer::instance_scan_parallel_min(void) const
+	{
+		//未初始化时返回 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return static_cast<uint32_t>(impl->instance_scan_parallel_min);
 	}
 
 	//读取某一级的泛光专设参数（只读诊断）

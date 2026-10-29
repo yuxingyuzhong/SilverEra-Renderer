@@ -478,8 +478,8 @@ namespace engine
 		Thread_Pool thread_pool;
 		//实例级剔除转为并行的最小实例数（默认 256；第二百二十二轮起由配置覆盖）
 		std::size_t cull_parallel_min_instances = 256;
-		//实例缓冲差异扫描转为并行的最小实例数
-		static constexpr std::size_t INSTANCE_SCAN_PARALLEL_MIN = 512;
+		//实例缓冲差异扫描 / 缓存回写转为并行的最小实例数（默认 512；第二百二十六轮起由配置覆盖）
+		std::size_t instance_scan_parallel_min = 512;
 		uint64_t last_culled_items = 0;
 		uint64_t last_draw_items = 0;
 		uint64_t last_instances = 0;

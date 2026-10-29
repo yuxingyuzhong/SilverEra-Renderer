@@ -85,6 +85,12 @@ namespace engine
 		低于该值由调用线程整段执行（分块开销大于收益）。默认值与引入该配置前一致。
 		*/
 		uint32_t cull_parallel_min_instances = 256;
+		/*
+		实例缓冲差异扫描 / 缓存回写的并行阈值（第二百二十六轮；默认 512，钳到 1..65536）
+		实例数达到该值且工作线程可用时，逐实例比较与缓存回写走按块并行；低于该值由调用线程整段执行。
+		默认值与引入该配置前一致。
+		*/
+		uint32_t instance_scan_parallel_min = 512;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 		/*
@@ -932,6 +938,13 @@ namespace engine
 		void cull_parallel_min_instances_set(uint32_t count);
 		//查询实例级剔除的并行阈值（未初始化返回 0）
 		uint32_t cull_parallel_min_instances(void) const;
+		/*
+		设置实例缓冲差异扫描 / 缓存回写的并行阈值（第二百二十六轮；钳到 1..65536）
+		只影响主机侧并行度，结果与单线程逐字节一致。默认 512 与配置项 instance_scan_parallel_min 同源。
+		*/
+		void instance_scan_parallel_min_set(uint32_t count);
+		//查询实例缓冲差异扫描 / 缓存回写的并行阈值（未初始化返回 0）
+		uint32_t instance_scan_parallel_min(void) const;
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →
