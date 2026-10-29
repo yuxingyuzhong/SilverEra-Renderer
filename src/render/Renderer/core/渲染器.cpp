@@ -3525,6 +3525,20 @@ namespace engine
 		return mesh_load(handle_out, Mesh_Context::cone_generate(radius, height, segments));
 	}
 
+	//按程序化四棱锥加载网格（第二百三十二轮新增）
+	bool Renderer::mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height)
+	{
+		//前置：已初始化、底面半边长与高度为正（非数亦拒）
+		if (impl == nullptr || !impl->initialized || !(base_half > 0.0f) || !(height > 0.0f))
+		{
+			logger.warn("渲染器:: 四棱锥参数非法（底面半边长 {}、高度 {}）", base_half, height);
+			handle_out = 0;
+			return false;
+		}
+		//生成并复用既有加载路径
+		return mesh_load(handle_out, Mesh_Context::pyramid_generate(base_half, height));
+	}
+
 	//按程序化圆环加载网格（第六十七轮新增）
 	bool Renderer::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
 		uint32_t major_segments, uint32_t minor_segments)

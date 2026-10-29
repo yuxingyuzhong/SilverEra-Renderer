@@ -138,6 +138,12 @@ namespace engine
 		*/
 		static Mesh_Data cone_generate(float radius, float height, uint32_t segments);
 		/*
+		生成四棱锥（第二百三十二轮新增）
+		base_half 底面半边长（底面为 XZ 平面上的正方形）、height 总高（沿 Y 轴、中心在原点，锥尖朝 +Y）；
+		四个侧面与底面均为独立顶点，法线为各自面法线（硬边），故无平滑明暗过渡。
+		*/
+		static Mesh_Data pyramid_generate(float base_half, float height);
+		/*
 		生成胶囊（第六十九轮新增）
 		radius 半径、height 中段圆柱高度（可为 0 → 退化为球）；segments 圆周分段（>= 3）、rings 单侧半球纬圈（>= 2）；
 		总高 = height + 2 × radius，沿 Y 轴、中心在原点；法线朝外，接缝 UV，外向绕序。

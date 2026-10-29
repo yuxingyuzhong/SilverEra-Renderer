@@ -633,6 +633,86 @@ namespace engine
 	}
 
 	/*
+	生成四棱锥（第二百三十二轮）
+	底面为 XZ 平面上的正方形（半边长 base_half，位于 y = −height/2），锥尖在 (0, +height/2, 0)；
+	四个侧面与底面各自独立顶点（法线取面法线，硬边）；UV：侧面底边 0/1、锥尖 0.5，底面膜面 0..1。
+	*/
+	Mesh_Data Mesh_Context::pyramid_generate(float base_half, float height)
+	{
+		Mesh_Data data;
+		//按顶点 / 索引数量预留（18 顶点 / 18 索引：侧面 4 × 3 ＋ 底面 4 ＋ 2 三角形）
+		data.vertices.reserve(16);
+		data.indices.reserve(18);
+		//半高
+		float half_height = height * 0.5f;
+		//底面四角（自上方看逆时针，便于底面法线朝 -Y）
+		const float base_corners[4][3] = {
+			{ -base_half, -half_height, -base_half },
+			{ base_half, -half_height, -base_half },
+			{ base_half, -half_height, base_half },
+			{ -base_half, -half_height, base_half },
+		};
+		//锥尖
+		const float apex[3] = { 0.0f, half_height, 0.0f };
+		//逐侧面的面法线（叉积归一）
+		auto face_normal = [](const float a[3], const float b[3], const float c[3], float out[3])
+		{
+			//两条边向量
+			float ab[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+			float ac[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+			//叉积
+			out[0] = ab[1] * ac[2] - ab[2] * ac[1];
+			out[1] = ab[2] * ac[0] - ab[0] * ac[2];
+			out[2] = ab[0] * ac[1] - ab[1] * ac[0];
+			//归一（退化面按 +Y 兜底）
+			float length = std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
+			if (length < 1e-6f)
+			{
+				out[0] = 0.0f;
+				out[1] = 1.0f;
+				out[2] = 0.0f;
+				return;
+			}
+			out[0] /= length;
+			out[1] /= length;
+			out[2] /= length;
+		};
+		//四个侧面：底边后角 → 前角 → 锥尖（外向逆时针绕序）
+		for (uint32_t face = 0; face < 4; ++face)
+		{
+			const float* a = base_corners[face];
+			const float* b = base_corners[(face + 1) % 4];
+			float normal[3] = { 0.0f, 1.0f, 0.0f };
+			face_normal(b, a, apex, normal);
+			uint32_t first = static_cast<uint32_t>(data.vertices.size());
+			data.vertices.push_back({ { b[0], b[1], b[2] }, { 1.0f, 0.0f }, { normal[0], normal[1], normal[2] } });
+			data.vertices.push_back({ { a[0], a[1], a[2] }, { 0.0f, 0.0f }, { normal[0], normal[1], normal[2] } });
+			data.vertices.push_back({ { apex[0], apex[1], apex[2] }, { 0.5f, 1.0f }, { normal[0], normal[1], normal[2] } });
+			//单个三角形（外向）
+			data.indices.push_back(first);
+			data.indices.push_back(first + 1);
+			data.indices.push_back(first + 2);
+		}
+		//底面：四角独立顶点（法线 -Y），两个三角形
+		uint32_t base_first = static_cast<uint32_t>(data.vertices.size());
+		for (uint32_t corner = 0; corner < 4; ++corner)
+		{
+			const float* p = base_corners[corner];
+			//UV 按角点方位映射（-x/-z → (0,0) … +x/+z → (1,1)）
+			float u = (p[0] > 0.0f) ? 1.0f : 0.0f;
+			float v = (p[2] > 0.0f) ? 1.0f : 0.0f;
+			data.vertices.push_back({ { p[0], p[1], p[2] }, { u, v }, { 0.0f, -1.0f, 0.0f } });
+		}
+		data.indices.push_back(base_first);
+		data.indices.push_back(base_first + 1);
+		data.indices.push_back(base_first + 2);
+		data.indices.push_back(base_first);
+		data.indices.push_back(base_first + 2);
+		data.indices.push_back(base_first + 3);
+		return data;
+	}
+
+	/*
 	生成圆环（第六十七轮）
 	major_radius 环半径、minor_radius 管半径；双分段 >= 3 兜底；
 	顶点 (major+1) × (minor+1)（接缝复制），法线朝外，UV = (u, v) 归一化参数。

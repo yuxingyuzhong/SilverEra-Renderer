@@ -438,6 +438,12 @@ namespace engine
 		*/
 		bool mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments);
 		/*
+		加载程序化四棱锥（第二百三十二轮新增）
+		base_half 底面半边长（> 0）、height 总高（> 0，沿 Y 轴、中心在原点，锥尖朝 +Y）；
+		非法参数整次拒绝（句柄置 0 并告警）。侧面与底面为逐面法线（硬边），外向绕序。
+		*/
+		bool mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height);
+		/*
 		加载程序化胶囊（第六十九轮新增）
 		radius 为正、height 为中段圆柱高度（可为 0 → 退化为球）；总高 = height + 2 × radius；
 		segments 圆周分段 3..128、rings 单侧半球纬圈 2..64；
