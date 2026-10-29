@@ -107,5 +107,13 @@ namespace engine
 		false 时不写深度（透明叠加等场景可由上层显式关闭）。
 		*/
 		bool depth_write = true;
+		/*
+		清漆层（第二百三十三轮）
+		clear_coat：清漆强度（0 = 关闭；0..1）；在主光高光之上叠一层独立粗糙度的 GGX 反射（F0 固定 0.04）。
+		clear_coat_roughness：清漆粗糙度（合法域 [0.03, 1]；越小越锐利）。
+		两者默认 0 使画面与引入前逐字节不变。
+		*/
+		float clear_coat = 0.0f;
+		float clear_coat_roughness = 0.15f;
 	};
 }

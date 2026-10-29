@@ -2559,7 +2559,7 @@ namespace engine
 			{
 				//推送常量（16 浮点逆视图投影矩阵）
 				impl->pending_push_constants.emplace_back();
-				std::array<float, 28>& sky_push = impl->pending_push_constants.back();
+				std::array<float, 32>& sky_push = impl->pending_push_constants.back();
 				sky_push.fill(0.0f);
 				glm::mat4 inverse_view_proj = glm::inverse(glm::make_mat4(view_proj));
 				const float* inverse_data = glm::value_ptr(inverse_view_proj);
@@ -3778,7 +3778,7 @@ namespace engine
 		if (push_color != nullptr)
 		{
 			impl->pending_push_constants.emplace_back();
-			std::array<float, 28>& push = impl->pending_push_constants.back();
+			std::array<float, 32>& push = impl->pending_push_constants.back();
 			//前 64 字节 = 单位矩阵
 			push.fill(0.0f);
 			push[0] = 1.0f;
@@ -3823,6 +3823,15 @@ namespace engine
 				push[25] = impl->material_uv_scale[1];
 				push[26] = impl->material_uv_offset[0];
 				push[27] = impl->material_uv_offset[1];
+			}
+			/*
+			清漆层（第二百三十三轮；offset 112 的 vec4）
+			x = 清漆强度、y = 清漆粗糙度；文字绘制无材质语义，恒为零（关闭）。
+			*/
+			if (!impl->in_text_draw)
+			{
+				push[28] = impl->material_clear_coat;
+				push[29] = impl->material_clear_coat_roughness;
 			}
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
@@ -3974,7 +3983,7 @@ namespace engine
 		吸附色调或白色（未设置时），否则未设置的推送常量取值未定义。
 		*/
 		impl->pending_push_constants.emplace_back();
-		std::array<float, 28>& push = impl->pending_push_constants.back();
+		std::array<float, 32>& push = impl->pending_push_constants.back();
 		push.fill(0.0f);
 		push[0] = 1.0f;
 		push[5] = 1.0f;
@@ -3996,6 +4005,9 @@ namespace engine
 		push[25] = impl->material_uv_scale[1];
 		push[26] = impl->material_uv_offset[0];
 		push[27] = impl->material_uv_offset[1];
+		//清漆层（第二百三十三轮；offset 112 的 vec4）
+		push[28] = impl->material_clear_coat;
+		push[29] = impl->material_clear_coat_roughness;
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//先登记描边项（外扩轮廓须先写入深度，主体几何随后按更近深度覆盖内部）
@@ -4790,6 +4802,12 @@ namespace engine
 		record.uv_rotation = std::isfinite(data.uv_rotation) ? data.uv_rotation : 0.0f;
 		record.alpha_cutoff = (std::isfinite(data.alpha_cutoff) && data.alpha_cutoff > 0.0f && data.alpha_cutoff <= 1.0f)
 			? data.alpha_cutoff : 0.0f;
+		//清漆层（第二百三十三轮；强度非有限或越界按 0，粗糙度非有限或越界按 0.15）
+		record.clear_coat = (std::isfinite(data.clear_coat) && data.clear_coat > 0.0f && data.clear_coat <= 1.0f)
+			? data.clear_coat : 0.0f;
+		record.clear_coat_roughness = (std::isfinite(data.clear_coat_roughness)
+			&& data.clear_coat_roughness >= 0.03f && data.clear_coat_roughness <= 1.0f)
+			? data.clear_coat_roughness : 0.15f;
 		record.normal_strength = (data.normal_strength > 0.0f && data.normal_strength <= 4.0f)
 			? data.normal_strength : 0.0f;
 		if (data.normal_strength != 0.0f && record.normal_strength == 0.0f)
@@ -4896,6 +4914,8 @@ namespace engine
 			impl->material_uv_offset[1] = 0.0f;
 			impl->material_uv_rotation = 0.0f;
 			impl->material_alpha_cutoff = 0.0f;
+			impl->material_clear_coat = 0.0f;
+			impl->material_clear_coat_roughness = 0.15f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -4914,6 +4934,8 @@ namespace engine
 			impl->material_uv_offset[1] = 0.0f;
 			impl->material_uv_rotation = 0.0f;
 			impl->material_alpha_cutoff = 0.0f;
+			impl->material_clear_coat = 0.0f;
+			impl->material_clear_coat_roughness = 0.15f;
 			return;
 		}
 		//取目标记录
@@ -4997,6 +5019,11 @@ namespace engine
 		//同步 UV 旋转与 Alpha 裁剪（第一百八十三轮；默认 0 即关闭）
 		impl->material_uv_rotation = record.uv_rotation;
 		impl->material_alpha_cutoff = record.alpha_cutoff;
+		//同步清漆层（第二百三十三轮；默认 0 即关闭；强度钳 [0,1]、粗糙度钳 [0.03,1]）
+		float coat = std::isfinite(record.clear_coat) ? record.clear_coat : 0.0f;
+		impl->material_clear_coat = coat > 1.0f ? 1.0f : (coat > 0.0f ? coat : 0.0f);
+		float coat_roughness = std::isfinite(record.clear_coat_roughness) ? record.clear_coat_roughness : 0.15f;
+		impl->material_clear_coat_roughness = coat_roughness < 0.03f ? 0.03f : (coat_roughness > 1.0f ? 1.0f : coat_roughness);
 	}
 
 	/*

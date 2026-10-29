@@ -251,6 +251,9 @@ namespace engine
 			bool double_sided = false;
 			//深度写入（第一百七十三轮；false 时不写深度）
 			bool depth_write = true;
+			//清漆强度与粗糙度（第二百三十三轮；默认 0 = 关闭 / 0.15）
+			float clear_coat = 0.0f;
+			float clear_coat_roughness = 0.15f;
 			//记录是否有效
 			bool valid = false;
 		};
@@ -525,8 +528,8 @@ namespace engine
 		*/
 		float text_outline_uv_width = 0.0f;
 		float text_outline_color[3] = { 0.0f, 0.0f, 0.0f };
-		//本帧推送常量存储（每项 28 浮点 = mat4 矩阵 ＋ 色调 ＋ 材质贴图参数 ＋ UV 变换；deque 保证元素引用稳定，绘制项持其指针）
-		std::deque<std::array<float, 28>> pending_push_constants;
+		//本帧推送常量存储（每项 32 浮点 = mat4 矩阵 ＋ 色调 ＋ 材质贴图参数 ＋ UV 变换 ＋ 清漆；deque 保证元素引用稳定，绘制项持其指针）
+		std::deque<std::array<float, 32>> pending_push_constants;
 		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
 		std::vector<VkBuffer> scene_ubos;
 		//场景 UBO 内存（与 scene_ubos 一一对应）
@@ -622,6 +625,9 @@ namespace engine
 		float material_uv_rotation = 0.0f;
 		//逐物体 Alpha 裁剪阈值（第一百八十三轮；默认 0 = 关闭，随推送常量 offset 80 的 z 下发）
 		float material_alpha_cutoff = 0.0f;
+		//逐物体清漆强度与粗糙度（第二百三十三轮；默认 0 = 关闭，随推送常量 offset 112 的 xy 下发）
+		float material_clear_coat = 0.0f;
+		float material_clear_coat_roughness = 0.15f;
 		//顶点着色器模块句柄（销毁须先于着色器模块）
 		VkShaderModule vert_module = VK_NULL_HANDLE;
 		//片元着色器模块句柄（销毁须先于着色器模块）

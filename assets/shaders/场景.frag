@@ -21,6 +21,11 @@ layout(push_constant) uniform Push_Tint
 	layout(offset = 80) vec4 material_extras;
 	//材质贴图 UV 变换（第一百七十一轮；xy = 缩放、zw = 偏移；默认 (1,1)/(0,0)）
 	layout(offset = 96) vec4 material_uv;
+	/*
+	清漆层参数（第二百三十三轮；x = 清漆强度 0..1、y = 清漆粗糙度 0.03..1、zw 保留）
+	x 为 0 时整段跳过，默认 0 使画面与引入前逐字节不变。
+	*/
+	layout(offset = 112) vec4 clearcoat;
 } push_tint;
 
 //颜色附件输出
@@ -480,6 +485,18 @@ void main()
 				vec3 halfway = normalize(to_light + to_view);
 				float spec_base = max(dot(normal, halfway), 0.0);
 				specular = max(specular, vec3(pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w * dir_shadow));
+			}
+			/*
+			清漆层（第二百三十三轮）
+			在主光高光之上叠一层独立粗糙度的 GGX 反射（F0 固定 0.04），模拟漆面清漆的锐利高光；
+			clearcoat.x 为 0 时整段跳过，故默认画面逐字节不变。
+			*/
+			if (push_tint.clearcoat.x > 0.0)
+			{
+				float coat_roughness = clamp(push_tint.clearcoat.y, 0.03, 1.0);
+				float coat_strength = clamp(push_tint.clearcoat.x, 0.0, 1.0);
+				specular = max(specular, ggx_specular(normal, to_view, to_light, coat_roughness, vec3(0.04))
+					* coat_strength * scene.camera_pos.w * dir_shadow * scene.light_dir.w);
 			}
 		}
 		/*
