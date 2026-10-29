@@ -19,7 +19,16 @@ namespace engine
 	{
 		//不透明：忽略源 alpha，直接写全通道（blendEnable = VK_FALSE）
 		Opaque,
-		//源 alpha 混合：src.rgb * src.a + dst.rgb * (1 - src.a)，alpha 通道同源同参
+		/*
+		源 alpha 混合：src.rgb * src.a + dst.rgb * (1 - src.a)，alpha 通道同源同参
+		适用于半透明表面；参与深度测试但仍写深度，故多层半透明按提交顺序叠加。
+		*/
 		Alpha,
+		/*
+		加法混合（第二百二十七轮）：src.rgb + dst.rgb，alpha 通道同源同参
+		亮度累加而非取代背景，适合自发光叠加（光晕 / 粒子 / 拖尾）；
+		两层同色叠加强度翻倍，超过 1.0 时按附件格式截断。
+		*/
+		Additive,
 	};
 }

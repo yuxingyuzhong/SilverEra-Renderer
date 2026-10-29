@@ -160,8 +160,9 @@ namespace engine
 
 		/*
 		颜色混合（按混合档生成；写全通道）
-		Opaque：关闭混合，直接写全通道（行为与本轮之前一致）；
-		Alpha ：源 alpha 混合（src.rgb * src.a + dst.rgb * (1 - src.a)），颜色与 alpha 通道同源同参。
+		Opaque  ：关闭混合，直接写全通道（行为与本轮之前一致）；
+		Alpha   ：源 alpha 混合（src.rgb * src.a + dst.rgb * (1 - src.a)），颜色与 alpha 通道同源同参。
+		Additive：加法混合（src.rgb + dst.rgb），alpha 通道同源同参（第二百二十七轮）。
 		sRGB 附件的混合在线性空间进行（写入时编码回 sRGB），故半透明结果值随附件传输函数不同。
 		*/
 		VkPipelineColorBlendAttachmentState color_attachment{};
@@ -176,6 +177,17 @@ namespace engine
 			color_attachment.colorBlendOp = VK_BLEND_OP_ADD;
 			color_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 			color_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			color_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		}
+		//若为加法混合档
+		else if (blend_mode == Blend_Mode::Additive)
+		{
+			color_attachment.blendEnable = VK_TRUE;
+			color_attachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			color_attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			color_attachment.colorBlendOp = VK_BLEND_OP_ADD;
+			color_attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+			color_attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 			color_attachment.alphaBlendOp = VK_BLEND_OP_ADD;
 		}
 		//不透明档：关闭混合

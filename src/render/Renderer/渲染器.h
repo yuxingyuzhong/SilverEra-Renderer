@@ -702,10 +702,11 @@ namespace engine
 		float material_emissive(void) const;
 
 		/*
-		设置后续绘制所用混合档（Opaque / Alpha）
+		设置后续绘制所用混合档（Opaque / Alpha / Additive）
 		切档会触发一次图形管线重建（内部先等设备空闲），故应在帧与帧之间调用而非帧内；
 		同档重复设置为空操作；重建失败时记录错误并保持档位记录不变（不改变帧循环时序）。
 		注意：本方法只作用于**默认场景管线**；具名管线的混合档在 pipeline_load 登记时确定，不受影响。
+		Additive（第二百二十七轮）：颜色按「源 + 目标」累加，适合自发光叠加；非不透明档的绘制项不参与静态合批。
 		*/
 		void blend_mode_set(Blend_Mode mode);
 
