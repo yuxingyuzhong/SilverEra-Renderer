@@ -1314,6 +1314,21 @@ namespace engine
 		//读取卡通高光阈值（第一百七十九轮新增；未初始化返回 0）
 		float toon_specular(void) const;
 		/*
+		设置反向外扩描边（第二百二十八轮）
+		width 为沿顶点法线的世界单位外扩宽度（0 = 关闭；0..1，越界钳制，非有限值按 0）；
+		color 为描边色（RGB 0..1，非有限分量按 0）。开启后每个场景绘制项额外登记一条描边项
+		（剔除正面、只写外轮廓），故 `Frame_Stats::draw_items` 相应增加。
+		法线为零向量的顶点（如平面）不外扩；文字绘制不参与描边；描边管线登记失败时本设置无效。
+		数据侧对应 `Light_Data::outline_width` / `outline_color`。
+		*/
+		void outline_set(float width, const float color[3]);
+		//关闭反向外扩描边（等价于 outline_set(0, 任意色)；第二百二十八轮）
+		void outline_clear(void);
+		//当前外扩宽度（未初始化返回 0；第二百二十八轮）
+		float outline_width(void) const;
+		//读取当前描边色（未初始化写 (0,0,0)；第二百二十八轮）
+		void outline_color(float out[3]) const;
+		/*
 		累计实例缓冲上传字节数（第六十一轮新增）
 		实例缓冲现按「一个实例 = 80 字节」比较、仅写入变化区间（含阴影 pass 的直接写入）；
 		静态场景下除各帧槽首次预热外应接近 0。未初始化返回 0。

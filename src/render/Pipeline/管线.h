@@ -62,6 +62,12 @@ namespace engine
 		*/
 		bool cull_none = false;
 		/*
+		是否改为剔除正面（第二百二十八轮）
+		反向外扩描边沿法线把几何外扩后只保留背面（正面被剔除），使外扩轮廓落在物体之外；
+		cull_none 优先（两者同时为真时按「不剔除」处理）。
+		*/
+		bool cull_front = false;
+		/*
 		采样数覆盖（第九十六轮）
 		0 = 跟随管线上下文的 config.sample_count（主场景 / 后处理管线）；
 		非 0 = 该管线固定按此采样数创建（阴影管线固定 1，其目标为单采样）。
@@ -127,7 +133,7 @@ namespace engine
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
-			bool alpha_to_coverage = false);
+			bool alpha_to_coverage = false, bool cull_front = false);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -277,7 +283,7 @@ namespace engine
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
-			bool alpha_to_coverage = false);
+			bool alpha_to_coverage = false, bool cull_front = false);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

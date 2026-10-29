@@ -52,7 +52,13 @@ namespace engine
 		*/
 		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
-			bool depth_write = true);
+			bool depth_write = true, bool cull_front = false);
+		/*
+		登记反向外扩描边项（第二百二十八轮）
+		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；
+		描边关闭（宽度为 0）、描边管线未登记或正在绘制文字时为空操作。
+		*/
+		void outline_item_push(const Frame_Render_Item& item);
 		/*
 		确保后处理全屏四边形网格就绪（惰性创建；单级路径与链路径共用）
 		全屏四边形（NDC -1..1）随 mesh 模块销毁。
@@ -291,6 +297,16 @@ namespace engine
 		uint32_t last_shadow_parallel_segments = 0;
 		//阴影管线句柄（第五十二轮；0 = 未登记）
 		uint64_t shadow_pipeline = 0;
+		/*
+		反向外扩描边（第二百二十八轮）
+		width = 外扩宽度（世界单位；0 = 关闭），color = 描边色（RGB 0..1）；
+		outline_pipeline 为「剔除正面」的具名场景管线（登记失败时为 0，此时描边自动失效）；
+		outline_push 为逐帧推送块（x = 宽度、yzw = 颜色），绘制项持其指针直到 frame_render 消费。
+		*/
+		uint64_t outline_pipeline = 0;
+		float outline_width = 0.0f;
+		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
+		std::array<float, 4> outline_push = { 0.0f, 0.0f, 0.0f, 0.0f };
 		//阴影目标句柄（第五十二轮；0 = 未创建）
 		uint64_t shadow_target = 0;
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）

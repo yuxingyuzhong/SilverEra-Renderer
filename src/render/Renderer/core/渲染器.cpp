@@ -858,6 +858,19 @@ namespace engine
 			return false;
 		}
 		/*
+		⑫.1 反向外扩描边管线（第二百二十八轮）
+		剔除正面的场景管线（沿法线外扩后只剩背面），与默认场景管线共享布局与描述符集布局；
+		着色器缺失（未随构建拷贝）时不阻断初始化，仅告警并保持描边关闭。
+		*/
+		{
+			uint64_t outline_handle = 0;
+			if (impl->pipeline_load_ex(outline_handle, "反向外扩.vert.spv", "反向外扩.frag.spv",
+				Blend_Mode::Opaque, false, false, true, true))
+				impl->outline_pipeline = outline_handle;
+			else
+				logger.warn("渲染器:: 外扩描边管线登记失败（描边将保持关闭）");
+		}
+		/*
 		⑬ 场景 UBO：每帧槽一个主机可见缓冲（64 字节 mat4），
 		写入相机视图 × 投影并把该帧槽 set0 绑定到对应 UBO。
 		*/
@@ -1490,6 +1503,11 @@ namespace engine
 			impl->toon_shadow_tint[index] = 1.0f;
 		//卡通高光阈值复位（0 = 关闭；第一百七十九轮）
 		impl->toon_specular = 0.0f;
+		//反向外扩描边复位（宽度 0 = 关闭；第二百二十八轮）
+		impl->outline_width = 0.0f;
+		impl->outline_pipeline = 0;
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->outline_color[index] = 0.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。
@@ -3796,6 +3814,8 @@ namespace engine
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		}
 
+		//先登记描边项（外扩轮廓须先写入深度，主体几何随后按更近深度覆盖内部）
+		impl->outline_item_push(item);
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
@@ -3964,6 +3984,8 @@ namespace engine
 		push[27] = impl->material_uv_offset[1];
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
+		//先登记描边项（外扩轮廓须先写入深度，主体几何随后按更近深度覆盖内部）
+		impl->outline_item_push(item);
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
@@ -4523,7 +4545,7 @@ namespace engine
 	//登记具名图形管线（内部实现；可指定是否关闭背面剔除与是否写深度）
 	bool Renderer::Impl::pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
-		bool depth_write)
+		bool depth_write, bool cull_front)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -4547,7 +4569,7 @@ namespace engine
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
 		if (!pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
-			VK_FORMAT_UNDEFINED, cull_none, 0, vert_input_locations, depth_write, false, alpha_to_coverage))
+			VK_FORMAT_UNDEFINED, cull_none, 0, vert_input_locations, depth_write, false, alpha_to_coverage, cull_front))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -4565,6 +4587,33 @@ namespace engine
 		handle_out = handle;
 		logger.info("渲染器:: 具名管线已登记（句柄 {}）", handle);
 		return true;
+	}
+
+	/*
+	登记反向外扩描边项（第二百二十八轮）
+	把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；
+	描边关闭（宽度为 0）、描边管线未登记或正在绘制文字时为空操作。
+	*/
+	void Renderer::Impl::outline_item_push(const Frame_Render_Item& item)
+	{
+		//描边关闭或管线未登记则空操作
+		if (outline_width <= 0.0f || outline_pipeline == 0 || in_text_draw)
+			return;
+		//推送块：x = 外扩宽度、yzw = 描边色（与后处理描边色共用 offset 112 槽位）
+		outline_push[0] = outline_width;
+		outline_push[1] = outline_color[0];
+		outline_push[2] = outline_color[1];
+		outline_push[3] = outline_color[2];
+		//复制主体项（实例区与索引区原样复用），换描边管线与描边推送块
+		Frame_Render_Item outline_item = item;
+		outline_item.pipeline = pipeline.pipeline_by_handle_get(outline_pipeline);
+		outline_item.push_constants = outline_push.data();
+		outline_item.push_constant_offset = static_cast<uint32_t>(sizeof(float) * 28);
+		outline_item.push_constant_size = static_cast<uint32_t>(sizeof(float) * outline_push.size());
+		//描边项不投影阴影、不参与合批（管线与推送块均与主体项不同）
+		outline_item.cast_shadow = false;
+		outline_item.transparent = true;
+		pending_items.push_back(outline_item);
 	}
 
 	//卸载具名图形管线
@@ -6241,6 +6290,8 @@ namespace engine
 		toon_shadow_tint_set(light.toon_shadow_tint[0], light.toon_shadow_tint[1], light.toon_shadow_tint[2]);
 		//二次元卡通高光（第一百七十九轮；非法值由 setter 归一）
 		toon_specular_set(light.toon_specular);
+		//反向外扩描边（第二百二十八轮；非法值由 setter 归一）
+		outline_set(light.outline_width, light.outline_color);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
 		if (light.point_count > Impl::POINT_LIGHT_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
@@ -6303,6 +6354,10 @@ namespace engine
 			light.toon_shadow_tint[index] = scene.toon_shadow_tint[index];
 		//二次元卡通高光（第一百七十九轮）
 		light.toon_specular = scene.toon_specular;
+		//二次元反向外扩描边（第二百二十八轮）
+		light.outline_width = scene.outline_width;
+		for (std::size_t index = 0; index < 3; ++index)
+			light.outline_color[index] = scene.outline_color[index];
 		//PBR 金属度（第六十五轮）
 		light.pbr_metallic = scene.pbr_metallic;
 		light.intensity = scene.light_intensity;
@@ -7306,6 +7361,63 @@ namespace engine
 	{
 		//未初始化返回默认 0（关闭）
 		return impl != nullptr && impl->initialized ? impl->toon_rim : 0.0f;
+	}
+
+	/*
+	设置反向外扩描边（第二百二十八轮）
+	宽度钳到 [0, 1]（非有限值按 0），颜色逐分量钳到 [0, 1]（非有限值按 0）；
+	描边管线未登记时仅记录参数（绘制项不会额外登记描边项，画面不变）。
+	*/
+	void Renderer::outline_set(float width, const float color[3])
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//外扩宽度钳到 [0, 1]（非有限值按 0 = 关闭）
+		float effective_width = std::isfinite(width) ? width : 0.0f;
+		impl->outline_width = effective_width > 1.0f ? 1.0f : (effective_width > 0.0f ? effective_width : 0.0f);
+		//描边色逐分量钳到 [0, 1]（非有限值按 0）
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			float channel = color != nullptr ? color[index] : 0.0f;
+			if (!std::isfinite(channel))
+				channel = 0.0f;
+			impl->outline_color[index] = channel > 1.0f ? 1.0f : (channel > 0.0f ? channel : 0.0f);
+		}
+	}
+
+	//关闭反向外扩描边（第二百二十八轮新增）
+	void Renderer::outline_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->outline_width = 0.0f;
+	}
+
+	//当前外扩宽度（第二百二十八轮新增）
+	float Renderer::outline_width(void) const
+	{
+		//未初始化返回默认 0（关闭）
+		return impl != nullptr && impl->initialized ? impl->outline_width : 0.0f;
+	}
+
+	//读取当前描边色（第二百二十八轮新增）
+	void Renderer::outline_color(float out[3]) const
+	{
+		//出参为空则忽略
+		if (out == nullptr)
+			return;
+		//未初始化写全零（黑）
+		if (impl == nullptr || !impl->initialized)
+		{
+			out[0] = 0.0f;
+			out[1] = 0.0f;
+			out[2] = 0.0f;
+			return;
+		}
+		for (std::size_t index = 0; index < 3; ++index)
+			out[index] = impl->outline_color[index];
 	}
 
 	//设置暗部色调（第一百七十八轮新增）

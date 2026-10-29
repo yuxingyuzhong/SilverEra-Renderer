@@ -164,6 +164,13 @@ namespace engine
 		开启后高光亮度低于阈值处整块归零、高于阈值处保留原值，形成硬边高光块。
 		*/
 		float toon_specular = 0.0f;
+		/*
+		二次元风格化 · 反向外扩描边（第二百二十八轮）
+		outline_width：沿顶点法线的世界单位外扩宽度（0 = 关闭；0..1）；
+		outline_color：描边色（RGB，0..1）。默认宽度 0 使画面与引入前逐字节不变。
+		*/
+		float outline_width = 0.0f;
+		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
 	/*
@@ -378,5 +385,8 @@ namespace engine
 		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 		//二次元卡通高光阈值（第一百七十九轮；语义见 Light_Data::toon_specular）
 		float toon_specular = 0.0f;
+		//二次元反向外扩描边宽度与描边色（第二百二十八轮；语义见 Light_Data::outline_width）
+		float outline_width = 0.0f;
+		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
 	};
 }

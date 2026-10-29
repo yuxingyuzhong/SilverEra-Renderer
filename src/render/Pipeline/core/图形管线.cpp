@@ -28,7 +28,7 @@ namespace engine
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal,
-		bool alpha_to_coverage)
+		bool alpha_to_coverage, bool cull_front)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -126,7 +126,8 @@ namespace engine
 		rasterization.depthClampEnable = VK_FALSE;
 		rasterization.rasterizerDiscardEnable = VK_FALSE;
 		rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-		rasterization.cullMode = cull_none ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
+		rasterization.cullMode = cull_none ? VK_CULL_MODE_NONE
+			: (cull_front ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT);
 		rasterization.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 		rasterization.depthBiasEnable = VK_FALSE;
 		rasterization.lineWidth = 1.0f;
