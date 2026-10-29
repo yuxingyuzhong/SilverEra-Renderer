@@ -476,8 +476,8 @@ namespace engine
 		0（默认）不启动任何线程，ranges_run 退化为调用线程整段执行，行为与引入并行前逐字节一致。
 		*/
 		Thread_Pool thread_pool;
-		//实例级剔除转为并行的最小实例数（低于此值线程唤醒开销大于收益）
-		static constexpr std::size_t CULL_PARALLEL_MIN_INSTANCES = 256;
+		//实例级剔除转为并行的最小实例数（默认 256；第二百二十二轮起由配置覆盖）
+		std::size_t cull_parallel_min_instances = 256;
 		//实例缓冲差异扫描转为并行的最小实例数
 		static constexpr std::size_t INSTANCE_SCAN_PARALLEL_MIN = 512;
 		uint64_t last_culled_items = 0;

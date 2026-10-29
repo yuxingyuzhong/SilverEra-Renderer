@@ -79,6 +79,12 @@ namespace engine
 		大批量实例化绘制（数千以上）时才需要上调，默认值与引入该配置前一致。
 		*/
 		uint32_t instance_capacity = 256;
+		/*
+		实例级剔除的并行阈值（第二百二十二轮；默认 256，钳到 1..65536）
+		单次实例化绘制的实例数达到该值且工作线程可用时，逐实例视锥剔除走按块并行；
+		低于该值由调用线程整段执行（分块开销大于收益）。默认值与引入该配置前一致。
+		*/
+		uint32_t cull_parallel_min_instances = 256;
 		//着色器目录（空 → 相对可执行文件目录的 "shaders"）
 		std::string shader_dir = "";
 		/*
@@ -910,6 +916,14 @@ namespace engine
 		void render_threads_set(uint32_t count);
 		//查询当前渲染工作线程数（未初始化返回 0）
 		uint32_t render_threads(void) const;
+		/*
+		设置实例级剔除的并行阈值（第二百二十二轮；钳到 1..65536）
+		单次实例化绘制的实例数达到该值时逐实例剔除走按块并行；仅影响主机侧并行度，
+		结果与单线程逐字节一致。默认 256 与配置项 cull_parallel_min_instances 同源。
+		*/
+		void cull_parallel_min_instances_set(uint32_t count);
+		//查询实例级剔除的并行阈值（未初始化返回 0）
+		uint32_t cull_parallel_min_instances(void) const;
 		/*
 		绘制文本（UTF-8 文本；**像素坐标**，原点在窗口左上、Y 向下，pixel_x / pixel_y 为文本左上角）
 		内部：懒登记文字管线（Alpha 混合档）→ 绑字形图集为当前纹理 → 按 (字体, 文本) 缓存网格 →

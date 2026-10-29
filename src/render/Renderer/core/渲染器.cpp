@@ -719,6 +719,16 @@ namespace engine
 			}
 			impl->render_threads = render_threads;
 			/*
+			实例剔除并行阈值（第二百二十二轮；钳 1..65536）
+			默认 256 与引入该配置前一致；调低可让小批量实例也走并行，调高则更保守。
+			*/
+			uint32_t cull_parallel_min = effective.cull_parallel_min_instances;
+			if (cull_parallel_min < 1)
+				cull_parallel_min = 1;
+			if (cull_parallel_min > 65536)
+				cull_parallel_min = 65536;
+			impl->cull_parallel_min_instances = cull_parallel_min;
+			/*
 			并行录制最小项数（第二百零二轮；钳到 2..4096）
 			线程数为 0 时该值无作用（始终单线程）。
 			*/
@@ -3804,10 +3814,12 @@ namespace engine
 			实例数达到阈值且工作线程可用时走并行，否则由调用线程整段执行。
 			*/
 			impl->instanced_cull_mask.assign(count, 0);
-			if (impl->thread_pool.active() && count >= Impl::CULL_PARALLEL_MIN_INSTANCES)
+			//本帧生效的并行阈值（默认 256；可由配置调整，第二百二十二轮）
+			const std::size_t cull_parallel_min = impl->cull_parallel_min_instances;
+			if (impl->thread_pool.active() && count >= cull_parallel_min)
 			{
 				//并行判定（块之间无共享写入）
-				impl->thread_pool.ranges_run(count, Impl::CULL_PARALLEL_MIN_INSTANCES,
+				impl->thread_pool.ranges_run(count, cull_parallel_min,
 					[this, view_proj, transforms, bounds_min, bounds_max](std::size_t begin, std::size_t end)
 					{
 						for (std::size_t instance = begin; instance < end; ++instance)
@@ -5759,6 +5771,33 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->thread_pool.thread_count_get();
+	}
+
+	//设置实例级剔除的并行阈值（第二百二十二轮）
+	void Renderer::cull_parallel_min_instances_set(uint32_t count)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//钳到 1..65536
+		if (count < 1)
+			count = 1;
+		if (count > 65536)
+			count = 65536;
+		//同值重复设置为空操作
+		if (impl->cull_parallel_min_instances == count)
+			return;
+		impl->cull_parallel_min_instances = count;
+		logger.info("渲染器:: 实例剔除并行阈值已设为 {}", count);
+	}
+
+	//查询实例级剔除的并行阈值
+	uint32_t Renderer::cull_parallel_min_instances(void) const
+	{
+		//未初始化时返回 0
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return static_cast<uint32_t>(impl->cull_parallel_min_instances);
 	}
 
 	//读取某一级的泛光专设参数（只读诊断）
