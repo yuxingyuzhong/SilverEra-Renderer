@@ -104,6 +104,16 @@ namespace engine
 		enabled_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
 		enabled_13.dynamicRendering = VK_TRUE;
 		enabled_13.synchronization2 = VK_TRUE;
+		/*
+		着色器丢弃降级（第二百一十八轮）
+		片元着色器的 discard（Alpha 裁剪等）在当前 glslc 下会声明 SPIR-V 能力
+		DemoteToHelperInvocation；未启用该特性时校验层报 VUID-VkShaderModuleCreateInfo-pCode-08740。
+		设备支持则启用以保持校验层 0 消息，不支持则告警（着色器仍可运行）。
+		*/
+		if (supported_13.shaderDemoteToHelperInvocation == VK_TRUE)
+			enabled_13.shaderDemoteToHelperInvocation = VK_TRUE;
+		else
+			logger.warn("逻辑设备创建:: 物理设备不支持着色器丢弃降级（DemoteToHelperInvocation），含 discard 的片元着色器可能触发校验告警");
 
 		//启用的设备扩展（呈现必需 VK_KHR_swapchain）
 		const char* device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };

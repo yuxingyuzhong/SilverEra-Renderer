@@ -2911,6 +2911,16 @@ namespace engine
 		return impl->frame_count;
 	}
 
+	//等待全部在途帧完成（第二百一十八轮）
+	void Renderer::frame_wait_idle(void)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//等尽全部帧槽的完成栅栏（与门面卸载路径同一口径）
+		impl->frame.frames_wait();
+	}
+
 	//清零累计帧统计（第九十一轮）
 	void Renderer::frame_stats_reset(void)
 	{

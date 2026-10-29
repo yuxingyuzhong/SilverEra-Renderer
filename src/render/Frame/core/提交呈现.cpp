@@ -6,6 +6,26 @@
 
 namespace engine
 {
+	//文件内部工具
+	namespace
+	{
+		//重置帧槽的全部命令池（主池 ＋ 各次级池；第二百一十八轮）
+		//次级池与次级命令缓冲一一对应，每段独占一池，故必须与主池一同重置
+		bool frame_slot_pools_reset(VkDevice device, Frame_Slot& slot)
+		{
+			//重置主命令池（主命令缓冲随之可再次录制）
+			if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+				return false;
+			//逐个重置次级命令池
+			for (VkCommandPool pool : slot.secondary_pools)
+			{
+				if (!vk_result_check(vkResetCommandPool(device, pool, 0), "vkResetCommandPool(次级)"))
+					return false;
+			}
+			return true;
+		}
+	}
+
 	//登记态绘制统计（按登记项累计；实际绘制量由 items_record 的返回值 frame_recorded 另计）
 	//累计本帧绘制统计（登记量 ＋ 实际绘制量）
 	//登记量按登记项累计；实际绘制量取 items_record 的返回值 frame_recorded（跳过的不完整项不计）
@@ -149,8 +169,8 @@ namespace engine
 		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
 			return false;
 
-		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
-		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+		//重置该帧槽全部命令池（主池 ＋ 次级池；连带使其命令缓冲可再次录制）
+		if (!frame_slot_pools_reset(device, slot))
 			return false;
 
 		/*
@@ -287,8 +307,8 @@ namespace engine
 		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
 			return false;
 
-		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
-		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+		//重置该帧槽全部命令池（主池 ＋ 次级池；连带使其命令缓冲可再次录制）
+		if (!frame_slot_pools_reset(device, slot))
 			return false;
 
 		/*
@@ -507,8 +527,8 @@ namespace engine
 		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
 			return false;
 
-		//重置该帧槽命令池（连带使其命令缓冲可再次录制）
-		if (!vk_result_check(vkResetCommandPool(device, slot.command_pool, 0), "vkResetCommandPool"))
+		//重置该帧槽全部命令池（主池 ＋ 次级池；连带使其命令缓冲可再次录制）
+		if (!frame_slot_pools_reset(device, slot))
 			return false;
 
 		//像素回读准备（可选；回读来源为最终呈现到交换链的颜色附件，故按交换链范围校验）

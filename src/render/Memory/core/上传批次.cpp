@@ -236,7 +236,13 @@ namespace engine
 			to_shader.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_shader.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_shader.image = dst_image;
-			to_shader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			/*
+			恢复层级须与上传层级一致（第二百一十八轮修正）
+			此处此前固定为 baseArrayLayer=0：立方体贴图逐面上传时，第 1..5 面的
+			「传输目标 → 着色器可读」全被错误作用到第 0 面，导致第 0 面被反复转换、
+			其余面停留在传输目标布局，提交时触发 VUID-vkCmdDraw-None-09600 校验错误。
+			*/
+			to_shader.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layer, 1 };
 			to_shader.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			to_shader.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			vkCmdPipelineBarrier(command_buffer,

@@ -33,6 +33,14 @@ namespace engine
 		每帧 vkResetCommandPool 后仍可复用（其录制内容随之失效）。
 		*/
 		std::vector<VkCommandBuffer> secondary_buffers;
+		/*
+		次级命令缓冲各自独占的命令池（第二百一十八轮）
+		Vulkan 规范要求 VkCommandPool 由外部同步：同一池上的 vkBeginCommandBuffer /
+		vkCmd* 不得被多个线程并发调用。并行录制时每段由不同工作线程录制，
+		故每段缓冲必须从各自独立的命令池分配；主池只用于主命令缓冲（主线程）。
+		与 secondary_buffers 一一对应、同增同减；每帧随主池一起重置。
+		*/
+		std::vector<VkCommandPool> secondary_pools;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
 		//GPU 时间戳查询池（每槽四个查询：帧始 / 场景结束 / 后处理结束 / 帧末；设备不支持时为空）

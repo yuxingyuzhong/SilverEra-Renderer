@@ -290,6 +290,12 @@ namespace engine
 		//取帧统计快照（未初始化时各项为零）
 		Frame_Stats frame_stats_get(void) const;
 		/*
+		等待全部在途帧完成（第二百一十八轮）
+		宿主在销毁自建的 GPU 资源（如 UI 后端的描述符池 / 采样器 / 管线）之前调用，
+		避免资源仍被在途命令缓冲引用而触发校验错误；未初始化时静默返回。
+		*/
+		void frame_wait_idle(void);
+		/*
 		清零累计帧统计（第九十一轮新增）
 		帧数、绘制项 / 实例 / 实际绘制量、累计耗时（主机 / GPU / 分段）、GPU 样本（含阴影样本）、
 		剔除数、上传字节全部归零；最近一帧的即时量（frame_ms / host_record_ms / host_submit_ms /

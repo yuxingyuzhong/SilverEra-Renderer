@@ -504,6 +504,12 @@ namespace engine
 			//销毁命令池（连带回收其分配的命令缓冲）
 			if (slot.command_pool != VK_NULL_HANDLE)
 				vkDestroyCommandPool(device, slot.command_pool, nullptr);
+			//销毁各次级命令缓冲独占的命令池（第二百一十八轮；连带回收其缓冲）
+			for (VkCommandPool pool : slot.secondary_pools)
+			{
+				if (pool != VK_NULL_HANDLE)
+					vkDestroyCommandPool(device, pool, nullptr);
+			}
 		}
 		//复位句柄
 		slot.timestamp_pool = VK_NULL_HANDLE;
@@ -514,6 +520,7 @@ namespace engine
 		slot.command_pool = VK_NULL_HANDLE;
 		slot.command_buffer = VK_NULL_HANDLE;
 		slot.secondary_buffers.clear();
+		slot.secondary_pools.clear();
 	}
 
 	/*
@@ -547,7 +554,7 @@ namespace engine
 		parallel_max_segments = count;
 	}
 
-	//确保该帧槽的次级命令缓冲数量（第一百九十七轮）
+	//确保该帧槽的次级命令缓冲数量（第一百九十七轮；第二百一十八轮改为每段独立命令池）
 	bool Frame_Context::secondary_buffers_ensure(Frame_Slot& slot, uint32_t count)
 	{
 		//数量已足够则空操作
@@ -558,19 +565,40 @@ namespace engine
 			return false;
 		//待追加数量
 		const uint32_t missing = count - static_cast<uint32_t>(slot.secondary_buffers.size());
-		std::vector<VkCommandBuffer> created(missing, VK_NULL_HANDLE);
-		VkCommandBufferAllocateInfo allocate_info{};
-		allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		allocate_info.commandPool = slot.command_pool;
-		allocate_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-		allocate_info.commandBufferCount = missing;
-		//分配失败则不留半初始化资源
-		if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, created.data()),
-			"vkAllocateCommandBuffers(次级)"))
-			return false;
-		//追加到该帧槽
-		for (VkCommandBuffer buffer : created)
+		for (uint32_t 序号 = 0; 序号 < missing; ++序号)
+		{
+			/*
+			每段独立命令池（第二百一十八轮）
+			并行录制由多个工作线程同时在各段缓冲上录制，而 VkCommandPool 必须外部同步：
+			若各段共用帧槽主池，校验层会报 THREADING ERROR，驱动侧可能直接崩溃。
+			*/
+			VkCommandPoolCreateInfo pool_info{};
+			pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+			pool_info.queueFamilyIndex = graphics_family;
+			pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+			VkCommandPool pool = VK_NULL_HANDLE;
+			//若次级命令池创建失败
+			if (!vk_result_check(vkCreateCommandPool(device, &pool_info, nullptr, &pool), "vkCreateCommandPool(次级)"))
+				return false;
+			//从该池分配一个次级命令缓冲
+			VkCommandBuffer buffer = VK_NULL_HANDLE;
+			VkCommandBufferAllocateInfo allocate_info{};
+			allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			allocate_info.commandPool = pool;
+			allocate_info.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+			allocate_info.commandBufferCount = 1;
+			//若次级命令缓冲分配失败
+			if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, &buffer),
+				"vkAllocateCommandBuffers(次级)"))
+			{
+				//回收刚建的池，避免泄漏
+				vkDestroyCommandPool(device, pool, nullptr);
+				return false;
+			}
+			//成对追加：池与缓冲保持同一下标（重置与录制按段索引对齐）
+			slot.secondary_pools.push_back(pool);
 			slot.secondary_buffers.push_back(buffer);
+		}
 		return true;
 	}
 }
