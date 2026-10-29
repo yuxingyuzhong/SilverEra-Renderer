@@ -5097,6 +5097,74 @@ namespace engine
 	}
 
 	/*
+	设置逐物体清漆层（第二百三十九轮）
+	强度合法域 (0, 1]、粗糙度合法域 [0.03, 1]；任一项越界 / 非数则整次拒绝（状态不变）。
+	只影响**之后登记**的绘制项（推送块在 mesh_draw 时写入），与绑定类接口的吸附语义一致。
+	*/
+	bool Renderer::material_clear_coat_set(float strength, float roughness)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 设置逐物体清漆层失败：尚未初始化");
+			return false;
+		}
+		//参数合法性校验（NaN 比较恒假，故也被拒绝）
+		if (!(strength > 0.0f && strength <= 1.0f))
+		{
+			logger.warn("渲染器:: 逐物体清漆强度 {} 越界（合法域 (0, 1]），已忽略", strength);
+			return false;
+		}
+		if (!(roughness >= 0.03f && roughness <= 1.0f))
+		{
+			logger.warn("渲染器:: 逐物体清漆粗糙度 {} 越界（合法域 [0.03, 1]），已忽略", roughness);
+			return false;
+		}
+		//写入吸附状态
+		impl->material_clear_coat = strength;
+		impl->material_clear_coat_roughness = roughness;
+		return true;
+	}
+
+	//清除逐物体清漆层（第二百三十九轮）
+	void Renderer::material_clear_coat_clear(void)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//回落清漆关闭
+		impl->material_clear_coat = 0.0f;
+		impl->material_clear_coat_roughness = 0.15f;
+	}
+
+	//当前是否启用逐物体清漆层（第二百三十九轮）
+	bool Renderer::material_clear_coat_active(void) const
+	{
+		//未初始化视为未启用
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->material_clear_coat > 0.0f;
+	}
+
+	//当前逐物体清漆强度（第二百三十九轮）
+	float Renderer::material_clear_coat_strength(void) const
+	{
+		//未初始化返回默认 0
+		if (impl == nullptr || !impl->initialized)
+			return 0.0f;
+		return impl->material_clear_coat;
+	}
+
+	//当前逐物体清漆粗糙度（第二百三十九轮）
+	float Renderer::material_clear_coat_roughness(void) const
+	{
+		//未初始化返回默认 0.15
+		if (impl == nullptr || !impl->initialized)
+			return 0.15f;
+		return impl->material_clear_coat_roughness;
+	}
+
+	/*
 	设置逐物体反照率色调（第六十九轮）
 	四个分量须都在 [0, 1]；任一分量越界 / 非数则整次拒绝（状态不变）。
 	设置只影响**之后登记**的绘制项（推送常量在 mesh_draw 时写入），与绑定类接口的吸附语义一致；

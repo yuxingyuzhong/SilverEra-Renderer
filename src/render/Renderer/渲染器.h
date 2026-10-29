@@ -681,6 +681,24 @@ namespace engine
 		//当前逐物体材质金属度（未启用时为 0；第六十八轮）
 		float material_pbr_metallic(void) const;
 		/*
+		设置逐物体清漆层（第二百三十九轮）
+		设置后，后续 mesh_draw / mesh_draw_instanced 的推送块在 offset 112 携带该清漆参数，
+		对全部直接光叠加一层独立粗糙度的 GGX 反射（材质中的同名字段优先，绑定材质时已覆盖本状态）。
+		strength 合法域 (0, 1]、roughness 合法域 [0.03, 1]；越界 / 非数整次拒绝并返回假（状态不变）。
+		*/
+		bool material_clear_coat_set(float strength, float roughness);
+		/*
+		清除逐物体清漆层（第二百三十九轮）
+		后续绘制回落「清漆关闭」（强度 0、粗糙度 0.15）；未设置时为空操作。
+		*/
+		void material_clear_coat_clear(void);
+		//当前是否启用逐物体清漆层（第二百三十九轮）
+		bool material_clear_coat_active(void) const;
+		//当前逐物体清漆强度（未启用时为 0；第二百三十九轮）
+		float material_clear_coat_strength(void) const;
+		//当前逐物体清漆粗糙度（未启用时为 0.15；第二百三十九轮）
+		float material_clear_coat_roughness(void) const;
+		/*
 		设置逐物体反照率色调（第六十九轮）
 		设置后，后续**非文字**网格绘制把反照率乘上该色调（RGBA，各分量 0..1）；
 		mesh_draw 显式给出的 color 形参优先于本吸附状态。
