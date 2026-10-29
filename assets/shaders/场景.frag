@@ -389,6 +389,19 @@ void main()
 	仅作用于环境光基底与天空 IBL 漫反射，不衰减方向光 / 点光源的直接照度。
 	*/
 	float occlusion = texture(ao_map, uv_material).r;
+	/*
+	PBR 材质参数预采样（第二百三十六轮）
+	粗糙度 / 金属度两个采样结果在同一片元内与光源无关，原先在方向光、补光、每盏点光 / 聚光分支各采样一次
+	（8 盏时最多 18 次纹理采样）；此处按 PBR 开启与否各算一次，后续分支复用，画面逐字节一致。
+	PBR 关闭时不做采样（保持原有非 PBR 路径的采样量），缓存值仅为占位。
+	*/
+	float material_roughness_cached = 1.0;
+	float material_metallic_cached = 0.0;
+	if (scene.pbr_params.x > 0.5)
+	{
+		material_roughness_cached = material_roughness_scale(uv_material);
+		material_metallic_cached = material_metallic(uv_material);
+	}
 	//二次元风格化参数（第一百七十四轮；均复用 UBO 保留分量）
 	float toon_levels = scene.pbr_params.w;
 	float toon_rim = scene.sky_params.w;
@@ -492,8 +505,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale(uv_material)),
-					pbr_f0(albedo_color.rgb, material_metallic(uv_material)))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached),
+					pbr_f0(albedo_color.rgb, material_metallic_cached))
 					* scene.camera_pos.w * dir_shadow * scene.light_dir.w);
 			else
 			{
@@ -523,8 +536,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, fill_to_light,
-					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_scale(uv_material)),
-					pbr_f0(albedo_color.rgb, material_metallic(uv_material)))
+					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached),
+					pbr_f0(albedo_color.rgb, material_metallic_cached))
 					* scene.fill_color.w * scene.fill_dir_intensity.w);
 			else
 			{
@@ -594,8 +607,8 @@ void main()
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(shininess, material_roughness_scale(uv_material)),
-					pbr_f0(albedo_color.rgb, material_metallic(uv_material))) * attenuation * cone * scene.point_spot_cone[index].w
+					pbr_roughness(shininess, material_roughness_cached),
+					pbr_f0(albedo_color.rgb, material_metallic_cached)) * attenuation * cone * scene.point_spot_cone[index].w
 					* scene.point_color_intensity[index].w);
 			else
 			{
@@ -612,10 +625,11 @@ void main()
 	/*
 	最终颜色：反照率 × 累加辐射度 × 漫反射权重 ＋ 镜面（强度由 light_common.y 统一缩放），钳制到 [0,1]
 	漫反射权重（第六十五轮）：PBR 开启时按金属度做能量守恒（1 − metallic），关闭时恒 1；
-	金属度来源由 material_metallic(uv_material) 决定（第六十八轮：逐物体覆盖或全局）。
+	金属度来源由 material_metallic(uv_material) 决定（第六十八轮：逐物体覆盖或全局）；
+	第二百三十六轮改为复用片元开头的预采样结果（`material_metallic_cached`）。
 	*/
 	float diffuse_weight = scene.pbr_params.x > 0.5
-		? clamp(1.0 - material_metallic(uv_material), 0.0, 1.0) : 1.0;
+		? clamp(1.0 - material_metallic_cached, 0.0, 1.0) : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
 	/*
 	二次元风格化 · 卡通高光（第一百七十九轮）
