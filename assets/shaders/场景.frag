@@ -195,6 +195,21 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 }
 
 /*
+清漆层高光（第二百三十三轮引入；第二百三十四轮抽为函数并扩展到补光 / 点光 / 聚光）
+用独立粗糙度的 GGX（F0 固定介电 0.04）叠一层锐利反射；weight 为该光源的衰减 / 锥形 / 逐光系数。
+强度为 0（默认）时恒返回零向量，调用方以 max 叠加，故无清漆路径画面逐字节不变。
+*/
+vec3 clearcoat_specular(vec3 normal, vec3 to_view, vec3 to_light, float weight)
+{
+	float strength = clamp(push_tint.clearcoat.x, 0.0, 1.0);
+	//未启用清漆
+	if (strength <= 0.0)
+		return vec3(0.0);
+	float roughness = clamp(push_tint.clearcoat.y, 0.03, 1.0);
+	return ggx_specular(normal, to_view, to_light, roughness, vec3(0.04)) * strength * weight;
+}
+
+/*
 阴影深度比较（第五十三轮）
 在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
 */
@@ -487,17 +502,12 @@ void main()
 				specular = max(specular, vec3(pow(spec_base, max(scene.light_common.z, 1.0)) * scene.camera_pos.w * dir_shadow));
 			}
 			/*
-			清漆层（第二百三十三轮）
+			清漆层（第二百三十三轮；第二百三十四轮改走公共函数）
 			在主光高光之上叠一层独立粗糙度的 GGX 反射（F0 固定 0.04），模拟漆面清漆的锐利高光；
 			clearcoat.x 为 0 时整段跳过，故默认画面逐字节不变。
 			*/
-			if (push_tint.clearcoat.x > 0.0)
-			{
-				float coat_roughness = clamp(push_tint.clearcoat.y, 0.03, 1.0);
-				float coat_strength = clamp(push_tint.clearcoat.x, 0.0, 1.0);
-				specular = max(specular, ggx_specular(normal, to_view, to_light, coat_roughness, vec3(0.04))
-					* coat_strength * scene.camera_pos.w * dir_shadow * scene.light_dir.w);
-			}
+			specular = max(specular, clearcoat_specular(normal, to_view, to_light,
+				scene.camera_pos.w * dir_shadow * scene.light_dir.w));
 		}
 		/*
 		补光（第四十七轮；第二盏方向光，强度为 0 视为关闭）
@@ -522,6 +532,9 @@ void main()
 				float fill_spec_base = max(dot(normal, fill_halfway), 0.0);
 				specular = max(specular, vec3(pow(fill_spec_base, max(scene.light_common.z, 1.0)) * scene.fill_color.w));
 			}
+			//清漆层（第二百三十四轮：补光同样叠加一层清漆反射）
+			specular = max(specular, clearcoat_specular(normal, to_view, fill_to_light,
+				scene.fill_color.w * scene.fill_dir_intensity.w));
 		}
 		/*
 		点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）
@@ -591,6 +604,9 @@ void main()
 				specular = max(specular, vec3(pow(spec_base, shininess) * attenuation * cone
 					* scene.point_spot_cone[index].w));
 			}
+			//清漆层（第二百三十四轮：点光 / 聚光同样叠加一层清漆反射）
+			specular = max(specular, clearcoat_specular(normal, to_view, to_light,
+				attenuation * cone * scene.point_spot_cone[index].w * scene.point_color_intensity[index].w));
 		}
 	}
 	/*
