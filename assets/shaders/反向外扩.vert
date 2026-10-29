@@ -9,10 +9,11 @@ layout(location = 4) in vec4 in_model_1;
 layout(location = 5) in vec4 in_model_2;
 layout(location = 6) in vec4 in_model_3;
 
-//场景缓冲（描述符集 0，binding 0）：本着色器只消费视图投影矩阵，其余成员由场景着色器使用
+//场景缓冲（描述符集 0，binding 0）：本着色器只消费视图投影矩阵与相机位置，其余成员由场景着色器使用
 layout(set = 0, binding = 0) uniform Scene_Buffer
 {
 	mat4 view_proj;
+	layout(offset = 112) vec4 camera_pos;
 } scene;
 
 /*
@@ -34,6 +35,15 @@ void main()
 	vec3 normal_world = mat3(model) * in_normal;
 	float normal_length = length(normal_world);
 	if (normal_length > 1e-6)
-		world.xyz += (normal_world / normal_length) * outline.outline_params.x;
+	{
+		/*
+		宽度按视距补偿（第二百三十轮）
+		参考距离 3 世界单位处的宽度即 outline_params.x；更远处按距离等比放大，
+		使轮廓在屏幕上的像素宽度基本恒定（近处不会粗得糊住细节、远处不会细到看不见）。
+		*/
+		float camera_distance = length(scene.camera_pos.xyz - world.xyz);
+		float distance_scale = camera_distance / 3.0;
+		world.xyz += (normal_world / normal_length) * outline.outline_params.x * distance_scale;
+	}
 	gl_Position = scene.view_proj * world;
 }
