@@ -497,6 +497,10 @@ namespace engine
 		bool cull_enabled = true;
 		//当前生效的渲染工作线程数（第一百七十七轮；0 = 单线程）
 		uint32_t render_threads = 0;
+		//并行派发按用途累计（第二百二十四轮；实例剔除 / 差异扫描 / 缓存回写）
+		uint64_t cull_parallel_dispatches = 0;
+		uint64_t scan_parallel_dispatches = 0;
+		uint64_t cache_parallel_dispatches = 0;
 		//是否启用静态合批（第一百二十七轮；默认开启）
 		bool static_batching = true;
 		/*

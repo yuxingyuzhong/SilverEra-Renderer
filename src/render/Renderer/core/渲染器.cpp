@@ -2339,7 +2339,12 @@ namespace engine
 				};
 				//实例数达到阈值且工作线程可用时并行判定，否则由调用线程整段执行
 				if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
+				{
+					//派发计数差值（第二百二十四轮：按用途归入差异扫描）
+					const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
 					impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN, mark_changed_instance);
+					impl->scan_parallel_dispatches += impl->thread_pool.dispatch_count_get() - dispatch_before;
+				}
 				else
 					mark_changed_instance(0, instance_count);
 				//当前变化段的起始实例与是否处于段内
@@ -2400,11 +2405,14 @@ namespace engine
 			//实例数达到阈值且工作线程可用时并行回写，否则由调用线程整段执行
 			if (impl->thread_pool.active() && instance_count >= Impl::INSTANCE_SCAN_PARALLEL_MIN)
 			{
+				//派发计数差值（第二百二十四轮：按用途归入缓存回写）
+				const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
 				impl->thread_pool.ranges_run(instance_count, Impl::INSTANCE_SCAN_PARALLEL_MIN,
 					[this, &refresh_instance_cache](std::size_t begin, std::size_t end)
 					{
 						refresh_instance_cache(impl->pending_instances, begin, end);
 					});
+				impl->cache_parallel_dispatches += impl->thread_pool.dispatch_count_get() - dispatch_before;
 			}
 			else
 				refresh_instance_cache(impl->pending_instances, 0, instance_count);
@@ -3066,6 +3074,10 @@ namespace engine
 		//渲染工作线程观测（第一百七十七轮）
 		stats.render_threads = impl->thread_pool.thread_count_get();
 		stats.parallel_dispatches = impl->thread_pool.dispatch_count_get();
+		//按用途拆分的派发次数（第二百二十四轮）
+		stats.cull_parallel_dispatches = impl->cull_parallel_dispatches;
+		stats.scan_parallel_dispatches = impl->scan_parallel_dispatches;
+		stats.cache_parallel_dispatches = impl->cache_parallel_dispatches;
 		//最近一帧并行录制段数（第一百九十八轮）
 		stats.parallel_segments = impl->frame.last_parallel_segments_get();
 		return stats;
@@ -3818,6 +3830,8 @@ namespace engine
 			const std::size_t cull_parallel_min = impl->cull_parallel_min_instances;
 			if (impl->thread_pool.active() && count >= cull_parallel_min)
 			{
+				//派发计数差值（第二百二十四轮：按用途归入剔除）
+				const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
 				//并行判定（块之间无共享写入）
 				impl->thread_pool.ranges_run(count, cull_parallel_min,
 					[this, view_proj, transforms, bounds_min, bounds_max](std::size_t begin, std::size_t end)
@@ -3826,6 +3840,8 @@ namespace engine
 							impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
 								transforms + instance * 16, bounds_min, bounds_max) ? 0 : 1;
 					});
+				//累加剔除用途的派发次数
+				impl->cull_parallel_dispatches += impl->thread_pool.dispatch_count_get() - dispatch_before;
 			}
 			else
 			{

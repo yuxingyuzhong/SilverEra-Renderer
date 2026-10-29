@@ -235,6 +235,14 @@ namespace engine
 		uint32_t render_threads = 0;
 		uint64_t parallel_dispatches = 0;
 		uint32_t parallel_segments = 0;
+		/*
+		并行派发按用途拆分（第二百二十四轮）
+		三类均自 init 起累计（与 parallel_dispatches 同口径，frame_stats_reset 不清零）；
+		用于区分「实例剔除 / 差异扫描 / 缓存回写」的派发来源；录制段的派发不计入这三项。
+		*/
+		uint64_t cull_parallel_dispatches = 0;
+		uint64_t scan_parallel_dispatches = 0;
+		uint64_t cache_parallel_dispatches = 0;
 	};
 
 	/*
