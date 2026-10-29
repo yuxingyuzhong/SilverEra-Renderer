@@ -751,6 +751,8 @@ namespace engine
 		*/
 		impl->pending_items.reserve(impl->instance_capacity);
 		impl->pending_instances.reserve(impl->instance_capacity);
+		//逐绘制项采样集输入缓冲按预留上限预分配（第二百二十一轮，避免逐帧扩容）
+		impl->draw_set_inputs.reserve(Pipeline_Context::DRAW_SET_PER_SLOT);
 		//实例级剔除的筛选缓冲（第一百五十三轮；按实例上限预留，避免逐帧扩容）
 		impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(impl->instance_capacity) * 16);
 		impl->batch_scratch.reserve(impl->instance_capacity);
@@ -2438,6 +2440,11 @@ namespace engine
 			impl->frame.frames_wait();
 			//本帧逐绘制项集游标
 			uint32_t draw_index = 0;
+			/*
+			第一遍：填装公共字段并收集采样快照（第二百二十一轮：批量写入）
+			条件与逐项写入完全一致（有采样快照且预留未用尽），只是把「写哪一条集」延后到一次批量提交。
+			*/
+			impl->draw_set_inputs.clear();
 			for (auto& item : impl->pending_items)
 			{
 				//本帧槽的实例缓冲（模型矩阵来源）
@@ -2447,22 +2454,40 @@ namespace engine
 				//默认回落共享采样器集（set1）
 				item.sampler_set = impl->pipeline.sampler_set_get(slot);
 				item.descriptor_set_count = 2;
-				//若该项有采样快照且预留未用尽则写专属集
+				//若该项有采样快照且预留未用尽则收集待写快照
 				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
 					&& draw_index < Pipeline_Context::DRAW_SET_PER_SLOT)
 				{
-					const bool written = impl->pipeline.draw_set_bind(slot, draw_index, item.draw_sampler,
-						item.draw_albedo,
-						item.draw_normal != VK_NULL_HANDLE ? item.draw_normal : default_view,
-						item.draw_roughness != VK_NULL_HANDLE ? item.draw_roughness : default_view,
-						item.draw_emissive != VK_NULL_HANDLE ? item.draw_emissive : default_view,
-						item.draw_ao != VK_NULL_HANDLE ? item.draw_ao : default_view,
-						item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view,
-						shadow_view != VK_NULL_HANDLE ? shadow_view : default_view,
-						sky_view != VK_NULL_HANDLE ? sky_view : default_view);
-					if (written)
-						item.sampler_set = impl->pipeline.draw_set_get(slot, draw_index);
+					Pipeline_Context::Draw_Set_Views views{};
+					views.sampler = item.draw_sampler;
+					views.albedo = item.draw_albedo;
+					views.normal = item.draw_normal != VK_NULL_HANDLE ? item.draw_normal : default_view;
+					views.roughness = item.draw_roughness != VK_NULL_HANDLE ? item.draw_roughness : default_view;
+					views.emissive = item.draw_emissive != VK_NULL_HANDLE ? item.draw_emissive : default_view;
+					views.ao = item.draw_ao != VK_NULL_HANDLE ? item.draw_ao : default_view;
+					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
+					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
+					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
+					impl->draw_set_inputs.push_back(views);
 					++draw_index;
+				}
+			}
+			//一次写入本帧全部逐绘制项采样集
+			const uint32_t draw_set_written = static_cast<uint32_t>(impl->draw_set_inputs.size());
+			if (draw_set_written > 0)
+				impl->pipeline.draw_sets_bind_batch(slot, impl->draw_set_inputs.data(), draw_set_written);
+			/*
+			第二遍：回填专属采样集句柄
+			收集顺序与逐项写入一致（同一批集下标），故只有前 draw_set_written 项使用专属集，其余回落共享集。
+			*/
+			uint32_t assign_cursor = 0;
+			for (auto& item : impl->pending_items)
+			{
+				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
+					&& assign_cursor < draw_set_written)
+				{
+					item.sampler_set = impl->pipeline.draw_set_get(slot, assign_cursor);
+					++assign_cursor;
 				}
 			}
 		}

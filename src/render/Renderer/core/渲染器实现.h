@@ -629,6 +629,8 @@ namespace engine
 		std::vector<Frame_Render_Target> chain_targets_scratch;
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
+		//逐绘制项采样集批量写入的输入缓冲（第二百二十一轮；复用，避免每帧分配）
+		std::vector<Pipeline_Context::Draw_Set_Views> draw_set_inputs;
 		//是否已初始化
 		bool initialized = false;
 		//已呈现帧数

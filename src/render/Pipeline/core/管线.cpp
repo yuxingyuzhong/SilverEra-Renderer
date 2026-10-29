@@ -701,6 +701,67 @@ namespace engine
 		return true;
 	}
 
+	/*
+	逐绘制项采样集的批量写入（第二百二十一轮，优化）
+	把 count 项 × 9 条绑定合并为一次 vkUpdateDescriptorSets；
+	各项目标集与逐项调用一致（draw_set_get(slot, index)），写内容逐字段相同，故画面逐字节不变。
+	*/
+	bool Pipeline_Context::draw_sets_bind_batch(uint32_t slot, const Draw_Set_Views* views, uint32_t count)
+	{
+		//无条目即空操作
+		if (count == 0)
+			return true;
+		//前置：设备、视图数组与容量必须齐备
+		if (device == VK_NULL_HANDLE || views == nullptr || count > DRAW_SET_PER_SLOT || slot >= sampler_sets.size())
+		{
+			logger.error("管线:: 逐绘制项采样集批量写入参数不完整");
+			return false;
+		}
+		//每条绑定的写记录数（与逐项实现同布局）
+		const uint32_t binding_count = 9;
+		//复用缓冲（容量不足时扩容一次，之后不再分配）
+		const std::size_t write_count = static_cast<std::size_t>(count) * binding_count;
+		draw_batch_infos.resize(write_count);
+		draw_batch_writes.resize(write_count);
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			const Draw_Set_Views& view = views[index];
+			//目标集（与逐项调用同一批集）
+			VkDescriptorSet target = draw_set_get(slot, index);
+			//任一条目视图 / 采样器缺失则整体失败（调用方已兜底默认白纹理，不应发生）
+			if (target == VK_NULL_HANDLE || view.sampler == VK_NULL_HANDLE || view.albedo == VK_NULL_HANDLE
+				|| view.normal == VK_NULL_HANDLE || view.roughness == VK_NULL_HANDLE || view.emissive == VK_NULL_HANDLE
+				|| view.ao == VK_NULL_HANDLE || view.metallic == VK_NULL_HANDLE || view.shadow == VK_NULL_HANDLE
+				|| view.sky == VK_NULL_HANDLE)
+			{
+				logger.error("管线:: 逐绘制项采样集批量写入的第 {} 条参数不完整", index);
+				return false;
+			}
+			//九条绑定的图像描述（binding 2 以反照率视图占位，场景着色器不采样它）
+			const VkImageView images[binding_count] = { view.albedo, view.shadow, view.albedo, view.normal,
+				view.roughness, view.sky, view.emissive, view.ao, view.metallic };
+			for (uint32_t binding = 0; binding < binding_count; ++binding)
+			{
+				const std::size_t write_index = static_cast<std::size_t>(index) * binding_count + binding;
+				//图像描述
+				draw_batch_infos[write_index].sampler = view.sampler;
+				draw_batch_infos[write_index].imageView = images[binding];
+				draw_batch_infos[write_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				//写记录
+				draw_batch_writes[write_index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				draw_batch_writes[write_index].dstSet = target;
+				draw_batch_writes[write_index].dstBinding = binding;
+				draw_batch_writes[write_index].dstArrayElement = 0;
+				draw_batch_writes[write_index].descriptorCount = 1;
+				draw_batch_writes[write_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				draw_batch_writes[write_index].pImageInfo = &draw_batch_infos[write_index];
+			}
+		}
+		//一次提交全部条目
+		vkUpdateDescriptorSets(device, static_cast<uint32_t>(write_count), draw_batch_writes.data(), 0, nullptr);
+		return true;
+	}
+
 	//向第 slot 帧槽的场景采样器集写阴影图（set 1 binding 1）
 	bool Pipeline_Context::shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view)
 	{

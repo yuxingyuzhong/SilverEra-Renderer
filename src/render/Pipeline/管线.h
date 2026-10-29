@@ -201,6 +201,35 @@ namespace engine
 		bool draw_set_bind(uint32_t slot, uint32_t index, VkSampler sampler, VkImageView albedo_view,
 			VkImageView normal_view, VkImageView roughness_view, VkImageView emissive_view,
 			VkImageView ao_view, VkImageView metallic_view, VkImageView shadow_view, VkImageView sky_view);
+		/*
+		逐绘制项采样集的批量写入（第二百二十一轮，优化）
+		每项的采样器与九个视图先收集到 Draw_Set_Views，再由 draw_sets_bind_batch 一次性
+		提交 count × 9 条描述符写（每帧一次 vkUpdateDescriptorSets，替代逐项一次）。
+		写入顺序与逐项调用完全一致（下标 0..count-1 对应 draw_set_get 的同一批集），故画面逐字节不变。
+		*/
+		struct Draw_Set_Views
+		{
+			//采样器（九条绑定共用）
+			VkSampler sampler = VK_NULL_HANDLE;
+			//反照率（binding 0；binding 2 也以它占位）
+			VkImageView albedo = VK_NULL_HANDLE;
+			//法线（binding 3）
+			VkImageView normal = VK_NULL_HANDLE;
+			//粗糙度（binding 4）
+			VkImageView roughness = VK_NULL_HANDLE;
+			//自发光（binding 6）
+			VkImageView emissive = VK_NULL_HANDLE;
+			//环境光遮蔽（binding 7）
+			VkImageView ao = VK_NULL_HANDLE;
+			//金属度（binding 8）
+			VkImageView metallic = VK_NULL_HANDLE;
+			//阴影图（binding 1）
+			VkImageView shadow = VK_NULL_HANDLE;
+			//天空盒（binding 5）
+			VkImageView sky = VK_NULL_HANDLE;
+		};
+		//批量写入第 slot 帧槽的前 count 条逐绘制项采样集（返回是否成功；count ≤ DRAW_SET_PER_SLOT）
+		bool draw_sets_bind_batch(uint32_t slot, const Draw_Set_Views* views, uint32_t count);
 		//每帧槽预留的逐绘制项采样器集数量
 		static constexpr uint32_t DRAW_SET_PER_SLOT = 128;
 		/*
@@ -278,6 +307,9 @@ namespace engine
 		std::vector<VkDescriptorSet> post_sets;
 		//逐绘制项采样器描述符集（长度 = frame_overlap × DRAW_SET_PER_SLOT；第一百七十四轮）
 		std::vector<VkDescriptorSet> draw_sets;
+		//批量写入复用的图像描述与写记录（第二百二十一轮；避免每帧堆分配，长度按需增长）
+		std::vector<VkDescriptorImageInfo> draw_batch_infos;
+		std::vector<VkWriteDescriptorSet> draw_batch_writes;
 		//图形管线条目（句柄 0 为默认场景管线，其余为具名管线）
 		std::vector<Pipeline_Entry> pipelines;
 		//下一个待分配的具名管线句柄（自 1 起递增）
