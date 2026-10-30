@@ -28,4 +28,35 @@ namespace engine
 		uint64_t dispatch_count = 0;
 		float elapsed_ms = -1.0f;
 	};
+
+	/*
+	线程组数换算（第二百四十二轮）
+	按「元素数 / 本地工作组大小」向上取整；elements 为 0 或 local_size 为 0 时返回 0（不调度）。
+	供调用方把实例 / 像素 / 簇数量换算成 vkCmdDispatch 的组数，避免各处重复写 ceil 公式。
+	*/
+	constexpr uint32_t compute_group_count(uint32_t elements, uint32_t local_size)
+	{
+		//空输入不调度
+		if (elements == 0 || local_size == 0)
+			return 0;
+		return (elements + local_size - 1) / local_size;
+	}
+
+	/*
+	屏障用途（第二百四十二轮）
+	把常见的 阶段/访问 组合收敛成枚举，调用方不再逐处手写 VkMemoryBarrier2：
+	ComputeToHost = 计算写入 → 主机读（回读）；
+	HostToCompute = 主机写 → 计算读（上传后立即调度）；
+	ComputeToCompute = 计算写 → 计算读写（多段 dispatch 之间）；
+	ComputeToGraphics = 计算写 → 顶点/片元读（GPU 剔除结果供间接绘制）；
+	GraphicsToCompute = 图形写（深度/颜色）→ 计算读（Hi-Z 生成读深度）。
+	*/
+	enum class Compute_Barrier
+	{
+		ComputeToHost,
+		HostToCompute,
+		ComputeToCompute,
+		ComputeToGraphics,
+		GraphicsToCompute,
+	};
 }

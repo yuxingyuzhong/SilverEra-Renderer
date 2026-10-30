@@ -441,6 +441,87 @@ namespace engine
 		return dispatch_count;
 	}
 
+	//当前统计快照
+	Compute_Stats Compute_Context::stats_get(void) const
+	{
+		Compute_Stats stats;
+		stats.dispatch_count = dispatch_count;
+		//计时在第二百四十五轮接入时间戳前恒为 -1
+		stats.elapsed_ms = -1.0f;
+		return stats;
+	}
+
+	//按元素数调度（组数向上取整）
+	bool Compute_Context::dispatch_ceil(VkCommandBuffer command_buffer, uint64_t handle, uint32_t elements, uint32_t local_size,
+		const void* push_data, uint32_t push_size)
+	{
+		//空元素数表示无需调度
+		if (elements == 0)
+			return true;
+		//换算组数
+		uint32_t groups = compute_group_count(elements, local_size);
+		//组数为 0（local_size 非法）
+		if (groups == 0)
+			return false;
+		return compute_dispatch(command_buffer, handle, groups, 1, 1, push_data, push_size);
+	}
+
+	/*
+	屏障
+	按用途展开为阶段/访问组合；全部使用 VkMemoryBarrier2（同步 2），不引入全局等待。
+	*/
+	bool Compute_Context::barrier(VkCommandBuffer command_buffer, Compute_Barrier purpose)
+	{
+		//命令缓冲为空
+		if (command_buffer == VK_NULL_HANDLE)
+			return false;
+		VkMemoryBarrier2 barrier_info{};
+		barrier_info.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+		switch (purpose)
+		{
+		case Compute_Barrier::ComputeToHost:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+			break;
+		case Compute_Barrier::HostToCompute:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+			break;
+		case Compute_Barrier::ComputeToCompute:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+			break;
+		case Compute_Barrier::ComputeToGraphics:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+				| VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+			break;
+		case Compute_Barrier::GraphicsToCompute:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+			break;
+		default:
+			return false;
+		}
+		VkDependencyInfo dependency{};
+		dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		dependency.memoryBarrierCount = 1;
+		dependency.pMemoryBarriers = &barrier_info;
+		//下发屏障
+		vkCmdPipelineBarrier2(command_buffer, &dependency);
+		return true;
+	}
+
 	/*
 	内置健康检查
 	链路：建缓冲（主机可见）→ 绑描述符 → 推送魔数 → 调度 → 计算→主机屏障 → 回读首元素。
@@ -520,19 +601,8 @@ namespace engine
 				//绑定并调度
 				if (!compute_dispatch(command_buffer, handle, 1, 1, 1, &push, sizeof(push)))
 					return false;
-				VkMemoryBarrier2 barrier{};
-				barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-				barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-				barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-				barrier.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-				barrier.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-				VkDependencyInfo dependency{};
-				dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-				dependency.memoryBarrierCount = 1;
-				dependency.pMemoryBarriers = &barrier;
-				//提交可见性屏障
-				vkCmdPipelineBarrier2(command_buffer, &dependency);
-				return true;
+				//计算写入 → 主机读
+				return barrier(command_buffer, Compute_Barrier::ComputeToHost);
 			});
 		}
 		//回读首元素

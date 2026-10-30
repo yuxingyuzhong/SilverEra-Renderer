@@ -94,6 +94,23 @@ namespace engine
 		uint32_t slot_get(void) const;
 
 		/*
+		按元素数调度（第二百四十二轮）
+		group 数由 compute_group_count(elements, local_size) 换算；elements 为 0 时直接返回真（不调度）。
+		*/
+		bool dispatch_ceil(VkCommandBuffer command_buffer, uint64_t handle, uint32_t elements, uint32_t local_size,
+			const void* push_data = nullptr, uint32_t push_size = 0);
+
+		/*
+		屏障（第二百四十二轮）
+		把 Compute_Barrier 枚举展开为 VkMemoryBarrier2 ＋ VkDependencyInfo 并下发；
+		用途与阶段/访问对应关系见 计算数据.h 的枚举注释。命令缓冲为空返回假。
+		*/
+		bool barrier(VkCommandBuffer command_buffer, Compute_Barrier purpose);
+
+		//当前统计快照（dispatch 次数与最近计时；计时在第二百四十五轮接入前恒为 -1）
+		Compute_Stats stats_get(void) const;
+
+		/*
 		内置健康检查（第二百四十一轮）
 		分配一个 64 元素的主机可见存储缓冲，把 magic 写入每个元素后回读首元素：
 		用于确认「计算管线创建 → 描述符绑定 → 推送常量 → 调度 → 内存可见性」整条链路可用。
