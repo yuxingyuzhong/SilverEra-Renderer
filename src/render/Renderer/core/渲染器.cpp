@@ -3369,6 +3369,27 @@ namespace engine
 		return read;
 	}
 
+	//计算统计快照（第二百四十五轮）
+	Compute_Stats Renderer::compute_stats_get(void) const
+	{
+		//未初始化：计数为零、计时 −1
+		if (impl == nullptr || !impl->initialized)
+		{
+			Compute_Stats empty;
+			return empty;
+		}
+		return impl->compute.stats_get();
+	}
+
+	//是否支持计算侧时间戳（第二百四十五轮）
+	bool Renderer::compute_timestamp_supported(void) const
+	{
+		//未初始化或不支持计算路径
+		if (impl == nullptr || !impl->initialized || !compute_supported())
+			return false;
+		return impl->compute.timestamp_supported();
+	}
+
 	//计算管线加载（第二百四十三轮）
 	bool Renderer::compute_pipeline_load(Compute_Pipeline_Handle& handle_out, const std::string& shader_name)
 	{
@@ -3462,13 +3483,21 @@ namespace engine
 		//句柄无效
 		if (context_handle == 0)
 			return false;
-		//一次性提交：调度 ＋ 计算→主机屏障（返回即可读回）
-		return impl->compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
+		//一次性提交：起时间戳 → 调度 → 计算→主机屏障 → 止时间戳（返回即可读回）
+		bool dispatched = impl->compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
 		{
+			if (!impl->compute.timestamp_begin(command_buffer))
+				return false;
 			if (!impl->compute.dispatch_ceil(command_buffer, context_handle, elements, local_size, push_data, push_size))
 				return false;
-			return impl->compute.barrier(command_buffer, Compute_Barrier::ComputeToHost);
+			if (!impl->compute.barrier(command_buffer, Compute_Barrier::ComputeToHost))
+				return false;
+			return impl->compute.timestamp_end(command_buffer);
 		});
+		//围栏等待之后读回计时（不支持时间戳时为空操作）
+		if (dispatched)
+			impl->compute.timestamp_refresh();
+		return dispatched;
 	}
 
 	//设置超采样抗锯齿倍率（SSAA）

@@ -130,6 +130,30 @@ namespace engine
 		}
 		active_slot = 0;
 		dispatch_count = 0;
+		/*
+		时间戳探测（第二百四十五轮）
+		条件：所用队列族 timestampValidBits > 0 且物理设备 timestampPeriod > 0。
+		可用则建 2 查询的时间戳查询池（起 / 止）；不可用只把标志置假，统计退化为计数（耗时恒 -1）。
+		*/
+		VkPhysicalDeviceProperties properties{};
+		vkGetPhysicalDeviceProperties(physical_device, &properties);
+		timestamp_period = properties.limits.timestampPeriod;
+		timestamp_flag = families[graphics_family].timestampValidBits > 0 && timestamp_period > 0.0f;
+		last_elapsed_ms = -1.0f;
+		//创建时间戳查询池（仅可用时）
+		if (timestamp_flag)
+		{
+			VkQueryPoolCreateInfo query_info{};
+			query_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+			query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			query_info.queryCount = 2;
+			//创建失败即降级为计数模式
+			if (vkCreateQueryPool(device, &query_info, nullptr, &query_pool) != VK_SUCCESS)
+			{
+				query_pool = VK_NULL_HANDLE;
+				timestamp_flag = false;
+			}
+		}
 		return true;
 	}
 
@@ -154,6 +178,10 @@ namespace engine
 		if (single_fence != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
 			vkDestroyFence(device, single_fence, nullptr);
 		single_fence = VK_NULL_HANDLE;
+		//销毁时间戳查询池（第二百四十五轮）
+		if (query_pool != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+			vkDestroyQueryPool(device, query_pool, nullptr);
+		query_pool = VK_NULL_HANDLE;
 		if (single_pool != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
 			vkDestroyCommandPool(device, single_pool, nullptr);
 		single_pool = VK_NULL_HANDLE;
@@ -170,6 +198,9 @@ namespace engine
 		active_slot = 0;
 		dispatch_count = 0;
 		supported_flag = false;
+		timestamp_flag = false;
+		timestamp_period = 0.0f;
+		last_elapsed_ms = -1.0f;
 		physical = VK_NULL_HANDLE;
 		device = VK_NULL_HANDLE;
 		queue = VK_NULL_HANDLE;
@@ -465,9 +496,60 @@ namespace engine
 	{
 		Compute_Stats stats;
 		stats.dispatch_count = dispatch_count;
-		//计时在第二百四十五轮接入时间戳前恒为 -1
-		stats.elapsed_ms = -1.0f;
+		//不支持时间戳时计时恒为 -1；支持时为最近一次量测值（尚未量测亦为 -1）
+		stats.elapsed_ms = timestamp_flag ? last_elapsed_ms : -1.0f;
 		return stats;
+	}
+
+	//是否支持时间戳计时（第二百四十五轮）
+	bool Compute_Context::timestamp_supported(void) const
+	{
+		return timestamp_flag;
+	}
+
+	//写入起始时间戳（第二百四十五轮）
+	bool Compute_Context::timestamp_begin(VkCommandBuffer command_buffer)
+	{
+		//不支持时间戳：空操作
+		if (!timestamp_flag)
+			return true;
+		//命令缓冲为空或查询池缺失
+		if (command_buffer == VK_NULL_HANDLE || query_pool == VK_NULL_HANDLE)
+			return false;
+		//重置查询池后写起点（计算阶段）
+		vkCmdResetQueryPool(command_buffer, query_pool, 0, 2);
+		vkCmdWriteTimestamp2(command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, query_pool, 0);
+		return true;
+	}
+
+	//写入结束时间戳（第二百四十五轮）
+	bool Compute_Context::timestamp_end(VkCommandBuffer command_buffer)
+	{
+		//不支持时间戳：空操作
+		if (!timestamp_flag)
+			return true;
+		//命令缓冲为空或查询池缺失
+		if (command_buffer == VK_NULL_HANDLE || query_pool == VK_NULL_HANDLE)
+			return false;
+		//写终点（计算阶段；排在调度之后执行）
+		vkCmdWriteTimestamp2(command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, query_pool, 1);
+		return true;
+	}
+
+	//读回并换算最近一次计时（第二百四十五轮）
+	void Compute_Context::timestamp_refresh(void)
+	{
+		//不支持时间戳：维持 -1
+		if (!timestamp_flag || query_pool == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
+			return;
+		uint64_t ticks[2] = { 0, 0 };
+		VkResult result = vkGetQueryPoolResults(device, query_pool, 0, 2, sizeof(ticks), ticks, sizeof(uint64_t),
+			VK_QUERY_RESULT_64_BIT);
+		//结果不可用（未写或设备丢失）：维持上次值
+		if (result != VK_SUCCESS)
+			return;
+		//换算为毫秒（ticks × 纳秒 / tick ÷ 1e6）
+		last_elapsed_ms = static_cast<float>(static_cast<double>(ticks[1] - ticks[0]) * timestamp_period / 1e6);
 	}
 
 	//按元素数调度（组数向上取整）

@@ -109,8 +109,19 @@ namespace engine
 		*/
 		bool barrier(VkCommandBuffer command_buffer, Compute_Barrier purpose);
 
-		//当前统计快照（dispatch 次数与最近计时；计时在第二百四十五轮接入前恒为 -1）
+		//当前统计快照（dispatch 次数与最近计时；本机不支持时间戳时计时恒为 -1）
 		Compute_Stats stats_get(void) const;
+
+		/*
+		时间戳计时（第二百四十五轮）
+		build 时按「队列族 timestampValidBits > 0 且 timestampPeriod > 0」判定是否可用，可用则建 2 查询的查询池。
+		begin / end 在命令缓冲内重置查询池并写入起止时间戳（均在 COMPUTE_SHADER 阶段）；不支持时为空操作并返回真。
+		refresh 在围栏等待之后读回查询结果，换算成毫秒写入统计（读失败则维持上次值；不支持时为空操作）。
+		*/
+		bool timestamp_supported(void) const;
+		bool timestamp_begin(VkCommandBuffer command_buffer);
+		bool timestamp_end(VkCommandBuffer command_buffer);
+		void timestamp_refresh(void);
 
 		/*
 		内置健康检查（第二百四十一轮）
@@ -173,5 +184,13 @@ namespace engine
 		VkFence single_fence = VK_NULL_HANDLE;
 		//累计调度次数
 		uint64_t dispatch_count = 0;
+		//是否支持时间戳计时（第二百四十五轮）
+		bool timestamp_flag = false;
+		//时间戳周期（纳秒 / tick；来自物理设备属性）
+		float timestamp_period = 0.0f;
+		//时间戳查询池（2 查询：起 / 止）
+		VkQueryPool query_pool = VK_NULL_HANDLE;
+		//最近一次计时（毫秒；未量测为 -1）
+		float last_elapsed_ms = -1.0f;
 	};
 }

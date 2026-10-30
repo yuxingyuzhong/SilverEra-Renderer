@@ -367,6 +367,14 @@ namespace engine
 		*/
 		bool compute_readback(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset = 0);
 		/*
+		计算统计（第二百四十五轮）
+		dispatch_count = 累计调度次数；elapsed_ms = 最近一次同步调度的 GPU 耗时（毫秒）。
+		本机不支持时间戳时 elapsed_ms 恒为 −1（统计退化为计数，不影响调度本身）。
+		*/
+		Compute_Stats compute_stats_get(void) const;
+		//是否支持计算侧时间戳计时（不支持时 compute_stats_get 的 elapsed_ms 恒为 −1）
+		bool compute_timestamp_supported(void) const;
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。
