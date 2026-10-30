@@ -3553,26 +3553,39 @@ namespace engine
 		return impl != nullptr && impl->gpu_cull_enabled;
 	}
 
-	//GPU 实例压缩（第二百四十九轮）
+	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,
 		const float local_min[3], const float local_max[3], float* matrices_out, uint32_t* visible_out)
+	{
+		//无距离上限、背面关
+		const float zero_camera[3] = { 0.0f, 0.0f, 0.0f };
+		const float zero_forward[3] = { 0.0f, 0.0f, 0.0f };
+		return gpu_instance_compact_ex(transforms, count, local_min, local_max, zero_camera, zero_forward,
+			0.0f, false, matrices_out, visible_out);
+	}
+
+	//GPU 实例压缩（带距离 / 背面剔除；第二百五十轮）
+	bool Renderer::gpu_instance_compact_ex(const float* transforms, uint32_t count,
+		const float local_min[3], const float local_max[3], const float camera[3], const float forward[3],
+		float max_distance, bool backface, float* matrices_out, uint32_t* visible_out)
 	{
 		//未初始化或不支持计算
 		if (impl == nullptr || !impl->initialized || !compute_supported())
 			return false;
 		//入参非法
 		if (transforms == nullptr || matrices_out == nullptr || visible_out == nullptr || count == 0
-			|| local_min == nullptr || local_max == nullptr)
+			|| local_min == nullptr || local_max == nullptr || camera == nullptr || forward == nullptr)
 			return false;
 		*visible_out = 0;
 		//当前视图 × 投影（与 CPU 剔除同一矩阵）
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
-		//三个缓冲：源矩阵（每实例 64 字节）/ 压缩输出 / 原子计数
+		//四个缓冲：源矩阵 / 压缩输出 / 原子计数 / 剔除参数
 		const uint32_t matrix_bytes = count * static_cast<uint32_t>(sizeof(float)) * 16u;
 		Compute_Buffer_Handle transform_handle = 0;
 		Compute_Buffer_Handle compact_handle = 0;
 		Compute_Buffer_Handle counter_handle = 0;
+		Compute_Buffer_Handle params_handle = 0;
 		if (!compute_buffer_load(transform_handle, matrix_bytes, transforms))
 			return false;
 		if (!compute_buffer_load(compact_handle, matrix_bytes))
@@ -3588,12 +3601,34 @@ namespace engine
 			compute_buffer_unload(transform_handle);
 			return false;
 		}
+		//剔除参数（相机位置 / 前向 / 阈值与背面开关）
+		struct Cull_Params
+		{
+			float camera_position[4];
+			float camera_forward[4];
+			float limits[4];
+		} params{};
+		for (uint32_t axis = 0; axis < 3; ++axis)
+		{
+			params.camera_position[axis] = camera[axis];
+			params.camera_forward[axis] = forward[axis];
+		}
+		params.limits[0] = max_distance;
+		params.limits[1] = backface ? 1.0f : 0.0f;
+		if (!compute_buffer_load(params_handle, static_cast<uint32_t>(sizeof(params)), &params))
+		{
+			compute_buffer_unload(counter_handle);
+			compute_buffer_unload(compact_handle);
+			compute_buffer_unload(transform_handle);
+			return false;
+		}
 		//压缩管线懒加载
 		if (impl->gpu_compact_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "实例压缩.comp.spv"))
 			{
+				compute_buffer_unload(params_handle);
 				compute_buffer_unload(counter_handle);
 				compute_buffer_unload(compact_handle);
 				compute_buffer_unload(transform_handle);
@@ -3617,10 +3652,11 @@ namespace engine
 			push.bounds_max[axis] = local_max[axis];
 		}
 		push.count = count;
-		//绑定 → 调度 → 回读计数与压缩矩阵
+		//绑定 → 调度 → 回读计数与压缩矩阵（含第 3 号剔除参数缓冲）
 		bool ok = compute_buffer_bind(transform_handle, 0)
 			&& compute_buffer_bind(compact_handle, 1)
 			&& compute_buffer_bind(counter_handle, 2)
+			&& compute_buffer_bind(params_handle, 3)
 			&& compute_dispatch(impl->gpu_compact_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
 			&& compute_buffer_read(counter_handle, visible_out, static_cast<uint32_t>(sizeof(uint32_t)), 0);
 		//读取压缩后的矩阵（仅可见前缀）
@@ -3630,6 +3666,7 @@ namespace engine
 		//记录 GPU 剔除耗时（计算时间戳；不支持时间戳时保持 −1 语义在统计侧）
 		if (ok)
 			impl->last_gpu_cull_ms = impl->compute.stats_get().elapsed_ms;
+		compute_buffer_unload(params_handle);
 		compute_buffer_unload(counter_handle);
 		compute_buffer_unload(compact_handle);
 		compute_buffer_unload(transform_handle);

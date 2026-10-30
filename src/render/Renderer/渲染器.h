@@ -417,6 +417,14 @@ namespace engine
 		*/
 		bool gpu_instance_compact(const float* transforms, uint32_t count,
 			const float local_min[3], const float local_max[3], float* matrices_out, uint32_t* visible_out);
+		/*
+		带距离 / 背面剔除的实例压缩（第二百五十轮）
+		camera / forward 为相机世界位置与单位前向；max_distance ≤ 0 不限距离；backface 为真时剔除位于相机后方的实例。
+		与 `gpu_instance_compact` 的差别仅多这两个判据，视锥判定与压缩口径完全一致。
+		*/
+		bool gpu_instance_compact_ex(const float* transforms, uint32_t count,
+			const float local_min[3], const float local_max[3], const float camera[3], const float forward[3],
+			float max_distance, bool backface, float* matrices_out, uint32_t* visible_out);
 		//GPU 剔除开关（默认关；为真且计算可用时实例化绘制走 GPU 压缩）
 		void gpu_cull_enable_set(bool enabled);
 		bool gpu_cull_enable_get(void) const;

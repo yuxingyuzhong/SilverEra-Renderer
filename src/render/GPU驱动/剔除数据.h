@@ -34,4 +34,18 @@ namespace engine
 
 	//AABB 判可见（正顶点法；比球更紧，用于验证 GPU 不多剔）
 	bool frustum_aabb_visible(const Frustum_Planes& planes, const float aabb_min[3], const float aabb_max[3]);
+
+	/*
+	距离剔除（第二百五十轮）
+	中心与相机距离**严格大于** max_distance 才剔除；max_distance ≤ 0 表示不限距离。
+	边界口径：恰好等于阈值仍可见（与 GPU 着色器同一比较方向）。
+	*/
+	bool distance_cull(const float center[3], const float camera_position[3], float max_distance);
+
+	/*
+	背面（半球）剔除（第二百五十轮）
+	实例中心落在相机后方（forward 与「中心 − 相机」夹角 > 90°）才剔除；forward 须为单位向量。
+	边界口径：正交（点积恰为 0）仍可见。
+	*/
+	bool backface_cull(const float center[3], const float camera_position[3], const float forward[3]);
 }

@@ -81,4 +81,30 @@ namespace engine
 		}
 		return true;
 	}
+
+	//距离剔除（严格大于阈值才剔除；阈值 ≤ 0 不限）
+	bool distance_cull(const float center[3], const float camera_position[3], float max_distance)
+	{
+		//不限距离或入参为空
+		if (max_distance <= 0.0f || center == nullptr || camera_position == nullptr)
+			return false;
+		const float dx = center[0] - camera_position[0];
+		const float dy = center[1] - camera_position[1];
+		const float dz = center[2] - camera_position[2];
+		const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+		return distance > max_distance;
+	}
+
+	//背面剔除（点积严格小于 0 才剔除；正交仍可见）
+	bool backface_cull(const float center[3], const float camera_position[3], const float forward[3])
+	{
+		//入参为空
+		if (center == nullptr || camera_position == nullptr || forward == nullptr)
+			return false;
+		const float dx = center[0] - camera_position[0];
+		const float dy = center[1] - camera_position[1];
+		const float dz = center[2] - camera_position[2];
+		const float dot_value = forward[0] * dx + forward[1] * dy + forward[2] * dz;
+		return dot_value < 0.0f;
+	}
 }
