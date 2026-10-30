@@ -230,6 +230,8 @@ namespace engine
 		bool gpu_cull_enabled = false;
 		//最近一次 GPU 剔除耗时（毫秒；第二百四十九轮）
 		double last_gpu_cull_ms = 0.0;
+		//GPU 压缩累计派发次数（第二百五十一轮）
+		uint64_t gpu_cull_dispatches = 0;
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；

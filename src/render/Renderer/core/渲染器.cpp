@@ -1,4 +1,4 @@
-﻿#include "src/render/Renderer/局部命名空间使用.h"
+#include "src/render/Renderer/局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
@@ -3146,6 +3146,7 @@ namespace engine
 		impl->culled_instances = 0;
 		//剔除耗时累计归零（最近一帧值保留；第二百四十七轮）
 		impl->cull_total_ms = 0.0;
+		impl->gpu_cull_dispatches = 0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
 		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
@@ -3207,6 +3208,8 @@ namespace engine
 		stats.cpu_cull_total_ms = impl->cull_total_ms;
 		//GPU 剔除耗时（第二百四十九轮；未走 GPU 路径时为 0）
 		stats.gpu_cull_ms = impl->last_gpu_cull_ms;
+		//GPU 压缩派发次数（第二百五十一轮）
+		stats.gpu_cull_dispatches = impl->gpu_cull_dispatches;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -3665,7 +3668,11 @@ namespace engine
 				(*visible_out) * static_cast<uint32_t>(sizeof(float)) * 16u, 0);
 		//记录 GPU 剔除耗时（计算时间戳；不支持时间戳时保持 −1 语义在统计侧）
 		if (ok)
+		{
 			impl->last_gpu_cull_ms = impl->compute.stats_get().elapsed_ms;
+			//累计 GPU 派发次数（第二百五十一轮）
+			++impl->gpu_cull_dispatches;
+		}
 		compute_buffer_unload(params_handle);
 		compute_buffer_unload(counter_handle);
 		compute_buffer_unload(compact_handle);
