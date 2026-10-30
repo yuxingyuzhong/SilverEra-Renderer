@@ -59,4 +59,16 @@ namespace engine
 		ComputeToGraphics,
 		GraphicsToCompute,
 	};
+
+	/*
+	计算资源句柄（第二百四十三轮）
+	与材质句柄同风格：0 = 无效，自 1 起由门面分配；槽不复用（卸载即销毁）。
+	*/
+	using Compute_Buffer_Handle = uint64_t;
+	using Compute_Pipeline_Handle = uint64_t;
+
+	//单个计算存储缓冲的字节上限（256 MB；防止误传导致分配失败或溢出）
+	constexpr uint32_t COMPUTE_BUFFER_MAX_BYTES = 256u * 1024u * 1024u;
+	//计算描述符集 set 0 的存储缓冲绑定数量上限（与 Compute_Config.storage_buffer_count 默认值一致）
+	constexpr uint32_t COMPUTE_BINDING_MAX = 4;
 }

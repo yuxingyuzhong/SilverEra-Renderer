@@ -1563,6 +1563,20 @@ namespace engine
 						static_cast<std::streamsize>(cache_bytes.size()));
 			}
 		}
+		//先释放门面层计算资源（缓冲与管线模块），再销毁计算上下文（第二百四十三轮）
+		for (Renderer::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		{
+			if (record.buffer != VK_NULL_HANDLE)
+				impl->memory.buffer_destroy(record.buffer, record.allocation);
+		}
+		impl->compute_buffers.clear();
+		for (Renderer::Impl::Compute_Pipeline_Record& record : impl->compute_pipelines)
+		{
+			impl->compute.pipeline_release(record.context_handle);
+			if (record.module != VK_NULL_HANDLE)
+				impl->shader.module_destroy(record.module);
+		}
+		impl->compute_pipelines.clear();
 		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
 		impl->compute.destroy();
 		//计算着色器模块须先于着色器上下文复位
@@ -3202,6 +3216,197 @@ namespace engine
 		if (!compute_supported())
 			return false;
 		return impl->compute.self_check_run(magic, value_out);
+	}
+
+	//计算存储缓冲加载（第二百四十三轮）
+	bool Renderer::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data)
+	{
+		//失败路径一律复位句柄（与材质句柄约定一致）
+		handle_out = 0;
+		//未初始化或不支持计算，或尺寸非法
+		if (impl == nullptr || !impl->initialized || !compute_supported()
+			|| size == 0 || size > COMPUTE_BUFFER_MAX_BYTES)
+			return false;
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		//主机可见存储缓冲（不要求顺序写：需要随机读写与回读）
+		if (!impl->memory.buffer_create(buffer, allocation, size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, false))
+		{
+			logger.error("渲染器:: 计算存储缓冲创建失败（{} 字节）", size);
+			return false;
+		}
+		//写入初值（可选）
+		if (data != nullptr && !impl->memory.buffer_write(buffer, allocation, data, size, 0))
+		{
+			impl->memory.buffer_destroy(buffer, allocation);
+			return false;
+		}
+		Renderer::Impl::Compute_Buffer_Record record;
+		record.handle = impl->next_compute_buffer_handle++;
+		record.buffer = buffer;
+		record.allocation = allocation;
+		record.size = size;
+		handle_out = record.handle;
+		impl->compute_buffers.push_back(record);
+		return true;
+	}
+
+	//计算存储缓冲卸载（第二百四十三轮）
+	void Renderer::compute_buffer_unload(Compute_Buffer_Handle handle)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		for (std::size_t index = 0; index < impl->compute_buffers.size(); ++index)
+		{
+			//命中即销毁并移出列表
+			if (impl->compute_buffers[index].handle == handle)
+			{
+				impl->memory.buffer_destroy(impl->compute_buffers[index].buffer, impl->compute_buffers[index].allocation);
+				impl->compute_buffers.erase(impl->compute_buffers.begin() + static_cast<std::ptrdiff_t>(index));
+				return;
+			}
+		}
+	}
+
+	//计算存储缓冲写入一段（第二百四十三轮）
+	bool Renderer::compute_buffer_write(Compute_Buffer_Handle handle, const void* data, uint32_t size, uint32_t offset)
+	{
+		//未初始化或数据为空
+		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+			return false;
+		for (Renderer::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		{
+			//命中句柄并做越界检查
+			if (record.handle == handle)
+			{
+				if (static_cast<uint64_t>(offset) + size > record.size)
+					return false;
+				return impl->memory.buffer_write(record.buffer, record.allocation, data, size, offset);
+			}
+		}
+		return false;
+	}
+
+	//计算存储缓冲读回一段（第二百四十三轮）
+	bool Renderer::compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
+	{
+		//未初始化或输出为空
+		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+			return false;
+		for (Renderer::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		{
+			//命中句柄并做越界检查
+			if (record.handle == handle)
+			{
+				if (static_cast<uint64_t>(offset) + size > record.size)
+					return false;
+				return impl->memory.buffer_read(record.buffer, record.allocation, data, size, offset);
+			}
+		}
+		return false;
+	}
+
+	//计算管线加载（第二百四十三轮）
+	bool Renderer::compute_pipeline_load(Compute_Pipeline_Handle& handle_out, const std::string& shader_name)
+	{
+		//失败路径一律复位句柄（与材质句柄约定一致）
+		handle_out = 0;
+		//未初始化或不支持计算
+		if (impl == nullptr || !impl->initialized || !compute_supported() || shader_name.empty())
+			return false;
+		VkShaderModule module = VK_NULL_HANDLE;
+		//加载 SPIR-V 模块
+		if (!impl->shader.module_load(module, shader_name))
+		{
+			logger.error("渲染器:: 计算着色器加载失败：{}", shader_name);
+			return false;
+		}
+		uint64_t context_handle = 0;
+		//登记计算管线（失败则回收模块）
+		if (!impl->compute.pipeline_register(context_handle, module))
+		{
+			logger.error("渲染器:: 计算管线登记失败：{}", shader_name);
+			impl->shader.module_destroy(module);
+			return false;
+		}
+		Renderer::Impl::Compute_Pipeline_Record record;
+		record.handle = impl->next_compute_pipeline_handle++;
+		record.context_handle = context_handle;
+		record.module = module;
+		handle_out = record.handle;
+		impl->compute_pipelines.push_back(record);
+		return true;
+	}
+
+	//计算管线卸载（第二百四十三轮）
+	void Renderer::compute_pipeline_unload(Compute_Pipeline_Handle handle)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		for (std::size_t index = 0; index < impl->compute_pipelines.size(); ++index)
+		{
+			//命中即销毁管线与模块并移出列表
+			if (impl->compute_pipelines[index].handle == handle)
+			{
+				impl->compute.pipeline_release(impl->compute_pipelines[index].context_handle);
+				if (impl->compute_pipelines[index].module != VK_NULL_HANDLE)
+					impl->shader.module_destroy(impl->compute_pipelines[index].module);
+				impl->compute_pipelines.erase(impl->compute_pipelines.begin() + static_cast<std::ptrdiff_t>(index));
+				return;
+			}
+		}
+	}
+
+	//把存储缓冲绑定到计算集指定 binding（第二百四十三轮）
+	bool Renderer::compute_buffer_bind(Compute_Buffer_Handle buffer, uint32_t binding)
+	{
+		//未初始化或 binding 越界
+		if (impl == nullptr || !impl->initialized || binding >= COMPUTE_BINDING_MAX)
+			return false;
+		for (Renderer::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		{
+			//命中缓冲即写入描述符（整段绑定）
+			if (record.handle == buffer)
+				return impl->compute.storage_bind(impl->compute.slot_get(), binding, record.buffer, 0, record.size);
+		}
+		return false;
+	}
+
+	//计算同步调度（第二百四十三轮）
+	bool Renderer::compute_dispatch(Compute_Pipeline_Handle pipeline, uint32_t elements, uint32_t local_size,
+		const void* push_data, uint32_t push_size)
+	{
+		//未初始化或不支持计算
+		if (impl == nullptr || !impl->initialized || !compute_supported())
+			return false;
+		//空元素数视为无需调度
+		if (elements == 0)
+			return true;
+		//未指定组大小
+		if (local_size == 0)
+			return false;
+		uint64_t context_handle = 0;
+		for (Renderer::Impl::Compute_Pipeline_Record& record : impl->compute_pipelines)
+		{
+			//命中门面句柄
+			if (record.handle == pipeline)
+			{
+				context_handle = record.context_handle;
+				break;
+			}
+		}
+		//句柄无效
+		if (context_handle == 0)
+			return false;
+		//一次性提交：调度 ＋ 计算→主机屏障（返回即可读回）
+		return impl->compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
+		{
+			if (!impl->compute.dispatch_ceil(command_buffer, context_handle, elements, local_size, push_data, push_size))
+				return false;
+			return impl->compute.barrier(command_buffer, Compute_Barrier::ComputeToHost);
+		});
 	}
 
 	//设置超采样抗锯齿倍率（SSAA）

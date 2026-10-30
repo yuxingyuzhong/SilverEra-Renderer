@@ -17,6 +17,8 @@
 #include "Application/Renderer/src/render/Scene/场景数据.h"
 //文字布局公共语义类型（Vulkan-free）：对齐方式与换行宽度
 #include "Application/Renderer/src/render/Text/文字布局数据.h"
+//计算公共语义类型（Vulkan-free）：句柄与字节上限（第二百四十三轮）
+#include "Application/Renderer/src/render/Compute/计算数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -342,6 +344,35 @@ namespace engine
 		回读值应等于传入的 magic（按 uint32 位模式比较）。不支持计算或无管线时返回假。
 		*/
 		bool compute_health_check(uint32_t magic, uint32_t& value_out);
+		/*
+		计算存储缓冲（第二百四十三轮）
+		主机可见 SSBO（`STORAGE_BUFFER` 用法），供计算着色器读写；句柄自 1 起，0 = 无效。
+		size 须 > 0 且 ≤ COMPUTE_BUFFER_MAX_BYTES；data 为初值（空 = 分配后不复位）。
+		*/
+		bool compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data = nullptr);
+		//卸载计算存储缓冲（幂等；句柄复位为 0）
+		void compute_buffer_unload(Compute_Buffer_Handle handle);
+		//写入缓冲一段（仅主机可见缓冲；越界或句柄无效返回假）
+		bool compute_buffer_write(Compute_Buffer_Handle handle, const void* data, uint32_t size, uint32_t offset = 0);
+		//读回缓冲一段（仅主机可见缓冲；越界或句柄无效返回假）
+		bool compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset = 0);
+		/*
+		计算管线（第二百四十三轮）
+		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
+		卸载时同时释放管线与着色器模块。
+		*/
+		bool compute_pipeline_load(Compute_Pipeline_Handle& handle_out, const std::string& shader_name);
+		//卸载计算管线（幂等；句柄复位为 0）
+		void compute_pipeline_unload(Compute_Pipeline_Handle handle);
+		//把存储缓冲绑定到计算集 set 0 的指定 binding（binding < COMPUTE_BINDING_MAX）
+		bool compute_buffer_bind(Compute_Buffer_Handle buffer, uint32_t binding);
+		/*
+		同步调度（第二百四十三轮）
+		一次性命令缓冲内：激活管线 → 写推送常量 → 按 elements / local_size 换算组数调度 →
+		计算→主机屏障 → 围栏等待。返回即可读回结果；elements 为 0 视为无需调度（返回真）。
+		*/
+		bool compute_dispatch(Compute_Pipeline_Handle pipeline, uint32_t elements, uint32_t local_size,
+			const void* push_data = nullptr, uint32_t push_size = 0);
 		/*
 		设置超采样抗锯齿倍率（SSAA；1 = 关闭，2..4 = N×N 超采样）
 		取值按 1..4 钳制；自下一次 frame_render 起生效（内部按需重建超采样目标）。

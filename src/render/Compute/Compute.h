@@ -56,6 +56,8 @@ namespace engine
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule module);
 		//切换当前激活计算管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
+		//注销计算管线（销毁其管线并移出条目；着色器模块所有权在调用方，不由本类销毁）
+		void pipeline_release(uint64_t handle);
 		//当前激活计算管线（无则空）
 		VkPipeline pipeline_get(void) const;
 		//已登记计算管线数量

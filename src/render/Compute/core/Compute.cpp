@@ -286,6 +286,25 @@ namespace engine
 		return true;
 	}
 
+	//注销计算管线（销毁管线并移出条目）
+	void Compute_Context::pipeline_release(uint64_t handle)
+	{
+		for (std::size_t index = 0; index < pipelines.size(); ++index)
+		{
+			//命中即销毁并移除
+			if (pipelines[index].handle == handle)
+			{
+				if (pipelines[index].pipeline != VK_NULL_HANDLE && device != VK_NULL_HANDLE)
+					vkDestroyPipeline(device, pipelines[index].pipeline, nullptr);
+				//激活句柄被注销则回落为首个剩余条目
+				if (active_handle == handle)
+					active_handle = pipelines.empty() ? 0 : pipelines.front().handle;
+				pipelines.erase(pipelines.begin() + static_cast<std::ptrdiff_t>(index));
+				return;
+			}
+		}
+	}
+
 	//当前激活计算管线
 	VkPipeline Compute_Context::pipeline_get(void) const
 	{

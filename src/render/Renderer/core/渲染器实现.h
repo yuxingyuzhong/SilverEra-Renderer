@@ -217,6 +217,42 @@ namespace engine
 		uint64_t compute_health_handle = 0;
 		//计算健康检查着色器模块（所有权在本实现体，随 shutdown 销毁）
 		VkShaderModule compute_health_module = VK_NULL_HANDLE;
+		/*
+		计算存储缓冲记录（第二百四十三轮）
+		主机可见 SSBO；句柄自 1 起，槽不复用（卸载即销毁并移出列表）。
+		*/
+		struct Compute_Buffer_Record
+		{
+			//门面句柄
+			uint64_t handle = 0;
+			//Vulkan 缓冲
+			VkBuffer buffer = VK_NULL_HANDLE;
+			//VMA 分配
+			VmaAllocation allocation = VK_NULL_HANDLE;
+			//字节数
+			uint32_t size = 0;
+		};
+		//计算存储缓冲集合
+		std::vector<Compute_Buffer_Record> compute_buffers;
+		//下一个计算缓冲句柄
+		uint64_t next_compute_buffer_handle = 1;
+		/*
+		计算管线条目（第二百四十三轮）
+		handle = 门面句柄；context_handle = 计算上下文内部句柄；module = 着色器模块（本实现体持有）。
+		*/
+		struct Compute_Pipeline_Record
+		{
+			//门面句柄
+			uint64_t handle = 0;
+			//计算上下文内部句柄
+			uint64_t context_handle = 0;
+			//着色器模块
+			VkShaderModule module = VK_NULL_HANDLE;
+		};
+		//计算管线条目集合
+		std::vector<Compute_Pipeline_Record> compute_pipelines;
+		//下一个计算管线句柄
+		uint64_t next_compute_pipeline_handle = 1;
 		//材质记录（管线 ＋ 纹理 ＋ 逐物体 PBR；有效标记用于句柄槽复用）
 		struct Material_Record
 		{

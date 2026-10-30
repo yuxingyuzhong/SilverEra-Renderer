@@ -1,0 +1,30 @@
+#version 450
+/*
+计算加一（第二百四十三轮通用计算调度用例着色器）
+把绑定 0 的存储缓冲中前 count 个 float 各加 1.0；用于验证「门面 SSBO → 计算管线 → 调度 → 回读」整链。
+推送常量：offset 0 = 元素数（uint），其余 124 字节保留。
+
+注意：GLSL 标识符必须为 ASCII，故本文件内标识符一律英文；注释按项目约定用中文。
+*/
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+//待累加的存储缓冲（set 0 binding 0）
+layout(set = 0, binding = 0) buffer Data_Block
+{
+	float values[];
+} data_block;
+
+//推送常量：元素数
+layout(push_constant) uniform Push_Add
+{
+	layout(offset = 0) uint count;
+} push_add;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	//越界线程直接返回（元素数通常不是 256 的整数倍）
+	if (index >= push_add.count)
+		return;
+	data_block.values[index] += 1.0;
+}
