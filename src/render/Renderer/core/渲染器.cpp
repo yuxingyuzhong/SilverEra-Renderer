@@ -871,6 +871,45 @@ namespace engine
 				logger.warn("渲染器:: 外扩描边管线登记失败（描边将保持关闭）");
 		}
 		/*
+		⑫.2 计算管线（第二百四十一轮）
+		计算与图形共用同一队列族；队列族不含 COMPUTE 位时 supported() 为假，初始化不失败（GPU 路径整体关闭）。
+		健康检查着色器缺失时不阻断初始化（仅告警，自检返回假）。
+		*/
+		{
+			Compute_Config compute_config;
+			compute_config.frame_overlap = effective.frame_overlap;
+			//构建计算上下文（布局 / 池 / 描述符集 / 一次性提交资源）
+			if (!impl->compute.build(impl->device.physical_device_get(), impl->device.device_get(),
+				impl->device.graphics_family_get(), impl->device.graphics_queue_get(), compute_config))
+			{
+				logger.error("渲染器:: 计算上下文构建失败");
+				shutdown();
+				return false;
+			}
+			//设备支持计算路径时才加载自检着色器并登记管线
+			if (impl->compute.supported())
+			{
+				VkShaderModule compute_module = VK_NULL_HANDLE;
+				if (impl->shader.module_load(compute_module, "计算写入.comp.spv"))
+				{
+					uint64_t compute_handle = 0;
+					//登记健康检查管线
+					if (impl->compute.pipeline_register(compute_handle, compute_module))
+					{
+						impl->compute_health_module = compute_module;
+						impl->compute_health_handle = compute_handle;
+					}
+					else
+					{
+						logger.warn("渲染器:: 计算健康检查管线登记失败");
+						impl->shader.module_destroy(compute_module);
+					}
+				}
+				else
+					logger.warn("渲染器:: 计算写入着色器加载失败（计算路径保持未启用）");
+			}
+		}
+		/*
 		⑬ 场景 UBO：每帧槽一个主机可见缓冲（64 字节 mat4），
 		写入相机视图 × 投影并把该帧槽 set0 绑定到对应 UBO。
 		*/
@@ -1524,6 +1563,15 @@ namespace engine
 						static_cast<std::streamsize>(cache_bytes.size()));
 			}
 		}
+		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
+		impl->compute.destroy();
+		//计算着色器模块须先于着色器上下文复位
+		if (impl->compute_health_module != VK_NULL_HANDLE)
+		{
+			impl->shader.module_destroy(impl->compute_health_module);
+			impl->compute_health_module = VK_NULL_HANDLE;
+		}
+		impl->compute_health_handle = 0;
 		//管线依赖设备与内存，须先于两者销毁
 		impl->pipeline.destroy();
 		//着色器模块须先于着色器上下文复位
@@ -3133,6 +3181,27 @@ namespace engine
 			return false;
 		//交换链图像具备传输源用法才可回读
 		return impl->swapchain.color_transfer_src_get();
+	}
+
+	//是否支持计算路径（第二百四十一轮）
+	bool Renderer::compute_supported(void) const
+	{
+		//若尚未初始化或无健康检查管线
+		if (impl == nullptr || !impl->initialized || impl->compute_health_handle == 0)
+			return false;
+		return impl->compute.supported();
+	}
+
+	//计算链路健康检查（第二百四十一轮）
+	bool Renderer::compute_health_check(uint32_t magic, uint32_t& value_out)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//不支持计算路径
+		if (!compute_supported())
+			return false;
+		return impl->compute.self_check_run(magic, value_out);
 	}
 
 	//设置超采样抗锯齿倍率（SSAA）

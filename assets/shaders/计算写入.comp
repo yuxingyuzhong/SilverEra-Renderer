@@ -1,0 +1,32 @@
+#version 450
+/*
+计算写入（第二百四十一轮内置自检着色器）
+把推送常量中的魔数写入绑定 0 的存储缓冲，供计算管线的健康检查回读校验。
+推送常量：offset 0 = 魔数（float）、offset 4 = 元素数（uint），其余 120 字节留作后续轮次扩展。
+
+注意：GLSL 标识符必须为 ASCII，故本文件内标识符一律英文；注释按项目约定用中文。
+*/
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+//自检用存储缓冲（set 0 binding 0）
+layout(set = 0, binding = 0) buffer Data_Block
+{
+	float values[];
+} data_block;
+
+//推送常量：写入值与元素数
+layout(push_constant) uniform Push_Write
+{
+	layout(offset = 0) float magic;
+	layout(offset = 4) uint count;
+} push_write;
+
+//把魔数写入到本线程负责的元素
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	//越界线程直接返回（元素数通常不是 64 的整数倍）
+	if (index >= push_write.count)
+		return;
+	data_block.values[index] = push_write.magic;
+}

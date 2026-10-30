@@ -13,6 +13,8 @@
 #include "Application/Renderer/src/render/Frame/帧上下文.h"
 #include "Application/Renderer/src/render/Shader/着色器.h"
 #include "Application/Renderer/src/render/Pipeline/管线.h"
+//计算管线模块（第二百四十一轮）
+#include "Application/Renderer/src/render/Compute/Compute.h"
 #include "Application/Renderer/src/render/Mesh/网格.h"
 #include "Application/Renderer/src/render/Texture/纹理.h"
 #include "Application/Renderer/src/render/Scene/相机.h"
@@ -206,6 +208,15 @@ namespace engine
 		Pipeline_Context pipeline;
 		//具名管线集合（默认场景管线不在内）
 		std::vector<Extra_Pipeline_Record> extra_pipelines;
+		/*
+		计算管线上下文（第二百四十一轮）
+		设备不支持计算路径时 supported() 为假，但初始化不失败；此时全部 GPU 路径保持关闭。
+		*/
+		Compute_Context compute;
+		//计算健康检查管线句柄（内置自检；0 = 未登记）
+		uint64_t compute_health_handle = 0;
+		//计算健康检查着色器模块（所有权在本实现体，随 shutdown 销毁）
+		VkShaderModule compute_health_module = VK_NULL_HANDLE;
 		//材质记录（管线 ＋ 纹理 ＋ 逐物体 PBR；有效标记用于句柄槽复用）
 		struct Material_Record
 		{

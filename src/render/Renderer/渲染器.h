@@ -331,6 +331,18 @@ namespace engine
 		//是否支持像素回读（交换链图像具备传输源用法；未初始化时为假）
 		bool readback_supported(void) const;
 		/*
+		是否支持计算路径（第二百四十一轮）
+		为真表示：图形队列族含 COMPUTE 位、计算上下文构建完成、健康检查管线已登记。
+		为假时全部 GPU 驱动路径（剔除 / Hi-Z / Cluster）保持关闭，初始化本身不失败。
+		*/
+		bool compute_supported(void) const;
+		/*
+		计算链路健康检查（第二百四十一轮）
+		在一次性命令缓冲内完成「绑定 → 推送常量 → 调度 → 计算→主机屏障 → 回读首元素」，
+		回读值应等于传入的 magic（按 uint32 位模式比较）。不支持计算或无管线时返回假。
+		*/
+		bool compute_health_check(uint32_t magic, uint32_t& value_out);
+		/*
 		设置超采样抗锯齿倍率（SSAA；1 = 关闭，2..4 = N×N 超采样）
 		取值按 1..4 钳制；自下一次 frame_render 起生效（内部按需重建超采样目标）。
 		仅在「未设置同帧后处理呈现目标且未设置本帧离屏目标」时启用，优先顺序：后处理/离屏 > SSAA。
