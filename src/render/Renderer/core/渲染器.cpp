@@ -1356,6 +1356,8 @@ namespace engine
 		impl->config = effective;
 		//静态合批开关（第一百二十七轮；默认开启）
 		impl->static_batching = effective.static_batching;
+		//GPU 剔除开关（第二百四十九轮；默认关闭）
+		impl->gpu_cull_enabled = effective.gpu_cull_enable;
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
@@ -1620,6 +1622,9 @@ namespace engine
 		impl->compute_pipelines.clear();
 		//视锥剔除管线句柄随计算管线表失效（第二百四十八轮）
 		impl->gpu_cull_pipeline = 0;
+		//实例压缩管线句柄同样失效（第二百四十九轮）
+		impl->gpu_compact_pipeline = 0;
+		impl->last_gpu_cull_ms = 0.0;
 		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
 		impl->compute.destroy();
 		//计算着色器模块须先于着色器上下文复位
@@ -3200,6 +3205,8 @@ namespace engine
 		//剔除耗时（第二百四十七轮；GPU 剔除 / Cluster / 间接绘制在接入前恒 0）
 		stats.cpu_cull_ms = impl->last_cull_ms;
 		stats.cpu_cull_total_ms = impl->cull_total_ms;
+		//GPU 剔除耗时（第二百四十九轮；未走 GPU 路径时为 0）
+		stats.gpu_cull_ms = impl->last_gpu_cull_ms;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -3528,6 +3535,104 @@ namespace engine
 			&& compute_buffer_read(mask_handle, mask_out, count * static_cast<uint32_t>(sizeof(uint32_t)), 0);
 		compute_buffer_unload(mask_handle);
 		compute_buffer_unload(sphere_handle);
+		return ok;
+	}
+
+	//GPU 剔除开关（第二百四十九轮）
+	void Renderer::gpu_cull_enable_set(bool enabled)
+	{
+		//未初始化时静默忽略
+		if (impl == nullptr)
+			return;
+		impl->gpu_cull_enabled = enabled;
+	}
+
+	//读取 GPU 剔除开关
+	bool Renderer::gpu_cull_enable_get(void) const
+	{
+		return impl != nullptr && impl->gpu_cull_enabled;
+	}
+
+	//GPU 实例压缩（第二百四十九轮）
+	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,
+		const float local_min[3], const float local_max[3], float* matrices_out, uint32_t* visible_out)
+	{
+		//未初始化或不支持计算
+		if (impl == nullptr || !impl->initialized || !compute_supported())
+			return false;
+		//入参非法
+		if (transforms == nullptr || matrices_out == nullptr || visible_out == nullptr || count == 0
+			|| local_min == nullptr || local_max == nullptr)
+			return false;
+		*visible_out = 0;
+		//当前视图 × 投影（与 CPU 剔除同一矩阵）
+		float view_proj[16] = {};
+		impl->camera.view_proj_get(view_proj);
+		//三个缓冲：源矩阵（每实例 64 字节）/ 压缩输出 / 原子计数
+		const uint32_t matrix_bytes = count * static_cast<uint32_t>(sizeof(float)) * 16u;
+		Compute_Buffer_Handle transform_handle = 0;
+		Compute_Buffer_Handle compact_handle = 0;
+		Compute_Buffer_Handle counter_handle = 0;
+		if (!compute_buffer_load(transform_handle, matrix_bytes, transforms))
+			return false;
+		if (!compute_buffer_load(compact_handle, matrix_bytes))
+		{
+			compute_buffer_unload(transform_handle);
+			return false;
+		}
+		//计数清零（主机可见初值 0）
+		const uint32_t zero = 0;
+		if (!compute_buffer_load(counter_handle, static_cast<uint32_t>(sizeof(uint32_t)), &zero))
+		{
+			compute_buffer_unload(compact_handle);
+			compute_buffer_unload(transform_handle);
+			return false;
+		}
+		//压缩管线懒加载
+		if (impl->gpu_compact_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "实例压缩.comp.spv"))
+			{
+				compute_buffer_unload(counter_handle);
+				compute_buffer_unload(compact_handle);
+				compute_buffer_unload(transform_handle);
+				return false;
+			}
+			impl->gpu_compact_pipeline = loaded;
+		}
+		//推送常量：视图投影（64）＋ 局部界（32）＋ 实例数（4）
+		struct Compact_Push
+		{
+			float view_proj[16];
+			float bounds_min[4];
+			float bounds_max[4];
+			uint32_t count;
+		} push{};
+		for (uint32_t index = 0; index < 16; ++index)
+			push.view_proj[index] = view_proj[index];
+		for (uint32_t axis = 0; axis < 3; ++axis)
+		{
+			push.bounds_min[axis] = local_min[axis];
+			push.bounds_max[axis] = local_max[axis];
+		}
+		push.count = count;
+		//绑定 → 调度 → 回读计数与压缩矩阵
+		bool ok = compute_buffer_bind(transform_handle, 0)
+			&& compute_buffer_bind(compact_handle, 1)
+			&& compute_buffer_bind(counter_handle, 2)
+			&& compute_dispatch(impl->gpu_compact_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_buffer_read(counter_handle, visible_out, static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		//读取压缩后的矩阵（仅可见前缀）
+		if (ok && *visible_out > 0)
+			ok = compute_buffer_read(compact_handle, matrices_out,
+				(*visible_out) * static_cast<uint32_t>(sizeof(float)) * 16u, 0);
+		//记录 GPU 剔除耗时（计算时间戳；不支持时间戳时保持 −1 语义在统计侧）
+		if (ok)
+			impl->last_gpu_cull_ms = impl->compute.stats_get().elapsed_ms;
+		compute_buffer_unload(counter_handle);
+		compute_buffer_unload(compact_handle);
+		compute_buffer_unload(transform_handle);
 		return ok;
 	}
 
@@ -4378,7 +4483,37 @@ namespace engine
 		*/
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
-		if (transforms != nullptr && impl->cull_enabled && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		//是否具备剔除前置（变换 ＋ 剔除开启 ＋ 网格包围盒）
+		const bool has_cull_input = transforms != nullptr && impl->cull_enabled
+			&& impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max);
+		//GPU 实例压缩优先（第二百四十九轮；失败回落 CPU 路径）
+		bool gpu_compacted = false;
+		if (has_cull_input && impl->gpu_cull_enabled)
+		{
+			std::vector<float> compacted(static_cast<std::size_t>(count) * 16, 0.0f);
+			uint32_t visible_count = 0;
+			//压缩成功则直接采用 GPU 结果（与 CPU 剔除顺序 / 内容一致）
+			if (gpu_instance_compact(transforms, count, bounds_min, bounds_max, compacted.data(), &visible_count))
+			{
+				const uint32_t culled_count = count - visible_count;
+				impl->culled_instances += culled_count;
+				impl->frame_culled_instances += culled_count;
+				//整批不可见按一个绘制项计
+				if (visible_count == 0)
+				{
+					++impl->culled_items;
+					++impl->frame_culled_items;
+					return true;
+				}
+				impl->instanced_cull_scratch.assign(compacted.begin(),
+					compacted.begin() + static_cast<std::ptrdiff_t>(visible_count) * 16);
+				transforms = impl->instanced_cull_scratch.data();
+				count = visible_count;
+				gpu_compacted = true;
+			}
+		}
+		//CPU 剔除路径（默认；GPU 压缩失败时回落）
+		if (!gpu_compacted && has_cull_input)
 		{
 			//剔除计时起点（第二百四十七轮）
 			const auto cull_begin = std::chrono::high_resolution_clock::now();

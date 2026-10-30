@@ -1,0 +1,65 @@
+#version 450
+// GPU 实例压缩（第二百四十九轮）
+// 与 CPU 端 frustum_cull_aabb 逐式同构：mvp = view_proj × model，8 角点变换到裁剪空间，
+// 只要某一裁剪面「全部角点在外」即视为不可见；可见者用原子计数取槽位并写出压缩后的模型矩阵，
+// 从而保证 GPU 压缩结果与 CPU 剔除结果在顺序与内容上一致（开/关两路径画面逐字节不变）。
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Transform_Block { vec4 transforms[]; } transform_block;
+layout(set = 0, binding = 1) buffer Compact_Block { vec4 compacted[]; } compact_block;
+layout(set = 0, binding = 2) buffer Counter_Block { uint visible_count; } counter_block;
+
+layout(push_constant) uniform Push_Compact
+{
+	// 视图 × 投影（列主序，4 列）
+	layout(offset = 0) vec4 view_proj[4];
+	// 网格局部 AABB
+	layout(offset = 64) vec4 bounds_min;
+	layout(offset = 80) vec4 bounds_max;
+	// 实例数
+	layout(offset = 96) uint count;
+} push_compact;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= push_compact.count)
+		return;
+	mat4 view_proj = mat4(push_compact.view_proj[0], push_compact.view_proj[1],
+		push_compact.view_proj[2], push_compact.view_proj[3]);
+	uint base = index * 4u;
+	mat4 model = mat4(transform_block.transforms[base + 0], transform_block.transforms[base + 1],
+		transform_block.transforms[base + 2], transform_block.transforms[base + 3]);
+	mat4 mvp = view_proj * model;
+	// 六面「全部角点在外」标志（与 CPU 顺序一致：左 / 右 / 下 / 上 / 近 / 远）
+	bool outside[6] = bool[6](true, true, true, true, true, true);
+	for (int corner = 0; corner < 8; ++corner)
+	{
+		float x = ((corner & 1) != 0 ? push_compact.bounds_max.x : push_compact.bounds_min.x);
+		float y = ((corner & 2) != 0 ? push_compact.bounds_max.y : push_compact.bounds_min.y);
+		float z = ((corner & 4) != 0 ? push_compact.bounds_max.z : push_compact.bounds_min.z);
+		vec4 clip = mvp * vec4(x, y, z, 1.0);
+		if (!(clip.x > clip.w))
+			outside[0] = false;
+		if (!(clip.x < -clip.w))
+			outside[1] = false;
+		if (!(clip.y > clip.w))
+			outside[2] = false;
+		if (!(clip.y < -clip.w))
+			outside[3] = false;
+		if (!(clip.z < 0.0))
+			outside[4] = false;
+		if (!(clip.z > clip.w))
+			outside[5] = false;
+	}
+	// 任一面全部在外即剔除（顺序不受影响，压缩保持原相对顺序）
+	for (int plane = 0; plane < 6; ++plane)
+		if (outside[plane])
+			return;
+	uint slot = atomicAdd(counter_block.visible_count, 1u);
+	uint out_base = slot * 4u;
+	compact_block.compacted[out_base + 0] = transform_block.transforms[base + 0];
+	compact_block.compacted[out_base + 1] = transform_block.transforms[base + 1];
+	compact_block.compacted[out_base + 2] = transform_block.transforms[base + 2];
+	compact_block.compacted[out_base + 3] = transform_block.transforms[base + 3];
+}

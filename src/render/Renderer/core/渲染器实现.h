@@ -224,6 +224,12 @@ namespace engine
 		Compute_Capabilities compute_capabilities;
 		//视锥剔除管线句柄（懒加载；第二百四十八轮；0 = 尚未加载）
 		Compute_Pipeline_Handle gpu_cull_pipeline = 0;
+		//GPU 实例压缩管线句柄（懒加载；第二百四十九轮；0 = 尚未加载）
+		Compute_Pipeline_Handle gpu_compact_pipeline = 0;
+		//GPU 实例剔除开关（第二百四十九轮；默认关）
+		bool gpu_cull_enabled = false;
+		//最近一次 GPU 剔除耗时（毫秒；第二百四十九轮）
+		double last_gpu_cull_ms = 0.0;
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；

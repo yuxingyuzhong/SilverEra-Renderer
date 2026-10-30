@@ -113,6 +113,12 @@ namespace engine
 		全部 GPU 驱动路径保持关闭；默认帧路径不受影响（逐字节不变）。
 		*/
 		bool compute_enable = true;
+		/*
+		GPU 实例剔除开关（第二百四十九轮；默认关闭）
+		为真且计算路径可用时，实例化绘制改走「计算着色器压缩 ＋ GPU 计数」；失败自动回落 CPU 剔除。
+		关闭时与引入前逐字节一致。
+		*/
+		bool gpu_cull_enable = false;
 	};
 
 	/*
@@ -404,6 +410,16 @@ namespace engine
 		*/
 		bool gpu_cull_mask(const float* transforms, uint32_t count,
 			const float local_min[3], const float local_max[3], uint32_t* mask_out);
+		/*
+		GPU 实例压缩（第二百四十九轮）
+		与 CPU 剔除逐式同构：mvp × 8 角点 × 六面「全部角点在外」判定；可见者原子计数并写压缩矩阵。
+		输出为按原相对顺序压缩的模型矩阵（每实例 16 浮点）与可见数；失败返回假（调用方回落 CPU 路径）。
+		*/
+		bool gpu_instance_compact(const float* transforms, uint32_t count,
+			const float local_min[3], const float local_max[3], float* matrices_out, uint32_t* visible_out);
+		//GPU 剔除开关（默认关；为真且计算可用时实例化绘制走 GPU 压缩）
+		void gpu_cull_enable_set(bool enabled);
+		bool gpu_cull_enable_get(void) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
