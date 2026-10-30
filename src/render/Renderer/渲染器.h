@@ -210,6 +210,17 @@ namespace engine
 		uint64_t culled_instances = 0;
 		uint64_t last_culled_instances = 0;
 		/*
+		剔除耗时与 GPU 驱动观测（第二百四十七轮）
+		cpu_cull_ms = 最近一帧主机侧实例级视锥剔除耗时（毫秒）；cpu_cull_total_ms = 自 init 以来累计。
+		gpu_cull_ms / cluster_build_ms / indirect_draws 分别对应 GPU 剔除耗时、Cluster 构建耗时与间接绘制次数，
+		在接入前（２４８ / ２６３ / ２４９ 轮）恒 0；清零累计量时 cpu_cull_ms 保持不变。
+		*/
+		double cpu_cull_ms = 0.0;
+		double cpu_cull_total_ms = 0.0;
+		double gpu_cull_ms = 0.0;
+		double cluster_build_ms = 0.0;
+		uint64_t indirect_draws = 0;
+		/*
 		合批收益（第一百三十五轮）
 		last_merged_items = 最近一帧被合并掉的项数（主 pass ＋ 阴影各片）；merged_items = 自 init 以来累计。
 		仅在 `static_batching` 开启时增长；清零累计量时 last_merged_items 保持不变。

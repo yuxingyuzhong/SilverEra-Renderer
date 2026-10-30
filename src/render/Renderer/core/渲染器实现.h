@@ -528,6 +528,10 @@ namespace engine
 		uint64_t culled_instances = 0;
 		uint64_t frame_culled_instances = 0;
 		uint64_t last_culled_instances = 0;
+		//当前帧 / 最近一帧 / 累计的主机侧剔除耗时（毫秒；第二百四十七轮）
+		double frame_cull_ms = 0.0;
+		double last_cull_ms = 0.0;
+		double cull_total_ms = 0.0;
 		std::vector<float> instanced_cull_scratch;
 		/*
 		实例级剔除的可见性掩码（第一百七十七轮）

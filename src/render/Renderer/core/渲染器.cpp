@@ -3051,6 +3051,10 @@ namespace engine
 		//实例级剔除同样按帧结算（第一百五十三轮）
 		impl->last_culled_instances = impl->frame_culled_instances;
 		impl->frame_culled_instances = 0;
+		//剔除耗时按帧结算（第二百四十七轮）
+		impl->last_cull_ms = impl->frame_cull_ms;
+		impl->cull_total_ms += impl->frame_cull_ms;
+		impl->frame_cull_ms = 0.0;
 		impl->pending_items.clear();
 		impl->pending_instances.clear();
 		impl->pending_push_constants.clear();
@@ -3133,6 +3137,8 @@ namespace engine
 		impl->frame_count = 0;
 		impl->culled_items = 0;
 		impl->culled_instances = 0;
+		//剔除耗时累计归零（最近一帧值保留；第二百四十七轮）
+		impl->cull_total_ms = 0.0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
 		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
@@ -3189,6 +3195,9 @@ namespace engine
 		//实例级剔除（第一百五十三轮）
 		stats.culled_instances = impl->culled_instances;
 		stats.last_culled_instances = impl->last_culled_instances;
+		//剔除耗时（第二百四十七轮；GPU 剔除 / Cluster / 间接绘制在接入前恒 0）
+		stats.cpu_cull_ms = impl->last_cull_ms;
+		stats.cpu_cull_total_ms = impl->cull_total_ms;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -4295,6 +4304,8 @@ namespace engine
 		float bounds_max[3] = {};
 		if (transforms != nullptr && impl->cull_enabled && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
 		{
+			//剔除计时起点（第二百四十七轮）
+			const auto cull_begin = std::chrono::high_resolution_clock::now();
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
 			impl->camera.view_proj_get(view_proj);
@@ -4341,6 +4352,9 @@ namespace engine
 			//可见 / 剔除的实例数
 			const uint32_t visible_count = static_cast<uint32_t>(impl->instanced_cull_scratch.size() / 16);
 			const uint32_t culled_count = count - visible_count;
+			//累计本帧剔除耗时（第二百四十七轮）
+			const auto cull_end = std::chrono::high_resolution_clock::now();
+			impl->frame_cull_ms += std::chrono::duration<double, std::milli>(cull_end - cull_begin).count();
 			impl->culled_instances += culled_count;
 			impl->frame_culled_instances += culled_count;
 			//若整批不可见则不登记（按一个绘制项计）
