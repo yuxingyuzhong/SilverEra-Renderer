@@ -1618,6 +1618,8 @@ namespace engine
 				impl->shader.module_destroy(record.module);
 		}
 		impl->compute_pipelines.clear();
+		//视锥剔除管线句柄随计算管线表失效（第二百四十八轮）
+		impl->gpu_cull_pipeline = 0;
 		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
 		impl->compute.destroy();
 		//计算着色器模块须先于着色器上下文复位
@@ -3453,6 +3455,80 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return Compute_Capabilities{};
 		return impl->compute_capabilities;
+	}
+
+	//视锥剔除原语（第二百四十八轮）
+	bool Renderer::gpu_cull_mask(const float* transforms, uint32_t count,
+		const float local_min[3], const float local_max[3], uint32_t* mask_out)
+	{
+		//未初始化或不支持计算路径
+		if (impl == nullptr || !impl->initialized || !compute_supported())
+			return false;
+		//入参非法
+		if (transforms == nullptr || mask_out == nullptr || count == 0
+			|| local_min == nullptr || local_max == nullptr)
+			return false;
+		//当前视图 × 投影 → 六平面
+		float view_proj[16] = {};
+		impl->camera.view_proj_get(view_proj);
+		Frustum_Planes planes;
+		if (!frustum_planes_extract(planes, view_proj))
+			return false;
+		//CPU 侧逐实例求世界包围球（vec4：中心 xyz ＋ 半径）
+		std::vector<float> spheres(static_cast<std::size_t>(count) * 4, 0.0f);
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			World_Bounds bounds;
+			//包围体构造失败（矩阵非法）
+			if (!world_bounds_build(bounds, local_min, local_max, transforms + static_cast<std::size_t>(index) * 16))
+				return false;
+			const std::size_t offset = static_cast<std::size_t>(index) * 4;
+			spheres[offset + 0] = bounds.center[0];
+			spheres[offset + 1] = bounds.center[1];
+			spheres[offset + 2] = bounds.center[2];
+			spheres[offset + 3] = bounds.radius;
+		}
+		//球缓冲与掩码缓冲（主机可见，便于直接回读）
+		Compute_Buffer_Handle sphere_handle = 0;
+		Compute_Buffer_Handle mask_handle = 0;
+		if (!compute_buffer_load(sphere_handle, static_cast<uint32_t>(spheres.size() * sizeof(float)), spheres.data()))
+			return false;
+		//掩码缓冲全量由着色器写入，无需初值
+		if (!compute_buffer_load(mask_handle, count * static_cast<uint32_t>(sizeof(uint32_t))))
+		{
+			compute_buffer_unload(sphere_handle);
+			return false;
+		}
+		//剔除管线懒加载
+		if (impl->gpu_cull_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "视锥剔除.comp.spv"))
+			{
+				compute_buffer_unload(mask_handle);
+				compute_buffer_unload(sphere_handle);
+				return false;
+			}
+			impl->gpu_cull_pipeline = loaded;
+		}
+		//推送常量：六平面（96 字节）＋ 球数（4 字节）
+		struct Cull_Push
+		{
+			float planes[24];
+			uint32_t count;
+		} push{};
+		for (uint32_t plane = 0; plane < 6; ++plane)
+			for (uint32_t column = 0; column < 4; ++column)
+				push.planes[plane * 4 + column] = planes.planes[plane][column];
+		push.count = count;
+		//绑定 → 调度 → 回读
+		bool ok = compute_buffer_bind(sphere_handle, 0)
+			&& compute_buffer_bind(mask_handle, 1)
+			&& compute_dispatch(impl->gpu_cull_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_buffer_read(mask_handle, mask_out, count * static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		compute_buffer_unload(mask_handle);
+		compute_buffer_unload(sphere_handle);
+		return ok;
 	}
 
 	//计算管线加载（第二百四十三轮）

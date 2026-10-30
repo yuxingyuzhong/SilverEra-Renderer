@@ -397,6 +397,14 @@ namespace engine
 		*/
 		Compute_Capabilities compute_capabilities_get(void) const;
 		/*
+		视锥剔除原语（第二百四十八轮）
+		输入 count 个列主序模型矩阵与网格局部 AABB：CPU 侧求世界包围球 → 写 SSBO → 计算着色器逐球测试 → 回读掩码。
+		mask_out 每项 1 = 可见、0 = 剔除；长度须为 count。GPU 一律用球判定（比 AABB 保守），保证 CPU 的可见集是 GPU 结果的子集。
+		默认路径不调用本接口；返回假表示未初始化 / 不支持计算 / 入参非法 / 调度或回读失败。
+		*/
+		bool gpu_cull_mask(const float* transforms, uint32_t count,
+			const float local_min[3], const float local_max[3], uint32_t* mask_out);
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。

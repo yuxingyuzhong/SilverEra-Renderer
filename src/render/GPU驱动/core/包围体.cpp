@@ -46,7 +46,7 @@ namespace engine
 		for (uint32_t axis = 0; axis < 3; ++axis)
 			out.center[axis] = model[axis] * center_local[0] + model[4 + axis] * center_local[1]
 				+ model[8 + axis] * center_local[2] + model[12 + axis];
-		//保守球半径
+		//保守球半径：先按「半对角长 × 最大列长」估下界，随后按 AABB 角点距离修正（保证球覆盖盒）
 		out.radius = half_diagonal * column_max * WORLD_BOUNDS_SPHERE_SCALE + WORLD_BOUNDS_SPHERE_EXPAND;
 		//逐角点变换并重求 AABB
 		for (uint32_t corner = 0; corner < 8; ++corner)
@@ -83,6 +83,26 @@ namespace engine
 			out.aabb_min[axis] -= WORLD_BOUNDS_AABB_EXPAND;
 			out.aabb_max[axis] += WORLD_BOUNDS_AABB_EXPAND;
 		}
+		/*
+		球半径按 AABB 角点距离修正（第二百四十八轮）
+		旋转后世界 AABB 的角点不在变换后的局部角点凸包上（盒角可能更远），
+		若只按局部半对角估半径，会出现「AABB 判可见、球判不可见」，破坏 `C ⊆ G`。
+		*/
+		float corner_max = 0.0f;
+		for (uint32_t corner = 0; corner < 8; ++corner)
+		{
+			float point[3] = {
+				(corner & 1u) != 0 ? out.aabb_max[0] : out.aabb_min[0],
+				(corner & 2u) != 0 ? out.aabb_max[1] : out.aabb_min[1],
+				(corner & 4u) != 0 ? out.aabb_max[2] : out.aabb_min[2],
+			};
+			const float dx = point[0] - out.center[0];
+			const float dy = point[1] - out.center[1];
+			const float dz = point[2] - out.center[2];
+			corner_max = (std::max)(corner_max, std::sqrt(dx * dx + dy * dy + dz * dz));
+		}
+		//取「局部估值的扩张」与「盒角距离的扩张」两者的较大值
+		out.radius = (std::max)(out.radius, corner_max * WORLD_BOUNDS_SPHERE_SCALE + WORLD_BOUNDS_SPHERE_EXPAND);
 		return true;
 	}
 }

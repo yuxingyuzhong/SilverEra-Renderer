@@ -1,0 +1,36 @@
+#version 450
+// 视锥剔除（第二百四十八轮）
+// 每个实例一个世界空间包围球（vec4：xyz = 中心、w = 半径），逐球对 6 个归一化平面测试；
+// 输出 1 = 可见、0 = 剔除。判定口径与 CPU 参考 frustum_sphere_visible 完全一致（含 1e-4 容差）。
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Sphere_Block { vec4 center_r[]; } sphere_block;
+layout(set = 0, binding = 1) buffer Visible_Block { uint visible[]; } visible_block;
+
+layout(push_constant) uniform Push_Cull
+{
+	// 六个归一化平面：xyz = 法线、w = 常数项
+	layout(offset = 0) vec4 planes[6];
+	// 参与测试的球数
+	layout(offset = 96) uint count;
+} push_cull;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= push_cull.count)
+		return;
+	vec4 center_r = sphere_block.center_r[index];
+	float epsilon = 1e-4;
+	uint vis = 1u;
+	for (int plane = 0; plane < 6; ++plane)
+	{
+		vec4 value = push_cull.planes[plane];
+		if (dot(value.xyz, center_r.xyz) + value.w + center_r.w < -epsilon)
+		{
+			vis = 0u;
+			break;
+		}
+	}
+	visible_block.visible[index] = vis;
+}

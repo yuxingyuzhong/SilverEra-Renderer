@@ -15,6 +15,9 @@
 #include "Application/Renderer/src/render/Pipeline/管线.h"
 //计算管线模块（第二百四十一轮）
 #include "Application/Renderer/src/render/Compute/Compute.h"
+//GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
+#include "Application/Renderer/src/render/GPU驱动/包围体.h"
+#include "Application/Renderer/src/render/GPU驱动/剔除数据.h"
 #include "Application/Renderer/src/render/Mesh/网格.h"
 #include "Application/Renderer/src/render/Texture/纹理.h"
 #include "Application/Renderer/src/render/Scene/相机.h"
@@ -219,6 +222,8 @@ namespace engine
 		VkShaderModule compute_health_module = VK_NULL_HANDLE;
 		//GPU 能力与降级矩阵探测结果（第二百四十六轮）
 		Compute_Capabilities compute_capabilities;
+		//视锥剔除管线句柄（懒加载；第二百四十八轮；0 = 尚未加载）
+		Compute_Pipeline_Handle gpu_cull_pipeline = 0;
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；
