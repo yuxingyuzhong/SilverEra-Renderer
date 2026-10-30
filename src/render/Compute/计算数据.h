@@ -43,13 +43,15 @@ namespace engine
 	}
 
 	/*
-	屏障用途（第二百四十二轮）
+	屏障用途（第二百四十二轮；第二百四十四轮补两条传输用途）
 	把常见的 阶段/访问 组合收敛成枚举，调用方不再逐处手写 VkMemoryBarrier2：
 	ComputeToHost = 计算写入 → 主机读（回读）；
 	HostToCompute = 主机写 → 计算读（上传后立即调度）；
 	ComputeToCompute = 计算写 → 计算读写（多段 dispatch 之间）；
 	ComputeToGraphics = 计算写 → 顶点/片元读（GPU 剔除结果供间接绘制）；
-	GraphicsToCompute = 图形写（深度/颜色）→ 计算读（Hi-Z 生成读深度）。
+	GraphicsToCompute = 图形写（深度/颜色）→ 计算读（Hi-Z 生成读深度）；
+	ComputeToTransfer = 计算写 → 传输读（设备本地结果拷到 staging，第二百四十四轮）；
+	TransferToHost = 传输写 → 主机读（staging 拷完后回读，第二百四十四轮）。
 	*/
 	enum class Compute_Barrier
 	{
@@ -58,6 +60,8 @@ namespace engine
 		ComputeToCompute,
 		ComputeToGraphics,
 		GraphicsToCompute,
+		ComputeToTransfer,
+		TransferToHost,
 	};
 
 	/*

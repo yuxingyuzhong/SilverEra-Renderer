@@ -345,17 +345,27 @@ namespace engine
 		*/
 		bool compute_health_check(uint32_t magic, uint32_t& value_out);
 		/*
-		计算存储缓冲（第二百四十三轮）
-		主机可见 SSBO（`STORAGE_BUFFER` 用法），供计算着色器读写；句柄自 1 起，0 = 无效。
+		计算存储缓冲（第二百四十三轮；第二百四十四轮补设备本地选项）
+		默认主机可见 SSBO（`STORAGE_BUFFER` 用法），供计算着色器读写；句柄自 1 起，0 = 无效。
 		size 须 > 0 且 ≤ COMPUTE_BUFFER_MAX_BYTES；data 为初值（空 = 分配后不复位）。
+		device_local 为真时改为设备本地（`STORAGE_BUFFER | TRANSFER_SRC | TRANSFER_DST`）：
+		初值与后续写入经暂存上传，读回须走 compute_readback（GPU 拷贝到暂存再映射）。
 		*/
-		bool compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data = nullptr);
+		bool compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size,
+			const void* data = nullptr, bool device_local = false);
 		//卸载计算存储缓冲（幂等；句柄复位为 0）
 		void compute_buffer_unload(Compute_Buffer_Handle handle);
-		//写入缓冲一段（仅主机可见缓冲；越界或句柄无效返回假）
+		//写入缓冲一段（主机可见缓冲直接映射写入；设备本地缓冲经暂存上传；越界或句柄无效返回假）
 		bool compute_buffer_write(Compute_Buffer_Handle handle, const void* data, uint32_t size, uint32_t offset = 0);
-		//读回缓冲一段（仅主机可见缓冲；越界或句柄无效返回假）
+		//读回缓冲一段（仅主机可见缓冲直接映射；设备本地缓冲请用 compute_readback）
 		bool compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset = 0);
+		/*
+		GPU 回读通道（第二百四十四轮）
+		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
+		与缓冲是否设备本地无关（主机可见缓冲亦可，用于统一口径的验证）。
+		越界或句柄无效返回假；size 须 > 0。
+		*/
+		bool compute_readback(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset = 0);
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。

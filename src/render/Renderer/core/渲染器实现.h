@@ -218,8 +218,9 @@ namespace engine
 		//计算健康检查着色器模块（所有权在本实现体，随 shutdown 销毁）
 		VkShaderModule compute_health_module = VK_NULL_HANDLE;
 		/*
-		计算存储缓冲记录（第二百四十三轮）
-		主机可见 SSBO；句柄自 1 起，槽不复用（卸载即销毁并移出列表）。
+		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
+		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；
+		host_visible 为假表示设备本地（写入经暂存上传，读回须走 compute_readback）。
 		*/
 		struct Compute_Buffer_Record
 		{
@@ -231,6 +232,8 @@ namespace engine
 			VmaAllocation allocation = VK_NULL_HANDLE;
 			//字节数
 			uint32_t size = 0;
+			//是否主机可见（设备本地缓冲不可直接映射读写）
+			bool host_visible = true;
 		};
 		//计算存储缓冲集合
 		std::vector<Compute_Buffer_Record> compute_buffers;

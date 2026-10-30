@@ -3218,8 +3218,8 @@ namespace engine
 		return impl->compute.self_check_run(magic, value_out);
 	}
 
-	//计算存储缓冲加载（第二百四十三轮）
-	bool Renderer::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data)
+	//计算存储缓冲加载（第二百四十三轮；第二百四十四轮补设备本地）
+	bool Renderer::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data, bool device_local)
 	{
 		//失败路径一律复位句柄（与材质句柄约定一致）
 		handle_out = 0;
@@ -3229,23 +3229,35 @@ namespace engine
 			return false;
 		VkBuffer buffer = VK_NULL_HANDLE;
 		VmaAllocation allocation = VK_NULL_HANDLE;
-		//主机可见存储缓冲（不要求顺序写：需要随机读写与回读）
-		if (!impl->memory.buffer_create(buffer, allocation, size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true, false))
+		//存储缓冲用法：恒可作拷贝源（回读），设备本地另需拷贝目标（上传）
+		VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		if (device_local)
+			usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		//主机可见（默认）或设备本地
+		if (!impl->memory.buffer_create(buffer, allocation, size, usage, !device_local, false))
 		{
 			logger.error("渲染器:: 计算存储缓冲创建失败（{} 字节）", size);
 			return false;
 		}
-		//写入初值（可选）
-		if (data != nullptr && !impl->memory.buffer_write(buffer, allocation, data, size, 0))
+		//写入初值（可选）：主机可见直接映射，设备本地经暂存上传
+		if (data != nullptr)
 		{
-			impl->memory.buffer_destroy(buffer, allocation);
-			return false;
+			bool seeded = device_local
+				? impl->memory.upload_buffer(buffer, data, size, 0)
+				: impl->memory.buffer_write(buffer, allocation, data, size, 0);
+			//初值写入失败即回收缓冲
+			if (!seeded)
+			{
+				impl->memory.buffer_destroy(buffer, allocation);
+				return false;
+			}
 		}
 		Renderer::Impl::Compute_Buffer_Record record;
 		record.handle = impl->next_compute_buffer_handle++;
 		record.buffer = buffer;
 		record.allocation = allocation;
 		record.size = size;
+		record.host_visible = !device_local;
 		handle_out = record.handle;
 		impl->compute_buffers.push_back(record);
 		return true;
@@ -3282,6 +3294,9 @@ namespace engine
 			{
 				if (static_cast<uint64_t>(offset) + size > record.size)
 					return false;
+				//设备本地缓冲经暂存上传，主机可见缓冲直接映射
+				if (!record.host_visible)
+					return impl->memory.upload_buffer(record.buffer, data, size, offset);
 				return impl->memory.buffer_write(record.buffer, record.allocation, data, size, offset);
 			}
 		}
@@ -3305,6 +3320,53 @@ namespace engine
 			}
 		}
 		return false;
+	}
+
+	//计算存储缓冲 GPU 回读（第二百四十四轮）
+	bool Renderer::compute_readback(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
+	{
+		//未初始化或输出为空
+		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+			return false;
+		//查找目标缓冲并做越界检查
+		Renderer::Impl::Compute_Buffer_Record* target = nullptr;
+		for (Renderer::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		{
+			//命中句柄
+			if (record.handle == handle)
+			{
+				target = &record;
+				break;
+			}
+		}
+		//句柄无效或越界
+		if (target == nullptr || static_cast<uint64_t>(offset) + size > target->size)
+			return false;
+		VkBuffer staging = VK_NULL_HANDLE;
+		VmaAllocation staging_allocation = VK_NULL_HANDLE;
+		//暂存缓冲（主机可见，仅拷贝目标）
+		if (!impl->memory.buffer_create(staging, staging_allocation, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, false))
+		{
+			logger.error("渲染器:: 计算回读暂存缓冲创建失败（{} 字节）", size);
+			return false;
+		}
+		VkBuffer source = target->buffer;
+		//一次性提交：计算→传输屏障 → 拷到暂存 → 传输→主机屏障
+		bool copied = impl->compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
+		{
+			if (!impl->compute.barrier(command_buffer, Compute_Barrier::ComputeToTransfer))
+				return false;
+			VkBufferCopy region{};
+			region.srcOffset = offset;
+			region.dstOffset = 0;
+			region.size = size;
+			vkCmdCopyBuffer(command_buffer, source, staging, 1, &region);
+			return impl->compute.barrier(command_buffer, Compute_Barrier::TransferToHost);
+		});
+		//拷贝成功才映射读回
+		bool read = copied && impl->memory.buffer_read(staging, staging_allocation, data, size, 0);
+		impl->memory.buffer_destroy(staging, staging_allocation);
+		return read;
 	}
 
 	//计算管线加载（第二百四十三轮）

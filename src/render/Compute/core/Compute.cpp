@@ -529,6 +529,20 @@ namespace engine
 			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 			barrier_info.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 			break;
+		//第二百四十四轮：计算写 → 传输读（设备本地结果拷到 staging）
+		case Compute_Barrier::ComputeToTransfer:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+			break;
+		//第二百四十四轮：传输写 → 主机读（staging 拷贝完成）
+		case Compute_Barrier::TransferToHost:
+			barrier_info.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+			barrier_info.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			barrier_info.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+			barrier_info.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+			break;
 		default:
 			return false;
 		}
