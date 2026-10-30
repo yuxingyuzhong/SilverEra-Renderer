@@ -217,6 +217,8 @@ namespace engine
 		uint64_t compute_health_handle = 0;
 		//计算健康检查着色器模块（所有权在本实现体，随 shutdown 销毁）
 		VkShaderModule compute_health_module = VK_NULL_HANDLE;
+		//GPU 能力与降级矩阵探测结果（第二百四十六轮）
+		Compute_Capabilities compute_capabilities;
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；

@@ -75,4 +75,22 @@ namespace engine
 	constexpr uint32_t COMPUTE_BUFFER_MAX_BYTES = 256u * 1024u * 1024u;
 	//计算描述符集 set 0 的存储缓冲绑定数量上限（与 Compute_Config.storage_buffer_count 默认值一致）
 	constexpr uint32_t COMPUTE_BINDING_MAX = 4;
+
+	/*
+	GPU 能力与降级矩阵（第二百四十六轮）
+	五类探测项与方向一规划 §2.5 一一对应；任一项为假时对应路径必须能优雅降级：
+	compute = 图形队列族具备 COMPUTE 位（GPU 剔除 / Hi-Z / Cluster / 粒子全部依赖它）；
+	draw_indirect_count = 支持 vkCmdDrawIndexedIndirectCount（间接绘制的 count 缓冲）；
+	multi_draw_indirect = 支持一次调用多批次间接绘制；
+	timestamp = 队列族支持写入时间戳（计算与帧统计计时）；
+	host_query_reset = 支持主机侧重置查询池（不支持则一律用命令缓冲内重置）。
+	*/
+	struct Compute_Capabilities
+	{
+		bool compute = false;
+		bool draw_indirect_count = false;
+		bool multi_draw_indirect = false;
+		bool timestamp = false;
+		bool host_query_reset = false;
+	};
 }

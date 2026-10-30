@@ -876,38 +876,79 @@ namespace engine
 		健康检查着色器缺失时不阻断初始化（仅告警，自检返回假）。
 		*/
 		{
-			Compute_Config compute_config;
-			compute_config.frame_overlap = effective.frame_overlap;
-			//构建计算上下文（布局 / 池 / 描述符集 / 一次性提交资源）
-			if (!impl->compute.build(impl->device.physical_device_get(), impl->device.device_get(),
-				impl->device.graphics_family_get(), impl->device.graphics_queue_get(), compute_config))
+			/*
+			GPU 能力与降级矩阵探测（第二百四十六轮）
+			与 compute_enable 无关：即使强制关闭计算路径，也如实记录设备能力，便于上层决定是否开启。
+			*/
+			Compute_Capabilities& capabilities = impl->compute_capabilities;
+			capabilities = Compute_Capabilities{};
+			VkPhysicalDevice physical = impl->device.physical_device_get();
+			uint32_t probe_family = impl->device.graphics_family_get();
+			//队列族属性：COMPUTE 位与时间戳有效位
+			uint32_t family_count = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
+			if (family_count > probe_family)
 			{
-				logger.error("渲染器:: 计算上下文构建失败");
-				shutdown();
-				return false;
+				std::vector<VkQueueFamilyProperties> families(family_count);
+				vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, families.data());
+				capabilities.compute = (families[probe_family].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+				capabilities.timestamp = families[probe_family].timestampValidBits > 0;
 			}
-			//设备支持计算路径时才加载自检着色器并登记管线
-			if (impl->compute.supported())
+			//特性查询：多批次间接绘制（核心特性）与 Vulkan 1.2 两项
+			VkPhysicalDeviceVulkan12Features features12{};
+			features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+			VkPhysicalDeviceFeatures2 features{};
+			features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+			features.pNext = &features12;
+			vkGetPhysicalDeviceFeatures2(physical, &features);
+			capabilities.multi_draw_indirect = features.features.multiDrawIndirect == VK_TRUE;
+			capabilities.draw_indirect_count = features12.drawIndirectCount == VK_TRUE;
+			capabilities.host_query_reset = features12.hostQueryReset == VK_TRUE;
+			//强制关闭计算路径时跳过构建（全部 GPU 驱动路径保持关闭，默认帧路径不受影响）
+			if (!effective.compute_enable)
 			{
-				VkShaderModule compute_module = VK_NULL_HANDLE;
-				if (impl->shader.module_load(compute_module, "计算写入.comp.spv"))
+				impl->compute_health_handle = 0;
+				impl->compute_health_module = VK_NULL_HANDLE;
+			}
+			else
+			{
+				Compute_Config compute_config;
+				compute_config.frame_overlap = effective.frame_overlap;
+				//构建计算上下文（布局 / 池 / 描述符集 / 一次性提交资源）
+				if (!impl->compute.build(impl->device.physical_device_get(), impl->device.device_get(),
+					impl->device.graphics_family_get(), impl->device.graphics_queue_get(), compute_config))
 				{
-					uint64_t compute_handle = 0;
-					//登记健康检查管线
-					if (impl->compute.pipeline_register(compute_handle, compute_module))
+					logger.error("渲染器:: 计算上下文构建失败");
+					shutdown();
+					return false;
+				}
+				//设备支持计算路径时才加载自检着色器并登记管线
+				if (impl->compute.supported())
+				{
+					VkShaderModule compute_module = VK_NULL_HANDLE;
+					if (impl->shader.module_load(compute_module, "计算写入.comp.spv"))
 					{
-						impl->compute_health_module = compute_module;
-						impl->compute_health_handle = compute_handle;
+						uint64_t compute_handle = 0;
+						//登记健康检查管线
+						if (impl->compute.pipeline_register(compute_handle, compute_module))
+						{
+							impl->compute_health_module = compute_module;
+							impl->compute_health_handle = compute_handle;
+						}
+						else
+						{
+							logger.warn("渲染器:: 计算健康检查管线登记失败");
+							impl->shader.module_destroy(compute_module);
+						}
 					}
 					else
-					{
-						logger.warn("渲染器:: 计算健康检查管线登记失败");
-						impl->shader.module_destroy(compute_module);
-					}
+						logger.warn("渲染器:: 计算写入着色器加载失败（计算路径保持未启用）");
 				}
-				else
-					logger.warn("渲染器:: 计算写入着色器加载失败（计算路径保持未启用）");
 			}
+			//时间戳能力与实际计时链路同口径（队列族有效位 ＋ 设备周期，二者与关闭开关无关）
+			VkPhysicalDeviceProperties device_properties{};
+			vkGetPhysicalDeviceProperties(physical, &device_properties);
+			capabilities.timestamp = capabilities.timestamp && device_properties.limits.timestampPeriod > 0.0f;
 		}
 		/*
 		⑬ 场景 UBO：每帧槽一个主机可见缓冲（64 字节 mat4），
@@ -3271,10 +3312,16 @@ namespace engine
 			return;
 		for (std::size_t index = 0; index < impl->compute_buffers.size(); ++index)
 		{
-			//命中即销毁并移出列表
+			//命中即移交延迟队列并移出列表（避免在途命令缓冲仍引用该缓冲）
 			if (impl->compute_buffers[index].handle == handle)
 			{
-				impl->memory.buffer_destroy(impl->compute_buffers[index].buffer, impl->compute_buffers[index].allocation);
+				Deferred_Entry entry{};
+				Deferred_Memory_Resource resource{};
+				resource.buffer = impl->compute_buffers[index].buffer;
+				resource.buffer_allocation = impl->compute_buffers[index].allocation;
+				entry.memory_resources.push_back(resource);
+				//延迟 = 在途帧数 + 1（与网格 / 纹理卸载同口径）
+				impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
 				impl->compute_buffers.erase(impl->compute_buffers.begin() + static_cast<std::ptrdiff_t>(index));
 				return;
 			}
@@ -3388,6 +3435,15 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !compute_supported())
 			return false;
 		return impl->compute.timestamp_supported();
+	}
+
+	//GPU 能力与降级矩阵（第二百四十六轮）
+	Compute_Capabilities Renderer::compute_capabilities_get(void) const
+	{
+		//未初始化：各项为假
+		if (impl == nullptr || !impl->initialized)
+			return Compute_Capabilities{};
+		return impl->compute_capabilities;
 	}
 
 	//计算管线加载（第二百四十三轮）

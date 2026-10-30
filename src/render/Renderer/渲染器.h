@@ -107,6 +107,12 @@ namespace engine
 		路径按当前工作目录解释，支持中文（按 UTF-8 转换）。
 		*/
 		std::string pipeline_cache_path = "";
+		/*
+		计算路径开关（第二百四十六轮；默认开启）
+		false 时初始化不构建计算上下文、不登记自检管线，`compute_supported()` 恒为假，
+		全部 GPU 驱动路径保持关闭；默认帧路径不受影响（逐字节不变）。
+		*/
+		bool compute_enable = true;
 	};
 
 	/*
@@ -374,6 +380,11 @@ namespace engine
 		Compute_Stats compute_stats_get(void) const;
 		//是否支持计算侧时间戳计时（不支持时 compute_stats_get 的 elapsed_ms 恒为 −1）
 		bool compute_timestamp_supported(void) const;
+		/*
+		GPU 能力与降级矩阵（第二百四十六轮）
+		五项探测与方向一规划 §2.5 对应；未初始化时各项为假。`compute_enable = false` 时 compute 项仍如实反映设备能力。
+		*/
+		Compute_Capabilities compute_capabilities_get(void) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
