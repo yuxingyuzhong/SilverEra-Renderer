@@ -2460,10 +2460,19 @@ namespace engine
 		*/
 		scene_block[292] = impl->toon_specular;
 		/*
+		簇参数占位（第二百八十五轮）
+		296 = Cluster 启用（> 0.5 生效）、297..299 = 网格 x / y / z；
+		本轮仅写入 UBO，着色器尚未读取，故画面逐字节不变（采样接入在下一窗口）。
+		*/
+		scene_block[296] = impl->cluster_enabled ? 1.0f : 0.0f;
+		scene_block[297] = static_cast<float>(impl->cluster_grid.x);
+		scene_block[298] = static_cast<float>(impl->cluster_grid.y);
+		scene_block[299] = static_cast<float>(impl->cluster_grid.z);
+		/*
 		场景 UBO 按需写入（第六十轮）
-		逐帧槽缓存上一次写入的全部浮点（296），按 16 字节（4 浮点）单元比较；
+		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
-		首次访问某帧槽（缓存未建立）仍整块写入 1184 字节，保证内容完整。
+		首次访问某帧槽（缓存未建立）仍整块写入 1200 字节，保证内容完整。
 		写入内容与整块写逐字节一致，故画面不变。
 		*/
 		const std::size_t scene_slot_count = impl->scene_ubos.size();

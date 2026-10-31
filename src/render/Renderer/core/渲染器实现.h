@@ -756,10 +756,10 @@ namespace engine
 		float toon_specular = 0.0f;
 		/*
 		场景 UBO 浮点数与字节数（第一百七十九轮抽出常量）
-		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）；
-		本轮由 292 浮点扩为 296（字节 1168 → 1184），追加的 vec4 只被场景片元着色器读取。
+		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
+		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 296;
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 300;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*
