@@ -2262,6 +2262,32 @@ namespace engine
 		}
 		else
 			impl->last_cluster_light_count = 0;
+		/*
+		⑤b 簇数据整备（第二百七十三轮；仅 Cluster 开启时）
+		每帧重建计数 / 偏移 / 列表并写入观测；关闭时观测清零、零分配（画面路径不受影响）。
+		*/
+		if (impl->cluster_enabled && impl->cluster_ensure())
+		{
+			//网格总簇数与光源记录数（列表容量上界 = 簇数 × 记录数）
+			uint32_t cluster_total = cluster_grid_clusters(impl->cluster_grid);
+			uint32_t light_records = light_record_count();
+			uint32_t list_capacity = cluster_total * light_records;
+			impl->cluster_counts_scratch.resize(cluster_total);
+			impl->cluster_offsets_scratch.resize(cluster_total);
+			impl->cluster_list_scratch.resize(list_capacity);
+			uint32_t entries = 0;
+			//整备（计算可用时走 GPU，否则走 CPU 参考）
+			if (!cluster_data_build(impl->cluster_counts_scratch.data(), impl->cluster_offsets_scratch.data(),
+				impl->cluster_list_scratch.data(), cluster_total, list_capacity, &entries,
+				compute_supported()))
+				logger.warn("渲染器:: 簇数据整备失败（帧 {}）", impl->frame_count);
+		}
+		else
+		{
+			//关闭时观测清零
+			impl->last_cluster_entries = 0;
+			impl->last_cluster_build_ms = 0.0;
+		}
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
@@ -3453,6 +3479,9 @@ namespace engine
 		stats.gpu_occluded = impl->last_gpu_occluded;
 		//间接绘制次数（第二百五十二轮；未走间接路径时恒 0）
 		stats.indirect_draws = impl->frame.indirect_draw_count_get();
+		//簇数据整备观测（第二百七十三轮；Cluster 关闭时恒 0）
+		stats.cluster_build_ms = impl->last_cluster_build_ms;
+		stats.cluster_entries = impl->last_cluster_entries;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;

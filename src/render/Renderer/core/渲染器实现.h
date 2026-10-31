@@ -302,6 +302,10 @@ namespace engine
 		//最近一次簇数据整备观测（第二百七十二轮）
 		uint32_t last_cluster_entries = 0;
 		double last_cluster_build_ms = 0.0;
+		//帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
+		std::vector<uint32_t> cluster_counts_scratch;
+		std::vector<uint32_t> cluster_offsets_scratch;
+		std::vector<uint32_t> cluster_list_scratch;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

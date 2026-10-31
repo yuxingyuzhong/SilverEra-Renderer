@@ -256,6 +256,8 @@ namespace engine
 		//最近一次 GPU 压缩被 Hi-Z 完全遮挡而剔除的实例数（第二百六十一轮；关闭遮挡时恒 0）
 		uint64_t gpu_occluded = 0;
 		double cluster_build_ms = 0.0;
+		//最近一次簇数据整备的条目数（第二百七十三轮；Cluster 关闭时恒 0）
+		uint32_t cluster_entries = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
