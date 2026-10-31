@@ -1,0 +1,120 @@
+#version 450
+// GPU 逐簇计数（第二百六十八轮）
+// 与 Cluster/簇划分.cpp 的 cluster_counts_reference 同口径：
+// 方向光照亮全部簇；点 / 聚光按包围球的屏幕矩形与视图深度区间保守覆盖（宁多不少）。
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// 光源记录（与 Light_Record 80 字节排布一致）
+struct Light_Record
+{
+	vec4 pos_radius;
+	vec4 color_intensity;
+	vec4 direction;
+	vec4 cone;
+	float shininess;
+	uint type;
+	uint flags;
+	float reserved;
+};
+
+layout(set = 0, binding = 0) readonly buffer Light_Block { Light_Record lights[]; } light_block;
+layout(set = 0, binding = 1) buffer Count_Block { uint counts[]; } count_block;
+
+layout(push_constant) uniform Push_Cluster
+{
+	// 视图 × 投影（列主序，4 列）
+	layout(offset = 0) vec4 view_proj[4];
+	// 网格轴数 ＋ 光源记录数（x, y, z, count）
+	layout(offset = 64) uvec4 grid;
+	// 相机世界位置
+	layout(offset = 80) vec4 camera_position;
+	// (垂直视场角弧度, 宽高比, 近平面, 远平面)
+	layout(offset = 96) vec4 params;
+} push_cluster;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	// 超出记录数直接返回
+	if (index >= push_cluster.grid.w)
+		return;
+	Light_Record light = light_block.lights[index];
+	// 未启用的记录不参与计数
+	if ((light.flags & 1u) == 0u)
+		return;
+	uint total = push_cluster.grid.x * push_cluster.grid.y * push_cluster.grid.z;
+	// 方向光照亮全部簇
+	if (light.type == 0u)
+	{
+		for (uint cluster = 0; cluster < total; ++cluster)
+			atomicAdd(count_block.counts[cluster], 1u);
+		return;
+	}
+	mat4 view_proj = mat4(push_cluster.view_proj[0], push_cluster.view_proj[1],
+		push_cluster.view_proj[2], push_cluster.view_proj[3]);
+	vec3 center = light.pos_radius.xyz;
+	float radius = max(light.pos_radius.w, 0.0);
+	// 球心到相机的距离（视图深度近似，与 CPU 一致）
+	float camera_distance = distance(center, push_cluster.camera_position.xyz);
+	vec4 clip = view_proj * vec4(center, 1.0);
+	// 垂直半视场正切与深度跨度（非法时退化，不除零）
+	float tan_half = tan(push_cluster.params.x * 0.5);
+	if (tan_half <= 1e-6)
+		tan_half = 1.0;
+	float depth_span = push_cluster.params.w - push_cluster.params.z;
+	if (depth_span <= 1e-6)
+		depth_span = 1e-6;
+	// 屏幕矩形与深度区间（默认全屏全深度）
+	float u0 = 0.0, u1 = 1.0, v0 = 0.0, v1 = 1.0;
+	float z_low = push_cluster.params.z;
+	float z_high = push_cluster.params.w;
+	// 球心在相机前方时按透视缩放收紧
+	if (clip.w > 1e-6)
+	{
+		float inv_w = 1.0 / clip.w;
+		float center_u = clip.x * inv_w * 0.5 + 0.5;
+		float center_v = 0.5 - clip.y * inv_w * 0.5;
+		float denom = 2.0 * camera_distance * tan_half;
+		float dv = denom > 1e-6 ? radius / denom : 1.0;
+		float du = push_cluster.params.y > 1e-6 ? dv / push_cluster.params.y : 1.0;
+		u0 = center_u - du;
+		u1 = center_u + du;
+		v0 = center_v - dv;
+		v1 = center_v + dv;
+		z_low = camera_distance - radius;
+		z_high = camera_distance + radius;
+	}
+	// 跨近平面或位于相机背后：整屏且全部深度（保守）
+	if (clip.w <= 1e-6 || z_low <= push_cluster.params.z)
+	{
+		u0 = 0.0;
+		u1 = 1.0;
+		v0 = 0.0;
+		v1 = 1.0;
+		z_low = push_cluster.params.z;
+		z_high = push_cluster.params.w;
+	}
+	// 屏幕矩形完全在视口外
+	if (u1 < 0.0 || u0 > 1.0 || v1 < 0.0 || v0 > 1.0)
+		return;
+	// 深度区间完全在近远平面外
+	if (z_high < push_cluster.params.z || z_low > push_cluster.params.w)
+		return;
+	// 钳到视口
+	u0 = clamp(u0, 0.0, 1.0);
+	u1 = clamp(u1, 0.0, 1.0);
+	v0 = clamp(v0, 0.0, 1.0);
+	v1 = clamp(v1, 0.0, 1.0);
+	// 索引范围（与 CPU 的 index_floor 同口径：floor 后钳到轴范围）
+	int ix0 = clamp(int(floor(u0 * float(push_cluster.grid.x))), 0, int(push_cluster.grid.x) - 1);
+	int ix1 = clamp(int(floor(ceil(u1 * float(push_cluster.grid.x)) - 1.0)), 0, int(push_cluster.grid.x) - 1);
+	int iy0 = clamp(int(floor(v0 * float(push_cluster.grid.y))), 0, int(push_cluster.grid.y) - 1);
+	int iy1 = clamp(int(floor(ceil(v1 * float(push_cluster.grid.y)) - 1.0)), 0, int(push_cluster.grid.y) - 1);
+	int iz0 = clamp(int(floor((z_low - push_cluster.params.z) / depth_span * float(push_cluster.grid.z))), 0, int(push_cluster.grid.z) - 1);
+	int iz1 = clamp(int(floor(ceil((z_high - push_cluster.params.z) / depth_span * float(push_cluster.grid.z)) - 1.0)), 0, int(push_cluster.grid.z) - 1);
+	// 逐簇原子累加
+	for (int iz = iz0; iz <= iz1; ++iz)
+		for (int iy = iy0; iy <= iy1; ++iy)
+			for (int ix = ix0; ix <= ix1; ++ix)
+				atomicAdd(count_block.counts[(uint(iz) * push_cluster.grid.y + uint(iy)) * push_cluster.grid.x + uint(ix)], 1u);
+}

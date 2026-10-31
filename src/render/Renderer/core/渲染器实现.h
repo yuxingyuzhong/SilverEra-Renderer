@@ -290,6 +290,8 @@ namespace engine
 		std::vector<Light_Record> light_records_scratch;
 		//分簇网格（第二百六十七轮；默认 16 × 9 × 24，运行期钳制）
 		Cluster_Grid cluster_grid;
+		//逐簇计数管线（第二百六十八轮；懒加载，0 = 尚未加载）
+		Compute_Pipeline_Handle cluster_count_pipeline = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

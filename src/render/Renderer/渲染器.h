@@ -496,6 +496,12 @@ namespace engine
 		uint32_t cluster_grid_cluster_count(void) const;
 		bool cluster_counts_reference_ex(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out) const;
 		/*
+		GPU 逐簇计数（第二百六十八轮）
+		与 CPU 参考同口径：上传光源记录与清零计数缓冲 → 每记录一线程调度 → 回读逐簇计数。
+		成功返回真并写出总簇数；不支持计算 / 容量不足 / 调度或回读失败返回假。
+		*/
+		bool cluster_counts_gpu(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out);
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。

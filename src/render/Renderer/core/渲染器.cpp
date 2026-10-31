@@ -4018,6 +4018,83 @@ namespace engine
 		return true;
 	}
 
+	/*
+	GPU 逐簇计数（第二百六十八轮）
+	光源记录与计数缓冲走计算存储缓冲；着色器与 CPU 参考同口径（方向光全簇、点光聚光保守覆盖）。
+	*/
+	bool Renderer::cluster_counts_gpu(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out)
+	{
+		//出参先归零
+		if (total_out != nullptr)
+			*total_out = 0;
+		//未初始化、不支持计算或出参为空
+		if (impl == nullptr || !impl->initialized || !compute_supported() || counts_out == nullptr)
+			return false;
+		//网格总簇数
+		uint32_t total = cluster_grid_clusters(impl->cluster_grid);
+		if (total == 0)
+			return false;
+		//容量不足
+		if (capacity < total)
+			return false;
+		//光源记录快照
+		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
+		uint32_t count = light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		if (count == 0)
+			return false;
+		//光源记录缓冲（只读）与计数缓冲（零初始化）
+		Compute_Buffer_Handle light_handle = 0;
+		Compute_Buffer_Handle count_handle = 0;
+		if (!compute_buffer_load(light_handle, count * LIGHT_RECORD_BYTES, records.data()))
+			return false;
+		std::vector<uint32_t> zero(total, 0u);
+		if (!compute_buffer_load(count_handle, total * static_cast<uint32_t>(sizeof(uint32_t)), zero.data()))
+		{
+			compute_buffer_unload(light_handle);
+			return false;
+		}
+		//计数管线懒加载
+		if (impl->cluster_count_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster计数.comp.spv"))
+			{
+				compute_buffer_unload(count_handle);
+				compute_buffer_unload(light_handle);
+				return false;
+			}
+			impl->cluster_count_pipeline = loaded;
+		}
+		//推送常量：视图投影（64）＋ 网格与记录数（16）＋ 相机位置（16）＋ 参数（16）
+		struct Cluster_Push
+		{
+			float view_proj[16];
+			uint32_t grid[4];
+			float camera_position[4];
+			float params[4];
+		} push{};
+		impl->camera.view_proj_get(push.view_proj);
+		push.grid[0] = impl->cluster_grid.x;
+		push.grid[1] = impl->cluster_grid.y;
+		push.grid[2] = impl->cluster_grid.z;
+		push.grid[3] = count;
+		impl->camera.position_get(push.camera_position);
+		impl->camera.fov_get(&push.params[0]);
+		push.params[1] = impl->camera.aspect_effective_get();
+		impl->camera.clip_get(&push.params[2], &push.params[3]);
+		//绑定 → 调度（每记录一线程） → 回读逐簇计数
+		bool ok = compute_buffer_bind(light_handle, 0)
+			&& compute_buffer_bind(count_handle, 1)
+			&& compute_dispatch(impl->cluster_count_pipeline, count, 64, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_buffer_read(count_handle, counts_out, total * static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		compute_buffer_unload(count_handle);
+		compute_buffer_unload(light_handle);
+		//写出总簇数
+		if (ok && total_out != nullptr)
+			*total_out = total;
+		return ok;
+	}
+
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,
