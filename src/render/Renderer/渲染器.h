@@ -133,6 +133,12 @@ namespace engine
 		关闭时不分配任何资源。资源只创建不参与录制（遮挡判定与接入在 254–256 轮落地），故关闭时画面逐字节不变。
 		*/
 		bool hiz_enable = false;
+		/*
+		Cluster 光照开关（第二百六十六轮；默认关闭）
+		为真且计算路径可用时，初始化后首次切换到真会惰性创建「每帧槽光源记录 SSBO」并按帧上传；
+		关闭时不分配任何资源，既有前向 8 盏路径逐字节不变（分簇与着色器采样在 267 起落地）。
+		*/
+		bool cluster_enable = false;
 	};
 
 	/*
@@ -461,6 +467,16 @@ namespace engine
 		uint64_t hiz_generation_count(void) const;
 		//指定帧槽是否已生成过有效金字塔（索引超出在途帧数返回假）
 		bool hiz_history_ready(uint32_t slot) const;
+		/*
+		Cluster 光照开关与资源状态（第二百六十六轮）
+		cluster_enable_set(true) 在计算路径可用时惰性创建每帧槽光源记录 SSBO，失败返回假且开关保持关闭；
+		关闭时只停用上传、保留已建资源。cluster_supported 反映计算路径是否可用。
+		cluster_light_count 为最近一帧实际上传的光源记录数（关闭或尚未出帧时为 0）。
+		*/
+		bool cluster_enable_set(bool enabled);
+		bool cluster_enable_get(void) const;
+		bool cluster_supported(void) const;
+		uint32_t cluster_light_count(void) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。

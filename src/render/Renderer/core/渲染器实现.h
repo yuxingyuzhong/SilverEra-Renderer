@@ -59,6 +59,14 @@ namespace engine
 		*/
 		bool hiz_ensure(void);
 		/*
+		确保光源记录 SSBO 就绪（第二百六十六轮；惰性构建）
+		计算路径可用时按帧槽各建一个主机可见存储缓冲（容量 LIGHT_RECORD_CAPACITY × 80 字节）；
+		已就绪时为空操作，构建失败回滚为无资源。
+		*/
+		bool cluster_ensure(void);
+		//销毁光源记录 SSBO（第二百六十六轮；幂等）
+		void cluster_destroy(void);
+		/*
 		场景退场回调入口（第二百五十四轮）
 		帧模块以 C 函数指针调用；user_data 为本实现体地址，内部完成深度拷贝与金字塔生成的录制。
 		*/
@@ -265,6 +273,19 @@ namespace engine
 		uint32_t last_hiz_slot = 0;
 		//最近一次 GPU 压缩被 Hi-Z 完全遮挡而剔除的实例数（第二百六十一轮）
 		uint32_t last_gpu_occluded = 0;
+		/*
+		Cluster 光照（第二百六十六轮）
+		cluster_enabled 为开关（默认关）；cluster_capable 为初始化探测（计算路径可用）；
+		light_buffers / light_allocations 按帧槽持有光源记录 SSBO（仅开启时创建）；
+		last_cluster_light_count 为最近一帧上传的记录数。
+		*/
+		bool cluster_enabled = false;
+		bool cluster_capable = false;
+		std::vector<VkBuffer> light_buffers;
+		std::vector<VmaAllocation> light_allocations;
+		uint32_t last_cluster_light_count = 0;
+		//光源记录组装缓冲（复用，避免逐帧分配）
+		std::vector<Light_Record> light_records_scratch;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

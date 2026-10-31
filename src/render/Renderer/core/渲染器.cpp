@@ -311,6 +311,59 @@ namespace engine
 	}
 
 	/*
+	确保光源记录 SSBO 就绪（第二百六十六轮）
+	计算路径可用时按帧槽各建一个主机可见存储缓冲；已就绪时为空操作，构建失败回滚为无资源。
+	*/
+	bool Renderer::Impl::cluster_ensure(void)
+	{
+		//能力不足
+		if (!cluster_capable || !compute.supported())
+			return false;
+		//已就绪（逐槽缓冲均已建立）
+		if (light_buffers.size() == config.frame_overlap)
+		{
+			//逐槽检查是否有空句柄
+			bool ready = true;
+			for (std::size_t slot = 0; slot < light_buffers.size(); ++slot)
+				if (light_buffers[slot] == VK_NULL_HANDLE)
+					ready = false;
+			if (ready)
+				return true;
+		}
+		//清理半初始化或旧资源
+		cluster_destroy();
+		light_buffers.assign(config.frame_overlap, VK_NULL_HANDLE);
+		light_allocations.assign(config.frame_overlap, VK_NULL_HANDLE);
+		for (uint32_t slot = 0; slot < config.frame_overlap; ++slot)
+		{
+			//该帧槽光源记录缓冲（容量 × 80 字节；计算着色器只读）
+			if (!memory.buffer_create(light_buffers[slot], light_allocations[slot],
+				static_cast<VkDeviceSize>(LIGHT_RECORD_CAPACITY) * LIGHT_RECORD_BYTES,
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true))
+			{
+				logger.warn("渲染器:: 光源记录缓冲创建失败（帧槽 {}）", slot);
+				cluster_destroy();
+				return false;
+			}
+		}
+		return true;
+	}
+
+	//销毁光源记录 SSBO（第二百六十六轮；幂等）
+	void Renderer::Impl::cluster_destroy(void)
+	{
+		//依赖内存模块，须先于 memory 销毁
+		if (memory.valid())
+			for (std::size_t slot = 0; slot < light_buffers.size(); ++slot)
+				//归还有效缓冲与其内存
+				if (light_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(light_buffers[slot], light_allocations[slot]);
+		light_buffers.clear();
+		light_allocations.clear();
+		last_cluster_light_count = 0;
+	}
+
+	/*
 	把后处理采样集绑定到给定目标视图组（第九十七轮；第一百二十三轮增加场景深度）
 	签名（采样器 ＋ 视图组与数量 ＋ 深度视图）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
 	binding 0 = 该级源（views[index]）、binding 1 = 场景目标（views[0]）、
@@ -1450,6 +1503,11 @@ namespace engine
 		impl->config.msaa_samples = impl->msaa_samples;
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
 		impl->msaa_depth_resolve = effective.msaa_depth_resolve;
+		/*
+		Cluster 光照能力探测（第二百六十六轮）
+		与 Hi-Z 同口径：计算路径可用即具备；每帧槽光源记录 SSBO 在启用时惰性构建。
+		*/
+		impl->cluster_capable = impl->compute.supported();
 		impl->initialized = true;
 		/*
 		Hi-Z 启用（第二百五十三 / 二百五十四轮）
@@ -1457,6 +1515,12 @@ namespace engine
 		*/
 		if (effective.hiz_enable && !hiz_enable_set(true))
 			logger.warn("渲染器:: Hi-Z 启用失败（开关保持关闭）");
+		/*
+		Cluster 光照启用（第二百六十六轮）
+		配置为真时构建每帧槽光源记录 SSBO；失败仅告警、开关保持关闭。
+		*/
+		if (effective.cluster_enable && !cluster_enable_set(true))
+			logger.warn("渲染器:: Cluster 光照启用失败（开关保持关闭）");
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
 		阴影目标（颜色存打包深度，边长取 impl->shadow_size）＋ 阴影管线（与场景管线共享管线布局，
@@ -1666,6 +1730,8 @@ namespace engine
 				impl->memory.buffer_destroy(impl->indirect_buffers[slot], impl->indirect_allocations[slot]);
 		impl->indirect_buffers.clear();
 		impl->indirect_allocations.clear();
+		//光源记录缓冲依赖内存模块，须先于 memory 销毁（第二百六十六轮）
+		impl->cluster_destroy();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
 		//天空盒状态复位（第一百二十五轮；默认关闭、强度 0）
@@ -2167,6 +2233,32 @@ namespace engine
 			logger.error("渲染器:: 等待本帧帧槽失败");
 			return false;
 		}
+		/*
+		⑤a 光源记录上传（第二百六十六轮；仅 Cluster 开启时）
+		该帧槽上一轮已提交完成，可安全覆盖前 count × 80 字节；记录数为 267 起分簇的输入。
+		*/
+		if (impl->cluster_enabled && impl->cluster_ensure())
+		{
+			//本帧记录数（含主方向光与补光；按容量截断）
+			uint32_t record_count = light_record_count();
+			if (record_count > LIGHT_RECORD_CAPACITY)
+				record_count = LIGHT_RECORD_CAPACITY;
+			//组装缓冲按记录数调整后导出快照
+			impl->light_records_scratch.resize(record_count == 0 ? 1u : record_count);
+			uint32_t written = light_records_get(impl->light_records_scratch.data(), record_count);
+			//写入该帧槽缓冲（仅写入有效记录区间）
+			if (written != 0
+				&& !impl->memory.buffer_write(impl->light_buffers[slot], impl->light_allocations[slot],
+					impl->light_records_scratch.data(),
+					static_cast<VkDeviceSize>(written) * LIGHT_RECORD_BYTES, 0))
+			{
+				logger.error("渲染器:: 光源记录上传失败（帧槽 {}）", slot);
+				return false;
+			}
+			impl->last_cluster_light_count = written;
+		}
+		else
+			impl->last_cluster_light_count = 0;
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
@@ -3808,6 +3900,51 @@ namespace engine
 		if (impl == nullptr || !impl->hiz.valid())
 			return false;
 		return impl->hiz.history_valid(slot);
+	}
+
+
+	/*
+	Cluster 光照开关设置（第二百六十六轮）
+	开启时惰性构建每帧槽光源记录 SSBO；能力不足或构建失败返回假且开关保持关闭；关闭只置标志并保留资源。
+	*/
+	bool Renderer::cluster_enable_set(bool enabled)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//关闭只置标志并清空观测值
+		if (!enabled)
+		{
+			impl->cluster_enabled = false;
+			impl->last_cluster_light_count = 0;
+			return true;
+		}
+		//惰性构建资源
+		if (!impl->cluster_ensure())
+			return false;
+		impl->cluster_enabled = true;
+		return true;
+	}
+
+	//读取 Cluster 光照开关
+	bool Renderer::cluster_enable_get(void) const
+	{
+		return impl != nullptr && impl->cluster_enabled;
+	}
+
+	//本机是否具备 Cluster 能力（计算路径可用）
+	bool Renderer::cluster_supported(void) const
+	{
+		//未初始化或能力不足
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->cluster_capable && impl->compute.supported();
+	}
+
+	//最近一帧上传的光源记录数（关闭或未出帧时为 0）
+	uint32_t Renderer::cluster_light_count(void) const
+	{
+		return impl != nullptr ? impl->last_cluster_light_count : 0;
 	}
 
 
