@@ -162,4 +162,32 @@ namespace engine
 		}
 		return total;
 	}
+
+	uint32_t cluster_prefix_block_scan(uint32_t* prefix_out, uint32_t* block_totals_out, uint32_t block_capacity,
+		const uint32_t* counts, uint32_t count)
+	{
+		//入参非法
+		if (prefix_out == nullptr || block_totals_out == nullptr || counts == nullptr || count == 0)
+			return 0;
+		//块数与容量
+		uint32_t block_count = (count + CLUSTER_SCAN_BLOCK - 1) / CLUSTER_SCAN_BLOCK;
+		if (block_capacity < block_count)
+			return 0;
+		//逐块包含式前缀和
+		for (uint32_t block = 0; block < block_count; ++block)
+		{
+			uint32_t base = block * CLUSTER_SCAN_BLOCK;
+			uint32_t limit = base + CLUSTER_SCAN_BLOCK;
+			if (limit > count)
+				limit = count;
+			uint32_t running = 0;
+			for (uint32_t index = base; index < limit; ++index)
+			{
+				running += counts[index];
+				prefix_out[index] = running;
+			}
+			block_totals_out[block] = running;
+		}
+		return block_count;
+	}
 }

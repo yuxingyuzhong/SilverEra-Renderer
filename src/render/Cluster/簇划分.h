@@ -86,4 +86,15 @@ namespace engine
 	*/
 	uint32_t cluster_counts_reference(uint32_t* counts_out, uint32_t capacity, Cluster_Grid grid,
 		const Light_Record* lights, uint32_t light_count, const Cluster_Input& input);
+
+	//块内扫描的本地工作组大小（第二百六十九轮；与 GPU 着色器 local_size 一致）
+	constexpr uint32_t CLUSTER_SCAN_BLOCK = 256;
+
+	/*
+	块内前缀和（CPU 参考；第二百六十九轮）
+	按 `CLUSTER_SCAN_BLOCK` 分块做**包含式**前缀和：prefix_out[i] = 该块内 counts[块首..i] 之和；
+	同时写出每块总和（block_totals_out）。返回块数；入参非法或 block_capacity 不足返回 0。
+	*/
+	uint32_t cluster_prefix_block_scan(uint32_t* prefix_out, uint32_t* block_totals_out, uint32_t block_capacity,
+		const uint32_t* counts, uint32_t count);
 }

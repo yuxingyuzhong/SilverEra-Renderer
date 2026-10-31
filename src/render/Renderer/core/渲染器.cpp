@@ -4095,6 +4095,95 @@ namespace engine
 		return ok;
 	}
 
+	//块内前缀和（CPU 参考；第二百六十九轮）
+	bool Renderer::cluster_prefix_block_scan_cpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out,
+		uint32_t* block_totals_out, uint32_t block_capacity, uint32_t* block_count_out) const
+	{
+		//出参先归零
+		if (block_count_out != nullptr)
+			*block_count_out = 0;
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		uint32_t blocks = cluster_prefix_block_scan(prefix_out, block_totals_out, block_capacity, counts, count);
+		//入参非法或容量不足
+		if (blocks == 0)
+			return false;
+		if (block_count_out != nullptr)
+			*block_count_out = blocks;
+		return true;
+	}
+
+	/*
+	块内前缀和（GPU；第二百六十九轮）
+	与 CPU 参考同口径：256 元素一块，块内包含式扫描并写出每块总和。
+	*/
+	bool Renderer::cluster_prefix_block_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out,
+		uint32_t* block_totals_out, uint32_t block_count_capacity, uint32_t* block_count_out)
+	{
+		//出参先归零
+		if (block_count_out != nullptr)
+			*block_count_out = 0;
+		//未初始化、不支持计算或入参非法
+		if (impl == nullptr || !impl->initialized || !compute_supported() || counts == nullptr
+			|| prefix_out == nullptr || block_totals_out == nullptr || count == 0)
+			return false;
+		//块数与容量
+		uint32_t blocks = (count + CLUSTER_SCAN_BLOCK - 1) / CLUSTER_SCAN_BLOCK;
+		if (block_count_capacity < blocks)
+			return false;
+		//输入 / 前缀输出 / 块总和缓冲
+		Compute_Buffer_Handle counts_handle = 0;
+		Compute_Buffer_Handle prefix_handle = 0;
+		Compute_Buffer_Handle totals_handle = 0;
+		if (!compute_buffer_load(counts_handle, count * static_cast<uint32_t>(sizeof(uint32_t)), counts))
+			return false;
+		if (!compute_buffer_load(prefix_handle, count * static_cast<uint32_t>(sizeof(uint32_t))))
+		{
+			compute_buffer_unload(counts_handle);
+			return false;
+		}
+		std::vector<uint32_t> zero(blocks, 0u);
+		if (!compute_buffer_load(totals_handle, blocks * static_cast<uint32_t>(sizeof(uint32_t)), zero.data()))
+		{
+			compute_buffer_unload(prefix_handle);
+			compute_buffer_unload(counts_handle);
+			return false;
+		}
+		//扫描管线懒加载
+		if (impl->cluster_scan_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster块内扫描.comp.spv"))
+			{
+				compute_buffer_unload(totals_handle);
+				compute_buffer_unload(prefix_handle);
+				compute_buffer_unload(counts_handle);
+				return false;
+			}
+			impl->cluster_scan_pipeline = loaded;
+		}
+		//推送常量：元素总数
+		uint32_t push_count = count;
+		//绑定 → 调度（每块一个工作组） → 回读前缀与块总和
+		bool ok = compute_buffer_bind(counts_handle, 0)
+			&& compute_buffer_bind(prefix_handle, 1)
+			&& compute_buffer_bind(totals_handle, 2)
+			&& compute_dispatch(impl->cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
+				&push_count, static_cast<uint32_t>(sizeof(push_count)))
+			&& compute_buffer_read(prefix_handle, prefix_out,
+				count * static_cast<uint32_t>(sizeof(uint32_t)), 0)
+			&& compute_buffer_read(totals_handle, block_totals_out,
+				blocks * static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		compute_buffer_unload(totals_handle);
+		compute_buffer_unload(prefix_handle);
+		compute_buffer_unload(counts_handle);
+		//写出块数
+		if (ok && block_count_out != nullptr)
+			*block_count_out = blocks;
+		return ok;
+	}
+
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,

@@ -1,0 +1,42 @@
+#version 450
+// GPU 块内前缀和（第二百六十九轮）
+// 与 Cluster/簇划分.cpp 的 cluster_prefix_block_scan 同口径：按 256 元素分块，
+// 块内做包含式前缀和（Hillis-Steele，共享内存），并写出每块总和供块间扫描使用。
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer Count_Block { uint counts[]; } count_block;
+layout(set = 0, binding = 1) buffer Prefix_Block { uint prefix[]; } prefix_block;
+layout(set = 0, binding = 2) buffer BlockTotal_Block { uint totals[]; } block_block;
+
+layout(push_constant) uniform Push_Scan
+{
+	// 元素总数
+	layout(offset = 0) uint count;
+} push_scan;
+
+// 块内共享扫描缓冲（与 local_size 一致）
+shared uint temp[256];
+
+void main()
+{
+	uint gid = gl_GlobalInvocationID.x;
+	uint lid = gl_LocalInvocationIndex;
+	uint block = gl_WorkGroupID.x;
+	// 越界线程填 0（仍参与扫描，保证全块屏障一致）
+	temp[lid] = gid < push_scan.count ? count_block.counts[gid] : 0u;
+	barrier();
+	// Hillis-Steele 包含式扫描（固定 8 轮：offset 1..128）
+	for (uint offset = 1u; offset < 256u; offset <<= 1)
+	{
+		uint value = lid >= offset ? temp[lid - offset] : 0u;
+		barrier();
+		temp[lid] += value;
+		barrier();
+	}
+	// 写出有效元素的前缀和
+	if (gid < push_scan.count)
+		prefix_block.prefix[gid] = temp[lid];
+	// 块尾线程写出块总和
+	if (lid == 255u)
+		block_block.totals[block] = temp[255];
+}
