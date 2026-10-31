@@ -1,4 +1,4 @@
-#include "src/render/Renderer/局部命名空间使用.h"
+﻿#include "src/render/Renderer/局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
@@ -1844,6 +1844,9 @@ namespace engine
 		if (!self->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
 			self->hiz_depth_copy_pipeline, self->hiz_downsample_pipeline))
 			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
+		else
+			//记录最近生成完成的帧槽（第二百五十六轮：剔除读取该槽上一帧金字塔）
+			self->last_hiz_slot = slot;
 	}
 
 	//每帧推进（可选像素回读）
@@ -3804,6 +3807,7 @@ namespace engine
 		return impl->hiz.history_valid(slot);
 	}
 
+
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,
 		const float local_min[3], const float local_max[3], float* matrices_out, uint32_t* visible_out)
@@ -3852,12 +3856,14 @@ namespace engine
 			compute_buffer_unload(transform_handle);
 			return false;
 		}
-		//剔除参数（相机位置 / 前向 / 阈值与背面开关）
+		//剔除参数（相机位置 / 前向 / 阈值与背面开关 ＋ Hi-Z 遮挡参数）
 		struct Cull_Params
 		{
 			float camera_position[4];
 			float camera_forward[4];
 			float limits[4];
+			//Hi-Z：(第 0 级宽, 第 0 级高, 级数, 是否启用)
+			float hi_z[4];
 		} params{};
 		for (uint32_t axis = 0; axis < 3; ++axis)
 		{
@@ -3866,6 +3872,29 @@ namespace engine
 		}
 		params.limits[0] = max_distance;
 		params.limits[1] = backface ? 1.0f : 0.0f;
+		/*
+		Hi-Z 遮挡启用判定（第二百五十六轮）
+		需开关开启、资源就绪、最近生成槽的金字塔有效且完整链视图非空；
+		首帧（尚无生成）自动跳过，保持与引入前逐字节一致。
+		*/
+		const bool occlusion_enabled = impl->hiz_enabled && impl->hiz.valid()
+			&& impl->hiz.history_valid(impl->last_hiz_slot)
+			&& impl->hiz.pyramid_full_view(impl->last_hiz_slot) != VK_NULL_HANDLE
+			&& impl->hiz.depth_sampler_get() != VK_NULL_HANDLE;
+		if (occlusion_enabled)
+		{
+			params.hi_z[0] = static_cast<float>(impl->hiz.width_get());
+			params.hi_z[1] = static_cast<float>(impl->hiz.height_get());
+			params.hi_z[2] = static_cast<float>(impl->hiz.level_count());
+			params.hi_z[3] = 1.0f;
+		}
+		//遮挡开启时把计算帧槽切到「最近生成槽」并把金字塔绑到采样器位
+		if (occlusion_enabled)
+		{
+			impl->compute.slot_set(impl->last_hiz_slot);
+			impl->compute.sampler_bind(impl->last_hiz_slot, impl->hiz.depth_sampler_get(),
+				impl->hiz.pyramid_full_view(impl->last_hiz_slot));
+		}
 		if (!compute_buffer_load(params_handle, static_cast<uint32_t>(sizeof(params)), &params))
 		{
 			compute_buffer_unload(counter_handle);

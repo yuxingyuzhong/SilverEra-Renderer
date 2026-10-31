@@ -2,6 +2,7 @@
 // Hi-Z 逐级降采样（第二百五十四轮）
 // 对源级每个目标纹素取 2×2 邻域的最大深度（最远遮挡面，保守）；
 // 边界超出时钳到源级最后一行 / 列，故「同尺寸」调用取 (2x,2x+1)×(2y,2y+1) 邻域最大值（略偏保守）。
+// 源 / 目标尺寸一律取自 imageSize（不依赖推送常量）。
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 // 源级（上一级金字塔，或第 0 级的历史图像）
@@ -9,24 +10,16 @@ layout(set = 0, binding = 5, r32f) uniform image2D source_image;
 // 目标级（当前金字塔级）
 layout(set = 0, binding = 6, r32f) uniform image2D dest_image;
 
-layout(push_constant) uniform Push_HiZ_Down
-{
-	// 源级尺寸
-	layout(offset = 0) uint source_width;
-	layout(offset = 4) uint source_height;
-	// 目标级尺寸
-	layout(offset = 8) uint dest_width;
-	layout(offset = 12) uint dest_height;
-} push_down;
-
 void main()
 {
 	ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 	// 超出目标级范围直接返回
-	if (uint(pixel.x) >= push_down.dest_width || uint(pixel.y) >= push_down.dest_height)
+	ivec2 dest_size = imageSize(dest_image);
+	if (pixel.x >= dest_size.x || pixel.y >= dest_size.y)
 		return;
-	// 源级最后一行 / 列（边界钳制）
-	ivec2 source_max = ivec2(int(push_down.source_width) - 1, int(push_down.source_height) - 1);
+	// 源级尺寸与最后一行 / 列（边界钳制）
+	ivec2 source_size = imageSize(source_image);
+	ivec2 source_max = ivec2(source_size.x - 1, source_size.y - 1);
 	float farthest = 0.0;
 	for (int offset_y = 0; offset_y < 2; ++offset_y)
 	{

@@ -270,6 +270,21 @@ namespace engine
 		return slots[slot].level_views[level];
 	}
 
+	//金字塔完整链视图
+	VkImageView HiZ_Context::pyramid_full_view(uint32_t slot) const
+	{
+		//槽越界
+		if (slot >= slots.size())
+			return VK_NULL_HANDLE;
+		return slots[slot].pyramid_view;
+	}
+
+	//深度采样器
+	VkSampler HiZ_Context::depth_sampler_get(void) const
+	{
+		return depth_sampler;
+	}
+
 	//该槽是否已有有效历史
 	bool HiZ_Context::history_valid(uint32_t slot) const
 	{
@@ -329,13 +344,10 @@ namespace engine
 		if (!compute->sampler_bind(slot, depth_sampler, depth_view)
 			|| !compute->storage_image_bind(slot, 0, target.history_view))
 			return false;
-		//全分辨率深度拷贝（采样深度 → 历史）
-		{
-			uint32_t push[4] = { width, height, width, height };
-			if (!compute->compute_dispatch(command_buffer, depth_copy_pipeline,
-				group_count(width), group_count(height), 1, push, static_cast<uint32_t>(sizeof(push))))
-				return false;
-		}
+		//全分辨率深度拷贝（采样深度 → 历史；覆盖范围由着色器取 imageSize）
+		if (!compute->compute_dispatch(command_buffer, depth_copy_pipeline,
+			group_count(width), group_count(height), 1, nullptr, 0))
+			return false;
 		//历史写 → 读（供第 0 级降采样读取）
 		if (!compute->barrier(command_buffer, Compute_Barrier::ComputeToCompute))
 			return false;
@@ -364,10 +376,9 @@ namespace engine
 			if (!compute->storage_image_bind(slot, 0, source_view)
 				|| !compute->storage_image_bind(slot, 1, target.level_views[level]))
 				return false;
-			//降采样（取 2×2 最大值）
-			uint32_t push[4] = { source_width, source_height, dest_width, dest_height };
+			//降采样（取 2×2 最大值；覆盖范围由着色器取 imageSize）
 			if (!compute->compute_dispatch(command_buffer, downsample_pipeline,
-				group_count(dest_width), group_count(dest_height), 1, push, static_cast<uint32_t>(sizeof(push))))
+				group_count(dest_width), group_count(dest_height), 1, nullptr, 0))
 				return false;
 			//本级的写 → 下一级的读
 			if (!compute->barrier(command_buffer, Compute_Barrier::ComputeToCompute))
@@ -422,6 +433,13 @@ namespace engine
 			slot_destroy(slot);
 			return false;
 		}
+		//完整链视图（第二百五十六轮；剔除着色器按级 texelFetch）
+		if (!memory->image_view_create(slot.pyramid_view, slot.pyramid_image, HIZ_PYRAMID_FORMAT,
+			VK_IMAGE_ASPECT_COLOR_BIT, levels))
+		{
+			slot_destroy(slot);
+			return false;
+		}
 		//逐级视图（baseMipLevel = 级号，级数 1）
 		slot.level_views.resize(levels, VK_NULL_HANDLE);
 		for (uint32_t level = 0; level < levels; ++level)
@@ -450,6 +468,9 @@ namespace engine
 		}
 		slot.level_views.clear();
 		//历史视图与金字塔图像 / 历史图像
+		if (slot.pyramid_view != VK_NULL_HANDLE)
+			memory->image_view_destroy(slot.pyramid_view);
+		slot.pyramid_view = VK_NULL_HANDLE;
 		if (slot.history_view != VK_NULL_HANDLE)
 			memory->image_view_destroy(slot.history_view);
 		slot.history_view = VK_NULL_HANDLE;

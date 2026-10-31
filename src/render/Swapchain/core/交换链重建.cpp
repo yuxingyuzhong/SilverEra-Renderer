@@ -251,9 +251,9 @@ namespace engine
 		//逐张创建深度图像与视图
 		for (uint32_t index = 0; index < count; ++index)
 		{
-			//创建深度图像（设备本地、深度附件用途）
+			//创建深度图像（设备本地、深度附件 ＋ 采样用途；第二百五十六轮：Hi-Z 深度拷贝需采样深度）
 			if (!memory->image_create(depth_images[index], depth_allocations[index], extent.width, extent.height,
-				depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))
+				depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT))
 				return false;
 			//创建深度图像视图
 			if (!memory->image_view_create(depth_views[index], depth_images[index], depth_format, VK_IMAGE_ASPECT_DEPTH_BIT))
@@ -338,9 +338,10 @@ namespace engine
 			if (!memory->image_view_create(msaa_color_views[index], msaa_color_images[index], format,
 				VK_IMAGE_ASPECT_COLOR_BIT))
 				return false;
-			//MSAA 深度附件
+			//MSAA 深度附件（与单采样深度同样保留采样用途，便于后续 Hi-Z 解析路径复用）
 			if (!memory->image_create(msaa_depth_images[index], msaa_depth_allocations[index],
-				extent.width, extent.height, depth_format, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 1, samples))
+				extent.width, extent.height, depth_format,
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1, samples))
 				return false;
 			//MSAA 深度视图
 			if (!memory->image_view_create(msaa_depth_views[index], msaa_depth_images[index], depth_format,

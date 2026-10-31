@@ -9,7 +9,16 @@ layout(set = 0, binding = 0) buffer Transform_Block { vec4 transforms[]; } trans
 layout(set = 0, binding = 1) buffer Compact_Block { vec4 compacted[]; } compact_block;
 layout(set = 0, binding = 2) buffer Counter_Block { uint visible_count; } counter_block;
 // 距离 / 背面剔除参数（第二百五十轮；limits.x = 距离上限（≤0 不限）、limits.y = 背面开关）
-layout(set = 0, binding = 3) buffer Params_Block { vec4 camera_position; vec4 camera_forward; vec4 limits; } params_block;
+// Hi-Z 遮挡参数（第二百五十六轮）：hi_z = (第 0 级宽, 第 0 级高, 级数, 是否启用)
+layout(set = 0, binding = 3) buffer Params_Block
+{
+	vec4 camera_position;
+	vec4 camera_forward;
+	vec4 limits;
+	vec4 hi_z;
+} params_block;
+// Hi-Z 金字塔（第二百五十六轮）：完整 mip 链，按级 texelFetch 读取
+layout(set = 0, binding = 4) uniform sampler2D hi_z_source;
 
 layout(push_constant) uniform Push_Compact
 {
@@ -67,6 +76,67 @@ void main()
 	for (int plane = 0; plane < 6; ++plane)
 		if (outside[plane])
 			return;
+	/*
+	Hi-Z 遮挡（第二百五十六轮；仅在启用且上一帧金字塔有效时生效）
+	与 CPU 参考 `hiz_occlusion_test` 同口径：投影 8 角点 → 屏幕矩形 + 最近深度；
+	按矩形尺寸选级，覆盖纹素取最大远面深度；最近深度 > 最大值 + 0.002 才剔除。
+	跨近平面 / 视图外一律判可见（保守）。
+	*/
+	if (params_block.hi_z.w > 0.5)
+	{
+		vec2 screen_min = vec2(3.0e38);
+		vec2 screen_max = vec2(-3.0e38);
+		float nearest = 1.0;
+		bool cross_near = false;
+		for (int corner = 0; corner < 8; ++corner)
+		{
+			float x = ((corner & 1) != 0 ? push_compact.bounds_max.x : push_compact.bounds_min.x);
+			float y = ((corner & 2) != 0 ? push_compact.bounds_max.y : push_compact.bounds_min.y);
+			float z = ((corner & 4) != 0 ? push_compact.bounds_max.z : push_compact.bounds_min.z);
+			vec4 clip = mvp * vec4(x, y, z, 1.0);
+			// 跨近平面 / 相机后方：保守判可见
+			if (clip.w <= 0.0)
+			{
+				cross_near = true;
+				continue;
+			}
+			vec3 ndc = clip.xyz / clip.w;
+			vec2 screen = vec2((ndc.x * 0.5 + 0.5) * params_block.hi_z.x,
+				(0.5 - ndc.y * 0.5) * params_block.hi_z.y);
+			screen_min = min(screen_min, screen);
+			screen_max = max(screen_max, screen);
+			nearest = min(nearest, ndc.z);
+		}
+		// 跨近平面 / 视图外不在此剔除
+		bool in_view = !cross_near
+			&& !(screen_max.x < 0.0 || screen_max.y < 0.0
+				|| screen_min.x >= params_block.hi_z.x || screen_min.y >= params_block.hi_z.y);
+		if (in_view)
+		{
+			// 选级：覆盖纹素不超过 2×2
+			float extent = max(max(screen_max.x - screen_min.x, screen_max.y - screen_min.y), 1.0);
+			int levels = int(params_block.hi_z.z);
+			int level = int(min(ceil(log2(extent)), float(levels - 1)));
+			level = max(level, 0);
+			// 该级尺寸
+			int level_width = max(1, int(params_block.hi_z.x) >> level);
+			int level_height = max(1, int(params_block.hi_z.y) >> level);
+			int scale = 1 << level;
+			// 矩形映射到该级纹素范围并钳制
+			int min_x = clamp(int(floor(screen_min.x / float(scale))), 0, level_width - 1);
+			int max_x = clamp(int(floor(screen_max.x / float(scale))), 0, level_width - 1);
+			int min_y = clamp(int(floor(screen_min.y / float(scale))), 0, level_height - 1);
+			int max_y = clamp(int(floor(screen_max.y / float(scale))), 0, level_height - 1);
+			// 覆盖纹素的最大远面深度（保守）
+			float farthest = 0.0;
+			for (int ty = min_y; ty <= max_y; ++ty)
+				for (int tx = min_x; tx <= max_x; ++tx)
+					farthest = max(farthest, texelFetch(hi_z_source, ivec2(tx, ty), level).r);
+			// 最近深度严格大于远面深度 + 容差才完全遮挡
+			if (nearest > farthest + 0.002)
+				return;
+		}
+	}
 	uint slot = atomicAdd(counter_block.visible_count, 1u);
 	uint out_base = slot * 4u;
 	compact_block.compacted[out_base + 0] = transform_block.transforms[base + 0];

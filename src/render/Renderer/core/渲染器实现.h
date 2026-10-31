@@ -261,6 +261,8 @@ namespace engine
 		//Hi-Z 生成管线（第二百五十四轮；懒加载，0 = 尚未加载）
 		Compute_Pipeline_Handle hiz_depth_copy_pipeline = 0;
 		Compute_Pipeline_Handle hiz_downsample_pipeline = 0;
+		//最近一次完成金字塔生成的帧槽（第二百五十六轮；剔除读取该槽的上一帧金字塔）
+		uint32_t last_hiz_slot = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

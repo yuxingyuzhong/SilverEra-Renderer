@@ -86,6 +86,13 @@ namespace engine
 		VkImage pyramid_image(uint32_t slot) const;
 		//第 slot 帧槽第 level 级的视图（存储 / 采样用途；越界返回空）
 		VkImageView pyramid_level_view(uint32_t slot, uint32_t level) const;
+		/*
+		第 slot 帧槽金字塔的完整链视图（第二百五十六轮）
+		供剔除着色器以 texelFetch(…, level) 读取任意级；越界返回空。
+		*/
+		VkImageView pyramid_full_view(uint32_t slot) const;
+		//深度采样器（最近邻 ＋ 钳边；供剔除着色器的组合图像采样器绑定）
+		VkSampler depth_sampler_get(void) const;
 
 		//该槽是否已有有效历史（重建 / 尺寸变化后清零；首帧据此跳过遮挡）
 		bool history_valid(uint32_t slot) const;
@@ -126,6 +133,8 @@ namespace engine
 			VkImage pyramid_image = VK_NULL_HANDLE;
 			//金字塔内存
 			VmaAllocation pyramid_allocation = VK_NULL_HANDLE;
+			//完整 mip 链视图（第二百五十六轮；剔除着色器按级 texelFetch）
+			VkImageView pyramid_view = VK_NULL_HANDLE;
 			//逐级视图（baseMipLevel = 级号，levelCount = 1）
 			std::vector<VkImageView> level_views;
 			//是否已有有效历史

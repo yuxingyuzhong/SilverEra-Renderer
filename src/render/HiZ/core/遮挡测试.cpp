@@ -72,9 +72,9 @@ namespace engine
 			const float ndc_x = point.x / point.w;
 			const float ndc_y = point.y / point.w;
 			const float ndc_z = point.z / point.w;
-			//屏幕坐标（Y 轴与本层视口公式一致）
+			//屏幕坐标（与 Vulkan 视口一致：NDC +1 对应第 0 行）
 			const float screen_x = (ndc_x * 0.5f + 0.5f) * static_cast<float>(width);
-			const float screen_y = (ndc_y * 0.5f + 0.5f) * static_cast<float>(height);
+			const float screen_y = (0.5f - ndc_y * 0.5f) * static_cast<float>(height);
 			//首角点初始化
 			if (first_valid)
 			{
