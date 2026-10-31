@@ -232,6 +232,14 @@ namespace engine
 		double last_gpu_cull_ms = 0.0;
 		//GPU 压缩累计派发次数（第二百五十一轮）
 		uint64_t gpu_cull_dispatches = 0;
+		//间接绘制开关（第二百五十二轮；默认关）
+		bool gpu_indirect_enabled = false;
+		//设备是否支持间接绘制命令的 firstInstance 非零（第二百五十二轮；不支持时整轮回落逐项）
+		bool indirect_first_instance_supported = false;
+		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
+		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
+		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）
+		static constexpr uint32_t INDIRECT_COMMAND_BYTES = 20;
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；
@@ -626,6 +634,13 @@ namespace engine
 		std::vector<VkBuffer> instance_buffers;
 		//实例缓冲内存（与 instance_buffers 一一对应）
 		std::vector<VmaAllocation> instance_allocations;
+		/*
+		间接命令缓冲（第二百五十二轮；长度 = 在途帧数，主机可见，逐帧写入合批命令）
+		mapped 为持久映射指针（由缓冲创建时的 MAPPED 标志获得），录制时由帧模块直接写入。
+		*/
+		std::vector<VkBuffer> indirect_buffers;
+		std::vector<VmaAllocation> indirect_allocations;
+		std::vector<void*> indirect_mapped;
 		//每帧槽实例缓冲容量（实例个数）
 		uint32_t instance_capacity = 256;
 		//内置默认白纹理句柄

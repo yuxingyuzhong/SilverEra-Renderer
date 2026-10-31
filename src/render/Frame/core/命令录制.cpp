@@ -5,6 +5,64 @@
 namespace engine
 {
 	/*
+	间接绘制命令（第二百五十二轮）
+	字段顺序与 VkDrawIndexedIndirectCommand 一致（共 20 字节）。
+	*/
+	struct Indirect_Draw_Command
+	{
+		uint32_t index_count;
+		uint32_t instance_count;
+		uint32_t first_index;
+		int32_t vertex_offset;
+		uint32_t first_instance;
+	};
+
+	//推送常量逐字节比较（长度为零视为相等）
+	static bool push_constants_equal(const Frame_Render_Item& first, const Frame_Render_Item& next)
+	{
+		//长度或偏移不同则不可合并
+		if (first.push_constant_offset != next.push_constant_offset || first.push_constant_size != next.push_constant_size)
+			return false;
+		//无推送常量
+		if (first.push_constant_size == 0)
+			return true;
+		//任一为空指针
+		if (first.push_constants == nullptr || next.push_constants == nullptr)
+			return false;
+		const unsigned char* first_bytes = static_cast<const unsigned char*>(first.push_constants);
+		const unsigned char* next_bytes = static_cast<const unsigned char*>(next.push_constants);
+		for (uint32_t index = 0; index < first.push_constant_size; ++index)
+			if (first_bytes[index] != next_bytes[index])
+				return false;
+		return true;
+	}
+
+	/*
+	相邻渲染项是否可合并为一条间接命令（第二百五十二轮）
+	条件：管线 / 布局 / 描述符集 / 推送常量 / 顶点、索引、实例缓冲与索引区一致，
+	且下一项的实例区紧跟上一段末尾（同一实例缓冲内连续），合并后以 first_instance 表达起点。
+	*/
+	static bool indirect_items_mergeable(const Frame_Render_Item& first, const Frame_Render_Item& next,
+		VkDeviceSize next_expected_offset)
+	{
+		if (first.pipeline != next.pipeline || first.layout != next.layout)
+			return false;
+		if (first.descriptor_set_count != next.descriptor_set_count)
+			return false;
+		if (first.scene_set != next.scene_set || first.sampler_set != next.sampler_set)
+			return false;
+		if (!push_constants_equal(first, next))
+			return false;
+		if (first.vertex_buffer != next.vertex_buffer || first.index_buffer != next.index_buffer)
+			return false;
+		if (first.index_offset != next.index_offset || first.index_count != next.index_count)
+			return false;
+		if (first.instance_buffer != next.instance_buffer)
+			return false;
+		return next.instance_offset == next_expected_offset;
+	}
+
+	/*
 	逐渲染项绘制（带状态缓存）
 	本层每帧各渲染项的 set0 / set1 描述符集都是「本帧槽」的同一组值（门面按 slot 统一填装），
 	而各渲染项**可挂不同图形管线**（多材质 / 多管线），故管线与描述符集只在发生变化时重绑，
@@ -26,6 +84,159 @@ namespace engine
 		uint32_t bound_set_count = 0;
 		//当前已绑定的描述符集（set0 在前，set1 在后）
 		VkDescriptorSet bound_sets[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+		/*
+		间接录制（第二百五十二轮）
+		就近连续且状态一致的渲染项合并为一条 vkCmdDrawIndexedIndirect：
+		合并段以实例缓冲偏移 0 绑定、由 first_instance 承担起点语义，与逐项绑定后 firstInstance=0 逐字节等价。
+		仅在映射可用、容量足够容纳本批全部命令且非并行分段录制时启用；否则整体回落逐项直接绘制。
+		*/
+		const bool indirect_ready = indirect_mapped != nullptr && indirect_buffer != VK_NULL_HANDLE
+			&& indirect_capacity > 1 && active_secondary_count <= 1;
+		if (indirect_ready)
+		{
+			//预扫描本批命令条数（不完整项跳过）
+			uint32_t planned_commands = 0;
+			for (uint32_t index = 0; index < item_count;)
+			{
+				const Frame_Render_Item& item = items[index];
+				//不完整项跳过
+				if (item.pipeline == VK_NULL_HANDLE || item.vertex_buffer == VK_NULL_HANDLE
+					|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0
+					|| item.instance_buffer == VK_NULL_HANDLE || item.instance_count == 0)
+				{
+					++index;
+					continue;
+				}
+				//合并起点之后的首个期望实例偏移
+				VkDeviceSize expected_offset = item.instance_offset
+					+ static_cast<VkDeviceSize>(item.instance_count) * indirect_instance_stride;
+				++index;
+				//向后吞并连续可合并项
+				while (index < item_count)
+				{
+					const Frame_Render_Item& next = items[index];
+					//不完整项终止合并
+					if (next.pipeline == VK_NULL_HANDLE || next.vertex_buffer == VK_NULL_HANDLE
+						|| next.index_buffer == VK_NULL_HANDLE || next.index_count == 0
+						|| next.instance_buffer == VK_NULL_HANDLE || next.instance_count == 0)
+						break;
+					//状态或实例区不连续则终止合并
+					if (!indirect_items_mergeable(item, next, expected_offset))
+						break;
+					expected_offset += static_cast<VkDeviceSize>(next.instance_count) * indirect_instance_stride;
+					++index;
+				}
+				++planned_commands;
+			}
+			//容量不足则整体回落（不与逐项路径混用，保持行为一致）
+			if (frame_indirect_commands + planned_commands <= indirect_capacity)
+			{
+				Indirect_Draw_Command* commands = static_cast<Indirect_Draw_Command*>(indirect_mapped);
+				uint32_t index = 0;
+				while (index < item_count)
+				{
+					const Frame_Render_Item& item = items[index];
+					//不完整项跳过
+					if (item.pipeline == VK_NULL_HANDLE || item.vertex_buffer == VK_NULL_HANDLE
+						|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0
+						|| item.instance_buffer == VK_NULL_HANDLE || item.instance_count == 0)
+					{
+						++index;
+						continue;
+					}
+					//本段合并的实例数与本段项数
+					uint32_t merged_instances = item.instance_count;
+					uint32_t merged_items = 1;
+					VkDeviceSize expected_offset = item.instance_offset
+						+ static_cast<VkDeviceSize>(item.instance_count) * indirect_instance_stride;
+					++index;
+					//向后吞并连续可合并项
+					while (index < item_count)
+					{
+						const Frame_Render_Item& next = items[index];
+						//不完整项终止合并
+						if (next.pipeline == VK_NULL_HANDLE || next.vertex_buffer == VK_NULL_HANDLE
+							|| next.index_buffer == VK_NULL_HANDLE || next.index_count == 0
+							|| next.instance_buffer == VK_NULL_HANDLE || next.instance_count == 0)
+							break;
+						//状态或实例区不连续则终止合并
+						if (!indirect_items_mergeable(item, next, expected_offset))
+							break;
+						merged_instances += next.instance_count;
+						++merged_items;
+						expected_offset += static_cast<VkDeviceSize>(next.instance_count) * indirect_instance_stride;
+						++index;
+					}
+
+					//仅在与当前已绑定管线不同时重绑（同帧各渲染项可挂不同管线）
+					if (item.pipeline != bound_pipeline)
+					{
+						//绑定图形管线
+						vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.pipeline);
+						bound_pipeline = item.pipeline;
+						//管线变化使「已绑定布局 / 描述符集」失效，一并复位
+						bound_layout = VK_NULL_HANDLE;
+						bound_set_count = 0;
+						bound_sets[0] = VK_NULL_HANDLE;
+						bound_sets[1] = VK_NULL_HANDLE;
+					}
+
+					//若存在可绑定描述符集
+					if (item.descriptor_set_count > 0)
+					{
+						//仅在与当前已绑定（布局 + 数量 + 集合）不同时重绑
+						if (item.layout != bound_layout || item.descriptor_set_count != bound_set_count
+							|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1])
+						{
+							//待绑定描述符集数组（set0 在前，set1 在后）
+							VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
+							//绑定描述符集
+							vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
+								0, item.descriptor_set_count, sets, 0, nullptr);
+							//记录当前已绑定的布局与描述符集
+							bound_layout = item.layout;
+							bound_set_count = item.descriptor_set_count;
+							bound_sets[0] = item.scene_set;
+							bound_sets[1] = item.sampler_set;
+						}
+					}
+
+					//若存在推送常量
+					if (item.push_constants != nullptr && item.push_constant_size > 0)
+						//推送常量到顶点与片元阶段（偏移由绘制项给出）
+						vkCmdPushConstants(command_buffer, item.layout,
+							VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+							item.push_constant_offset, item.push_constant_size, item.push_constants);
+
+					//绑定顶点与实例缓冲（实例偏移由命令的 first_instance 表达，故绑定偏移恒 0）
+					VkBuffer vertex_buffers[2] = { item.vertex_buffer, item.instance_buffer };
+					VkDeviceSize vertex_offsets[2] = { 0, 0 };
+					vkCmdBindVertexBuffers(command_buffer, 0, 2, vertex_buffers, vertex_offsets);
+					//绑定索引缓冲
+					vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
+
+					//写入合并命令（实例区起点换算为实例序号）
+					Indirect_Draw_Command& command = commands[frame_indirect_commands];
+					command.index_count = item.index_count;
+					command.instance_count = merged_instances;
+					command.first_index = 0;
+					command.vertex_offset = 0;
+					command.first_instance = static_cast<uint32_t>(item.instance_offset / indirect_instance_stride);
+					const VkDeviceSize command_offset = static_cast<VkDeviceSize>(frame_indirect_commands)
+						* static_cast<VkDeviceSize>(sizeof(Indirect_Draw_Command));
+					//下达间接绘制（单条命令）
+					vkCmdDrawIndexedIndirect(command_buffer, indirect_buffer, command_offset, 1,
+						static_cast<uint32_t>(sizeof(Indirect_Draw_Command)));
+					++frame_indirect_commands;
+					++total_indirect_draws;
+					//累计本段实际绘制量
+					counts.items += merged_items;
+					counts.instances += merged_instances;
+				}
+				return counts;
+			}
+		}
+
 		for (uint32_t index = 0; index < item_count; ++index)
 		{
 			//当前渲染项
@@ -95,6 +306,50 @@ namespace engine
 			counts.instances += item.instance_count;
 		}
 		return counts;
+	}
+
+	/*
+	设置间接录制上下文（第二百五十二轮）
+	mapped 为空、缓冲为空或容量 ≤ 1 时视为关闭（回落逐项直接绘制，行为与引入前一致）。
+	*/
+	void Frame_Context::indirect_context_set(void* mapped, VkBuffer buffer, uint32_t capacity, uint32_t instance_stride)
+	{
+		//关闭条件
+		if (mapped == nullptr || buffer == VK_NULL_HANDLE || capacity <= 1 || instance_stride == 0)
+		{
+			indirect_mapped = nullptr;
+			indirect_buffer = VK_NULL_HANDLE;
+			indirect_capacity = 0;
+			return;
+		}
+		indirect_mapped = mapped;
+		indirect_buffer = buffer;
+		indirect_capacity = capacity;
+		indirect_instance_stride = instance_stride;
+	}
+
+	//本帧已写入的间接命令数
+	uint32_t Frame_Context::indirect_command_count_get(void) const
+	{
+		return frame_indirect_commands;
+	}
+
+	//累计间接绘制调用数
+	uint64_t Frame_Context::indirect_draw_count_get(void) const
+	{
+		return total_indirect_draws;
+	}
+
+	//写入指定帧槽的间接命令缓冲（门面初始化时调用；槽序号越界返回假）
+	bool Frame_Context::slot_indirect_buffer_set(uint32_t slot_index, VkBuffer buffer, void* mapped, uint32_t capacity)
+	{
+		//槽序号越界
+		if (slot_index >= slots.size())
+			return false;
+		slots[slot_index].indirect_buffer = buffer;
+		slots[slot_index].indirect_mapped = mapped;
+		slots[slot_index].indirect_capacity = buffer == VK_NULL_HANDLE ? 0 : capacity;
+		return true;
 	}
 
 	//UI 阶段录制（MSAA 解析后；单采样通道，仅颜色附件）

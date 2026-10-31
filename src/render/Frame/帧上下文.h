@@ -54,6 +54,14 @@ namespace engine
 		VkQueryPool shadow_timestamp_pool = VK_NULL_HANDLE;
 		//该槽是否已写入过阴影时间戳
 		bool shadow_timestamp_written = false;
+		/*
+		间接命令缓冲（第二百五十二轮）
+		由门面在初始化时创建并写入本槽字段；录制时以 vkCmdDrawIndexedIndirect 读取。
+		mapped 为该缓冲的持久映射指针，capacity 为命令条数（每条 20 字节）。
+		*/
+		VkBuffer indirect_buffer = VK_NULL_HANDLE;
+		void* indirect_mapped = nullptr;
+		uint32_t indirect_capacity = 0;
 	};
 
 	/*
@@ -361,6 +369,22 @@ namespace engine
 			//实际绘制的实例数
 			uint64_t instances = 0;
 		};
+		/*
+		设置间接录制上下文（第二百五十二轮）
+		mapped：间接命令缓冲的持久映射指针（每条命令 20 字节）；buffer：提交给 vkCmdDrawIndexedIndirect 的缓冲；
+		capacity：可容纳的命令条数；instance_stride：实例缓冲步长（字节，用于实例区连续性判定）。
+		mapped 为空或 capacity ≤ 1 时关闭间接路径（回落逐项直接绘制，行为与关闭前完全一致）。
+		*/
+		void indirect_context_set(void* mapped, VkBuffer buffer, uint32_t capacity, uint32_t instance_stride);
+		//本帧已写入的间接命令数（0 = 本帧未走间接路径）
+		uint32_t indirect_command_count_get(void) const;
+		//累计间接绘制调用数（自构建以来；单线程录制且启用间接时递增）
+		uint64_t indirect_draw_count_get(void) const;
+		/*
+		写入指定帧槽的间接命令缓冲（第二百五十二轮；门面在初始化时调用）
+		buffer 为空或 capacity ≤ 1 视为该槽不启用间接路径；mapped 为持久映射指针。
+		*/
+		bool slot_indirect_buffer_set(uint32_t slot_index, VkBuffer buffer, void* mapped, uint32_t capacity);
 
 		//已推进帧数
 		uint32_t frame_count_get(void) const;
@@ -697,5 +721,18 @@ namespace engine
 		VmaAllocation readback_alloc = VK_NULL_HANDLE;
 		//像素回读缓冲当前字节数
 		VkDeviceSize readback_size = 0;
+		/*
+		间接录制上下文（第二百五十二轮）
+		启用时为「主机可见间接命令缓冲」的持久映射指针；就近连续且状态一致的渲染项合并为一条命令，
+		以 vkCmdDrawIndexedIndirect 下达；关闭、容量不足或并行分段录制时回落逐项直接绘制。
+		*/
+		void* indirect_mapped = nullptr;
+		VkBuffer indirect_buffer = VK_NULL_HANDLE;
+		uint32_t indirect_capacity = 0;
+		uint32_t indirect_instance_stride = 80;
+		//本帧已写入的间接命令数（每次 render 起始处清零）
+		uint32_t frame_indirect_commands = 0;
+		//累计间接绘制调用数（自构建以来）
+		uint64_t total_indirect_draws = 0;
 	};
 }

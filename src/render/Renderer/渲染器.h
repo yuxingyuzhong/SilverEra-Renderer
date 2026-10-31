@@ -119,6 +119,12 @@ namespace engine
 		关闭时与引入前逐字节一致。
 		*/
 		bool gpu_cull_enable = false;
+		/*
+		间接绘制开关（第二百五十二轮；默认关闭）
+		为真且设备可用时，主场景 pass 把「连续兼容渲染项」合并为 `vkCmdDrawIndexedIndirect`；
+		阴影 pass、并行分段录制与容量不足时自动回落逐项绘制。关闭时与引入前逐字节一致。
+		*/
+		bool gpu_indirect_enable = false;
 	};
 
 	/*

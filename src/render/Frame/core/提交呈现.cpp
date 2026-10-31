@@ -112,6 +112,8 @@ namespace engine
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
+		//清零本帧间接命令计数（第二百五十二轮）
+		frame_indirect_commands = 0;
 		//前置：帧上下文与交换链必须就绪
 		if (!valid() || !swapchain.valid())
 		{
@@ -128,6 +130,10 @@ namespace engine
 
 		//取当前帧槽（在途帧轮转；帧槽集合长度即 frame_overlap）
 		Frame_Slot& slot = slots[frame_count % frame_overlap];
+		//载入该帧槽的间接录制上下文（第二百五十二轮）
+		indirect_buffer = slot.indirect_buffer;
+		indirect_mapped = slot.indirect_mapped;
+		indirect_capacity = slot.indirect_capacity;
 
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待；K9）
 		if (!slot_fence_wait(slot))
@@ -293,9 +299,19 @@ namespace engine
 			return false;
 		}
 
+		//清零本帧间接命令计数（第二百五十二轮）
+		frame_indirect_commands = 0;
+
 		//取当前帧槽（与交换链路径共用同一轮转）
 		const uint32_t slot_index = frame_count % frame_overlap;
 		Frame_Slot& slot = slots[slot_index];
+		/*
+		载入该帧槽的间接录制上下文（第二百五十二轮）
+		阴影 pass 与主场景共用同一帧槽缓冲，若两者都写会互相覆盖，故阴影 pass 强制回落逐项绘制。
+		*/
+		indirect_buffer = shadow_pass ? VK_NULL_HANDLE : slot.indirect_buffer;
+		indirect_mapped = shadow_pass ? nullptr : slot.indirect_mapped;
+		indirect_capacity = shadow_pass ? 0 : slot.indirect_capacity;
 
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 		if (!slot_fence_wait(slot))
@@ -432,6 +448,8 @@ namespace engine
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
+		//清零本帧间接命令计数（第二百五十二轮）
+		frame_indirect_commands = 0;
 		//前置：帧上下文、交换链、目标组与后处理级数必须齐备
 		if (!valid() || !swapchain.valid() || post_count == 0 || post_items == nullptr
 			|| targets == nullptr || target_count == 0)
@@ -495,6 +513,10 @@ namespace engine
 
 		//取当前帧槽（与其余路径共用同一轮转）
 		Frame_Slot& slot = slots[frame_count % frame_overlap];
+		//载入该帧槽的间接录制上下文（第二百五十二轮）
+		indirect_buffer = slot.indirect_buffer;
+		indirect_mapped = slot.indirect_mapped;
+		indirect_capacity = slot.indirect_capacity;
 
 		//等待该帧槽前一次提交完成（先查状态，未完成再阻塞等待）
 		if (!slot_fence_wait(slot))

@@ -12,7 +12,8 @@ namespace engine
 	host_visible 为假：按设备本地分配，且申请专用内存（长命且体积大，不做子分配复用）。
 	*/
 	bool Memory_Context::buffer_create(VkBuffer& buffer_out, VmaAllocation& alloc_out,
-		VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write)
+		VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write,
+		VkMemoryPropertyFlags required_flags)
 	{
 		//前置：分配器与逻辑设备必须就绪
 		if (!valid())
@@ -31,6 +32,8 @@ namespace engine
 		//填充分配创建信息
 		VmaAllocationCreateInfo alloc_info{};
 		alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+		//内存类型的硬性要求（0 = 不限制）
+		alloc_info.requiredFlags = required_flags;
 		//若需主机可见
 		if (host_visible)
 		{
@@ -56,6 +59,22 @@ namespace engine
 		}
 
 		logger.info("缓冲创建:: 缓冲已建立（{} 字节，{}）", size, host_visible ? "主机可见" : "设备本地");
+		return true;
+	}
+
+	//取主机可见缓冲的持久映射指针（第二百五十二轮）
+	bool Memory_Context::buffer_map(VkBuffer buffer, VmaAllocation alloc, void*& mapped_out)
+	{
+		mapped_out = nullptr;
+		//前置：分配器、缓冲与分配记录必须有效
+		if (!valid() || buffer == VK_NULL_HANDLE || alloc == VK_NULL_HANDLE)
+			return false;
+		VmaAllocationInfo info{};
+		vmaGetAllocationInfo(allocator, alloc, &info);
+		//该分配未映射
+		if (info.pMappedData == nullptr)
+			return false;
+		mapped_out = info.pMappedData;
 		return true;
 	}
 

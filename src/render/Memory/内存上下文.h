@@ -47,9 +47,11 @@ namespace engine
 		host_visible 为真：主机可见，可直接写入 / 读回（也用作上传暂存）；
 		                   sequential_write 为真表示只做顺序写入（上传暂存），据此选择更优的内存类型。
 		host_visible 为假：设备本地，需另经 upload_buffer 上传。
+		required_flags 为对内存类型的硬性要求（0 = 不限制；第二百五十二轮用于要求主机一致内存）。
 		*/
 		bool buffer_create(VkBuffer& buffer_out, VmaAllocation& alloc_out,
-			VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write = false);
+			VkDeviceSize size, VkBufferUsageFlags usage, bool host_visible, bool sequential_write = false,
+			VkMemoryPropertyFlags required_flags = 0);
 		//销毁缓冲（缓冲与它的内存一起归还）
 		void buffer_destroy(VkBuffer buffer, VmaAllocation alloc);
 		//写入缓冲（仅对主机可见的缓冲有意义）
@@ -58,6 +60,11 @@ namespace engine
 		//读回缓冲（仅对主机可见的缓冲有意义；用于校验与调试）
 		bool buffer_read(VkBuffer buffer, VmaAllocation alloc,
 			void* data, VkDeviceSize size, VkDeviceSize offset);
+		/*
+		取主机可见缓冲的持久映射指针（第二百五十二轮）
+		缓冲须以 host_visible 创建（分配时已带 MAPPED 标志）；失败或未映射时 mapped_out 置空并返回假。
+		*/
+		bool buffer_map(VkBuffer buffer, VmaAllocation alloc, void*& mapped_out);
 
 		/*
 		创建图像

@@ -904,6 +904,8 @@ namespace engine
 			capabilities.multi_draw_indirect = features.features.multiDrawIndirect == VK_TRUE;
 			capabilities.draw_indirect_count = features12.drawIndirectCount == VK_TRUE;
 			capabilities.host_query_reset = features12.hostQueryReset == VK_TRUE;
+			//间接命令以 firstInstance 承担实例偏移，故需该核心特性（第二百五十二轮）
+			impl->indirect_first_instance_supported = features.features.drawIndirectFirstInstance == VK_TRUE;
 			//强制关闭计算路径时跳过构建（全部 GPU 驱动路径保持关闭，默认帧路径不受影响）
 			if (!effective.compute_enable)
 			{
@@ -959,6 +961,9 @@ namespace engine
 		//实例缓冲按帧槽各一（主机可见，逐帧写入本帧全部实例模型矩阵）
 		impl->instance_buffers.resize(effective.frame_overlap);
 		impl->instance_allocations.resize(effective.frame_overlap);
+		//间接命令缓冲按帧槽各一（第二百五十二轮；主机可见，仅在开关开启时创建）
+		impl->indirect_buffers.resize(effective.frame_overlap);
+		impl->indirect_allocations.resize(effective.frame_overlap);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
 			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数；第一百四十六轮扩为 1168；第一百七十九轮扩为 1184：追加卡通高光参数）
@@ -1144,6 +1149,28 @@ namespace engine
 				logger.error("渲染器:: 实例缓冲创建失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
+			}
+			/*
+			创建该帧槽的间接命令缓冲（第二百五十二轮）
+			仅在开关开启且设备支持 firstInstance 偏移时建立；否则该槽保持空缓冲、录制走逐项绘制。
+			主机一致内存使命令写入后无需显式冲刷；创建或映射失败仅告警并回落逐项，不阻断初始化。
+			*/
+			if (effective.gpu_indirect_enable && impl->indirect_first_instance_supported)
+			{
+				if (!impl->memory.buffer_create(impl->indirect_buffers[slot], impl->indirect_allocations[slot],
+					static_cast<VkDeviceSize>(Impl::INDIRECT_COMMAND_CAPACITY) * Impl::INDIRECT_COMMAND_BYTES,
+					VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, true, false, VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))
+					logger.warn("渲染器:: 间接命令缓冲创建失败（帧槽 {}，将回落逐项绘制）", slot);
+				else
+				{
+					//取持久映射指针（命令由主机侧录制时写入）
+					void* indirect_mapped = nullptr;
+					if (!impl->memory.buffer_map(impl->indirect_buffers[slot], impl->indirect_allocations[slot], indirect_mapped))
+						logger.warn("渲染器:: 间接命令缓冲映射失败（帧槽 {}，将回落逐项绘制）", slot);
+					else if (!impl->frame.slot_indirect_buffer_set(slot, impl->indirect_buffers[slot], indirect_mapped,
+						Impl::INDIRECT_COMMAND_CAPACITY))
+						logger.warn("渲染器:: 间接命令缓冲登记失败（帧槽 {}，将回落逐项绘制）", slot);
+				}
 			}
 		}
 		/*
@@ -1358,6 +1385,8 @@ namespace engine
 		impl->static_batching = effective.static_batching;
 		//GPU 剔除开关（第二百四十九轮；默认关闭）
 		impl->gpu_cull_enabled = effective.gpu_cull_enable;
+		//间接绘制开关（第二百五十二轮；默认关闭）
+		impl->gpu_indirect_enabled = effective.gpu_indirect_enable;
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
@@ -1568,6 +1597,13 @@ namespace engine
 				impl->memory.buffer_destroy(impl->instance_buffers[slot], impl->instance_allocations[slot]);
 		impl->instance_buffers.clear();
 		impl->instance_allocations.clear();
+		//间接命令缓冲依赖内存模块，须先于 memory 销毁（第二百五十二轮）
+		if (impl->memory.valid())
+			for (size_t slot = 0; slot < impl->indirect_buffers.size(); ++slot)
+				//归还间接命令缓冲与其内存
+				impl->memory.buffer_destroy(impl->indirect_buffers[slot], impl->indirect_allocations[slot]);
+		impl->indirect_buffers.clear();
+		impl->indirect_allocations.clear();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
 		//天空盒状态复位（第一百二十五轮；默认关闭、强度 0）
@@ -3210,6 +3246,8 @@ namespace engine
 		stats.gpu_cull_ms = impl->last_gpu_cull_ms;
 		//GPU 压缩派发次数（第二百五十一轮）
 		stats.gpu_cull_dispatches = impl->gpu_cull_dispatches;
+		//间接绘制次数（第二百五十二轮；未走间接路径时恒 0）
+		stats.indirect_draws = impl->frame.indirect_draw_count_get();
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
