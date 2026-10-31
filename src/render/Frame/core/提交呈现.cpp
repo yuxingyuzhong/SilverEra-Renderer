@@ -226,7 +226,8 @@ namespace engine
 			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target,
 			slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
-			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get(), post_scene);
+			swapchain.msaa_depth_view_get(image_index), swapchain.msaa_depth_image_get(image_index),
+			swapchain.sample_count_get(), post_scene);
 		//并行上下文只对本帧录制有效
 		active_secondary = nullptr;
 		active_secondary_count = 0;

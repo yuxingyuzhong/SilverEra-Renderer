@@ -532,7 +532,8 @@ namespace engine
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
 			VkImage msaa_image = VK_NULL_HANDLE, VkImageView msaa_color_view = VK_NULL_HANDLE,
-			VkImageView msaa_depth_view = VK_NULL_HANDLE, uint32_t sample_count = 1,
+			VkImageView msaa_depth_view = VK_NULL_HANDLE, VkImage msaa_depth_image = VK_NULL_HANDLE,
+			uint32_t sample_count = 1,
 			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
 		录制「渲染到离屏目标」的命令缓冲（实现见 core/命令录制.cpp）

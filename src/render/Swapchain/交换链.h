@@ -134,6 +134,11 @@ namespace engine
 		VkImageView msaa_color_view_get(uint32_t index) const;
 		//指定交换链索引的 MSAA 深度图像视图（关闭时为 0）
 		VkImageView msaa_depth_view_get(uint32_t index) const;
+		/*
+		取多重采样深度图像（第二百六十轮）
+		供场景 pass 结束时以「深度解析」把多重采样深度写入单采样深度（Hi-Z 生成读取该图）。
+		*/
+		VkImage msaa_depth_image_get(uint32_t index) const;
 	private:
 		/*
 		创建交换链与图像视图、图像可用信号量（实现见 core/交换链重建.cpp）

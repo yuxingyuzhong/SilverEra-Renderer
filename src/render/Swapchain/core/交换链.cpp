@@ -402,4 +402,13 @@ namespace engine
 			return VK_NULL_HANDLE;
 		return msaa_depth_views[index];
 	}
+
+	//指定索引的 MSAA 深度图像（第二百六十轮）
+	VkImage Swapchain_Context::msaa_depth_image_get(uint32_t index) const
+	{
+		//越界或未启用则返回空句柄
+		if (index >= msaa_depth_images.size())
+			return VK_NULL_HANDLE;
+		return msaa_depth_images[index];
+	}
 }

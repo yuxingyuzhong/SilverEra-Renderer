@@ -402,8 +402,8 @@ namespace engine
 		VkImage depth_image, VkImageView depth_view, VkExtent2D extent,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool,
-		VkImage msaa_image, VkImageView msaa_color_view, VkImageView msaa_depth_view, uint32_t sample_count,
-		const Frame_Post_Scene_Callback* post_scene)
+		VkImage msaa_image, VkImageView msaa_color_view, VkImageView msaa_depth_view, VkImage msaa_depth_image,
+		uint32_t sample_count, const Frame_Post_Scene_Callback* post_scene)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -499,6 +499,17 @@ namespace engine
 		depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depth_attachment.clearValue.depthStencil.depth = 1.0f;
 		depth_attachment.clearValue.depthStencil.stencil = 0;
+		/*
+		深度解析（第二百六十轮）
+		MSAA 下场景只写多重采样深度；当多重采样深度图像与单采样深度图像均就绪时，
+		以「样本 0」解析到单采样深度，供 Hi-Z 生成读取（不影响既有颜色 / UI 路径）。
+		*/
+		if (sample_count > 1 && msaa_depth_image != VK_NULL_HANDLE && depth_image != VK_NULL_HANDLE)
+		{
+			depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+			depth_attachment.resolveImageView = depth_view;
+			depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		}
 
 		//渲染信息（渲染区 = 交换链范围，单颜色附件 + 深度附件）
 		VkRenderingInfo rendering_info{};
@@ -566,10 +577,11 @@ namespace engine
 
 		/*
 		场景退场回调（第二百五十四轮；Hi-Z 深度拷贝与金字塔生成）
-		必须在渲染通道之外执行，且进入时深度为单采样（MSAA 多重采样深度暂不支持，260 轮另做）；
+		必须在渲染通道之外执行；单采样直接用场景深度，MSAA 用深度解析后的单采样深度（第二百六十轮）。
 		回调自行完成深度布局往返，返回后深度仍为 DEPTH_ATTACHMENT_OPTIMAL。
 		*/
-		if (post_scene != nullptr && post_scene->fn != nullptr && sample_count <= 1
+		if (post_scene != nullptr && post_scene->fn != nullptr
+			&& (sample_count <= 1 || msaa_depth_image != VK_NULL_HANDLE)
 			&& depth_image != VK_NULL_HANDLE && depth_view != VK_NULL_HANDLE)
 			post_scene->fn(command_buffer, depth_image, depth_view, extent, post_scene->user_data);
 
