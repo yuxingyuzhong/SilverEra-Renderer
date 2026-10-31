@@ -7,24 +7,34 @@ namespace engine
 	/*
 	创建描述符集布局
 	set 0：场景 UBO（binding 0，顶点阶段可见，逐帧更新视图投影矩阵）；
+	       簇数据（binding 1..4，第二百八十八轮：光源记录 / 逐簇计数 / 逐簇排他偏移 / 光源列表，
+	       只读存储缓冲，片元阶段读取）；
 	set 1：采样器（binding 0 = 当前纹理 / 上一级输出；binding 1 = 场景目标，供「双源」后处理片元叠加）。
 	binding 1 在单源片元中不被声明，故多出的描述符不影响既有管线；由绑定接口一并写入以避免未写描述符。
 	*/
 	bool Pipeline_Context::descriptor_layouts_create(void)
 	{
-		//set 0 绑定（场景 UBO）
-		VkDescriptorSetLayoutBinding scene_binding{};
-		scene_binding.binding = 0;
-		scene_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		scene_binding.descriptorCount = 1;
+		//set 0 绑定（0 = 场景 UBO，1..4 = 簇数据存储缓冲）
+		VkDescriptorSetLayoutBinding scene_bindings[5]{};
+		scene_bindings[0].binding = 0;
+		scene_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		scene_bindings[0].descriptorCount = 1;
 		//顶点与片元阶段均可见（第二十九轮：片元着色器需读取其中的光照参数）
-		scene_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		scene_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+		for (uint32_t binding = 1; binding <= 4; ++binding)
+		{
+			scene_bindings[binding].binding = binding;
+			scene_bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			scene_bindings[binding].descriptorCount = 1;
+			//仅片元阶段读取（簇索引由片元世界位置换算）
+			scene_bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
 
 		//set 0 布局创建信息
 		VkDescriptorSetLayoutCreateInfo scene_info{};
 		scene_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		scene_info.bindingCount = 1;
-		scene_info.pBindings = &scene_binding;
+		scene_info.bindingCount = 5;
+		scene_info.pBindings = scene_bindings;
 		//若场景布局创建失败
 		if (!vk_result_check(vkCreateDescriptorSetLayout(device, &scene_info, nullptr, &scene_set_layout), "vkCreateDescriptorSetLayout（场景）"))
 			return false;

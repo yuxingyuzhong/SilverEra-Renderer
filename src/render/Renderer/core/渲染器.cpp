@@ -363,6 +363,127 @@ namespace engine
 		last_cluster_light_count = 0;
 	}
 
+	//销毁图形 set0 的簇数据缓冲与占位缓冲（第二百八十八轮；幂等）
+	void Renderer::Impl::cluster_graphics_destroy(void)
+	{
+		//依赖内存模块，须先于 memory 销毁
+		if (memory.valid())
+		{
+			//逐槽归还计数 / 偏移 / 列表缓冲
+			for (std::size_t slot = 0; slot < cluster_counts_buffers.size(); ++slot)
+				if (cluster_counts_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_counts_buffers[slot], cluster_counts_allocations[slot]);
+			for (std::size_t slot = 0; slot < cluster_offsets_buffers.size(); ++slot)
+				if (cluster_offsets_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_offsets_buffers[slot], cluster_offsets_allocations[slot]);
+			for (std::size_t slot = 0; slot < cluster_list_buffers.size(); ++slot)
+				if (cluster_list_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_list_buffers[slot], cluster_list_allocations[slot]);
+			//归还占位缓冲
+			if (cluster_placeholder_buffer != VK_NULL_HANDLE)
+				memory.buffer_destroy(cluster_placeholder_buffer, cluster_placeholder_allocation);
+		}
+		cluster_counts_buffers.clear();
+		cluster_counts_allocations.clear();
+		cluster_offsets_buffers.clear();
+		cluster_offsets_allocations.clear();
+		cluster_list_buffers.clear();
+		cluster_list_allocations.clear();
+		cluster_placeholder_buffer = VK_NULL_HANDLE;
+		cluster_placeholder_allocation = VK_NULL_HANDLE;
+		cluster_counts_capacity = 0;
+		cluster_list_capacity = 0;
+		last_cluster_gpu_bytes = 0;
+	}
+
+	/*
+	确保簇数据占位缓冲就绪（第二百八十八轮）
+	64 字节主机可见存储缓冲；Cluster 关闭时 set0 binding 1..4 统一指向它。
+	*/
+	bool Renderer::Impl::cluster_placeholder_ensure(void)
+	{
+		//已就绪
+		if (cluster_placeholder_buffer != VK_NULL_HANDLE)
+			return true;
+		//内存模块缺失
+		if (!memory.valid())
+			return false;
+		//创建占位缓冲（不足一页，任意长度均满足描述符完整性要求）
+		return memory.buffer_create(cluster_placeholder_buffer, cluster_placeholder_allocation,
+			64, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
+	}
+
+	/*
+	确保图形 set0 的簇数据缓冲就绪（第二百八十八轮）
+	容量足够且逐槽句柄齐备时为空操作；否则等尽在途帧后按新容量重建，并重写全部帧槽的 binding 1..4。
+	*/
+	bool Renderer::Impl::cluster_graphics_ensure(uint32_t cluster_total, uint32_t list_capacity)
+	{
+		//能力不足或入参非法
+		if (!cluster_capable || !compute.supported() || cluster_total == 0 || list_capacity == 0)
+			return false;
+		//已就绪：槽数与容量足够且逐槽句柄齐备
+		bool ready = cluster_counts_buffers.size() == config.frame_overlap
+			&& cluster_counts_capacity >= cluster_total && cluster_list_capacity >= list_capacity;
+		if (ready)
+			for (std::size_t slot = 0; slot < cluster_counts_buffers.size(); ++slot)
+				if (cluster_counts_buffers[slot] == VK_NULL_HANDLE
+					|| cluster_offsets_buffers[slot] == VK_NULL_HANDLE
+					|| cluster_list_buffers[slot] == VK_NULL_HANDLE)
+					ready = false;
+		//已就绪则无需重建
+		if (ready)
+			return true;
+		//重建前等尽在途帧（旧缓冲可能仍被在途帧读取）
+		if (!frame.frames_wait())
+			return false;
+		//回收旧缓冲（占位缓冲保留）
+		if (memory.valid())
+		{
+			for (std::size_t slot = 0; slot < cluster_counts_buffers.size(); ++slot)
+				if (cluster_counts_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_counts_buffers[slot], cluster_counts_allocations[slot]);
+			for (std::size_t slot = 0; slot < cluster_offsets_buffers.size(); ++slot)
+				if (cluster_offsets_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_offsets_buffers[slot], cluster_offsets_allocations[slot]);
+			for (std::size_t slot = 0; slot < cluster_list_buffers.size(); ++slot)
+				if (cluster_list_buffers[slot] != VK_NULL_HANDLE)
+					memory.buffer_destroy(cluster_list_buffers[slot], cluster_list_allocations[slot]);
+		}
+		cluster_counts_buffers.assign(config.frame_overlap, VK_NULL_HANDLE);
+		cluster_counts_allocations.assign(config.frame_overlap, VK_NULL_HANDLE);
+		cluster_offsets_buffers.assign(config.frame_overlap, VK_NULL_HANDLE);
+		cluster_offsets_allocations.assign(config.frame_overlap, VK_NULL_HANDLE);
+		cluster_list_buffers.assign(config.frame_overlap, VK_NULL_HANDLE);
+		cluster_list_allocations.assign(config.frame_overlap, VK_NULL_HANDLE);
+		//逐槽创建计数 / 偏移 / 列表缓冲（主机可见存储缓冲）
+		for (uint32_t slot = 0; slot < config.frame_overlap; ++slot)
+			if (!memory.buffer_create(cluster_counts_buffers[slot], cluster_counts_allocations[slot],
+				static_cast<VkDeviceSize>(cluster_total) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true)
+				|| !memory.buffer_create(cluster_offsets_buffers[slot], cluster_offsets_allocations[slot],
+				static_cast<VkDeviceSize>(cluster_total) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true)
+				|| !memory.buffer_create(cluster_list_buffers[slot], cluster_list_allocations[slot],
+				static_cast<VkDeviceSize>(list_capacity) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true))
+			{
+				logger.warn("渲染器:: 簇数据缓冲创建失败（帧槽 {}）", slot);
+				cluster_counts_capacity = 0;
+				cluster_list_capacity = 0;
+				return false;
+			}
+		//记录新容量
+		cluster_counts_capacity = cluster_total;
+		cluster_list_capacity = list_capacity;
+		//重写全部帧槽的簇数据绑定（binding 1 = 光源记录缓冲，由 cluster_ensure 负责）
+		for (uint32_t slot = 0; slot < config.frame_overlap; ++slot)
+			if (!pipeline.scene_cluster_bind(slot, light_buffers[slot],
+				cluster_counts_buffers[slot], cluster_offsets_buffers[slot], cluster_list_buffers[slot]))
+			{
+				logger.error("渲染器:: 簇数据绑定写入失败（帧槽 {}）", slot);
+				return false;
+			}
+		return true;
+	}
+
 	/*
 	把后处理采样集绑定到给定目标视图组（第九十七轮；第一百二十三轮增加场景深度）
 	签名（采样器 ＋ 视图组与数量 ＋ 深度视图）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
@@ -1069,6 +1190,16 @@ namespace engine
 		//间接命令缓冲按帧槽各一（第二百五十二轮；主机可见，仅在开关开启时创建）
 		impl->indirect_buffers.resize(effective.frame_overlap);
 		impl->indirect_allocations.resize(effective.frame_overlap);
+		/*
+		簇数据占位存储缓冲（第二百八十八轮）
+		set0 binding 1..4 在 Cluster 关闭时无真实数据，仍须有完整描述符；64 字节占位缓冲统一占位。
+		*/
+		if (!impl->cluster_placeholder_ensure())
+		{
+			logger.error("渲染器:: 簇数据占位缓冲创建失败");
+			shutdown();
+			return false;
+		}
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
 			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数；第一百四十六轮扩为 1168；第一百七十九轮扩为 1184：追加卡通高光参数）
@@ -1244,6 +1375,17 @@ namespace engine
 			if (!impl->pipeline.scene_bind(slot, impl->scene_ubos[slot]))
 			{
 				logger.error("渲染器:: 场景 UBO 绑定失败（帧槽 {}）", slot);
+				shutdown();
+				return false;
+			}
+			/*
+			该帧槽 set0 的簇数据绑定（第二百八十八轮）
+			初始化阶段统一指向占位缓冲；Cluster 开启后由 cluster_graphics_ensure 改写为真实缓冲。
+			*/
+			if (!impl->pipeline.scene_cluster_bind(slot, impl->cluster_placeholder_buffer,
+				impl->cluster_placeholder_buffer, impl->cluster_placeholder_buffer, impl->cluster_placeholder_buffer))
+			{
+				logger.error("渲染器:: 簇数据占位绑定写入失败（帧槽 {}）", slot);
 				shutdown();
 				return false;
 			}
@@ -1735,6 +1877,8 @@ namespace engine
 		impl->indirect_allocations.clear();
 		//光源记录缓冲依赖内存模块，须先于 memory 销毁（第二百六十六轮）
 		impl->cluster_destroy();
+		//图形 set0 簇数据缓冲与占位缓冲依赖内存模块，须先于 memory 销毁（第二百八十八轮）
+		impl->cluster_graphics_destroy();
 		//默认纹理句柄复位
 		impl->default_texture = 0;
 		//天空盒状态复位（第一百二十五轮；默认关闭、强度 0）
@@ -2280,12 +2424,34 @@ namespace engine
 			if (!cluster_data_build(impl->cluster_counts_scratch.data(), impl->cluster_offsets_scratch.data(),
 				impl->cluster_list_scratch.data(), cluster_total, list_capacity, &entries, false))
 				logger.warn("渲染器:: 簇数据整备失败（帧 {}）", impl->frame_count);
+			else
+			{
+				/*
+				图形 set0 簇数据上传（第二百八十八轮）
+				计数与偏移按簇数整块上传、列表按条目数上传；缓冲容量不足时由 ensure 先等尽在途帧再重建。
+				*/
+				if (!impl->cluster_graphics_ensure(cluster_total, list_capacity))
+					logger.warn("渲染器:: 簇数据缓冲就绪失败（帧 {}）", impl->frame_count);
+				else if (!impl->memory.buffer_write(impl->cluster_counts_buffers[slot],
+					impl->cluster_counts_allocations[slot], impl->cluster_counts_scratch.data(),
+					static_cast<VkDeviceSize>(cluster_total) * 4, 0)
+					|| !impl->memory.buffer_write(impl->cluster_offsets_buffers[slot],
+					impl->cluster_offsets_allocations[slot], impl->cluster_offsets_scratch.data(),
+					static_cast<VkDeviceSize>(cluster_total) * 4, 0)
+					|| !impl->memory.buffer_write(impl->cluster_list_buffers[slot],
+					impl->cluster_list_allocations[slot], impl->cluster_list_scratch.data(),
+					static_cast<VkDeviceSize>(entries) * 4, 0))
+					logger.warn("渲染器:: 簇数据上传失败（帧 {}）", impl->frame_count);
+				else
+					impl->last_cluster_gpu_bytes = cluster_total * 8 + entries * 4;
+			}
 		}
 		else
 		{
 			//关闭时观测清零
 			impl->last_cluster_entries = 0;
 			impl->last_cluster_build_ms = 0.0;
+			impl->last_cluster_gpu_bytes = 0;
 		}
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
@@ -3490,6 +3656,7 @@ namespace engine
 		//簇数据整备观测（第二百七十三轮；Cluster 关闭时恒 0）
 		stats.cluster_build_ms = impl->last_cluster_build_ms;
 		stats.cluster_entries = impl->last_cluster_entries;
+		stats.cluster_gpu_bytes = impl->last_cluster_gpu_bytes;
 		//光源截断标志（第二百八十轮；Cluster 关闭且超过 8 盏时置 1）
 		stats.light_truncated = impl->light_truncated ? 1u : 0u;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）

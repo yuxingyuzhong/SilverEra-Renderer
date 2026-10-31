@@ -258,6 +258,8 @@ namespace engine
 		double cluster_build_ms = 0.0;
 		//最近一次簇数据整备的条目数（第二百七十三轮；Cluster 关闭时恒 0）
 		uint32_t cluster_entries = 0;
+		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；Cluster 关闭时恒 0）
+		uint32_t cluster_gpu_bytes = 0;
 		//是否发生过「Cluster 关闭且光源超过 8 盏」的截断（第二百八十轮；1 = 发生过）
 		uint32_t light_truncated = 0;
 		uint64_t indirect_draws = 0;

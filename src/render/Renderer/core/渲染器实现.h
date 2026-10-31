@@ -69,6 +69,20 @@ namespace engine
 		//销毁光源记录 SSBO（第二百六十六轮；幂等）
 		void cluster_destroy(void);
 		/*
+		确保簇数据占位缓冲就绪（第二百八十八轮；惰性构建）
+		创建 64 字节主机可见存储缓冲；Cluster 关闭时 set0 binding 1..4 统一指向它，
+		保证四条绑定始终有完整描述符。
+		*/
+		bool cluster_placeholder_ensure(void);
+		/*
+		确保图形 set0 的簇数据缓冲就绪（第二百八十八轮；惰性构建 / 按容量增长重建）
+		计数 / 偏移容量 = 簇数、列表容量 = 列表条目数；容量不足时先等尽在途帧再重建，
+		重建后重写全部帧槽的 binding 1..4。光源记录缓冲由 cluster_ensure 负责。
+		*/
+		bool cluster_graphics_ensure(uint32_t cluster_total, uint32_t list_capacity);
+		//销毁图形 set0 的簇数据缓冲与占位缓冲（第二百八十八轮；幂等）
+		void cluster_graphics_destroy(void);
+		/*
 		场景退场回调入口（第二百五十四轮）
 		帧模块以 C 函数指针调用；user_data 为本实现体地址，内部完成深度拷贝与金字塔生成的录制。
 		*/
@@ -310,6 +324,25 @@ namespace engine
 		std::vector<uint32_t> cluster_counts_scratch;
 		std::vector<uint32_t> cluster_offsets_scratch;
 		std::vector<uint32_t> cluster_list_scratch;
+		/*
+		图形 set0 的簇数据存储缓冲（第二百八十八轮；按帧槽持有）
+		binding 2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表；仅 Cluster 开启时惰性构建，
+		列表按条目数增长重建（计数 / 偏移容量 = 簇数）。
+		*/
+		std::vector<VkBuffer> cluster_counts_buffers;
+		std::vector<VmaAllocation> cluster_counts_allocations;
+		std::vector<VkBuffer> cluster_offsets_buffers;
+		std::vector<VmaAllocation> cluster_offsets_allocations;
+		std::vector<VkBuffer> cluster_list_buffers;
+		std::vector<VmaAllocation> cluster_list_allocations;
+		//已建容量（簇数 / 列表条目数）；增长时才重建
+		uint32_t cluster_counts_capacity = 0;
+		uint32_t cluster_list_capacity = 0;
+		//Cluster 关闭时的占位存储缓冲（set0 binding 1..4 共用；第二百八十八轮）
+		VkBuffer cluster_placeholder_buffer = VK_NULL_HANDLE;
+		VmaAllocation cluster_placeholder_allocation = VK_NULL_HANDLE;
+		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
+		uint32_t last_cluster_gpu_bytes = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

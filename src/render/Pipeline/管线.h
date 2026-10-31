@@ -195,6 +195,13 @@ namespace engine
 		VkDescriptorSet post_set_get(uint32_t slot, uint32_t index = 0) const;
 		//向第 slot 帧槽写场景 UBO（set 0）
 		bool scene_bind(uint32_t slot, VkBuffer ubo_buffer);
+		/*
+		向第 slot 帧槽写簇数据存储缓冲（set 0 binding 1..4；第二百八十八轮）
+		binding 1 = 光源记录、2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表（均只读）；
+		Cluster 关闭时由门面传入同一占位缓冲，保证四条绑定始终有完整描述符。
+		*/
+		bool scene_cluster_bind(uint32_t slot, VkBuffer light_buffer, VkBuffer counts_buffer,
+			VkBuffer offsets_buffer, VkBuffer list_buffer);
 		//向第 slot 帧槽写采样器（set 1 binding 0；binding 1 由 shadow_bind 独立维护）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 		/*

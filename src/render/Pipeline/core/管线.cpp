@@ -102,19 +102,22 @@ namespace engine
 		故采样器类描述符按九倍计；
 		最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)。
 		*/
-		VkDescriptorPoolSize pool_sizes[2]{};
+		VkDescriptorPoolSize pool_sizes[3]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		pool_sizes[0].descriptorCount = config.frame_overlap;
-		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		//簇数据存储缓冲（第二百八十八轮；每帧槽四条绑定）
+		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		pool_sizes[1].descriptorCount = config.frame_overlap * 4;
+		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		//采样器类描述符按「场景集 ＋ 后处理集 ＋ 逐绘制项集」三部分计
-		pool_sizes[1].descriptorCount = config.frame_overlap
+		pool_sizes[2].descriptorCount = config.frame_overlap
 			* (1 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 9;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		pool_info.maxSets = config.frame_overlap * (2 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
-		pool_info.poolSizeCount = 2;
+		pool_info.poolSizeCount = 3;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
 		if (!vk_result_check(vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool), "vkCreateDescriptorPool"))
@@ -611,6 +614,46 @@ namespace engine
 
 		//更新描述符集
 		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	/*
+	向第 slot 帧槽写簇数据存储缓冲（第二百八十八轮）
+	set 0 binding 1 = 光源记录、2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表；
+	四条均为只读存储缓冲，范围取整块（容量由调用方保证）。
+	*/
+	bool Pipeline_Context::scene_cluster_bind(uint32_t slot, VkBuffer light_buffer, VkBuffer counts_buffer,
+		VkBuffer offsets_buffer, VkBuffer list_buffer)
+	{
+		//前置：设备、目标集与四缓冲齐备
+		if (device == VK_NULL_HANDLE || slot >= scene_sets.size() || scene_sets[slot] == VK_NULL_HANDLE
+			|| light_buffer == VK_NULL_HANDLE || counts_buffer == VK_NULL_HANDLE
+			|| offsets_buffer == VK_NULL_HANDLE || list_buffer == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 簇数据存储缓冲绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//四条绑定的缓冲描述与写记录（binding 1..4 依次对应四个缓冲）
+		const VkBuffer buffers[4] = { light_buffer, counts_buffer, offsets_buffer, list_buffer };
+		VkDescriptorBufferInfo buffer_infos[4]{};
+		VkWriteDescriptorSet writes[4]{};
+		for (uint32_t index = 0; index < 4; ++index)
+		{
+			buffer_infos[index].buffer = buffers[index];
+			buffer_infos[index].offset = 0;
+			buffer_infos[index].range = VK_WHOLE_SIZE;
+			writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			writes[index].dstSet = scene_sets[slot];
+			writes[index].dstBinding = index + 1;
+			writes[index].dstArrayElement = 0;
+			writes[index].descriptorCount = 1;
+			writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			writes[index].pBufferInfo = &buffer_infos[index];
+		}
+
+		//一次更新四条绑定
+		vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
 		return true;
 	}
 
