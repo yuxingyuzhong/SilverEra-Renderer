@@ -276,6 +276,13 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 		float cos_angle = dot(-to_light, light_direction.xyz);
 		cone_factor = smoothstep(cone.y, cone.x, cos_angle);
 	}
+	/*
+	锥外提前退出（第二百九十四轮）
+	圆锥外 cone_factor 恒为 0：辐射度加 0、高光 / 清漆 max(…, 0) 均不改变结果，
+	故直接返回，跳过后续点积与 pow；与不提前退出逐字节等价。
+	*/
+	if (is_spot && cone_factor <= 0.0)
+		return;
 	float ndotl = max(dot(normal, to_light), 0.0);
 	//色阶量化（第一百七十四轮；关闭时原样返回）
 	ndotl = toon_quantize(ndotl, toon_levels);
