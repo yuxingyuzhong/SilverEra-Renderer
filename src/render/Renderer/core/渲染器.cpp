@@ -2276,10 +2276,9 @@ namespace engine
 			impl->cluster_offsets_scratch.resize(cluster_total);
 			impl->cluster_list_scratch.resize(list_capacity);
 			uint32_t entries = 0;
-			//整备（计算可用时走 GPU，否则走 CPU 参考）
+			//整备（当前 ≤8 盏规模下 CPU 远快于 GPU 同步回读，帧内默认走 CPU；见 276 轮性能对照）
 			if (!cluster_data_build(impl->cluster_counts_scratch.data(), impl->cluster_offsets_scratch.data(),
-				impl->cluster_list_scratch.data(), cluster_total, list_capacity, &entries,
-				compute_supported()))
+				impl->cluster_list_scratch.data(), cluster_total, list_capacity, &entries, false))
 				logger.warn("渲染器:: 簇数据整备失败（帧 {}）", impl->frame_count);
 		}
 		else
