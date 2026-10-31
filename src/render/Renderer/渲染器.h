@@ -453,6 +453,10 @@ namespace engine
 		bool hiz_supported(void) const;
 		bool hiz_state_get(uint32_t& width_out, uint32_t& height_out, uint32_t& level_count_out) const;
 		bool hiz_level_extent(uint32_t level, uint32_t& width_out, uint32_t& height_out) const;
+		//累计金字塔生成次数（第二百五十四轮；关闭或未生成时为 0）
+		uint64_t hiz_generation_count(void) const;
+		//指定帧槽是否已生成过有效金字塔（索引超出在途帧数返回假）
+		bool hiz_history_ready(uint32_t slot) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。

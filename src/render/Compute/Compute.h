@@ -75,6 +75,16 @@ namespace engine
 		offset / size 允许为整个缓冲或其中一段；越界参数返回假。
 		*/
 		bool storage_bind(uint32_t slot, uint32_t binding, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize size);
+		/*
+		向第 slot 帧槽写组合图像采样器（第二百五十四轮）
+		位置固定为 binding = storage_buffer_count（见 Compute_Config::sampler_count）。
+		*/
+		bool sampler_bind(uint32_t slot, VkSampler sampler, VkImageView view);
+		/*
+		向第 slot 帧槽写存储图像（第二百五十四轮；index ∈ [0, storage_image_count)）
+		位置固定为 binding = storage_buffer_count + sampler_count + index；图像视图须单级且格式支持存储。
+		*/
+		bool storage_image_bind(uint32_t slot, uint32_t index, VkImageView view);
 
 		/*
 		单次提交辅助

@@ -76,15 +76,28 @@ namespace engine
 			destroy();
 			return false;
 		}
-		//描述符池（每帧槽 count 条存储缓冲）
-		VkDescriptorPoolSize pool_size{};
-		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		pool_size.descriptorCount = config.frame_overlap * config.storage_buffer_count;
+		//描述符池（每帧槽 count 条存储缓冲 ＋ 采样器 ＋ 存储图像）
+		VkDescriptorPoolSize pool_sizes[3]{};
+		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		pool_sizes[0].descriptorCount = config.frame_overlap * config.storage_buffer_count;
+		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		pool_sizes[1].descriptorCount = config.frame_overlap * config.sampler_count;
+		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		pool_sizes[2].descriptorCount = config.frame_overlap * config.storage_image_count;
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		pool_info.maxSets = config.frame_overlap;
-		pool_info.poolSizeCount = 1;
-		pool_info.pPoolSizes = &pool_size;
+		//仅登记数量非零的池项
+		pool_info.poolSizeCount = 0;
+		for (uint32_t index = 0; index < 3; ++index)
+		{
+			//数量为 0 的池项跳过
+			if (pool_sizes[index].descriptorCount == 0)
+				continue;
+			pool_sizes[pool_info.poolSizeCount] = pool_sizes[index];
+			++pool_info.poolSizeCount;
+		}
+		pool_info.pPoolSizes = pool_sizes;
 		//创建描述符池
 		if (vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool) != VK_SUCCESS)
 		{
@@ -219,10 +232,12 @@ namespace engine
 		return supported_flag && valid();
 	}
 
-	//计算描述符布局创建（set 0：storage_buffer_count 条存储缓冲，可见性仅计算阶段）
+	//计算描述符布局创建（set 0：存储缓冲 ＋ 可选组合采样器 ＋ 存储图像，可见性仅计算阶段）
 	bool Compute_Context::descriptor_layout_create(void)
 	{
-		std::vector<VkDescriptorSetLayoutBinding> bindings(config.storage_buffer_count);
+		//绑定总数 = 存储缓冲 ＋ 采样器 ＋ 存储图像
+		const uint32_t binding_count = config.storage_buffer_count + config.sampler_count + config.storage_image_count;
+		std::vector<VkDescriptorSetLayoutBinding> bindings(binding_count);
 		for (uint32_t index = 0; index < config.storage_buffer_count; ++index)
 		{
 			bindings[index].binding = index;
@@ -230,6 +245,29 @@ namespace engine
 			bindings[index].descriptorCount = 1;
 			bindings[index].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 			bindings[index].pImmutableSamplers = nullptr;
+		}
+		/*
+		组合图像采样器（第二百五十四轮）
+		紧随存储缓冲之后（默认 binding 4），供 Hi-Z 深度拷贝着色器按纹素取场景深度。
+		*/
+		for (uint32_t index = 0; index < config.sampler_count; ++index)
+		{
+			const uint32_t binding = config.storage_buffer_count + index;
+			bindings[binding].binding = binding;
+			bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			bindings[binding].descriptorCount = 1;
+			bindings[binding].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+			bindings[binding].pImmutableSamplers = nullptr;
+		}
+		//存储图像（默认 binding 5、6）：Hi-Z 金字塔逐级的源 / 目标
+		for (uint32_t index = 0; index < config.storage_image_count; ++index)
+		{
+			const uint32_t binding = config.storage_buffer_count + config.sampler_count + index;
+			bindings[binding].binding = binding;
+			bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			bindings[binding].descriptorCount = 1;
+			bindings[binding].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+			bindings[binding].pImmutableSamplers = nullptr;
 		}
 		VkDescriptorSetLayoutCreateInfo layout_info{};
 		layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -389,6 +427,60 @@ namespace engine
 		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		write.pBufferInfo = &buffer_info;
 		//一次性写入该绑定
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	/*
+	写组合图像采样器（第二百五十四轮）
+	绑定位置固定为 storage_buffer_count；图像布局取 SHADER_READ_ONLY（深度拷贝着色器只读深度）。
+	*/
+	bool Compute_Context::sampler_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//参数越界或未构建
+		if (!valid() || slot >= sets.size() || config.sampler_count == 0
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+			return false;
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sets[slot];
+		write.dstBinding = config.storage_buffer_count;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+		//一次性写入采样器绑定
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
+
+	/*
+	写存储图像（第二百五十四轮）
+	绑定位置 = storage_buffer_count + sampler_count + index；布局固定 GENERAL（生成与读取同一布局）。
+	*/
+	bool Compute_Context::storage_image_bind(uint32_t slot, uint32_t index, VkImageView view)
+	{
+		//参数越界或未构建
+		if (!valid() || slot >= sets.size() || index >= config.storage_image_count
+			|| view == VK_NULL_HANDLE)
+			return false;
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = VK_NULL_HANDLE;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = sets[slot];
+		write.dstBinding = config.storage_buffer_count + config.sampler_count + index;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		write.pImageInfo = &image_info;
+		//一次性写入该存储图像绑定
 		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 		return true;
 	}

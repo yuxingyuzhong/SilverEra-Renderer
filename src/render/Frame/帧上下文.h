@@ -239,6 +239,21 @@ namespace engine
 	};
 
 	/*
+	场景 pass 退场回调（第二百五十四轮）
+	在场景动态渲染通道结束之后、深度仍处于深度附件布局时调用，用于「深度 → 历史」与金字塔生成等
+	需要命令缓冲但必须在渲染通道之外的阶段。depth_image / depth_view 为本次场景以单采样写出的深度；
+	回调须自行完成布局往返（进入 DEPTH_ATTACHMENT、退出恢复 DEPTH_ATTACHMENT）。
+	*/
+	struct Frame_Post_Scene_Callback
+	{
+		//回调（命令缓冲 ＋ 深度图像与视图 ＋ 范围 ＋ 用户数据）
+		void (*fn)(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+			VkExtent2D extent, void* user_data) = nullptr;
+		//用户数据
+		void* user_data = nullptr;
+	};
+
+	/*
 	像素回读请求
 	由门面在 render 时传入：pixels 非空即请求本帧把颜色附件拷回该主机缓冲。
 	capacity 为 pixels 的字节容量（须不小于 宽 × 高 × 4）；宽 / 高 / 字节数由帧模块回填。
@@ -316,7 +331,8 @@ namespace engine
 		bool render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
 			bool& rebuild_needed_out, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr,
-			Frame_Readback_Request* readback = nullptr);
+			Frame_Readback_Request* readback = nullptr,
+			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
 		渲染一帧到离屏目标（不取交换链图像、不呈现）
 		帧槽等待 → 重置命令池 → 录制（目标附件 ＋ 场景 pass ＋ 可选像素回读）→ 仅以栅栏提交 → 回读；
@@ -511,12 +527,13 @@ namespace engine
 		若给定回读缓冲则在呈现转换前转入 TRANSFER_SRC 并把颜色附件拷入该缓冲（再经呈现前布局转换收尾）。
 		*/
 		void command_record(VkCommandBuffer command_buffer, VkImage image, VkImageView image_view,
-			VkImageView depth_view, VkExtent2D extent,
+			VkImage depth_image, VkImageView depth_view, VkExtent2D extent,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
 			VkImage msaa_image = VK_NULL_HANDLE, VkImageView msaa_color_view = VK_NULL_HANDLE,
-			VkImageView msaa_depth_view = VK_NULL_HANDLE, uint32_t sample_count = 1);
+			VkImageView msaa_depth_view = VK_NULL_HANDLE, uint32_t sample_count = 1,
+			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
 		录制「渲染到离屏目标」的命令缓冲（实现见 core/命令录制.cpp）
 		颜色进入布局为 SHADER_READ_ONLY_OPTIMAL，故先转入 COLOR_ATTACHMENT_OPTIMAL；

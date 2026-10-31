@@ -108,7 +108,7 @@ namespace engine
 	//渲染一帧：等待栅栏 → 取图像 → 重置命令池 → 录制（可选像素回读）→ 提交并呈现
 	bool Frame_Context::render(Swapchain_Context& swapchain, const Frame_Render_Item* items, uint32_t item_count,
 		bool& rebuild_needed_out, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
-		Frame_Readback_Request* readback)
+		Frame_Readback_Request* readback, const Frame_Post_Scene_Callback* post_scene)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -221,11 +221,12 @@ namespace engine
 			swapchain.sample_count_get());
 		//录制命令缓冲（布局转换 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 呈现前布局转换）
 		command_record(slot.command_buffer, swapchain.image_get(image_index),
-			swapchain.image_view_get(image_index), swapchain.depth_view_get(image_index),
+			swapchain.image_view_get(image_index), swapchain.depth_image_get(image_index),
+			swapchain.depth_view_get(image_index),
 			swapchain.extent_get(), items, item_count, clear_color, ui_callback, readback_target,
 			slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
-			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
+			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get(), post_scene);
 		//并行上下文只对本帧录制有效
 		active_secondary = nullptr;
 		active_secondary_count = 0;

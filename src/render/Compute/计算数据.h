@@ -15,6 +15,14 @@ namespace engine
 		uint32_t frame_overlap = 2;
 		//存储缓冲绑定数量（set 0：binding 0..count-1；默认 4，留给实例 / 剔除 / 光源 / 簇列表）
 		uint32_t storage_buffer_count = 4;
+		/*
+		采样器与存储图像绑定数量（第二百五十四轮）
+		位置固定：binding storage_buffer_count = 组合图像采样器（0 或 1 条），
+		其后连续 storage_image_count 条为存储图像（默认 2：源 / 目标金字塔级）。
+		默认 1 ＋ 2 供 Hi-Z 深度拷贝与逐级降采样使用。
+		*/
+		uint32_t sampler_count = 1;
+		uint32_t storage_image_count = 2;
 		//推送常量字节数（与图形同尺寸 128，复用既有偏移约定，避免两套偏移表）
 		uint32_t push_size = 128;
 	};

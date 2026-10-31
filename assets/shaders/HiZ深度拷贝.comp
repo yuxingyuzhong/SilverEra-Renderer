@@ -1,0 +1,29 @@
+#version 450
+// Hi-Z 深度拷贝（第二百五十四轮）
+// 以最近邻采样把场景单采样深度按纹素写入 R32_SFLOAT 历史图像；
+// 用采样而非 imageLoad 的原因：场景深度为深度格式（D32），不能直接作为存储图像读写。
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+// 场景深度（采样器为最近邻 ＋ 钳边，避免边界插值破坏保守性）
+layout(set = 0, binding = 4) uniform sampler2D depth_source;
+// 深度历史（全分辨率，颜色面）
+layout(set = 0, binding = 5, r32f) uniform image2D history_image;
+
+layout(push_constant) uniform Push_HiZ_Copy
+{
+	// 全分辨率宽高（纹素数）
+	layout(offset = 0) uint width;
+	layout(offset = 4) uint height;
+	layout(offset = 8) uint unused_x;
+	layout(offset = 12) uint unused_y;
+} push_copy;
+
+void main()
+{
+	ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+	// 超出范围直接返回（工作组按 8×8 向上取整）
+	if (uint(pixel.x) >= push_copy.width || uint(pixel.y) >= push_copy.height)
+		return;
+	float depth = texelFetch(depth_source, pixel, 0).r;
+	imageStore(history_image, pixel, vec4(depth, 0.0, 0.0, 1.0));
+}

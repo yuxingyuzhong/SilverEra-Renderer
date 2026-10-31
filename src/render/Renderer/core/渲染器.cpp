@@ -292,6 +292,8 @@ namespace engine
 		//能力不足
 		if (!hiz_capable || !compute.supported())
 			return false;
+		//关联计算上下文（第二百五十四轮：生成经其描述符集与调度）
+		hiz.compute_set(&compute);
 		//当前交换链范围（为 0 表示尚未就绪）
 		VkExtent2D extent = swapchain.extent_get();
 		if (extent.width == 0 || extent.height == 0)
@@ -1438,15 +1440,9 @@ namespace engine
 		//间接绘制开关（第二百五十二轮；默认关闭）
 		impl->gpu_indirect_enabled = effective.gpu_indirect_enable;
 		/*
-		Hi-Z 开关与惰性资源（第二百五十三轮）
-		配置为真时在初始化末尾构建；构建失败仅告警并把开关复位为假（不阻断初始化，默认路径不受影响）。
+		Hi-Z 开关（第二百五十三 / 二百五十四轮）
+		真正的启用（构建资源 ＋ 懒加载生成管线）放在 initialized 置真之后，以便复用门面启用路径。
 		*/
-		impl->hiz_enabled = effective.hiz_enable;
-		if (impl->hiz_enabled && !impl->hiz_ensure())
-		{
-			logger.warn("渲染器:: Hi-Z 资源构建失败（开关保持关闭）");
-			impl->hiz_enabled = false;
-		}
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
@@ -1455,6 +1451,12 @@ namespace engine
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
 		impl->msaa_depth_resolve = effective.msaa_depth_resolve;
 		impl->initialized = true;
+		/*
+		Hi-Z 启用（第二百五十三 / 二百五十四轮）
+		配置为真时构建资源并懒加载生成管线；失败仅告警、开关保持关闭，默认路径不受影响。
+		*/
+		if (effective.hiz_enable && !hiz_enable_set(true))
+			logger.warn("渲染器:: Hi-Z 启用失败（开关保持关闭）");
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
 		阴影目标（颜色存打包深度，边长取 impl->shadow_size）＋ 阴影管线（与场景管线共享管线布局，
@@ -1721,9 +1723,12 @@ namespace engine
 		//实例压缩管线句柄同样失效（第二百四十九轮）
 		impl->gpu_compact_pipeline = 0;
 		impl->last_gpu_cull_ms = 0.0;
-		//Hi-Z 资源依赖内存模块，须先于其销毁（第二百五十三轮）
+		//Hi-Z 资源依赖内存模块与计算上下文，须先于两者销毁（第二百五十三 / 二百五十四轮）
+		impl->hiz.compute_set(nullptr);
 		impl->hiz.destroy();
 		impl->hiz_enabled = false;
+		impl->hiz_depth_copy_pipeline = 0;
+		impl->hiz_downsample_pipeline = 0;
 		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
 		impl->compute.destroy();
 		//计算着色器模块须先于着色器上下文复位
@@ -1814,6 +1819,31 @@ namespace engine
 	bool Renderer::valid(void) const
 	{
 		return impl != nullptr && impl->initialized;
+	}
+
+	/*
+	场景退场回调（第二百五十四轮）
+	把当帧场景深度经深度拷贝 compute 写入当前帧槽历史，并逐级生成金字塔；
+	调用入口在帧模块的场景动态渲染通道之外，进入 / 退出时深度均为深度附件布局。
+	*/
+	void Renderer::Impl::hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+		VkExtent2D extent, void* user_data)
+	{
+		//用户数据为本实现体
+		Renderer::Impl* self = static_cast<Renderer::Impl*>(user_data);
+		//未启用、资源缺失或管线未就绪时跳过
+		if (self == nullptr || !self->hiz_enabled || !self->hiz.valid()
+			|| self->hiz_depth_copy_pipeline == 0 || self->hiz_downsample_pipeline == 0)
+			return;
+		//尺寸与资源不一致（交换链刚重建）时跳过本帧
+		if (self->hiz.width_get() != extent.width || self->hiz.height_get() != extent.height)
+			return;
+		//当前帧槽
+		const uint32_t slot = self->frame.slot_index_get();
+		//录制深度拷贝与逐级降采样（失败仅告警，不影响出帧）
+		if (!self->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
+			self->hiz_depth_copy_pipeline, self->hiz_downsample_pipeline))
+			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
 	}
 
 	//每帧推进（可选像素回读）
@@ -3129,9 +3159,20 @@ namespace engine
 		//若走交换链路径
 		if (!offscreen)
 		{
+			/*
+			场景退场回调（第二百五十四轮；仅 Hi-Z 开启时挂接）
+			MSAA 多重采样深度暂不支持（帧模块内按采样数跳过），260 轮再补。
+			*/
+			Frame_Post_Scene_Callback post_scene{};
+			//启用时挂接 Hi-Z 生成回调
+			if (impl->hiz_enabled && impl->hiz.valid())
+			{
+				post_scene.fn = Renderer::Impl::hiz_post_scene_entry;
+				post_scene.user_data = impl.get();
+			}
 			if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
 				static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
-				impl->ui_channel.draw_callback_get(), readback_ptr))
+				impl->ui_channel.draw_callback_get(), readback_ptr, &post_scene))
 			{
 				logger.error("渲染器:: 帧渲染失败");
 				return false;
@@ -3682,6 +3723,22 @@ namespace engine
 		//惰性构建资源
 		if (!impl->hiz_ensure())
 			return false;
+		/*
+		懒加载两条生成管线（第二百五十四轮）
+		深度拷贝与逐级降采样；任一加载失败即保持关闭（避免「启用但生成被跳过」的假开启）。
+		*/
+		if (impl->hiz_depth_copy_pipeline == 0
+			&& !compute_pipeline_load(impl->hiz_depth_copy_pipeline, "HiZ深度拷贝.comp.spv"))
+		{
+			logger.warn("渲染器:: Hi-Z 深度拷贝管线加载失败（开关保持关闭）");
+			return false;
+		}
+		if (impl->hiz_downsample_pipeline == 0
+			&& !compute_pipeline_load(impl->hiz_downsample_pipeline, "HiZ降采样.comp.spv"))
+		{
+			logger.warn("渲染器:: Hi-Z 降采样管线加载失败（开关保持关闭）");
+			return false;
+		}
 		impl->hiz_enabled = true;
 		return true;
 	}
@@ -3727,6 +3784,24 @@ namespace engine
 		if (impl == nullptr || !impl->hiz.valid())
 			return false;
 		return impl->hiz.level_extent_get(level, width_out, height_out);
+	}
+
+	//累计金字塔生成次数（第二百五十四轮）
+	uint64_t Renderer::hiz_generation_count(void) const
+	{
+		//未初始化或无资源
+		if (impl == nullptr || !impl->hiz.valid())
+			return 0;
+		return impl->hiz.generation_count();
+	}
+
+	//指定帧槽是否已生成过有效金字塔（第二百五十四轮）
+	bool Renderer::hiz_history_ready(uint32_t slot) const
+	{
+		//未初始化或无资源
+		if (impl == nullptr || !impl->hiz.valid())
+			return false;
+		return impl->hiz.history_valid(slot);
 	}
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）

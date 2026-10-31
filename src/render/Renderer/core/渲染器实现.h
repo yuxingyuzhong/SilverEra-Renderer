@@ -59,6 +59,12 @@ namespace engine
 		*/
 		bool hiz_ensure(void);
 		/*
+		场景退场回调入口（第二百五十四轮）
+		帧模块以 C 函数指针调用；user_data 为本实现体地址，内部完成深度拷贝与金字塔生成的录制。
+		*/
+		static void hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+			VkExtent2D extent, void* user_data);
+		/*
 		登记具名图形管线（第一百七十二轮抽出；门面 pipeline_load 与材质共享管线共用）
 		加载着色器对并登记一条具名管线；cull_none 为真时关闭背面剔除（双面渲染）。
 		成功时写出句柄并把着色器模块所有权记入门面；失败时回收已加载模块并返回假。
@@ -252,6 +258,9 @@ namespace engine
 		HiZ_Context hiz;
 		bool hiz_enabled = false;
 		bool hiz_capable = false;
+		//Hi-Z 生成管线（第二百五十四轮；懒加载，0 = 尚未加载）
+		Compute_Pipeline_Handle hiz_depth_copy_pipeline = 0;
+		Compute_Pipeline_Handle hiz_downsample_pipeline = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

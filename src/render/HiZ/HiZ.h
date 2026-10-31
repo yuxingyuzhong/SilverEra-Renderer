@@ -14,6 +14,8 @@ namespace engine
 {
 	//内存上下文（前置声明；仅作引用入参，其定义由实现文件包含）
 	class Memory_Context;
+	//计算上下文（前置声明；第二百五十四轮：金字塔生成经其调度与描述符集）
+	class Compute_Context;
 
 	//Hi-Z 金字塔级数上限（12 级足够覆盖 4096×4096；超出按此截断，末级仍为 1×1 量级）
 	constexpr uint32_t HIZ_LEVEL_MAX = 12;
@@ -91,27 +93,34 @@ namespace engine
 		void history_invalidate(uint32_t slot);
 
 		/*
-		录制「场景深度 → 深度历史」的拷贝（第二百五十三轮）
-		source_image 须与历史纹理同格式；source_layout_before / after 为调用方对源深度的
-		进入 / 恢复布局（通常为 DEPTH_ATTACHMENT_OPTIMAL）。录制内容：
-		源转 TRANSFER_SRC → 历史转 TRANSFER_DST → vkCmdCopyImage（整幅、DEPTH 面）→
-		历史转 SHADER_READ_ONLY → 源恢复 source_layout_after，并把该槽历史标记为有效。
-		格式不一致 / 槽越界 / 句柄为空时返回假且不录制任何命令。
+		搭建计算调度关联（第二百五十四轮）
+		金字塔生成需要经计算模块写描述符集与调度；须在 build 之后调用，传空即解除关联。
 		*/
-		bool history_copy_record(VkCommandBuffer command_buffer, uint32_t slot, VkImage source_image,
-			VkImageLayout source_layout_before, VkImageLayout source_layout_after);
-		//累计深度拷贝次数（诊断用）
-		uint64_t history_copy_count(void) const;
+		void compute_set(Compute_Context* compute);
+		/*
+		生成金字塔（第二百五十四轮）
+		录制内容：场景深度转采样布局 → 深度拷贝 compute（写入历史）→ 逐级降采样 compute（取 2×2 最大值）
+		→ 场景深度恢复深度附件布局。depth_image / depth_view 为场景单采样深度（进入时 DEPTH_ATTACHMENT）。
+		depth_copy_pipeline / downsample_pipeline 为本周期的两个计算管线句柄；任一无效或关联缺失时返回假且不录制。
+		完成后该槽 history_valid 置真、generation_count 累加。
+		*/
+		bool pyramid_generate(VkCommandBuffer command_buffer, uint32_t slot, VkImage depth_image, VkImageView depth_view,
+			uint64_t depth_copy_pipeline, uint64_t downsample_pipeline);
+		//累计金字塔生成次数（诊断用）
+		uint64_t generation_count(void) const;
 
 	private:
 		//单个帧槽资源
 		struct Slot
 		{
-			//深度历史图像（与场景深度同格式）
+			/*
+			深度历史图像（R32_SFLOAT；第二百五十四轮改为颜色面）
+			深度拷贝 compute 以采样方式读场景深度、以存储图像方式写入本图，故须颜色面 ＋ 存储用途。
+			*/
 			VkImage history_image = VK_NULL_HANDLE;
 			//深度历史内存
 			VmaAllocation history_allocation = VK_NULL_HANDLE;
-			//深度历史视图（SAMPLED）
+			//深度历史视图（颜色面；采样 / 存储两用）
 			VkImageView history_view = VK_NULL_HANDLE;
 			//金字塔图像（R32_SFLOAT，含完整 mip 链）
 			VkImage pyramid_image = VK_NULL_HANDLE;
@@ -133,7 +142,14 @@ namespace engine
 		VkDevice device = VK_NULL_HANDLE;
 		//内存模块（图像创建 / 销毁）
 		Memory_Context* memory = nullptr;
-		//深度历史格式（与场景深度一致）
+		//计算上下文（第二百五十四轮；生成时写描述符集与调度）
+		Compute_Context* compute = nullptr;
+		/*
+		深度采样器（第二百五十四轮；最近邻 ＋ 钳边 ＋ 点采样）
+		深度拷贝着色器按纹素取深度，须避免线性过滤把边界深度平滑成更近值（破坏保守性）。
+		*/
+		VkSampler depth_sampler = VK_NULL_HANDLE;
+		//深度历史格式（固定 R32_SFLOAT；场景深度格式仅作记录）
 		VkFormat depth_format = VK_FORMAT_UNDEFINED;
 		//当前尺寸
 		uint32_t width = 0;
@@ -142,7 +158,7 @@ namespace engine
 		uint32_t levels = 0;
 		//逐帧槽资源
 		std::vector<Slot> slots;
-		//累计深度拷贝次数
-		uint64_t copy_count = 0;
+		//累计金字塔生成次数
+		uint64_t generation_total = 0;
 	};
 }
