@@ -1,0 +1,116 @@
+#version 450
+// GPU 簇光源列表写入（第二百七十一轮）
+// 与 Cluster/簇划分.cpp 的 cluster_list_reference 同口径：按光源覆盖的簇范围，
+// 用原子游标把光源索引写入该簇的列表区间（簇内顺序由原子竞争决定，内容与 CPU 参考一致）。
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct Light_Record
+{
+	vec4 pos_radius;
+	vec4 color_intensity;
+	vec4 direction;
+	vec4 cone;
+	float shininess;
+	uint type;
+	uint flags;
+	float reserved;
+};
+
+layout(set = 0, binding = 0) readonly buffer Light_Block { Light_Record lights[]; } light_block;
+// 逐簇计数（只读）与逐簇写入游标（原子推进）
+layout(set = 0, binding = 1) readonly buffer Count_Block { uint counts[]; } count_block;
+layout(set = 0, binding = 2) buffer Cursor_Block { uint cursors[]; } cursor_block;
+// 光源索引列表
+layout(set = 0, binding = 3) buffer List_Block { uint list[]; } list_block;
+
+layout(push_constant) uniform Push_List
+{
+	layout(offset = 0) vec4 view_proj[4];
+	layout(offset = 64) uvec4 grid;
+	layout(offset = 80) vec4 camera_position;
+	layout(offset = 96) vec4 params;
+	layout(offset = 112) uint light_count;
+} push_list;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= push_list.light_count)
+		return;
+	Light_Record light = light_block.lights[index];
+	if ((light.flags & 1u) == 0u)
+		return;
+	uint total = push_list.grid.x * push_list.grid.y * push_list.grid.z;
+	// 方向光写入全部簇
+	if (light.type == 0u)
+	{
+		for (uint cluster = 0; cluster < total; ++cluster)
+		{
+			uint slot = atomicAdd(cursor_block.cursors[cluster], 1u);
+			list_block.list[slot] = index;
+		}
+		return;
+	}
+	mat4 view_proj = mat4(push_list.view_proj[0], push_list.view_proj[1],
+		push_list.view_proj[2], push_list.view_proj[3]);
+	vec3 center = light.pos_radius.xyz;
+	float radius = max(light.pos_radius.w, 0.0);
+	float camera_distance = distance(center, push_list.camera_position.xyz);
+	vec4 clip = view_proj * vec4(center, 1.0);
+	float tan_half = tan(push_list.params.x * 0.5);
+	if (tan_half <= 1e-6)
+		tan_half = 1.0;
+	float depth_span = push_list.params.w - push_list.params.z;
+	if (depth_span <= 1e-6)
+		depth_span = 1e-6;
+	float u0 = 0.0, u1 = 1.0, v0 = 0.0, v1 = 1.0;
+	float z_low = push_list.params.z;
+	float z_high = push_list.params.w;
+	if (clip.w > 1e-6)
+	{
+		float inv_w = 1.0 / clip.w;
+		float center_u = clip.x * inv_w * 0.5 + 0.5;
+		float center_v = 0.5 - clip.y * inv_w * 0.5;
+		float denom = 2.0 * camera_distance * tan_half;
+		float dv = denom > 1e-6 ? radius / denom : 1.0;
+		float du = push_list.params.y > 1e-6 ? dv / push_list.params.y : 1.0;
+		u0 = center_u - du;
+		u1 = center_u + du;
+		v0 = center_v - dv;
+		v1 = center_v + dv;
+		z_low = camera_distance - radius;
+		z_high = camera_distance + radius;
+	}
+	if (clip.w <= 1e-6 || z_low <= push_list.params.z)
+	{
+		u0 = 0.0;
+		u1 = 1.0;
+		v0 = 0.0;
+		v1 = 1.0;
+		z_low = push_list.params.z;
+		z_high = push_list.params.w;
+	}
+	if (u1 < 0.0 || u0 > 1.0 || v1 < 0.0 || v0 > 1.0)
+		return;
+	if (z_high < push_list.params.z || z_low > push_list.params.w)
+		return;
+	u0 = clamp(u0, 0.0, 1.0);
+	u1 = clamp(u1, 0.0, 1.0);
+	v0 = clamp(v0, 0.0, 1.0);
+	v1 = clamp(v1, 0.0, 1.0);
+	int ix0 = clamp(int(floor(u0 * float(push_list.grid.x))), 0, int(push_list.grid.x) - 1);
+	int ix1 = clamp(int(floor(ceil(u1 * float(push_list.grid.x)) - 1.0)), 0, int(push_list.grid.x) - 1);
+	int iy0 = clamp(int(floor(v0 * float(push_list.grid.y))), 0, int(push_list.grid.y) - 1);
+	int iy1 = clamp(int(floor(ceil(v1 * float(push_list.grid.y)) - 1.0)), 0, int(push_list.grid.y) - 1);
+	int iz0 = clamp(int(floor((z_low - push_list.params.z) / depth_span * float(push_list.grid.z))), 0, int(push_list.grid.z) - 1);
+	int iz1 = clamp(int(floor(ceil((z_high - push_list.params.z) / depth_span * float(push_list.grid.z)) - 1.0)), 0, int(push_list.grid.z) - 1);
+	// 逐簇写入光源索引
+	for (int iz = iz0; iz <= iz1; ++iz)
+		for (int iy = iy0; iy <= iy1; ++iy)
+			for (int ix = ix0; ix <= ix1; ++ix)
+			{
+				uint cluster = (uint(iz) * push_list.grid.y + uint(iy)) * push_list.grid.x + uint(ix);
+				uint slot = atomicAdd(cursor_block.cursors[cluster], 1u);
+				list_block.list[slot] = index;
+			}
+}

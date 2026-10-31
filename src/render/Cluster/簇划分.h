@@ -104,4 +104,21 @@ namespace engine
 	返回总元素数；入参非法返回 0。
 	*/
 	uint32_t cluster_prefix_scan(uint32_t* prefix_out, const uint32_t* counts, uint32_t count);
+
+	/*
+	簇列表排他偏移（第二百七十一轮）
+	offsets[c] = counts[0..c-1] 之和（即该簇在光源列表中的写入起点）。
+	返回总条目数（counts 全量之和）；入参非法返回 0。
+	*/
+	uint32_t cluster_list_offsets(const uint32_t* counts, uint32_t cluster_total, uint32_t* offsets_out);
+
+	/*
+	簇光源列表（CPU 参考；第二百七十一轮）
+	offsets_io 为每簇写入游标（调用方传入排他偏移，函数内推进到该簇末尾）；
+	按光源顺序把覆盖该簇的光源索引写入 list_out。返回写入的总条目数；
+	容量不足或非法入参返回 0（不写任何项）。
+	*/
+	uint32_t cluster_list_reference(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_io,
+		const uint32_t* counts, uint32_t cluster_total, Cluster_Grid grid,
+		const Light_Record* lights, uint32_t light_count, const Cluster_Input& input);
 }

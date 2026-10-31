@@ -520,6 +520,16 @@ namespace engine
 		bool cluster_prefix_scan_cpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out) const;
 		bool cluster_prefix_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out);
 		/*
+		簇光源列表（第二百七十一轮）
+		以逐簇计数为输入，写出逐簇排他偏移（offsets_out）与「簇 → 光源索引」列表（list_out）。
+		entries_out 为列表总条目（= 计数总和）；容量不足 / 未初始化 / 不支持计算返回假。
+		CPU 路径按光源顺序写入（确定性）；GPU 路径簇内顺序由原子竞争决定，成员与 CPU 一致。
+		*/
+		bool cluster_list_build_cpu(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_out,
+			const uint32_t* counts, uint32_t cluster_total, uint32_t* entries_out) const;
+		bool cluster_list_build_gpu(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_out,
+			const uint32_t* counts, uint32_t cluster_total, uint32_t* entries_out);
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。

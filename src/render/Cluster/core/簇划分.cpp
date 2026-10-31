@@ -205,4 +205,139 @@ namespace engine
 		}
 		return count;
 	}
+
+	uint32_t cluster_list_offsets(const uint32_t* counts, uint32_t cluster_total, uint32_t* offsets_out)
+	{
+		//入参非法
+		if (counts == nullptr || offsets_out == nullptr || cluster_total == 0)
+			return 0;
+		//逐簇累加排他偏移
+		uint32_t running = 0;
+		for (uint32_t cluster = 0; cluster < cluster_total; ++cluster)
+		{
+			offsets_out[cluster] = running;
+			running += counts[cluster];
+		}
+		return running;
+	}
+
+	uint32_t cluster_list_reference(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_io,
+		const uint32_t* counts, uint32_t cluster_total, Cluster_Grid grid,
+		const Light_Record* lights, uint32_t light_count, const Cluster_Input& input)
+	{
+		//入参非法
+		if (list_out == nullptr || offsets_io == nullptr || counts == nullptr || lights == nullptr
+			|| light_count == 0 || cluster_total == 0)
+			return 0;
+		//总条目数与容量
+		uint32_t entries = 0;
+		for (uint32_t cluster = 0; cluster < cluster_total; ++cluster)
+			entries += counts[cluster];
+		if (capacity < entries)
+			return 0;
+		//垂直半视场正切（非法时退化为 1，保证不除零）
+		float tan_half = std::tan(input.fov * 0.5f);
+		if (!(tan_half > 1e-6f))
+			tan_half = 1.0f;
+		//近远平面深度跨度
+		float depth_span = input.far_plane - input.near_plane;
+		if (!(depth_span > 1e-6f))
+			depth_span = 1e-6f;
+		//轴数（循环内复用）
+		uint32_t axis_x = grid.x;
+		uint32_t axis_y = grid.y;
+		uint32_t axis_z = grid.z;
+		for (uint32_t light_index = 0; light_index < light_count; ++light_index)
+		{
+			const Light_Record& light = lights[light_index];
+			//跳过未启用的记录
+			if ((light.flags & 1u) == 0)
+				continue;
+			//方向光写入全部簇
+			if (light.type == static_cast<uint32_t>(Light_Type::Directional))
+			{
+				//逐簇追加光源索引
+				for (uint32_t cluster = 0; cluster < cluster_total; ++cluster)
+					list_out[offsets_io[cluster]++] = light_index;
+				continue;
+			}
+			//包围球参数
+			const float center[3] = { light.pos_radius[0], light.pos_radius[1], light.pos_radius[2] };
+			float radius = light.pos_radius[3];
+			//半径为负按 0 处理
+			if (!(radius > 0.0f))
+				radius = 0.0f;
+			//球心到相机的距离
+			const float offset[3] = {
+				center[0] - input.camera_position[0],
+				center[1] - input.camera_position[1],
+				center[2] - input.camera_position[2],
+			};
+			float distance_to_camera = length3(offset);
+			//球心投影到裁剪空间
+			float clip[4] = {};
+			transform_point(input.view_proj, center, clip);
+			//屏幕矩形与视图深度区间（默认全屏全深度）
+			float u0 = 0.0f;
+			float u1 = 1.0f;
+			float v0 = 0.0f;
+			float v1 = 1.0f;
+			float z_low = input.near_plane;
+			float z_high = input.far_plane;
+			//球心在相机前方时按半径收紧
+			if (clip[3] > 1e-6f)
+			{
+				float inv_w = 1.0f / clip[3];
+				float center_u = clip[0] * inv_w * 0.5f + 0.5f;
+				float center_v = 0.5f - clip[1] * inv_w * 0.5f;
+				float denom = 2.0f * distance_to_camera * tan_half;
+				float dv = denom > 1e-6f ? radius / denom : 1.0f;
+				float du = input.aspect > 1e-6f ? dv / input.aspect : 1.0f;
+				u0 = center_u - du;
+				u1 = center_u + du;
+				v0 = center_v - dv;
+				v1 = center_v + dv;
+				z_low = distance_to_camera - radius;
+				z_high = distance_to_camera + radius;
+			}
+			//跨近平面或位于相机背后：整屏全深度
+			if (clip[3] <= 1e-6f || z_low <= input.near_plane)
+			{
+				u0 = 0.0f;
+				u1 = 1.0f;
+				v0 = 0.0f;
+				v1 = 1.0f;
+				z_low = input.near_plane;
+				z_high = input.far_plane;
+			}
+			//屏幕矩形完全在视口外
+			if (u1 < 0.0f || u0 > 1.0f || v1 < 0.0f || v0 > 1.0f)
+				continue;
+			//深度区间完全在近远平面外
+			if (z_high < input.near_plane || z_low > input.far_plane)
+				continue;
+			//钳到视口
+			u0 = clamp_float(u0, 0.0f, 1.0f);
+			u1 = clamp_float(u1, 0.0f, 1.0f);
+			v0 = clamp_float(v0, 0.0f, 1.0f);
+			v1 = clamp_float(v1, 0.0f, 1.0f);
+			//索引范围（保守上界，与计数参考一致）
+			int32_t ix0 = index_floor(u0 * static_cast<float>(axis_x), axis_x);
+			int32_t ix1 = index_floor(std::ceil(u1 * static_cast<float>(axis_x)) - 1.0f, axis_x);
+			int32_t iy0 = index_floor(v0 * static_cast<float>(axis_y), axis_y);
+			int32_t iy1 = index_floor(std::ceil(v1 * static_cast<float>(axis_y)) - 1.0f, axis_y);
+			int32_t iz0 = index_floor((z_low - input.near_plane) / depth_span * static_cast<float>(axis_z), axis_z);
+			int32_t iz1 = index_floor(std::ceil((z_high - input.near_plane) / depth_span * static_cast<float>(axis_z)) - 1.0f, axis_z);
+			//逐簇追加光源索引
+			for (int32_t iz = iz0; iz <= iz1; ++iz)
+				for (int32_t iy = iy0; iy <= iy1; ++iy)
+					for (int32_t ix = ix0; ix <= ix1; ++ix)
+					{
+						uint32_t cluster = (static_cast<uint32_t>(iz) * axis_y + static_cast<uint32_t>(iy)) * axis_x
+							+ static_cast<uint32_t>(ix);
+						list_out[offsets_io[cluster]++] = light_index;
+					}
+		}
+		return entries;
+	}
 }

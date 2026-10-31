@@ -4291,6 +4291,150 @@ namespace engine
 		return ok;
 	}
 
+	//簇光源列表（CPU 参考；第二百七十一轮）
+	bool Renderer::cluster_list_build_cpu(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_out,
+		const uint32_t* counts, uint32_t cluster_total, uint32_t* entries_out) const
+	{
+		//出参先归零
+		if (entries_out != nullptr)
+			*entries_out = 0;
+		//未初始化或入参非法
+		if (impl == nullptr || !impl->initialized || list_out == nullptr || offsets_out == nullptr
+			|| counts == nullptr || cluster_total == 0)
+			return false;
+		//排他偏移与总条目
+		uint32_t entries = cluster_list_offsets(counts, cluster_total, offsets_out);
+		if (entries == 0 || capacity < entries)
+			return false;
+		//写入游标初值（复制排他偏移，参考实现会推进）
+		std::vector<uint32_t> cursor(cluster_total);
+		for (uint32_t cluster = 0; cluster < cluster_total; ++cluster)
+			cursor[cluster] = offsets_out[cluster];
+		//分簇相机输入
+		Cluster_Input input{};
+		impl->camera.view_proj_get(input.view_proj);
+		impl->camera.position_get(input.camera_position);
+		impl->camera.fov_get(&input.fov);
+		input.aspect = impl->camera.aspect_effective_get();
+		impl->camera.clip_get(&input.near_plane, &input.far_plane);
+		//光源记录快照
+		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
+		uint32_t count = light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		//调用 CPU 参考
+		uint32_t written = cluster_list_reference(list_out, capacity, cursor.data(), counts, cluster_total,
+			impl->cluster_grid, records.data(), count, input);
+		if (written == 0)
+			return false;
+		if (entries_out != nullptr)
+			*entries_out = written;
+		return true;
+	}
+
+	/*
+	簇光源列表（GPU；第二百七十一轮）
+	计数 / 排他偏移 / 光源记录 / 列表四缓冲；每记录一线程，按覆盖范围以原子游标写索引。
+	*/
+	bool Renderer::cluster_list_build_gpu(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_out,
+		const uint32_t* counts, uint32_t cluster_total, uint32_t* entries_out)
+	{
+		//出参先归零
+		if (entries_out != nullptr)
+			*entries_out = 0;
+		//未初始化、不支持计算或入参非法
+		if (impl == nullptr || !impl->initialized || !compute_supported() || list_out == nullptr
+			|| offsets_out == nullptr || counts == nullptr || cluster_total == 0)
+			return false;
+		//总条目与容量
+		uint32_t entries = 0;
+		for (uint32_t cluster = 0; cluster < cluster_total; ++cluster)
+			entries += counts[cluster];
+		if (entries == 0 || capacity < entries)
+			return false;
+		//排他偏移
+		for (uint32_t cluster = 0, running = 0; cluster < cluster_total; ++cluster)
+		{
+			offsets_out[cluster] = running;
+			running += counts[cluster];
+		}
+		//光源记录快照
+		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
+		uint32_t light_count = light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		if (light_count == 0)
+			return false;
+		//四缓冲：光源记录 / 计数 / 游标（排他偏移）/ 列表
+		Compute_Buffer_Handle light_handle = 0;
+		Compute_Buffer_Handle counts_handle = 0;
+		Compute_Buffer_Handle cursor_handle = 0;
+		Compute_Buffer_Handle list_handle = 0;
+		auto cleanup = [&](void)
+		{
+			compute_buffer_unload(list_handle);
+			compute_buffer_unload(cursor_handle);
+			compute_buffer_unload(counts_handle);
+			compute_buffer_unload(light_handle);
+		};
+		if (!compute_buffer_load(light_handle, light_count * LIGHT_RECORD_BYTES, records.data()))
+			return false;
+		if (!compute_buffer_load(counts_handle, cluster_total * static_cast<uint32_t>(sizeof(uint32_t)), counts))
+		{
+			cleanup();
+			return false;
+		}
+		if (!compute_buffer_load(cursor_handle, cluster_total * static_cast<uint32_t>(sizeof(uint32_t)), offsets_out))
+		{
+			cleanup();
+			return false;
+		}
+		if (!compute_buffer_load(list_handle, entries * static_cast<uint32_t>(sizeof(uint32_t))))
+		{
+			cleanup();
+			return false;
+		}
+		//列表写入管线懒加载
+		if (impl->cluster_list_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster列表写入.comp.spv"))
+			{
+				cleanup();
+				return false;
+			}
+			impl->cluster_list_pipeline = loaded;
+		}
+		//推送常量：视图投影 ＋ 网格 ＋ 相机位置 ＋ 参数 ＋ 光源记录数（116 字节）
+		struct Cluster_List_Push
+		{
+			float view_proj[16];
+			uint32_t grid[4];
+			float camera_position[4];
+			float params[4];
+			uint32_t light_count;
+		} push{};
+		impl->camera.view_proj_get(push.view_proj);
+		push.grid[0] = impl->cluster_grid.x;
+		push.grid[1] = impl->cluster_grid.y;
+		push.grid[2] = impl->cluster_grid.z;
+		push.grid[3] = cluster_total;
+		impl->camera.position_get(push.camera_position);
+		impl->camera.fov_get(&push.params[0]);
+		push.params[1] = impl->camera.aspect_effective_get();
+		impl->camera.clip_get(&push.params[2], &push.params[3]);
+		push.light_count = light_count;
+		//绑定 → 调度（每记录一线程） → 回读列表
+		bool ok = compute_buffer_bind(light_handle, 0)
+			&& compute_buffer_bind(counts_handle, 1)
+			&& compute_buffer_bind(cursor_handle, 2)
+			&& compute_buffer_bind(list_handle, 3)
+			&& compute_dispatch(impl->cluster_list_pipeline, light_count, 64, &push,
+				static_cast<uint32_t>(sizeof(push)))
+			&& compute_buffer_read(list_handle, list_out,
+				entries * static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		cleanup();
+		if (ok && entries_out != nullptr)
+			*entries_out = entries;
+		return ok;
+	}
+
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,
