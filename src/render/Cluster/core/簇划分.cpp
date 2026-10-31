@@ -190,4 +190,19 @@ namespace engine
 		}
 		return block_count;
 	}
+
+	uint32_t cluster_prefix_scan(uint32_t* prefix_out, const uint32_t* counts, uint32_t count)
+	{
+		//入参非法
+		if (prefix_out == nullptr || counts == nullptr || count == 0)
+			return 0;
+		//全局包含式前缀和
+		uint32_t running = 0;
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			running += counts[index];
+			prefix_out[index] = running;
+		}
+		return count;
+	}
 }

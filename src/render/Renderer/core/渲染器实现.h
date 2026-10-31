@@ -294,6 +294,9 @@ namespace engine
 		Compute_Pipeline_Handle cluster_count_pipeline = 0;
 		//块内前缀和管线（第二百六十九轮；懒加载，0 = 尚未加载）
 		Compute_Pipeline_Handle cluster_scan_pipeline = 0;
+		//块间偏移与偏移合成管线（第二百七十轮；懒加载，0 = 尚未加载）
+		Compute_Pipeline_Handle cluster_block_offset_pipeline = 0;
+		Compute_Pipeline_Handle cluster_offset_apply_pipeline = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

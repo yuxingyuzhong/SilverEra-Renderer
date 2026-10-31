@@ -1,0 +1,25 @@
+#version 450
+// GPU 块间偏移（第二百七十轮）
+// 单线程串行扫描块总和，写出每块的**排他**偏移（该块之前的全部块总和）。
+// 总簇数上限 4096 / 块 256 = 最多 16 块，串行扫描足够且保证顺序确定。
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer BlockTotal_Block { uint totals[]; } total_block;
+layout(set = 0, binding = 1) buffer BlockOffset_Block { uint offsets[]; } offset_block;
+
+layout(push_constant) uniform Push_Offset
+{
+	// 块数
+	layout(offset = 0) uint block_count;
+} push_offset;
+
+void main()
+{
+	uint accumulator = 0;
+	// 逐块写出排他偏移并累加
+	for (uint block = 0; block < push_offset.block_count; ++block)
+	{
+		offset_block.offsets[block] = accumulator;
+		accumulator += total_block.totals[block];
+	}
+}

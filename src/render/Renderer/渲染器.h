@@ -512,6 +512,14 @@ namespace engine
 		bool cluster_prefix_block_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out,
 			uint32_t* block_totals_out, uint32_t block_count_capacity, uint32_t* block_count_out);
 		/*
+		全量前缀和（第二百七十轮）
+		CPU 参考与 GPU 同口径的包含式全量前缀和（块内前缀 ＋ 块间偏移）。
+		GPU 路径：块内扫描 → 块总和串行扫描（排他偏移）→ 逐元素叠加偏移 → 回读。
+		成功返回真；不支持计算 / 入参非法 / 调度失败返回假。
+		*/
+		bool cluster_prefix_scan_cpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out) const;
+		bool cluster_prefix_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out);
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。

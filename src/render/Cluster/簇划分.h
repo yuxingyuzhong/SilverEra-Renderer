@@ -97,4 +97,11 @@ namespace engine
 	*/
 	uint32_t cluster_prefix_block_scan(uint32_t* prefix_out, uint32_t* block_totals_out, uint32_t block_capacity,
 		const uint32_t* counts, uint32_t count);
+
+	/*
+	全量前缀和（CPU 参考；第二百七十轮）
+	对 counts 做**包含式**全量前缀和（等价于「块内前缀 ＋ 块间偏移」两步的最终结果）。
+	返回总元素数；入参非法返回 0。
+	*/
+	uint32_t cluster_prefix_scan(uint32_t* prefix_out, const uint32_t* counts, uint32_t count);
 }

@@ -4184,6 +4184,113 @@ namespace engine
 		return ok;
 	}
 
+	//全量前缀和（CPU 参考；第二百七十轮）
+	bool Renderer::cluster_prefix_scan_cpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return cluster_prefix_scan(prefix_out, counts, count) != 0;
+	}
+
+	/*
+	全量前缀和（GPU；第二百七十轮）
+	块内扫描 → 块总和排他偏移 → 逐元素叠加偏移，结果与 CPU 参考同口径。
+	*/
+	bool Renderer::cluster_prefix_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out)
+	{
+		//未初始化、不支持计算或入参非法
+		if (impl == nullptr || !impl->initialized || !compute_supported() || counts == nullptr
+			|| prefix_out == nullptr || count == 0)
+			return false;
+		//块数
+		uint32_t blocks = (count + CLUSTER_SCAN_BLOCK - 1) / CLUSTER_SCAN_BLOCK;
+		//计数 / 前缀 / 块总和 / 块偏移四缓冲
+		Compute_Buffer_Handle counts_handle = 0;
+		Compute_Buffer_Handle prefix_handle = 0;
+		Compute_Buffer_Handle totals_handle = 0;
+		Compute_Buffer_Handle offsets_handle = 0;
+		auto cleanup = [&](void)
+		{
+			//逆序归还已建缓冲（空句柄由卸载函数幂等处理）
+			compute_buffer_unload(offsets_handle);
+			compute_buffer_unload(totals_handle);
+			compute_buffer_unload(prefix_handle);
+			compute_buffer_unload(counts_handle);
+		};
+		if (!compute_buffer_load(counts_handle, count * static_cast<uint32_t>(sizeof(uint32_t)), counts))
+			return false;
+		if (!compute_buffer_load(prefix_handle, count * static_cast<uint32_t>(sizeof(uint32_t))))
+		{
+			cleanup();
+			return false;
+		}
+		std::vector<uint32_t> zero(blocks, 0u);
+		if (!compute_buffer_load(totals_handle, blocks * static_cast<uint32_t>(sizeof(uint32_t)), zero.data())
+			|| !compute_buffer_load(offsets_handle, blocks * static_cast<uint32_t>(sizeof(uint32_t)), zero.data()))
+		{
+			cleanup();
+			return false;
+		}
+		//三条管线懒加载（块内扫描 / 块间偏移 / 偏移合成）
+		if (impl->cluster_scan_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster块内扫描.comp.spv"))
+			{
+				cleanup();
+				return false;
+			}
+			impl->cluster_scan_pipeline = loaded;
+		}
+		if (impl->cluster_block_offset_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster块间扫描.comp.spv"))
+			{
+				cleanup();
+				return false;
+			}
+			impl->cluster_block_offset_pipeline = loaded;
+		}
+		if (impl->cluster_offset_apply_pipeline == 0)
+		{
+			Compute_Pipeline_Handle loaded = 0;
+			if (!compute_pipeline_load(loaded, "Cluster块偏移合成.comp.spv"))
+			{
+				cleanup();
+				return false;
+			}
+			impl->cluster_offset_apply_pipeline = loaded;
+		}
+		//第一步：块内扫描（计数 → 块内前缀 ＋ 块总和）
+		uint32_t push_count = count;
+		bool ok = compute_buffer_bind(counts_handle, 0)
+			&& compute_buffer_bind(prefix_handle, 1)
+			&& compute_buffer_bind(totals_handle, 2)
+			&& compute_dispatch(impl->cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
+				&push_count, static_cast<uint32_t>(sizeof(push_count)));
+		//第二步：块总和串行扫描 → 块排他偏移（单线程）
+		uint32_t push_blocks = blocks;
+		if (ok)
+			ok = compute_buffer_bind(totals_handle, 0)
+				&& compute_buffer_bind(offsets_handle, 1)
+				&& compute_dispatch(impl->cluster_block_offset_pipeline, 1, 1,
+					&push_blocks, static_cast<uint32_t>(sizeof(push_blocks)));
+		//第三步：逐元素叠加块偏移
+		if (ok)
+			ok = compute_buffer_bind(prefix_handle, 0)
+				&& compute_buffer_bind(offsets_handle, 1)
+				&& compute_dispatch(impl->cluster_offset_apply_pipeline, count, CLUSTER_SCAN_BLOCK,
+					&push_count, static_cast<uint32_t>(sizeof(push_count)));
+		//回读全量前缀和
+		if (ok)
+			ok = compute_buffer_read(prefix_handle, prefix_out,
+				count * static_cast<uint32_t>(sizeof(uint32_t)), 0);
+		cleanup();
+		return ok;
+	}
+
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,

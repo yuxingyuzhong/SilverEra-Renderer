@@ -1,0 +1,24 @@
+#version 450
+// GPU 块偏移合成（第二百七十轮）
+// 把块内前缀和叠加「块排他偏移」，得到全量包含式前缀和。
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Prefix_Block { uint prefix[]; } prefix_block;
+layout(set = 0, binding = 1) readonly buffer BlockOffset_Block { uint offsets[]; } offset_block;
+
+layout(push_constant) uniform Push_Apply
+{
+	// 元素总数
+	layout(offset = 0) uint count;
+} push_apply;
+
+void main()
+{
+	uint gid = gl_GlobalInvocationID.x;
+	// 越界直接返回
+	if (gid >= push_apply.count)
+		return;
+	uint block = gid / 256u;
+	// 叠加该块的排他偏移
+	prefix_block.prefix[gid] += offset_block.offsets[block];
+}
