@@ -354,6 +354,8 @@ namespace engine
 		/*
 		逐级生成
 		第 0 级：源 = 历史（同尺寸 ⇒ 边界钳制后退化为逐纹素拷贝）；第 i 级：源 = 第 i-1 级视图。
+		注：末级虽不被遮挡采样读取（采样上限 levels-2），仍保留生成 —— 曾尝试跳过末级，
+		实测会使采样上限级的覆盖退化并导致误剔（见第 263 轮报告）。
 		*/
 		uint32_t source_width = width;
 		uint32_t source_height = height;
