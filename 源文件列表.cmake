@@ -22,6 +22,7 @@
 # =============================================================================
 #
 target_sources(RendererCore PRIVATE
+    "src/render/Cluster/core/簇划分.cpp"
     "src/render/Compute/core/Compute.cpp"
     "src/render/Device/core/实例创建.cpp"
     "src/render/Device/core/校验层配置.cpp"
@@ -75,6 +76,7 @@ target_sources(RendererCore PRIVATE
 # 使头文件改名 / 迁移时 VS 也能改写引用
 target_sources(RendererCore PRIVATE
     "common/前置头文件包含.h"
+    "src/render/Cluster/簇划分.h"
     "src/render/Compute/Compute.h"
     "src/render/Compute/局部命名空间使用.h"
     "src/render/Compute/计算数据.h"

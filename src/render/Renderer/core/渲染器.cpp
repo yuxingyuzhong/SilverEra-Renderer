@@ -1508,6 +1508,9 @@ namespace engine
 		与 Hi-Z 同口径：计算路径可用即具备；每帧槽光源记录 SSBO 在启用时惰性构建。
 		*/
 		impl->cluster_capable = impl->compute.supported();
+		//分簇网格按配置钳制（第二百六十七轮；默认 16 × 9 × 24）
+		impl->cluster_grid = cluster_grid_clamp(Cluster_Grid{ effective.cluster_grid[0],
+			effective.cluster_grid[1], effective.cluster_grid[2] });
 		impl->initialized = true;
 		/*
 		Hi-Z 启用（第二百五十三 / 二百五十四轮）
@@ -3945,6 +3948,74 @@ namespace engine
 	uint32_t Renderer::cluster_light_count(void) const
 	{
 		return impl != nullptr ? impl->last_cluster_light_count : 0;
+	}
+
+	//分簇网格设置（第二百六十七轮；逐轴钳到 1..64 且总簇数 ≤ 4096）
+	bool Renderer::cluster_grid_set(uint32_t x, uint32_t y, uint32_t z)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		impl->cluster_grid = cluster_grid_clamp(Cluster_Grid{ x, y, z });
+		return true;
+	}
+
+	//读入当前分簇网格（未初始化时全 0）
+	bool Renderer::cluster_grid_get(uint32_t& x_out, uint32_t& y_out, uint32_t& z_out) const
+	{
+		//出参先归零
+		x_out = 0;
+		y_out = 0;
+		z_out = 0;
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		x_out = impl->cluster_grid.x;
+		y_out = impl->cluster_grid.y;
+		z_out = impl->cluster_grid.z;
+		return true;
+	}
+
+	//当前网格总簇数（未初始化为 0）
+	uint32_t Renderer::cluster_grid_cluster_count(void) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return cluster_grid_clusters(impl->cluster_grid);
+	}
+
+	/*
+	当前相机与光源的逐簇计数（CPU 参考；第二百六十七轮）
+	口径与 GPU 计数（268 轮）一致：方向光照亮全部簇，点 / 聚光按包围球保守覆盖。
+	*/
+	bool Renderer::cluster_counts_reference_ex(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out) const
+	{
+		//出参先归零
+		if (total_out != nullptr)
+			*total_out = 0;
+		//未初始化或出参为空
+		if (impl == nullptr || !impl->initialized || counts_out == nullptr)
+			return false;
+		//分簇相机输入（当前相机与近远平面）
+		Cluster_Input input{};
+		impl->camera.view_proj_get(input.view_proj);
+		impl->camera.position_get(input.camera_position);
+		impl->camera.fov_get(&input.fov);
+		input.aspect = impl->camera.aspect_effective_get();
+		impl->camera.clip_get(&input.near_plane, &input.far_plane);
+		//光源记录快照（容量上限内全部导出）
+		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
+		uint32_t count = light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		//调用 CPU 参考实现
+		uint32_t total = cluster_counts_reference(counts_out, capacity, impl->cluster_grid,
+			records.data(), count, input);
+		//容量不足或入参非法
+		if (total == 0)
+			return false;
+		if (total_out != nullptr)
+			*total_out = total;
+		return true;
 	}
 
 

@@ -17,6 +17,8 @@
 #include "Application/Renderer/src/render/Compute/Compute.h"
 //Hi-Z 深度历史与金字塔资源（第二百五十三轮）
 #include "Application/Renderer/src/render/HiZ/HiZ.h"
+//分簇网格与 CPU 逐簇计数参考（第二百六十七轮）
+#include "Application/Renderer/src/render/Cluster/簇划分.h"
 //GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
 #include "Application/Renderer/src/render/GPU驱动/包围体.h"
 #include "Application/Renderer/src/render/GPU驱动/剔除数据.h"
@@ -286,6 +288,8 @@ namespace engine
 		uint32_t last_cluster_light_count = 0;
 		//光源记录组装缓冲（复用，避免逐帧分配）
 		std::vector<Light_Record> light_records_scratch;
+		//分簇网格（第二百六十七轮；默认 16 × 9 × 24，运行期钳制）
+		Cluster_Grid cluster_grid;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

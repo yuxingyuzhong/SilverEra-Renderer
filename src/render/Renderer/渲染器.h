@@ -3,6 +3,8 @@
 #include "Application/Renderer/common/前置头文件包含.h"
 //光源数据记录（Vulkan-free；第二百六十五轮）
 #include "Application/Renderer/src/render/Scene/光源数据.h"
+//分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
+#include "Application/Renderer/src/render/Cluster/簇划分.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
@@ -139,6 +141,11 @@ namespace engine
 		关闭时不分配任何资源，既有前向 8 盏路径逐字节不变（分簇与着色器采样在 267 起落地）。
 		*/
 		bool cluster_enable = false;
+		/*
+		分簇网格（第二百六十七轮；默认 16 × 9 × 24）
+		各轴运行期经 cluster_grid_set 钳到 1..64，总簇数不超过 4096。
+		*/
+		uint32_t cluster_grid[3] = { 16, 9, 24 };
 	};
 
 	/*
@@ -477,6 +484,17 @@ namespace engine
 		bool cluster_enable_get(void) const;
 		bool cluster_supported(void) const;
 		uint32_t cluster_light_count(void) const;
+		/*
+		分簇网格与 CPU 逐簇计数（第二百六十七轮）
+		cluster_grid_set 按 [1,64] 逐轴钳制并保证总簇数 ≤ 4096；未初始化返回假。
+		cluster_grid_get 写出当前网格（未初始化时全 0）；cluster_grid_cluster_count 返回总簇数。
+		cluster_counts_reference_ex 用当前相机与光源记录写出逐簇计数（CPU 参考，供 268 轮 GPU 计数对数）；
+		counts_out 长度须 ≥ 总簇数；成功返回真并写出总簇数，容量不足或未初始化返回假。
+		*/
+		bool cluster_grid_set(uint32_t x, uint32_t y, uint32_t z);
+		bool cluster_grid_get(uint32_t& x_out, uint32_t& y_out, uint32_t& z_out) const;
+		uint32_t cluster_grid_cluster_count(void) const;
+		bool cluster_counts_reference_ex(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
