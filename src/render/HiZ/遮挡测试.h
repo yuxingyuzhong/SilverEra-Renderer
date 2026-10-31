@@ -19,6 +19,12 @@ namespace engine
 	constexpr uint32_t HIZ_OCCLUSION_LEVEL_MAX = 12;
 	//遮挡判定容差（深度单位；越大越保守，可见侧增加）
 	constexpr float HIZ_OCCLUSION_BIAS = 0.002f;
+	/*
+	屏幕矩形扩张（像素；第二百五十七轮）
+	遮挡测试前把投影矩形每边外扩该像素数，覆盖相邻纹素，抵消「AABB 投影与光栅化包围盒差异」
+	与上一帧 / 本帧几何的亚像素偏差；取值越大越保守。
+	*/
+	constexpr float HIZ_RECT_DILATE_PIXELS = 1.0f;
 
 	/*
 	金字塔视图（多级紧排）

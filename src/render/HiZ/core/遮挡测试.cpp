@@ -115,9 +115,14 @@ namespace engine
 		const float extent = (std::max)(1.0f, (std::max)(rect_width, rect_height));
 		//向上取整到 2 的幂
 		uint32_t level = static_cast<uint32_t>(std::ceil(std::log2(extent)));
-		//钳到有效级
-		if (level >= levels)
-			level = levels - 1;
+		/*
+		末两级不用于采样（第二百五十七轮）
+		1×1 / 2×1 级由 2×2 取最大生成后信息量已退化，且极小尺寸在本机实测存在未写入风险；
+		采样上限取 levels - 2（级数 ≥ 2 时），更保守（覆盖纹素更多、远面深度更大）。
+		*/
+		const uint32_t level_cap = levels >= 2 ? levels - 2 : 0;
+		if (level > level_cap)
+			level = level_cap;
 		return level;
 	}
 
@@ -161,9 +166,9 @@ namespace engine
 		if (rect.max_x < 0.0f || rect.max_y < 0.0f
 			|| rect.min_x >= static_cast<float>(pyramid.width) || rect.min_y >= static_cast<float>(pyramid.height))
 			return HiZ_Visibility::Visible;
-		//选择级
-		const float rect_width = rect.max_x - rect.min_x;
-		const float rect_height = rect.max_y - rect.min_y;
+		//选择级（先按保守口径外扩矩形）
+		const float rect_width = (rect.max_x - rect.min_x) + HIZ_RECT_DILATE_PIXELS * 2.0f;
+		const float rect_height = (rect.max_y - rect.min_y) + HIZ_RECT_DILATE_PIXELS * 2.0f;
 		const uint32_t level = hiz_level_for_rect(rect_width, rect_height, pyramid.levels);
 		//取该级
 		const float* level_data = nullptr;
@@ -171,13 +176,17 @@ namespace engine
 		uint32_t level_height = 0;
 		if (!hiz_pyramid_level_get(pyramid, level, level_data, level_width, level_height))
 			return HiZ_Visibility::Visible;
-		//矩形到该级纹素范围（缩放 = 2^level）
+		//矩形到该级纹素范围（缩放 = 2^level；矩形先按保守口径外扩）
 		const uint32_t scale = 1u << level;
 		const float inverse_scale = 1.0f / static_cast<float>(scale);
-		int min_x = static_cast<int>(std::floor(rect.min_x * inverse_scale));
-		int min_y = static_cast<int>(std::floor(rect.min_y * inverse_scale));
-		int max_x = static_cast<int>(std::floor(rect.max_x * inverse_scale));
-		int max_y = static_cast<int>(std::floor(rect.max_y * inverse_scale));
+		const float dilated_min_x = rect.min_x - HIZ_RECT_DILATE_PIXELS;
+		const float dilated_max_x = rect.max_x + HIZ_RECT_DILATE_PIXELS;
+		const float dilated_min_y = rect.min_y - HIZ_RECT_DILATE_PIXELS;
+		const float dilated_max_y = rect.max_y + HIZ_RECT_DILATE_PIXELS;
+		int min_x = static_cast<int>(std::floor(dilated_min_x * inverse_scale));
+		int min_y = static_cast<int>(std::floor(dilated_min_y * inverse_scale));
+		int max_x = static_cast<int>(std::floor(dilated_max_x * inverse_scale));
+		int max_y = static_cast<int>(std::floor(dilated_max_y * inverse_scale));
 		//钳到该级范围
 		min_x = (std::max)(0, (std::min)(min_x, static_cast<int>(level_width) - 1));
 		max_x = (std::max)(0, (std::min)(max_x, static_cast<int>(level_width) - 1));

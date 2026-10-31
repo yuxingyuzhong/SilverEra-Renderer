@@ -113,20 +113,25 @@ void main()
 				|| screen_min.x >= params_block.hi_z.x || screen_min.y >= params_block.hi_z.y);
 		if (in_view)
 		{
-			// 选级：覆盖纹素不超过 2×2
-			float extent = max(max(screen_max.x - screen_min.x, screen_max.y - screen_min.y), 1.0);
+			// 保守外扩 1 像素（抵消投影包围盒与光栅化差异；第二百五十七轮）
+			const float DILATE = 1.0;
+			vec2 dilated_min = screen_min - vec2(DILATE);
+			vec2 dilated_max = screen_max + vec2(DILATE);
+			// 选级：覆盖纹素不超过 2×2；末两级不采样（保守口径，见 CPU 参考）
+			float extent = max(max(dilated_max.x - dilated_min.x, dilated_max.y - dilated_min.y), 1.0);
 			int levels = int(params_block.hi_z.z);
-			int level = int(min(ceil(log2(extent)), float(levels - 1)));
-			level = max(level, 0);
+			int level_cap = levels >= 2 ? levels - 2 : 0;
+			int level = int(ceil(log2(extent)));
+			level = clamp(level, 0, level_cap);
 			// 该级尺寸
 			int level_width = max(1, int(params_block.hi_z.x) >> level);
 			int level_height = max(1, int(params_block.hi_z.y) >> level);
 			int scale = 1 << level;
 			// 矩形映射到该级纹素范围并钳制
-			int min_x = clamp(int(floor(screen_min.x / float(scale))), 0, level_width - 1);
-			int max_x = clamp(int(floor(screen_max.x / float(scale))), 0, level_width - 1);
-			int min_y = clamp(int(floor(screen_min.y / float(scale))), 0, level_height - 1);
-			int max_y = clamp(int(floor(screen_max.y / float(scale))), 0, level_height - 1);
+			int min_x = clamp(int(floor(dilated_min.x / float(scale))), 0, level_width - 1);
+			int max_x = clamp(int(floor(dilated_max.x / float(scale))), 0, level_width - 1);
+			int min_y = clamp(int(floor(dilated_min.y / float(scale))), 0, level_height - 1);
+			int max_y = clamp(int(floor(dilated_max.y / float(scale))), 0, level_height - 1);
 			// 覆盖纹素的最大远面深度（保守）
 			float farthest = 0.0;
 			for (int ty = min_y; ty <= max_y; ++ty)
