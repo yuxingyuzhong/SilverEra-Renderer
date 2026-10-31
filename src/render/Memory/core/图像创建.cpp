@@ -72,9 +72,9 @@ namespace engine
 		vmaDestroyImage(allocator, image, alloc);
 	}
 
-	//创建图像视图（二维；级数由调用方给出，默认 1）
+	//创建图像视图（二维；级数由调用方给出，默认 1；第二百五十三轮增起始级）
 	bool Memory_Context::image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect,
-		uint32_t level_count, VkImageViewType view_type, uint32_t layer_count)
+		uint32_t level_count, VkImageViewType view_type, uint32_t layer_count, uint32_t base_mip_level)
 	{
 		//前置：图像句柄与逻辑设备必须齐备
 		if (image == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
@@ -96,7 +96,7 @@ namespace engine
 		view_info.viewType = view_type;
 		view_info.format = format;
 		view_info.subresourceRange.aspectMask = aspect;
-		view_info.subresourceRange.baseMipLevel = 0;
+		view_info.subresourceRange.baseMipLevel = base_mip_level;
 		view_info.subresourceRange.levelCount = level_count;
 		view_info.subresourceRange.baseArrayLayer = 0;
 		view_info.subresourceRange.layerCount = layer_count == 0 ? 1 : layer_count;

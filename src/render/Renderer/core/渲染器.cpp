@@ -265,7 +265,47 @@ namespace engine
 		Deferred_Entry entry{};
 		entry.resources = std::move(old_resources);
 		frame.deferred_push(std::move(entry), frame.in_flight_count_get() + 1);
+		/*
+		Hi-Z 资源跟随交换链尺寸（第二百五十三轮）
+		已构建时按新尺寸重建；失败则整体销毁并降级为关闭（不阻断重建后的出帧）。
+		*/
+		if (hiz.valid())
+		{
+			VkExtent2D extent = swapchain.extent_get();
+			//尺寸变化后重建历史与金字塔
+			if (!hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get()))
+			{
+				logger.warn("渲染器:: Hi-Z 资源尺寸重建失败（已降级为关闭）");
+				hiz.destroy();
+				hiz_enabled = false;
+			}
+		}
 		return true;
+	}
+
+	/*
+	确保 Hi-Z 资源就绪（第二百五十三轮）
+	能力不足（计算不可用 / R32 浮点存储图像不可用）时返回假；尺寸与当前交换链一致时为空操作。
+	*/
+	bool Renderer::Impl::hiz_ensure(void)
+	{
+		//能力不足
+		if (!hiz_capable || !compute.supported())
+			return false;
+		//当前交换链范围（为 0 表示尚未就绪）
+		VkExtent2D extent = swapchain.extent_get();
+		if (extent.width == 0 || extent.height == 0)
+			return false;
+		//已就绪且尺寸一致
+		if (hiz.valid() && hiz.width_get() == extent.width && hiz.height_get() == extent.height
+			&& hiz.depth_format_get() == swapchain.depth_format_get())
+			return true;
+		//已构建但尺寸 / 格式变化：按新参数重建
+		if (hiz.valid())
+			return hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get());
+		//首次构建（每帧槽一份历史 ＋ 一份金字塔）
+		return hiz.build(device.device_get(), memory, config.frame_overlap, extent.width, extent.height,
+			swapchain.depth_format_get());
 	}
 
 	/*
@@ -906,6 +946,16 @@ namespace engine
 			capabilities.host_query_reset = features12.hostQueryReset == VK_TRUE;
 			//间接命令以 firstInstance 承担实例偏移，故需该核心特性（第二百五十二轮）
 			impl->indirect_first_instance_supported = features.features.drawIndirectFirstInstance == VK_TRUE;
+			/*
+			Hi-Z 能力探测（第二百五十三轮）
+			要求计算路径可用且 R32 浮点格式支持存储图像（金字塔逐级写入）与采样（遮挡查询读取）；
+			不满足时 hiz_supported 为假，开启请求被拒绝且不创建任何资源。
+			*/
+			VkFormatProperties hiz_format_properties{};
+			vkGetPhysicalDeviceFormatProperties(physical, HIZ_PYRAMID_FORMAT, &hiz_format_properties);
+			const VkFormatFeatureFlags hiz_features = VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+			impl->hiz_capable = capabilities.compute
+				&& (hiz_format_properties.optimalTilingFeatures & hiz_features) == hiz_features;
 			//强制关闭计算路径时跳过构建（全部 GPU 驱动路径保持关闭，默认帧路径不受影响）
 			if (!effective.compute_enable)
 			{
@@ -1387,6 +1437,16 @@ namespace engine
 		impl->gpu_cull_enabled = effective.gpu_cull_enable;
 		//间接绘制开关（第二百五十二轮；默认关闭）
 		impl->gpu_indirect_enabled = effective.gpu_indirect_enable;
+		/*
+		Hi-Z 开关与惰性资源（第二百五十三轮）
+		配置为真时在初始化末尾构建；构建失败仅告警并把开关复位为假（不阻断初始化，默认路径不受影响）。
+		*/
+		impl->hiz_enabled = effective.hiz_enable;
+		if (impl->hiz_enabled && !impl->hiz_ensure())
+		{
+			logger.warn("渲染器:: Hi-Z 资源构建失败（开关保持关闭）");
+			impl->hiz_enabled = false;
+		}
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
 		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
 		impl->ssaa_extent_failed = false;
@@ -1661,6 +1721,9 @@ namespace engine
 		//实例压缩管线句柄同样失效（第二百四十九轮）
 		impl->gpu_compact_pipeline = 0;
 		impl->last_gpu_cull_ms = 0.0;
+		//Hi-Z 资源依赖内存模块，须先于其销毁（第二百五十三轮）
+		impl->hiz.destroy();
+		impl->hiz_enabled = false;
 		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
 		impl->compute.destroy();
 		//计算着色器模块须先于着色器上下文复位
@@ -3592,6 +3655,78 @@ namespace engine
 	bool Renderer::gpu_cull_enable_get(void) const
 	{
 		return impl != nullptr && impl->gpu_cull_enabled;
+	}
+
+	/*
+	Hi-Z 开关设置（第二百五十三轮）
+	开启时惰性构建「每帧槽深度历史 ＋ mip 金字塔」；能力不足或构建失败返回假且开关保持关闭。
+	关闭时只置标志、保留已建资源，下一次开启直接复用。
+	*/
+	bool Renderer::hiz_enable_set(bool enabled)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//关闭只置标志
+		if (!enabled)
+		{
+			impl->hiz_enabled = false;
+			return true;
+		}
+		//已就绪直接开启
+		if (impl->hiz.valid())
+		{
+			impl->hiz_enabled = true;
+			return true;
+		}
+		//惰性构建资源
+		if (!impl->hiz_ensure())
+			return false;
+		impl->hiz_enabled = true;
+		return true;
+	}
+
+	//读取 Hi-Z 开关
+	bool Renderer::hiz_enable_get(void) const
+	{
+		return impl != nullptr && impl->hiz_enabled;
+	}
+
+	//本机是否具备 Hi-Z 能力（计算路径 ＋ R32 浮点存储图像）
+	bool Renderer::hiz_supported(void) const
+	{
+		//未初始化或能力不足
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->hiz_capable && impl->compute.supported();
+	}
+
+	//当前 Hi-Z 资源状态（未创建时全 0）
+	bool Renderer::hiz_state_get(uint32_t& width_out, uint32_t& height_out, uint32_t& level_count_out) const
+	{
+		//出参先归零
+		width_out = 0;
+		height_out = 0;
+		level_count_out = 0;
+		//资源未创建
+		if (impl == nullptr || !impl->hiz.valid())
+			return false;
+		width_out = impl->hiz.width_get();
+		height_out = impl->hiz.height_get();
+		level_count_out = impl->hiz.level_count();
+		return true;
+	}
+
+	//指定金字塔级尺寸（越界或未创建返回假）
+	bool Renderer::hiz_level_extent(uint32_t level, uint32_t& width_out, uint32_t& height_out) const
+	{
+		//出参先归零
+		width_out = 0;
+		height_out = 0;
+		//资源未创建
+		if (impl == nullptr || !impl->hiz.valid())
+			return false;
+		return impl->hiz.level_extent_get(level, width_out, height_out);
 	}
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）

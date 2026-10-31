@@ -81,9 +81,11 @@ namespace engine
 		/*
 		创建图像视图（二维 / 立方体；级数由调用方给出，默认 1；第一百二十五轮增视图类型与层数）
 		view_type 为 VK_IMAGE_VIEW_TYPE_2D 或 VK_IMAGE_VIEW_TYPE_CUBE；layer_count 为覆盖的数组层数（立方体为 6）。
+		base_mip_level 为起始级（第二百五十三轮；默认 0，> 0 时用于 Hi-Z 金字塔的逐级视图）。
 		*/
 		bool image_view_create(VkImageView& view_out, VkImage image, VkFormat format, VkImageAspectFlags aspect,
-			uint32_t level_count = 1, VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D, uint32_t layer_count = 1);
+			uint32_t level_count = 1, VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D, uint32_t layer_count = 1,
+			uint32_t base_mip_level = 0);
 		//销毁图像视图
 		void image_view_destroy(VkImageView view);
 

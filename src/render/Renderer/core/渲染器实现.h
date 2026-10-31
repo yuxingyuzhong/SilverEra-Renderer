@@ -15,6 +15,8 @@
 #include "Application/Renderer/src/render/Pipeline/管线.h"
 //计算管线模块（第二百四十一轮）
 #include "Application/Renderer/src/render/Compute/Compute.h"
+//Hi-Z 深度历史与金字塔资源（第二百五十三轮）
+#include "Application/Renderer/src/render/HiZ/HiZ.h"
 //GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
 #include "Application/Renderer/src/render/GPU驱动/包围体.h"
 #include "Application/Renderer/src/render/GPU驱动/剔除数据.h"
@@ -50,6 +52,12 @@ namespace engine
 		延迟 = 在途帧数 + 1，保证在途帧用尽后才释放（§6.4）。返回重建是否成功。
 		*/
 		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
+		/*
+		确保 Hi-Z 资源就绪（第二百五十三轮；惰性构建）
+		计算路径可用且 R32 浮点存储图像可用时才构建「每帧槽深度历史 ＋ 金字塔」；
+		已在当前尺寸下就绪时为空操作。失败返回假且不留下半初始化资源。
+		*/
+		bool hiz_ensure(void);
 		/*
 		登记具名图形管线（第一百七十二轮抽出；门面 pipeline_load 与材质共享管线共用）
 		加载着色器对并登记一条具名管线；cull_none 为真时关闭背面剔除（双面渲染）。
@@ -236,6 +244,14 @@ namespace engine
 		bool gpu_indirect_enabled = false;
 		//设备是否支持间接绘制命令的 firstInstance 非零（第二百五十二轮；不支持时整轮回落逐项）
 		bool indirect_first_instance_supported = false;
+		/*
+		Hi-Z 上下文（第二百五十三轮）
+		按帧槽持有深度历史与 mip 金字塔；默认关闭时不创建任何资源，首次开启时惰性构建。
+		hiz_capable 为初始化时探测结果（计算可用 ＋ R32 浮点存储图像可用）。
+		*/
+		HiZ_Context hiz;
+		bool hiz_enabled = false;
+		bool hiz_capable = false;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

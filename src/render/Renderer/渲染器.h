@@ -125,6 +125,12 @@ namespace engine
 		阴影 pass、并行分段录制与容量不足时自动回落逐项绘制。关闭时与引入前逐字节一致。
 		*/
 		bool gpu_indirect_enable = false;
+		/*
+		Hi-Z 遮挡剔除开关（第二百五十三轮起；默认关闭）
+		为真且计算路径可用时，初始化后首次切换到真会惰性创建「每帧槽深度历史 ＋ mip 金字塔」资源；
+		关闭时不分配任何资源。资源只创建不参与录制（遮挡判定与接入在 254–256 轮落地），故关闭时画面逐字节不变。
+		*/
+		bool hiz_enable = false;
 	};
 
 	/*
@@ -436,6 +442,17 @@ namespace engine
 		//GPU 剔除开关（默认关；为真且计算可用时实例化绘制走 GPU 压缩）
 		void gpu_cull_enable_set(bool enabled);
 		bool gpu_cull_enable_get(void) const;
+		/*
+		Hi-Z 开关与资源状态（第二百五十三轮）
+		hiz_enable_set(true) 在计算路径可用时惰性创建深度历史 ＋ 金字塔资源，失败返回假且开关保持关闭；
+		hiz_enable_set(false) 只关闭开关，保留已创建资源。hiz_supported() 反映「计算可用 ＋ R32 浮点存储图像可用」。
+		hiz_state_get 写出当前资源尺寸与级数（未创建时全 0）；hiz_level_extent 写出指定级尺寸（越界返回假）。
+		*/
+		bool hiz_enable_set(bool enabled);
+		bool hiz_enable_get(void) const;
+		bool hiz_supported(void) const;
+		bool hiz_state_get(uint32_t& width_out, uint32_t& height_out, uint32_t& level_count_out) const;
+		bool hiz_level_extent(uint32_t level, uint32_t& width_out, uint32_t& height_out) const;
 		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
