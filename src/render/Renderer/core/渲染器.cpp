@@ -4435,6 +4435,67 @@ namespace engine
 		return ok;
 	}
 
+	/*
+	簇数据整备（第二百七十二轮）
+	一次调用完成「逐簇计数 → 排他偏移 → 光源列表」，并记录构建耗时与条目数。
+	*/
+	bool Renderer::cluster_data_build(uint32_t* counts_out, uint32_t* offsets_out, uint32_t* list_out,
+		uint32_t cluster_capacity, uint32_t list_capacity, uint32_t* entries_out, bool use_gpu)
+	{
+		//出参先归零
+		if (entries_out != nullptr)
+			*entries_out = 0;
+		//未初始化或入参非法
+		if (impl == nullptr || !impl->initialized || counts_out == nullptr || offsets_out == nullptr
+			|| list_out == nullptr)
+			return false;
+		//网格总簇数与容量
+		uint32_t total = cluster_grid_clusters(impl->cluster_grid);
+		if (total == 0 || cluster_capacity < total)
+			return false;
+		//计时起点
+		const auto begin = std::chrono::high_resolution_clock::now();
+		//计数（GPU 可用且请求时走 GPU，否则回落 CPU 参考）
+		bool gpu_path = use_gpu && compute_supported();
+		uint32_t counted = 0;
+		if (gpu_path)
+			gpu_path = cluster_counts_gpu(counts_out, cluster_capacity, &counted);
+		if (!gpu_path && !cluster_counts_reference_ex(counts_out, cluster_capacity, &counted))
+			return false;
+		//条目总数
+		uint32_t entries = 0;
+		for (uint32_t cluster = 0; cluster < total; ++cluster)
+			entries += counts_out[cluster];
+		if (entries == 0)
+			return false;
+		//列表（与计数采用同一路径）
+		uint32_t built_entries = 0;
+		bool ok = gpu_path
+			? cluster_list_build_gpu(list_out, list_capacity, offsets_out, counts_out, total, &built_entries)
+			: cluster_list_build_cpu(list_out, list_capacity, offsets_out, counts_out, total, &built_entries);
+		if (!ok || built_entries != entries)
+			return false;
+		//计时终点与观测更新
+		const auto end = std::chrono::high_resolution_clock::now();
+		impl->last_cluster_entries = entries;
+		impl->last_cluster_build_ms = std::chrono::duration<double, std::milli>(end - begin).count();
+		if (entries_out != nullptr)
+			*entries_out = entries;
+		return true;
+	}
+
+	//最近一次簇数据整备的条目数（未构建时为 0）
+	uint32_t Renderer::cluster_entries_get(void) const
+	{
+		return impl != nullptr ? impl->last_cluster_entries : 0;
+	}
+
+	//最近一次簇数据整备耗时（毫秒；未构建时为 0）
+	double Renderer::cluster_build_ms_get(void) const
+	{
+		return impl != nullptr ? impl->last_cluster_build_ms : 0.0;
+	}
+
 
 	//GPU 实例压缩（第二百四十九轮；不限距离、背面关）
 	bool Renderer::gpu_instance_compact(const float* transforms, uint32_t count,

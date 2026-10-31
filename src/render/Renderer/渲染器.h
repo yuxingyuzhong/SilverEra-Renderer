@@ -530,6 +530,18 @@ namespace engine
 		bool cluster_list_build_gpu(uint32_t* list_out, uint32_t capacity, uint32_t* offsets_out,
 			const uint32_t* counts, uint32_t cluster_total, uint32_t* entries_out);
 		/*
+		簇数据整备（第二百七十二轮）
+		一次调用完成「逐簇计数 → 排他偏移 → 光源列表」；use_gpu 为真且计算可用时走 GPU 路径，否则走 CPU 参考。
+		counts_out / offsets_out 长度须 ≥ 网格总簇数；list_out 长度须 ≥ 条目总数（= 计数之和）。
+		成功返回真并写出条目数；未初始化 / 容量不足 / 入参非法返回假。同时更新构建耗时与条目观测值。
+		*/
+		bool cluster_data_build(uint32_t* counts_out, uint32_t* offsets_out, uint32_t* list_out,
+			uint32_t cluster_capacity, uint32_t list_capacity, uint32_t* entries_out, bool use_gpu);
+		//最近一次簇数据整备的条目数（未构建时为 0）
+		uint32_t cluster_entries_get(void) const;
+		//最近一次簇数据整备耗时（毫秒；未构建时为 0）
+		double cluster_build_ms_get(void) const;
+		/*
 		计算管线（第二百四十三轮）
 		按 `.spv` 文件名加载并登记（入口固定 main）；句柄自 1 起，0 = 无效。
 		卸载时同时释放管线与着色器模块。
