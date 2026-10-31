@@ -204,11 +204,15 @@ namespace engine
 			//外锥角余弦（cos(外角)；锥外为 0）
 			float spot_outer_cos = 0.0f;
 		};
-		//点光源数量上限（与着色器循环上限一致；第六十二轮由 4 扩为 8）
-		static constexpr uint32_t POINT_LIGHT_MAX = 8;
+		//旧前向路径（场景 UBO）支持的光源上限（与着色器数组一致；第二百八十轮）
+		static constexpr uint32_t POINT_LIGHT_UBO_MAX = LIGHT_LEGACY_MAX;
+		//光源登记上限（Cluster 开启时生效；关闭时按 UBO 上限截断并告警；第二百八十轮）
+		static constexpr uint32_t POINT_LIGHT_MAX = LIGHT_RECORD_CAPACITY;
 		//点光源数组与当前数量
 		Point_Light point_lights[POINT_LIGHT_MAX];
 		uint32_t point_light_count = 0;
+		//是否发生过「Cluster 关闭且超过 UBO 上限」的截断告警（第二百八十轮）
+		bool light_truncated = false;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

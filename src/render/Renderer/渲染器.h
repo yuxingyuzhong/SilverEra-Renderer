@@ -258,6 +258,8 @@ namespace engine
 		double cluster_build_ms = 0.0;
 		//最近一次簇数据整备的条目数（第二百七十三轮；Cluster 关闭时恒 0）
 		uint32_t cluster_entries = 0;
+		//是否发生过「Cluster 关闭且光源超过 8 盏」的截断（第二百八十轮；1 = 发生过）
+		uint32_t light_truncated = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）

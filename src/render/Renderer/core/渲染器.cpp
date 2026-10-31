@@ -1111,7 +1111,7 @@ namespace engine
 			}
 			//写入初始点光源数组（offset 128、256 字节；8 个槽位，未用槽位清零；第六十二轮扩为 8 盏）
 			float point_block[64] = {};
-			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+			for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			{
 				//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
 				const std::size_t base = static_cast<std::size_t>(light) * 4;
@@ -1137,7 +1137,7 @@ namespace engine
 			两个 std140 数组各自连续，故分两段排布。
 			*/
 			float spot_block[64] = {};
-			for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+			for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			{
 				//槽内基址（每个槽 4 个浮点）
 				const std::size_t base = static_cast<std::size_t>(light) * 4;
@@ -2328,7 +2328,7 @@ namespace engine
 		scene_block[30] = camera_position[2];
 		scene_block[31] = impl->directional_specular;
 		//点光源：先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个 std140 数组一致）
-		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 		{
 			const std::size_t base = 32 + static_cast<std::size_t>(light) * 4;
 			scene_block[base + 0] = impl->point_lights[light].position[0];
@@ -2342,7 +2342,7 @@ namespace engine
 			scene_block[base + 32 + 3] = impl->point_lights[light].intensity;
 		}
 		//聚光参数：前 32 浮点为「方向 ＋ 有效标志」（8 盏），后 32 浮点为「内锥余弦 ＋ 外锥余弦 ＋ 逐光源衰减模式 ＋ 逐盏高光缩放」
-		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 		{
 			const std::size_t base = 96 + static_cast<std::size_t>(light) * 4;
 			scene_block[base + 0] = impl->point_lights[light].spot_direction[0];
@@ -2385,7 +2385,7 @@ namespace engine
 		scene_block[182] = impl->fill_color[2];
 		scene_block[183] = impl->fill_specular;
 		//逐盏光泽度（第五十一轮；第六十二轮扩为 8 盏，std140 float[8] 每盏占 16 字节 → 偏移 184 + light × 4）
-		for (uint32_t light = 0; light < Impl::POINT_LIGHT_MAX; ++light)
+		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			scene_block[184 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		/*
 		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
@@ -3481,6 +3481,8 @@ namespace engine
 		//簇数据整备观测（第二百七十三轮；Cluster 关闭时恒 0）
 		stats.cluster_build_ms = impl->last_cluster_build_ms;
 		stats.cluster_entries = impl->last_cluster_entries;
+		//光源截断标志（第二百八十轮；Cluster 关闭且超过 8 盏时置 1）
+		stats.light_truncated = impl->light_truncated ? 1u : 0u;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -8036,7 +8038,7 @@ namespace engine
 		*/
 		for (uint32_t index = 0; index < light.point_count; ++index)
 			//超过上限的部分不再登记
-			if (index >= Impl::POINT_LIGHT_MAX)
+			if (index >= Impl::POINT_LIGHT_UBO_MAX)
 				break;
 			else
 				light_add_point(light.point_position[index], light.point_color[index],
@@ -8048,7 +8050,7 @@ namespace engine
 		*/
 		for (uint32_t index = 0; index < light.spot_count; ++index)
 			//超过上限的部分不再登记
-			if (index >= Impl::POINT_LIGHT_MAX)
+			if (index >= Impl::POINT_LIGHT_UBO_MAX)
 				break;
 			else
 				light_add_spot(light.spot_position[index], light.spot_direction[index],
@@ -8095,13 +8097,13 @@ namespace engine
 		//反向外扩描边（第二百二十八轮；非法值由 setter 归一）
 		outline_set(light.outline_width, light.outline_color);
 		//若点光源数量超过上限则告警（已登记前 8 盏）
-		if (light.point_count > Impl::POINT_LIGHT_MAX)
+		if (light.point_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
-				light.point_count, Impl::POINT_LIGHT_MAX, Impl::POINT_LIGHT_MAX);
+				light.point_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);
 		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 8 盏上限）
-		if (light.spot_count > Impl::POINT_LIGHT_MAX)
+		if (light.spot_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 {}，仅登记前 {} 盏（与点光源共用上限）",
-				light.spot_count, Impl::POINT_LIGHT_MAX, Impl::POINT_LIGHT_MAX);
+				light.spot_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);
 	}
 
 	//应用场景描述（兼容扁平聚合；内部拆成三组后转发）
@@ -8165,7 +8167,7 @@ namespace engine
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
-		for (uint32_t index = 0; index < Impl::POINT_LIGHT_MAX; ++index)
+		for (uint32_t index = 0; index < Impl::POINT_LIGHT_UBO_MAX; ++index)
 		{
 			for (std::size_t each = 0; each < 3; ++each)
 			{
@@ -8319,10 +8321,15 @@ namespace engine
 				position[0], position[1], position[2], radius, intensity);
 			return false;
 		}
+		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
+		const uint32_t light_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		//若已达上限
-		if (impl->point_light_count >= Impl::POINT_LIGHT_MAX)
+		if (impl->point_light_count >= light_limit)
 		{
-			logger.warn("渲染器:: 点光源数量已达上限（{}），拒绝追加", Impl::POINT_LIGHT_MAX);
+			//关闭 Cluster 时的截断须在统计中可见（不静默）
+			if (!impl->cluster_enabled)
+				impl->light_truncated = true;
+			logger.warn("渲染器:: 点光源数量已达上限（{}），拒绝追加", light_limit);
 			return false;
 		}
 		//写入新槽位（按登记顺序累加）
@@ -8384,10 +8391,15 @@ namespace engine
 				position[0], position[1], position[2], radius, intensity, inner_deg, outer_deg);
 			return false;
 		}
+		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
+		const uint32_t light_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		//若已达上限
-		if (impl->point_light_count >= Impl::POINT_LIGHT_MAX)
+		if (impl->point_light_count >= light_limit)
 		{
-			logger.warn("渲染器:: 光源数量已达上限（{}），拒绝追加聚光灯", Impl::POINT_LIGHT_MAX);
+			//关闭 Cluster 时的截断须在统计中可见（不静默）
+			if (!impl->cluster_enabled)
+				impl->light_truncated = true;
+			logger.warn("渲染器:: 光源数量已达上限（{}），拒绝追加聚光灯", light_limit);
 			return false;
 		}
 		//写入新槽位（按登记顺序累加）
@@ -8426,6 +8438,8 @@ namespace engine
 			return;
 		//清空计数并恢复方向光默认强度（方向 / 颜色 / 环境光保持既有值）
 		impl->point_light_count = 0;
+		//清空截断标志（第二百八十轮）
+		impl->light_truncated = false;
 		impl->light_intensity = 1.0f;
 	}
 
