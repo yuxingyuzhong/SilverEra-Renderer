@@ -3290,6 +3290,7 @@ namespace engine
 		//剔除耗时累计归零（最近一帧值保留；第二百四十七轮）
 		impl->cull_total_ms = 0.0;
 		impl->gpu_cull_dispatches = 0;
+		impl->last_gpu_occluded = 0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
 		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
@@ -3353,6 +3354,8 @@ namespace engine
 		stats.gpu_cull_ms = impl->last_gpu_cull_ms;
 		//GPU 压缩派发次数（第二百五十一轮）
 		stats.gpu_cull_dispatches = impl->gpu_cull_dispatches;
+		//最近一次遮挡剔除数（第二百六十一轮）
+		stats.gpu_occluded = impl->last_gpu_occluded;
 		//间接绘制次数（第二百五十二轮；未走间接路径时恒 0）
 		stats.indirect_draws = impl->frame.indirect_draw_count_get();
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
@@ -3848,9 +3851,9 @@ namespace engine
 			compute_buffer_unload(transform_handle);
 			return false;
 		}
-		//计数清零（主机可见初值 0）
-		const uint32_t zero = 0;
-		if (!compute_buffer_load(counter_handle, static_cast<uint32_t>(sizeof(uint32_t)), &zero))
+		//计数清零（主机可见初值 0；第 0 个为可见数、第 1 个为遮挡剔除数）
+		const uint32_t zero[2] = { 0u, 0u };
+		if (!compute_buffer_load(counter_handle, static_cast<uint32_t>(sizeof(zero)), zero))
 		{
 			compute_buffer_unload(compact_handle);
 			compute_buffer_unload(transform_handle);
@@ -3933,12 +3936,21 @@ namespace engine
 		}
 		push.count = count;
 		//绑定 → 调度 → 回读计数与压缩矩阵（含第 3 号剔除参数缓冲）
+		uint32_t occluded = 0;
+		uint32_t counters[2] = { 0u, 0u };
 		bool ok = compute_buffer_bind(transform_handle, 0)
 			&& compute_buffer_bind(compact_handle, 1)
 			&& compute_buffer_bind(counter_handle, 2)
 			&& compute_buffer_bind(params_handle, 3)
 			&& compute_dispatch(impl->gpu_compact_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
-			&& compute_buffer_read(counter_handle, visible_out, static_cast<uint32_t>(sizeof(uint32_t)), 0);
+			&& compute_buffer_read(counter_handle, counters, static_cast<uint32_t>(sizeof(counters)), 0);
+		//可见数与遮挡剔除数（后者仅在 Hi-Z 启用时非零）
+		if (ok)
+		{
+			*visible_out = static_cast<uint32_t>(counters[0]);
+			occluded = static_cast<uint32_t>(counters[1]);
+			impl->last_gpu_occluded = occluded;
+		}
 		//读取压缩后的矩阵（仅可见前缀）
 		if (ok && *visible_out > 0)
 			ok = compute_buffer_read(compact_handle, matrices_out,

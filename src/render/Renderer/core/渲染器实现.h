@@ -263,6 +263,8 @@ namespace engine
 		Compute_Pipeline_Handle hiz_downsample_pipeline = 0;
 		//最近一次完成金字塔生成的帧槽（第二百五十六轮；剔除读取该槽的上一帧金字塔）
 		uint32_t last_hiz_slot = 0;
+		//最近一次 GPU 压缩被 Hi-Z 完全遮挡而剔除的实例数（第二百六十一轮）
+		uint32_t last_gpu_occluded = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

@@ -238,6 +238,8 @@ namespace engine
 		double gpu_cull_ms = 0.0;
 		//GPU 压缩成功派发次数（第二百五十一轮；关闭 GPU 剔除时恒 0；清零累计量时归零）
 		uint64_t gpu_cull_dispatches = 0;
+		//最近一次 GPU 压缩被 Hi-Z 完全遮挡而剔除的实例数（第二百六十一轮；关闭遮挡时恒 0）
+		uint64_t gpu_occluded = 0;
 		double cluster_build_ms = 0.0;
 		uint64_t indirect_draws = 0;
 		/*

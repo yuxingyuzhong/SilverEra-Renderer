@@ -7,7 +7,8 @@ layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
 layout(set = 0, binding = 0) buffer Transform_Block { vec4 transforms[]; } transform_block;
 layout(set = 0, binding = 1) buffer Compact_Block { vec4 compacted[]; } compact_block;
-layout(set = 0, binding = 2) buffer Counter_Block { uint visible_count; } counter_block;
+// 可见计数与遮挡剔除计数（第二百六十一轮：occluded_count 仅统计「被 Hi-Z 完全遮挡」的实例）
+layout(set = 0, binding = 2) buffer Counter_Block { uint visible_count; uint occluded_count; } counter_block;
 // 距离 / 背面剔除参数（第二百五十轮；limits.x = 距离上限（≤0 不限）、limits.y = 背面开关）
 // Hi-Z 遮挡参数（第二百五十六轮）：hi_z = (第 0 级宽, 第 0 级高, 级数, 是否启用)
 layout(set = 0, binding = 3) buffer Params_Block
@@ -139,7 +140,11 @@ void main()
 					farthest = max(farthest, texelFetch(hi_z_source, ivec2(tx, ty), level).r);
 			// 最近深度严格大于远面深度 + 容差才完全遮挡
 			if (nearest > farthest + 0.002)
+			{
+				// 累计遮挡剔除数（第二百六十一轮观测）
+				atomicAdd(counter_block.occluded_count, 1u);
 				return;
+			}
 		}
 	}
 	uint slot = atomicAdd(counter_block.visible_count, 1u);
