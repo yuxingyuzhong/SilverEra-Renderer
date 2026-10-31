@@ -104,10 +104,43 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 cascade_params2;
 	//卡通高光参数（第一百七十九轮；x = 阈值 0..1、0 = 关闭；yzw 保留）
 	vec4 toon_specular_params;
+	/*
+	簇参数（第二百八十五轮写入、第二百八十九轮读取）
+	x = Cluster 启用（> 0.5 生效）、yzw = 网格 x / y / z；
+	x 为 0（默认）时下方点光循环走原前向路径，画面逐字节不变。
+	*/
+	vec4 cluster_params;
 } scene;
 
-//点光源数量上限（与门面 Impl::POINT_LIGHT_MAX 一致；第六十二轮由 4 扩为 8）
+//点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
 const int POINT_LIGHT_MAX = 8;
+
+/*
+光源记录（与 Host 侧 Light_Record 逐字段一致，std430 共 80 字节）
+pos_radius = 位置 ＋ 半径；color_intensity = 颜色 ＋ 强度；direction = 光传播方向（点光为 0）；
+cone = 内锥余弦 / 外锥余弦 / 衰减模式 / 逐盏高光缩放；尾部为光泽度、类型、有效标志与对齐保留。
+*/
+struct Light_Record
+{
+	vec4 pos_radius;
+	vec4 color_intensity;
+	vec4 direction;
+	vec4 cone;
+	float shininess;
+	uint type;
+	uint flags;
+	float reserved;
+};
+
+/*
+簇数据存储缓冲（描述符集 0 binding 1..4；第二百八十八轮接入、第二百八十九轮读取）
+binding 1 = 光源记录数组（1024 条）、2 = 逐簇计数、3 = 逐簇排他偏移、4 = 簇光源列表；
+Cluster 关闭时四条绑定指向占位缓冲，且下方分支不生效，故不会读取其中内容。
+*/
+layout(set = 0, binding = 1) readonly buffer Light_Records { Light_Record light_records[]; };
+layout(set = 0, binding = 2) readonly buffer Cluster_Counts { uint cluster_counts[]; };
+layout(set = 0, binding = 3) readonly buffer Cluster_Offsets { uint cluster_offsets[]; };
+layout(set = 0, binding = 4) readonly buffer Cluster_List { uint cluster_list[]; };
 
 /*
 逐物体 PBR 粗糙度缩放（第六十八轮；第一百七十一轮改为按变换后 UV 采样）
@@ -207,6 +240,62 @@ vec3 clearcoat_specular(vec3 normal, vec3 to_view, vec3 to_light, float weight)
 		return vec3(0.0);
 	float roughness = clamp(push_tint.clearcoat.y, 0.03, 1.0);
 	return ggx_specular(normal, to_view, to_light, roughness, vec3(0.04)) * strength * weight;
+}
+
+/*
+单个点光 / 聚光贡献（第二百八十九轮抽取；旧前向路径与 Cluster 列表路径共用）
+pos_radius / color_intensity / light_direction / cone 与 Host 侧光源记录同口径；
+除「聚光判定」由 is_spot 传入外，衰减 / 锥形 / 色阶量化 / 高光 / 清漆的计算顺序与原 8 盏循环逐行一致，
+故小规模光源下两条路径结果逐字节相同。
+*/
+void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughness_cached, float metallic_cached,
+	float toon_levels, vec4 pos_radius, vec4 color_intensity, vec4 light_direction, vec4 cone, float shininess_record,
+	bool is_spot, inout vec3 radiance, inout vec3 specular)
+{
+	vec3 offset = pos_radius.xyz - in_world;
+	float distance = length(offset);
+	//避免零距离除零
+	vec3 to_light = distance > 0.000001 ? offset / distance : vec3(0.0, 0.0, 1.0);
+	float radius = pos_radius.w;
+	float attenuation = 1.0;
+	if (radius > 0.000001)
+	{
+		float normalized = distance / radius;
+		//逐光源模式（0 = 跟随全局；全局 0 = 线性、1 = 平方反比，映射到 1 / 2）
+		int mode = int(cone.z + 0.5);
+		if (mode == 0)
+			mode = scene.light_color.w > 0.5 ? 2 : 1;
+		attenuation = mode == 2
+			? 1.0 / (1.0 + normalized * normalized)
+			: clamp(1.0 - normalized, 0.0, 1.0);
+	}
+	float cone_factor = 1.0;
+	//聚光灯锥形衰减（普通点光的有效标志为 0 → 恒 1）
+	if (is_spot)
+	{
+		float cos_angle = dot(-to_light, light_direction.xyz);
+		cone_factor = smoothstep(cone.y, cone.x, cos_angle);
+	}
+	float ndotl = max(dot(normal, to_light), 0.0);
+	//色阶量化（第一百七十四轮；关闭时原样返回）
+	ndotl = toon_quantize(ndotl, toon_levels);
+	radiance += color_intensity.rgb * color_intensity.w * ndotl * attenuation * cone_factor;
+	//逐盏光泽度（0 = 跟随全局光泽度）
+	float shininess = shininess_record > 0.0 ? shininess_record : max(scene.light_common.z, 1.0);
+	//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
+	if (scene.pbr_params.x > 0.5)
+		specular = max(specular, ggx_specular(normal, to_view, to_light,
+			pbr_roughness(shininess, roughness_cached), pbr_f0(albedo, metallic_cached))
+			* attenuation * cone_factor * cone.w * color_intensity.w);
+	else
+	{
+		vec3 halfway = normalize(to_light + to_view);
+		float spec_base = max(dot(normal, halfway), 0.0);
+		specular = max(specular, vec3(pow(spec_base, shininess) * attenuation * cone_factor * cone.w));
+	}
+	//清漆层（第二百三十四轮：点光 / 聚光同样叠加一层清漆反射）
+	specular = max(specular, clearcoat_specular(normal, to_view, to_light,
+		attenuation * cone_factor * cone.w * color_intensity.w));
 }
 
 /*
@@ -550,76 +639,68 @@ void main()
 				scene.fill_color.w * scene.fill_dir_intensity.w));
 		}
 		/*
-		点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）
+		点光源 / 聚光（第二百八十九轮：Cluster 开启时改读逐簇光源列表）
+		Cluster 开启（场景 UBO 296 > 0.5）时按片元位置换算所属簇，从清单取光源记录逐盏累加；
+		关闭时沿用原 8 盏 UBO 前向循环；两条路径共用同一累加函数，故小规模光源下画面逐字节一致。
 		*/
-		int point_count = int(scene.light_common.w);
-		for (int index = 0; index < POINT_LIGHT_MAX; ++index)
+		if (scene.cluster_params.x > 0.5)
 		{
-			//超出有效数量的槽位不参与
-			if (index >= point_count)
-				break;
-			vec3 offset = scene.point_pos_radius[index].xyz - in_world;
-			float distance = length(offset);
-			//避免零距离除零
-			vec3 to_light = distance > 0.000001 ? offset / distance : vec3(0.0, 0.0, 1.0);
+			//网格轴数（至少 1，避免空网格）
+			int grid_x = max(int(scene.cluster_params.y + 0.5), 1);
+			int grid_y = max(int(scene.cluster_params.z + 0.5), 1);
+			int grid_z = max(int(scene.cluster_params.w + 0.5), 1);
+			//片元裁剪空间坐标（与 CPU 参考的屏幕归一化口径一致）
+			vec4 cluster_clip = scene.view_proj * vec4(in_world, 1.0);
+			//默认落在第 0 簇（相机背后等退化情形保守取首个簇）
+			int cluster_x = 0;
+			int cluster_y = 0;
+			//相机前方才换算屏幕坐标
+			if (cluster_clip.w > 0.000001)
+			{
+				vec2 cluster_ndc = vec2(cluster_clip.x / cluster_clip.w * 0.5 + 0.5,
+					0.5 - cluster_clip.y / cluster_clip.w * 0.5);
+				cluster_x = clamp(int(floor(cluster_ndc.x * float(grid_x))), 0, grid_x - 1);
+				cluster_y = clamp(int(floor(cluster_ndc.y * float(grid_y))), 0, grid_y - 1);
+			}
+			//深度轴按「相机到片元距离」线性映射（与 CPU 覆盖口径一致）
+			float cluster_span = max(scene.camera_range.y - scene.camera_range.x, 0.000001);
+			float cluster_distance = distance(scene.camera_pos.xyz, in_world);
+			int cluster_z = clamp(int(floor((cluster_distance - scene.camera_range.x) / cluster_span
+				* float(grid_z))), 0, grid_z - 1);
+			//线性下标（x 变化最快）
+			uint cluster = uint((cluster_z * grid_y + cluster_y) * grid_x + cluster_x);
+			uint cluster_begin = cluster_offsets[cluster];
+			uint cluster_count = cluster_counts[cluster];
+			//逐盏累加（清单按光源记录顺序排列，与旧前向循环同序）
+			for (uint item = 0u; item < cluster_count; ++item)
+			{
+				uint light_index = cluster_list[cluster_begin + item];
+				Light_Record light = light_records[light_index];
+				//方向光 / 补光由上方既有分支处理
+				if (light.type == 0u)
+					continue;
+				accumulate_point_light(normal, to_view, albedo_color.rgb, material_roughness_cached,
+					material_metallic_cached, toon_levels, light.pos_radius, light.color_intensity,
+					light.direction, light.cone, light.shininess, light.type == 2u, radiance, specular);
+			}
+		}
+		else
+		{
 			/*
-			距离衰减（第三十六轮可切换模式；第四十六轮支持逐光源覆盖）
-			逐光源模式存于 point_spot_cone.z：0 = 跟随全局（light_color.w）、1 = 线性、2 = 平方反比；
-			线性模式在距离达到半径时降为 0，平方反比为 1/(1+(d/r)²) 且不设硬截断；
-			半径为 0 时两种模式均视为无衰减。
+			点光源（数量由 light_common.w 给出，线性衰减；超过上限的登记在门面侧即被拒绝）
 			*/
-			float radius = scene.point_pos_radius[index].w;
-			float attenuation = 1.0;
-			if (radius > 0.000001)
+			int point_count = int(scene.light_common.w);
+			for (int index = 0; index < POINT_LIGHT_MAX; ++index)
 			{
-				float normalized = distance / radius;
-				//逐光源模式（0 = 跟随全局；全局 0 = 线性、1 = 平方反比，映射到 1 / 2）
-				int mode = int(scene.point_spot_cone[index].z + 0.5);
-				if (mode == 0)
-					mode = scene.light_color.w > 0.5 ? 2 : 1;
-				attenuation = mode == 2
-					? 1.0 / (1.0 + normalized * normalized)
-					: clamp(1.0 - normalized, 0.0, 1.0);
+				//超出有效数量的槽位不参与
+				if (index >= point_count)
+					break;
+				accumulate_point_light(normal, to_view, albedo_color.rgb, material_roughness_cached,
+					material_metallic_cached, toon_levels, scene.point_pos_radius[index],
+					scene.point_color_intensity[index], scene.point_spot_dir[index],
+					scene.point_spot_cone[index], scene.point_shininess[index],
+					scene.point_spot_dir[index].w > 0.5, radiance, specular);
 			}
-			/*
-			聚光灯锥形衰减（第三十四轮）
-			普通点光源的有效标志为 0 → cone 恒 1；聚光灯按「光轴与光源→片元方向」夹角取平滑锥形：
-			夹角小于内角 → 1，大于外角 → 0，其间 smoothstep 过渡。
-			*/
-			float cone = 1.0;
-			if (scene.point_spot_dir[index].w > 0.5)
-			{
-				//光源 → 片元 的方向（to_light 为片元 → 光源，取反即得）
-				vec3 light_to_fragment = -to_light;
-				float cos_angle = dot(light_to_fragment, scene.point_spot_dir[index].xyz);
-				cone = smoothstep(scene.point_spot_cone[index].y, scene.point_spot_cone[index].x, cos_angle);
-			}
-			float ndotl = max(dot(normal, to_light), 0.0);
-			//色阶量化（第一百七十四轮）
-			ndotl = toon_quantize(ndotl, toon_levels);
-			radiance += scene.point_color_intensity[index].rgb * scene.point_color_intensity[index].w
-				* ndotl * attenuation * cone;
-			//高光同样取最大值；衰减或锥形为 0 的光源不产生高光
-			//逐盏光泽度（第五十一轮：0 = 跟随全局光泽度）
-			float shininess = scene.point_shininess[index] > 0.0
-				? scene.point_shininess[index]
-				: max(scene.light_common.z, 1.0);
-			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
-			if (scene.pbr_params.x > 0.5)
-				specular = max(specular, ggx_specular(normal, to_view, to_light,
-					pbr_roughness(shininess, material_roughness_cached),
-					pbr_f0(albedo_color.rgb, material_metallic_cached)) * attenuation * cone * scene.point_spot_cone[index].w
-					* scene.point_color_intensity[index].w);
-			else
-			{
-				vec3 halfway = normalize(to_light + to_view);
-				float spec_base = max(dot(normal, halfway), 0.0);
-				specular = max(specular, vec3(pow(spec_base, shininess) * attenuation * cone
-					* scene.point_spot_cone[index].w));
-			}
-			//清漆层（第二百三十四轮：点光 / 聚光同样叠加一层清漆反射）
-			specular = max(specular, clearcoat_specular(normal, to_view, to_light,
-				attenuation * cone * scene.point_spot_cone[index].w * scene.point_color_intensity[index].w));
 		}
 	}
 	/*

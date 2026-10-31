@@ -596,11 +596,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 1184 字节：… ＋ 相机近远平面 ＋ 天空盒参数 ＋ 第三级级联矩阵与参数 ＋ 卡通高光参数；第一百四十六轮 1088 → 1168，第一百七十九轮 1168 → 1184）
+		//缓冲描述（场景 UBO 1200 字节：… ＋ 第三级级联矩阵与参数 ＋ 卡通高光参数 ＋ 簇参数；第二百八十九轮由 1184 扩为 1200，使片元可读取簇参数）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 1184;
+		buffer_info.range = 1200;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};

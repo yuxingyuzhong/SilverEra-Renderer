@@ -2626,9 +2626,9 @@ namespace engine
 		*/
 		scene_block[292] = impl->toon_specular;
 		/*
-		簇参数占位（第二百八十五轮）
-		296 = Cluster 启用（> 0.5 生效）、297..299 = 网格 x / y / z；
-		本轮仅写入 UBO，着色器尚未读取，故画面逐字节不变（采样接入在下一窗口）。
+		簇参数（第二百八十五轮写入；第二百八十九轮由场景片元读取）
+		296 = Cluster 启用（> 0.5 时片元改读逐簇光源列表）、297..299 = 网格 x / y / z；
+		296 为 0（默认）时着色器走原 8 盏前向循环，画面逐字节不变。
 		*/
 		scene_block[296] = impl->cluster_enabled ? 1.0f : 0.0f;
 		scene_block[297] = static_cast<float>(impl->cluster_grid.x);
