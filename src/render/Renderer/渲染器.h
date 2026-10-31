@@ -1,6 +1,8 @@
 ﻿#pragma once
 //预编译头
 #include "Application/Renderer/common/前置头文件包含.h"
+//光源数据记录（Vulkan-free；第二百六十五轮）
+#include "Application/Renderer/src/render/Scene/光源数据.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
@@ -1298,6 +1300,15 @@ namespace engine
 		成功写出状态并返回真；未初始化 / index 越界返回假（出参保持不变）。
 		*/
 		bool point_light_state_get(uint32_t index, Point_Light_State& state_out) const;
+		/*
+		光源记录快照（第二百六十五轮；阶段 D 数据底座）
+		把当前光源写成 Light_Record 数组：索引 0 = 主方向光、1 = 补光，其后为逐盏点光 / 聚光；
+		返回**写入条数**（≤ capacity；capacity 不足时按上述顺序截断），未初始化返回 0。
+		out 为空且 capacity > 0 时返回 0（不写）。
+		*/
+		uint32_t light_records_get(Light_Record* out, uint32_t capacity) const;
+		//当前光源记录总数（主光 ＋ 补光 ＋ 逐盏；不受 capacity 影响）
+		uint32_t light_record_count(void) const;
 		/*
 		设置镜面高光参数（第三十一轮新增；对方向光与点光源均生效）
 		intensity 为高光强度（≥ 0，0 = 关闭），shininess 为光泽度（≥ 1，越大高光越集中）。

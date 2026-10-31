@@ -7751,6 +7751,95 @@ namespace engine
 		return true;
 	}
 
+	//当前光源记录总数（主光 ＋ 补光 ＋ 逐盏；第二百六十五轮）
+	uint32_t Renderer::light_record_count(void) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return 2u + impl->point_light_count;
+	}
+
+	/*
+	光源记录快照（第二百六十五轮）
+	索引 0 = 主方向光、1 = 补光（强度 0 表示关闭），其后按登记顺序写点光 / 聚光。
+	*/
+	uint32_t Renderer::light_records_get(Light_Record* out, uint32_t capacity) const
+	{
+		//未初始化 / 出参缺失
+		if (impl == nullptr || !impl->initialized || out == nullptr || capacity == 0)
+			return 0;
+		uint32_t written = 0;
+		//写入一条记录（容量不足则只计数不写）
+		auto push = [&](const Light_Record& record)
+		{
+			//容量内则写出
+			if (written < capacity)
+				out[written] = record;
+			++written;
+		};
+		//主方向光
+		{
+			Light_Record record;
+			record.color_intensity[0] = impl->light_color[0];
+			record.color_intensity[1] = impl->light_color[1];
+			record.color_intensity[2] = impl->light_color[2];
+			record.color_intensity[3] = impl->light_intensity;
+			record.direction[0] = impl->light_direction[0];
+			record.direction[1] = impl->light_direction[1];
+			record.direction[2] = impl->light_direction[2];
+			record.cone[3] = impl->directional_specular;
+			record.type = static_cast<uint32_t>(Light_Type::Directional);
+			record.flags = 1u;
+			push(record);
+		}
+		//补光（强度 0 = 关闭，仍占一条以保持索引稳定）
+		{
+			Light_Record record;
+			record.color_intensity[0] = impl->fill_color[0];
+			record.color_intensity[1] = impl->fill_color[1];
+			record.color_intensity[2] = impl->fill_color[2];
+			record.color_intensity[3] = impl->fill_intensity;
+			record.direction[0] = impl->fill_direction[0];
+			record.direction[1] = impl->fill_direction[1];
+			record.direction[2] = impl->fill_direction[2];
+			record.cone[3] = impl->fill_specular;
+			record.type = static_cast<uint32_t>(Light_Type::Directional);
+			record.flags = impl->fill_intensity > 0.0f ? 1u : 0u;
+			push(record);
+		}
+		//逐盏点光 / 聚光
+		for (uint32_t index = 0; index < impl->point_light_count && index < Impl::POINT_LIGHT_MAX; ++index)
+		{
+			const Impl::Point_Light& light = impl->point_lights[index];
+			Light_Record record;
+			record.pos_radius[0] = light.position[0];
+			record.pos_radius[1] = light.position[1];
+			record.pos_radius[2] = light.position[2];
+			record.pos_radius[3] = light.radius;
+			record.color_intensity[0] = light.color[0];
+			record.color_intensity[1] = light.color[1];
+			record.color_intensity[2] = light.color[2];
+			record.color_intensity[3] = light.intensity;
+			//聚光方向（点光为 0）
+			if (light.is_spot)
+			{
+				record.direction[0] = light.spot_direction[0];
+				record.direction[1] = light.spot_direction[1];
+				record.direction[2] = light.spot_direction[2];
+			}
+			record.cone[0] = light.spot_inner_cos;
+			record.cone[1] = light.spot_outer_cos;
+			record.cone[2] = static_cast<float>(light.attenuation);
+			record.cone[3] = light.specular_scale;
+			record.shininess = light.shininess;
+			record.type = static_cast<uint32_t>(light.is_spot ? Light_Type::Spot : Light_Type::Point);
+			record.flags = 1u;
+			push(record);
+		}
+		return written < capacity ? written : capacity;
+	}
+
 	//设置镜面高光参数（第三十一轮新增）
 	void Renderer::specular_set(float intensity, float shininess)
 	{
