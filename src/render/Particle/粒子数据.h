@@ -82,6 +82,7 @@ namespace engine
 	floor_y = 地面高度；restitution / friction = 反弹系数与切向摩擦（0..1）。
 	force_count / forces = 力场数量与数组（第三百一十八轮；按顺序逐场施加，最多 PARTICLE_FORCE_MAX 个）。
 	color_start / color_end / color_enabled = 颜色覆盖（第三百五十四轮；默认关闭）。
+	edge_softness = 软边宽度（第三百五十五轮；0 = 内置 0.65 内半径）。
 	*/
 	struct Particle_Params
 	{
@@ -110,6 +111,11 @@ namespace engine
 		float color_start[3];
 		float color_end[3];
 		uint32_t color_enabled;
+		/*
+		软边宽度（第三百五十五轮；0 = 保持第三百一十四轮的 0.65 内半径）
+		0..1：内半径 = 1 − edge_softness，越大圆盘边缘越柔（整枚粒子越「虚」）。
+		*/
+		float edge_softness;
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）

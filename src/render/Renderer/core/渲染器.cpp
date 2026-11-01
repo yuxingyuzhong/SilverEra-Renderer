@@ -1,4 +1,4 @@
-﻿#include "src/render/Renderer/局部命名空间使用.h"
+#include "src/render/Renderer/局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
@@ -9637,15 +9637,19 @@ namespace engine
 	}
 
 	/*
-	粒子颜色推送（第三百五十四轮）
-	按粒子参数填推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、offset 96 = 启用标志（x）。
-	未启用时标志恒写 0：CPU 路径的实例化占位块（材质参数 / UV 变换）不参与粒子着色，但须避免被当成启用标志。
+	粒子外观推送（第三百五十四轮；第三百五十五轮补软边宽度）
+	按粒子参数填推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、
+	offset 96 = 外观分量（x 颜色启用标志 / y 软边宽度）。
+	未启用颜色时标志恒写 0；软边宽度恒写（0 = 内置 0.65 内半径）；
+	CPU 路径的实例化占位块（材质参数 / UV 变换）不参与粒子着色，但须避免被误读为标志或宽度。
 	*/
-	void Renderer::particle_color_push_fill(std::array<float, 32>& push) const
+	void Renderer::particle_style_push_fill(std::array<float, 32>& push) const
 	{
 		const Particle_Params& params = impl->particle_params;
 		//颜色覆盖开关（0 = 片元着色器回落内置曲线）
 		push[24] = params.color_enabled ? 1.0f : 0.0f;
+		//软边宽度（0 = 片元着色器回落 0.65 内半径）
+		push[25] = params.edge_softness;
 		for (uint32_t channel = 0; channel < 3; ++channel)
 		{
 			//新生端颜色
@@ -9842,7 +9846,7 @@ namespace engine
 				&& impl->pending_push_constants.size() > push_before)
 			{
 				impl->pending_items.back().cast_shadow = false;
-				particle_color_push_fill(impl->pending_push_constants.back());
+				particle_style_push_fill(impl->pending_push_constants.back());
 			}
 		}
 		else
@@ -9896,7 +9900,7 @@ namespace engine
 					&& impl->pending_push_constants.size() > push_before)
 				{
 					impl->pending_items.back().cast_shadow = false;
-					particle_color_push_fill(impl->pending_push_constants.back());
+					particle_style_push_fill(impl->pending_push_constants.back());
 				}
 				drawn = drawn || registered;
 			}
@@ -9965,7 +9969,7 @@ namespace engine
 		push[2] = camera[2];
 		push[3] = size;
 		//颜色覆盖推送（第三百五十四轮；与 CPU 路径同一推送块口径）
-		particle_color_push_fill(push);
+		particle_style_push_fill(push);
 		//组装绘制项（管线延迟到 frame_render 才绑定；此处只登记状态）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
@@ -10139,7 +10143,7 @@ namespace engine
 		push_spatial[2] = camera[2];
 		push_spatial[3] = size;
 		//颜色覆盖推送（第三百五十四轮；与 CPU / GPU 直接路径同一推送块口径）
-		particle_color_push_fill(push_spatial);
+		particle_style_push_fill(push_spatial);
 		//组装绘制项（实例数取自命令，instance_count 仅用于统计口径）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);

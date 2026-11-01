@@ -455,11 +455,13 @@ namespace engine
 		//粒子 GPU 绘制管线惰性创建（第三百四十一轮；粒子GPU.vert ＋ 粒子.frag，不消费实例属性）
 		bool particle_gpu_draw_ensure(void);
 		/*
-		粒子颜色推送（第三百五十四轮）
-		按当前粒子参数写入推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、offset 96.x = 启用标志。
-		未启用时标志写 0（片元着色器回落内置暖白 → 暗红曲线）；CPU 路径占位块残留的材质数值一并被覆盖。
+		粒子外观推送（第三百五十四轮；第三百五十五轮补软边宽度）
+		按当前粒子参数写入推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、
+		offset 96.x = 颜色启用标志、offset 96.y = 软边宽度。
+		未启用颜色时标志写 0（片元着色器回落内置暖白 → 暗红曲线）；软边宽度恒写（0 = 内置 0.65 内半径），
+		CPU 路径占位块残留的材质数值一并被覆盖。
 		*/
-		void particle_color_push_fill(std::array<float, 32>& push) const;
+		void particle_style_push_fill(std::array<float, 32>& push) const;
 		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。

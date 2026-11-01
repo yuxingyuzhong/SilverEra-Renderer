@@ -9,15 +9,15 @@ layout(location = 0) in vec2 in_uv;
 layout(location = 1) flat in float in_age;
 
 /*
-颜色覆盖参数（第三百五十四轮；CPU / GPU 三条绘制路径共用同一推送块口径）
-64..79 = 新生端颜色 rgb、80..95 = 衰老端颜色 rgb、96..111 的 x = 启用标志；
+颜色覆盖参数（第三百五十四轮；第三百五十五轮补软边宽度）
+64..79 = 新生端颜色 rgb、80..95 = 衰老端颜色 rgb、96..111 的 x = 颜色启用标志、y = 软边宽度；
 与场景推送块（色调 / 材质参数）同址，粒子着色器不读其余字段。
 */
 layout(push_constant) uniform Push_Particle_Color
 {
 	layout(offset = 64) vec4 particle_color_start;
 	layout(offset = 80) vec4 particle_color_end;
-	layout(offset = 96) vec4 particle_color_flags;
+	layout(offset = 96) vec4 particle_style;
 } push_color;
 
 layout(location = 0) out vec4 out_color;
@@ -27,8 +27,13 @@ void main()
 	//四边形局部坐标（-1..1）
 	vec2 local = in_uv * 2.0 - 1.0;
 	float radius = length(local);
-	//圆盘软边（半径 0.65 → 1 之间淡出）
-	float alpha = smoothstep(1.0, 0.65, radius);
+	/*
+	圆盘软边
+	软边宽度 > 0 时内半径 = 1 − 宽度；为 0 时保持第三百一十四轮的 0.65 内半径（画面逐字节不变）。
+	*/
+	float softness = clamp(push_color.particle_style.y, 0.0, 1.0);
+	float inner = softness > 0.0 ? 1.0 - softness : 0.65;
+	float alpha = smoothstep(1.0, inner, radius);
 	if (alpha <= 0.0)
 		discard;
 	//年龄口径（0 = 年轻、1 = 衰老）
@@ -38,7 +43,7 @@ void main()
 	颜色来源
 	覆盖启用：两端颜色插值；未启用：内置暖白（年轻）→ 橙黄 → 暗红（衰老）曲线（画面与第三百一十五轮一致）。
 	*/
-	if (push_color.particle_color_flags.x > 0.5)
+	if (push_color.particle_style.x > 0.5)
 		color = mix(push_color.particle_color_start.rgb, push_color.particle_color_end.rgb, age);
 	else
 	{
