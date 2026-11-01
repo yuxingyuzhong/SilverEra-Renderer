@@ -365,6 +365,12 @@ namespace engine
 		uint32_t particle_buffer_capacity = 0;
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
 		uint32_t particle_gpu_died_last = 0;
+		/*
+		粒子 billboard 绘制资源（第三百一十四轮；惰性创建）
+		quad 为单位四边形网格（XY 平面 ±0.5），pipeline 为「粒子.vert / 粒子.frag」Alpha 混合管线。
+		*/
+		Mesh_Handle particle_quad_mesh = 0;
+		uint64_t particle_draw_pipeline = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

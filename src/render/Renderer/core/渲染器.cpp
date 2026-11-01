@@ -1751,6 +1751,13 @@ namespace engine
 			impl->shadow_signature = 0;
 			impl->shadow_pass_count = 0;
 		}
+		//粒子 billboard 资源须先于帧 / 网格上下文销毁（第三百一十四轮）
+		if (impl->particle_quad_mesh != 0)
+		{
+			mesh_unload(impl->particle_quad_mesh);
+			impl->particle_quad_mesh = 0;
+		}
+		impl->particle_draw_pipeline = 0;
 		impl->frame.destroy();
 		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
 		impl->text.shutdown();
@@ -9060,6 +9067,133 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
 			return 0;
 		return impl->particle_gpu_died_last;
+	}
+
+	//确保粒子 billboard 绘制资源就绪（第三百一十四轮）
+	bool Renderer::particle_draw_ensure(void)
+	{
+		//已就绪
+		if (impl->particle_quad_mesh != 0 && impl->particle_draw_pipeline != 0)
+			return true;
+		//单位四边形网格（XY 平面，边长 1）
+		if (impl->particle_quad_mesh == 0)
+		{
+			if (!mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
+				return false;
+		}
+		//粒子管线（Alpha 混合，与场景管线共享布局与描述符集布局）
+		if (impl->particle_draw_pipeline == 0)
+		{
+			if (!pipeline_load(impl->particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv", Blend_Mode::Alpha))
+			{
+				mesh_unload(impl->particle_quad_mesh);
+				impl->particle_quad_mesh = 0;
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/*
+	粒子 billboard 绘制（第三百一十四轮）
+	按相机位置逐粒子构造「右 / 上基向量 × 半尺寸 ＋ 中心」模型矩阵，一次性实例化登记；
+	登记期间的粒子管线为主状态，登记后恢复调用前的管线选择（纹理状态不变，粒子着色器不采样纹理）。
+	*/
+	bool Renderer::particle_draw(float size)
+	{
+		//未开启粒子或未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return false;
+		//尺寸非法
+		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
+			return false;
+		uint32_t capacity = impl->particle_system.capacity_get();
+		const Particle_State* states = impl->particle_system.data_get();
+		const uint8_t* alive = impl->particle_system.alive_get();
+		//统计活跃粒子
+		uint32_t alive_count = 0;
+		for (uint32_t index = 0; index < capacity; ++index)
+			if (alive[index] != 0u)
+				++alive_count;
+		//无活跃粒子不登记绘制项
+		if (alive_count == 0)
+			return false;
+		//绘制资源
+		if (!particle_draw_ensure())
+			return false;
+		//相机世界位置（billboard 朝向基准）
+		float camera[3] = {};
+		impl->camera.position_get(camera);
+		//逐粒子模型矩阵（列主序 16 浮点）
+		std::vector<float> transforms(static_cast<std::size_t>(alive_count) * 16, 0.0f);
+		float half = size * 0.5f;
+		uint32_t written = 0;
+		for (uint32_t index = 0; index < capacity; ++index)
+		{
+			//跳过非活跃索引
+			if (alive[index] == 0u)
+				continue;
+			const Particle_State& state = states[index];
+			//视线方向（相机 → 粒子）
+			float forward[3] = { state.position[0] - camera[0], state.position[1] - camera[1],
+				state.position[2] - camera[2] };
+			float forward_length = std::sqrt(forward[0] * forward[0] + forward[1] * forward[1]
+				+ forward[2] * forward[2]);
+			//退化（粒子与相机重合）时回落到 -Z
+			if (!(forward_length > 1e-6f))
+			{
+				forward[0] = 0.0f;
+				forward[1] = 0.0f;
+				forward[2] = -1.0f;
+				forward_length = 1.0f;
+			}
+			for (uint32_t axis = 0; axis < 3; ++axis)
+				forward[axis] /= forward_length;
+			//右向量 = forward × 世界上方向（0,1,0）→ (-z, 0, x)
+			float right[3] = { -forward[2], 0.0f, forward[0] };
+			float right_length = std::sqrt(right[0] * right[0] + right[2] * right[2]);
+			//视线与世界上方向平行时回落到 +X
+			if (!(right_length > 1e-6f))
+			{
+				right[0] = 1.0f;
+				right[1] = 0.0f;
+				right[2] = 0.0f;
+				right_length = 1.0f;
+			}
+			for (uint32_t axis = 0; axis < 3; ++axis)
+				right[axis] /= right_length;
+			//上向量 = right × forward
+			float up[3] = {
+				right[1] * forward[2] - right[2] * forward[1],
+				right[2] * forward[0] - right[0] * forward[2],
+				right[0] * forward[1] - right[1] * forward[0] };
+			float* matrix = transforms.data() + static_cast<std::size_t>(written) * 16;
+			//基向量 × 半尺寸（quad 顶点为 ±0.5）
+			matrix[0] = right[0] * half;
+			matrix[1] = right[1] * half;
+			matrix[2] = right[2] * half;
+			matrix[4] = up[0] * half;
+			matrix[5] = up[1] * half;
+			matrix[6] = up[2] * half;
+			//局部 Z 轴（四边形为平面，仅保持矩阵可逆）
+			matrix[10] = half;
+			//中心平移
+			matrix[12] = state.position[0];
+			matrix[13] = state.position[1];
+			matrix[14] = state.position[2];
+			matrix[15] = 1.0f;
+			++written;
+		}
+		//切换到粒子管线登记实例化绘制
+		uint64_t previous_pipeline = impl->bound_pipeline_request;
+		pipeline_bind_set(impl->particle_draw_pipeline);
+		bool drawn = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
+		//粒子不参与阴影视图投影（刚登记项为粒子实例化项）
+		if (drawn && !impl->pending_items.empty())
+			impl->pending_items.back().cast_shadow = false;
+		//恢复调用前的管线选择
+		pipeline_bind_set(previous_pipeline);
+		return drawn;
 	}
 
 	/*

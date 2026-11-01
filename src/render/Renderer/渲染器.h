@@ -428,6 +428,8 @@ namespace engine
 		*/
 		bool particle_gpu_ensure(void);
 		void particle_gpu_destroy(void);
+		//粒子 billboard 绘制资源惰性创建（第三百一十四轮；单位四边形 ＋ 粒子管线）
+		bool particle_draw_ensure(void);
 		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
@@ -1458,6 +1460,12 @@ namespace engine
 		bool particle_gpu_step(float dt);
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮；未开启 / 未推进为 0）
 		uint32_t particle_gpu_died_last(void) const;
+		/*
+		粒子 billboard 绘制（第三百一十四轮）
+		把当前活跃粒子按相机朝向四边形一次性实例化登记为**一个绘制项**（实际绘制在下一帧 frame_render）；
+		size 为四边形世界边长；未开启 / 无活跃粒子 / 资源创建失败 / size 非法时返回假且不登记任何绘制项。
+		*/
+		bool particle_draw(float size);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*
