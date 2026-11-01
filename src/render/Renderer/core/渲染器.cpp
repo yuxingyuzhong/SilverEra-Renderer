@@ -9007,6 +9007,15 @@ namespace engine
 		return true;
 	}
 
+	//当前模拟参数快照（第三百七十轮；未初始化返回默认值）
+	Particle_Params Renderer::particle_params_get(void) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return Particle_Params{};
+		return impl->particle_params;
+	}
+
 	//发射粒子（返回实际发射数；未开启 / 未配置返回 0）
 	uint32_t Renderer::particle_emit(uint32_t count)
 	{

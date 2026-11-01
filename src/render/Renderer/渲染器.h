@@ -1483,6 +1483,12 @@ namespace engine
 		bool particle_emitter_set(const Particle_Emitter& emitter);
 		//模拟参数（参数非法整次拒绝；须先开启）
 		bool particle_params_set(const Particle_Params& params);
+		/*
+		当前模拟参数快照（第三百七十轮；观测用）
+		返回最近一次被接受的参数（含软粒子档位 / 颜色 / 软边等外观字段）；
+		未初始化返回默认构造值（各字段为 0）。
+		*/
+		Particle_Params particle_params_get(void) const;
 		//发射 count 个粒子（返回实际发射数；未开启 / 池满时小于 count）
 		uint32_t particle_emit(uint32_t count);
 		//推进一步（返回本步死亡数；未开启返回 0）
