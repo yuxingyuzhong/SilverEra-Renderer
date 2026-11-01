@@ -1475,6 +1475,13 @@ namespace engine
 		//粒子深度写入（第三百一十六轮；默认关闭；切换同样重建粒子管线）
 		bool particle_depth_write_set(bool enabled);
 		bool particle_depth_write_get(void) const;
+		/*
+		粒子深度分桶近似排序（第三百一十七轮；默认 0 = 关闭）
+		0 = 按池索引顺序单次实例化；1..16 = 按视线距离分桶、桶间由远及近登记（桶内保持池索引顺序）。
+		本层**不做逐粒子排序**：同桶粒子的叠加上限为整桶一次绘制，结果稳定（同一输入逐帧一致）。
+		*/
+		bool particle_sort_buckets_set(uint32_t buckets);
+		uint32_t particle_sort_buckets_get(void) const;
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

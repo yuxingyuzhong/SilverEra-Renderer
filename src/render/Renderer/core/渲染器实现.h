@@ -374,6 +374,8 @@ namespace engine
 		//粒子混合档与深度写入（第三百一十六轮；切档重建粒子管线）
 		Blend_Mode particle_blend_mode = Blend_Mode::Alpha;
 		bool particle_depth_write = false;
+		//粒子深度分桶数（第三百一十七轮；0 = 关闭）
+		uint32_t particle_sort_buckets = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

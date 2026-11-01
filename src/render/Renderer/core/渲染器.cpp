@@ -9156,6 +9156,25 @@ namespace engine
 		return impl->particle_depth_write;
 	}
 
+	//设置粒子深度分桶数（第三百一十七轮；钳到 0..16）
+	bool Renderer::particle_sort_buckets_set(uint32_t buckets)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return false;
+		//钳制到 [0, 16]（0 = 关闭）
+		impl->particle_sort_buckets = buckets > 16u ? 16u : buckets;
+		return true;
+	}
+
+	//当前粒子深度分桶数（未初始化返回 0）
+	uint32_t Renderer::particle_sort_buckets_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->particle_sort_buckets;
+	}
+
 	/*
 	粒子 billboard 绘制（第三百一十四轮）
 	按相机位置逐粒子构造「右 / 上基向量 × 半尺寸 ＋ 中心」模型矩阵，一次性实例化登记；
@@ -9186,15 +9205,9 @@ namespace engine
 		//相机世界位置（billboard 朝向基准）
 		float camera[3] = {};
 		impl->camera.position_get(camera);
-		//逐粒子模型矩阵（列主序 16 浮点）
-		std::vector<float> transforms(static_cast<std::size_t>(alive_count) * 16, 0.0f);
-		uint32_t written = 0;
-		for (uint32_t index = 0; index < capacity; ++index)
+		//单粒子模型矩阵构造（列主序 16 浮点；billboard 基 ＋ 年龄收缩尺寸）
+		auto build_matrix = [&](const Particle_State& state, float* matrix)
 		{
-			//跳过非活跃索引
-			if (alive[index] == 0u)
-				continue;
-			const Particle_State& state = states[index];
 			//归一化年龄（0 = 刚发射、1 = 寿命尽头；寿命非正按 0）
 			float age_ratio = state.lifetime > 0.0f ? state.age / state.lifetime : 0.0f;
 			age_ratio = age_ratio < 0.0f ? 0.0f : (age_ratio > 1.0f ? 1.0f : age_ratio);
@@ -9233,7 +9246,6 @@ namespace engine
 				right[1] * forward[2] - right[2] * forward[1],
 				right[2] * forward[0] - right[0] * forward[2],
 				right[0] * forward[1] - right[1] * forward[0] };
-			float* matrix = transforms.data() + static_cast<std::size_t>(written) * 16;
 			//基向量 × 半尺寸（quad 顶点为 ±0.5）
 			matrix[0] = right[0] * half;
 			matrix[1] = right[1] * half;
@@ -9248,15 +9260,112 @@ namespace engine
 			matrix[13] = state.position[1];
 			matrix[14] = state.position[2];
 			matrix[15] = 1.0f;
-			++written;
+		};
+		/*
+		深度分桶近似排序（第三百一十七轮；0 = 关闭）
+		关闭时按池索引顺序单次实例化；开启时按视线距离分桶、桶间由远及近各登记一次实例化绘制。
+		*/
+		uint32_t buckets = impl->particle_sort_buckets;
+		std::vector<float> depths(static_cast<std::size_t>(capacity), 0.0f);
+		float min_depth = 0.0f;
+		float max_depth = 0.0f;
+		if (buckets > 0)
+		{
+			//逐活跃粒子记录视线距离并求范围
+			bool first = true;
+			for (uint32_t index = 0; index < capacity; ++index)
+			{
+				//跳过非活跃索引
+				if (alive[index] == 0u)
+					continue;
+				const Particle_State& state = states[index];
+				float delta[3] = { state.position[0] - camera[0], state.position[1] - camera[1],
+					state.position[2] - camera[2] };
+				float depth = std::sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+				depths[index] = depth;
+				if (first)
+				{
+					min_depth = depth;
+					max_depth = depth;
+					first = false;
+				}
+				else
+				{
+					if (depth < min_depth)
+						min_depth = depth;
+					if (depth > max_depth)
+						max_depth = depth;
+				}
+			}
 		}
-		//切换到粒子管线登记实例化绘制
+		//切换粒子管线登记实例化绘制
 		uint64_t previous_pipeline = impl->bound_pipeline_request;
 		pipeline_bind_set(impl->particle_draw_pipeline);
-		bool drawn = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
-		//粒子不参与阴影视图投影（刚登记项为粒子实例化项）
-		if (drawn && !impl->pending_items.empty())
-			impl->pending_items.back().cast_shadow = false;
+		bool drawn = false;
+		//分桶关闭：单次实例化（池索引顺序）
+		if (buckets == 0)
+		{
+			std::vector<float> transforms(static_cast<std::size_t>(alive_count) * 16, 0.0f);
+			uint32_t written = 0;
+			for (uint32_t index = 0; index < capacity; ++index)
+			{
+				//跳过非活跃索引
+				if (alive[index] == 0u)
+					continue;
+				build_matrix(states[index], transforms.data() + static_cast<std::size_t>(written) * 16);
+				++written;
+			}
+			drawn = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
+			//粒子不参与阴影视图投影（刚登记项为粒子实例化项）
+			if (drawn && !impl->pending_items.empty())
+				impl->pending_items.back().cast_shadow = false;
+		}
+		else
+		{
+			float span = max_depth - min_depth;
+			//桶间由远及近（桶索引自大到小）
+			for (uint32_t bucket = buckets; bucket-- > 0;)
+			{
+				//统计本桶粒子数
+				uint32_t bucket_count = 0;
+				for (uint32_t index = 0; index < capacity; ++index)
+				{
+					//跳过非活跃索引
+					if (alive[index] == 0u)
+						continue;
+					float ratio = span > 1e-6f ? (depths[index] - min_depth) / span : 0.0f;
+					uint32_t target = static_cast<uint32_t>(ratio * static_cast<float>(buckets));
+					if (target >= buckets)
+						target = buckets - 1;
+					if (target == bucket)
+						++bucket_count;
+				}
+				//空桶跳过
+				if (bucket_count == 0)
+					continue;
+				std::vector<float> transforms(static_cast<std::size_t>(bucket_count) * 16, 0.0f);
+				uint32_t written = 0;
+				for (uint32_t index = 0; index < capacity; ++index)
+				{
+					//跳过非活跃索引
+					if (alive[index] == 0u)
+						continue;
+					float ratio = span > 1e-6f ? (depths[index] - min_depth) / span : 0.0f;
+					uint32_t target = static_cast<uint32_t>(ratio * static_cast<float>(buckets));
+					if (target >= buckets)
+						target = buckets - 1;
+					if (target != bucket)
+						continue;
+					build_matrix(states[index], transforms.data() + static_cast<std::size_t>(written) * 16);
+					++written;
+				}
+				bool registered = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
+				//粒子不参与阴影视图投影
+				if (registered && !impl->pending_items.empty())
+					impl->pending_items.back().cast_shadow = false;
+				drawn = drawn || registered;
+			}
+		}
 		//恢复调用前的管线选择
 		pipeline_bind_set(previous_pipeline);
 		return drawn;
