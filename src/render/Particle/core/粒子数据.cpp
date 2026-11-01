@@ -77,6 +77,12 @@ namespace engine
 			return false;
 		if (!unit_interval(params.friction))
 			return false;
+		//碰撞球（第三百一十九轮）：球心有限、半径非负
+		for (uint32_t axis = 0; axis < 3; ++axis)
+			if (!finite(params.sphere_center[axis]))
+				return false;
+		if (!finite(params.sphere_radius) || params.sphere_radius < 0.0f)
+			return false;
 		//力场数量越界
 		if (params.force_count > PARTICLE_FORCE_MAX)
 			return false;

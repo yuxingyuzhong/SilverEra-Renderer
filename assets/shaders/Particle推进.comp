@@ -34,11 +34,15 @@ layout(std430, set = 0, binding = 0) readonly buffer Prev_States { Particle_Stat
 layout(std430, set = 0, binding = 1) writeonly buffer Next_States { Particle_State next_states[]; };
 layout(std430, set = 0, binding = 2) readonly buffer Forces { Force_Field forces[]; };
 
-//推送常量：重力 + 步长 / 阻尼 + 容量 + 力场数
+//推送常量：重力 + 步长 / 阻尼 + 容量 + 力场数 / 碰撞球 / 地面与材质
 layout(push_constant) uniform Push_Step
 {
 	vec4 gravity_dt;
 	vec4 params;
+	//xyz = 碰撞球心、w = 半径（≤ 0 表示关闭）
+	vec4 sphere;
+	//x = 地面高度、y = 反弹系数、z = 切向摩擦、w 保留
+	vec4 surface;
 } push;
 
 void main()
@@ -105,6 +109,43 @@ void main()
 	{
 		state.velocity[axis] *= push.params.x;
 		state.position[axis] += state.velocity[axis] * dt;
+	}
+	/*
+	碰撞（第三百一十九轮；与 CPU 参考同序）
+	先地面平面（钳位、法向反弹、切向摩擦），再球体（推出球面、法向反弹、切向摩擦）。
+	*/
+	if (state.position[1] < push.surface.x)
+	{
+		state.position[1] = push.surface.x;
+		if (state.velocity[1] < 0.0)
+			state.velocity[1] = -state.velocity[1] * push.surface.y;
+		state.velocity[0] *= 1.0 - push.surface.z;
+		state.velocity[2] *= 1.0 - push.surface.z;
+	}
+	if (push.sphere.w > 0.0)
+	{
+		vec3 delta = vec3(state.position[0] - push.sphere.x, state.position[1] - push.sphere.y,
+			state.position[2] - push.sphere.z);
+		float distance = length(delta);
+		//进入球面
+		if (distance > 1e-6 && distance < push.sphere.w)
+		{
+			vec3 normal = delta / distance;
+			//推出到球面
+			for (int axis = 0; axis < 3; ++axis)
+				state.position[axis] = push.sphere[axis] + normal[axis] * push.sphere.w;
+			float normal_speed = dot(vec3(state.velocity[0], state.velocity[1], state.velocity[2]), normal);
+			//仅处理进入球面（法向速度为负）
+			if (normal_speed < 0.0)
+			{
+				float normal_after = -normal_speed * push.surface.y;
+				for (int axis = 0; axis < 3; ++axis)
+				{
+					float tangent = state.velocity[axis] - normal_speed * normal[axis];
+					state.velocity[axis] = tangent * (1.0 - push.surface.z) + normal[axis] * normal_after;
+				}
+			}
+		}
 	}
 	state.age += dt;
 	//寿命到期：标记为未登记（lifetime = 0），由 Host 侧回收映射处理

@@ -9040,11 +9040,14 @@ namespace engine
 			return false;
 		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
 			return false;
-		//推送常量：重力与步长、阻尼与容量与力场数
-		const float push[8] = {
+		//推送常量：重力与步长、阻尼与容量与力场数、碰撞球、地面与材质（第三百一十九轮）
+		const float push[16] = {
 			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
 			impl->particle_params.damping, static_cast<float>(capacity),
-			static_cast<float>(impl->particle_params.force_count), 0.0f
+			static_cast<float>(impl->particle_params.force_count), 0.0f,
+			impl->particle_params.sphere_center[0], impl->particle_params.sphere_center[1],
+			impl->particle_params.sphere_center[2], impl->particle_params.sphere_radius,
+			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction, 0.0f
 		};
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
@@ -9412,8 +9415,9 @@ namespace engine
 			return false;
 		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
 			return false;
-		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换；力场数为 0）
-		const float push[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f };
+		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换；力场 / 碰撞球均关闭、地面不触发）
+		const float push[16] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f,
+			0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
 		//回读后缓冲

@@ -168,6 +168,47 @@ namespace engine
 				state.velocity[axis] *= params.damping;
 				state.position[axis] += state.velocity[axis] * dt;
 			}
+			/*
+			碰撞（第三百一十九轮；与 GPU 同序）
+			先地面平面（位置钳到地面、法向反弹、切向摩擦），再球体（进入球面推出、法向反弹、切向摩擦）。
+			*/
+			if (state.position[1] < params.floor_y)
+			{
+				state.position[1] = params.floor_y;
+				if (state.velocity[1] < 0.0f)
+					state.velocity[1] = -state.velocity[1] * params.restitution;
+				state.velocity[0] *= 1.0f - params.friction;
+				state.velocity[2] *= 1.0f - params.friction;
+			}
+			if (params.sphere_radius > 0.0f)
+			{
+				float delta[3] = { state.position[0] - params.sphere_center[0],
+					state.position[1] - params.sphere_center[1],
+					state.position[2] - params.sphere_center[2] };
+				float distance = std::sqrt(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+				//进入球面（含球心与球面重合的极少数退化）
+				if (distance > 1e-6f && distance < params.sphere_radius)
+				{
+					//法向单位向量
+					float normal[3] = { delta[0] / distance, delta[1] / distance, delta[2] / distance };
+					//推出到球面
+					for (uint32_t axis = 0; axis < 3; ++axis)
+						state.position[axis] = params.sphere_center[axis] + normal[axis] * params.sphere_radius;
+					float normal_speed = state.velocity[0] * normal[0] + state.velocity[1] * normal[1]
+						+ state.velocity[2] * normal[2];
+					//仅处理进入球面（法向速度为负）
+					if (normal_speed < 0.0f)
+					{
+						//切向分量（摩擦衰减）＋ 法向回弹
+						float normal_after = -normal_speed * params.restitution;
+						for (uint32_t axis = 0; axis < 3; ++axis)
+						{
+							float tangent = state.velocity[axis] - normal_speed * normal[axis];
+							state.velocity[axis] = tangent * (1.0f - params.friction) + normal[axis] * normal_after;
+						}
+					}
+				}
+			}
 			state.age += dt;
 			//寿命到期回收
 			if (state.age >= state.lifetime)

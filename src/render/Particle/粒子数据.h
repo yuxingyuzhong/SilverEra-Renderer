@@ -91,6 +91,12 @@ namespace engine
 		float friction;
 		uint32_t force_count;
 		Particle_Force_Field forces[8];
+		/*
+		碰撞球（第三百一十九轮；半径 ≤ 0 表示关闭）
+		sphere_center 为球心；粒子按质点处理，进入球面即推出并按法向反弹 / 切向摩擦。
+		*/
+		float sphere_center[3];
+		float sphere_radius;
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）
