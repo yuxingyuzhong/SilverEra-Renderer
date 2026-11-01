@@ -136,7 +136,20 @@ namespace engine
 		VkDeviceSize index_offset = 0;
 		//索引数
 		uint32_t index_count = 0;
-		//实例缓冲（模型矩阵来源；渲染层统一走实例路径，故所有绘制项均须给出）
+		/*
+		是否使用实例属性（第三百四十一轮；默认真）
+		为假时该绘制项的管线不消费实例属性（如「粒子GPU.vert」按 gl_InstanceIndex 从 SSBO 取状态），
+		录制阶段只绑定顶点缓冲，instance_buffer 可为空；
+		实例数仍由 instance_count 表达（绘制量统计与合并口径不变）。
+		*/
+		bool instance_input = true;
+		/*
+		是否使用「粒子专用场景集」（第三百四十一轮；默认假）
+		为真时门面在帧渲染阶段把 set0 填装为粒子专用集（绑定 0 = 场景 UBO、1 = 状态 SSBO、2 = 紧凑索引），
+		而非普通场景集；配合 instance_input = 假用于「粒子GPU.vert」的着色器内 billboard。
+		*/
+		bool particle_scene_set = false;
+		//实例缓冲（模型矩阵来源；instance_input 为真时必填）
 		VkBuffer instance_buffer = VK_NULL_HANDLE;
 		//实例区在实例缓冲内的字节偏移（一个实例 = 20 浮点 = 80 字节）
 		VkDeviceSize instance_offset = 0;

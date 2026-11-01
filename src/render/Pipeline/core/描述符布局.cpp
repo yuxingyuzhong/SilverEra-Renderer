@@ -26,8 +26,12 @@ namespace engine
 			scene_bindings[binding].binding = binding;
 			scene_bindings[binding].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			scene_bindings[binding].descriptorCount = 1;
-			//仅片元阶段读取（簇索引由片元世界位置换算）
-			scene_bindings[binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+			/*
+			顶点与片元均可见（第三百四十一轮）
+			簇数据仍只由片元读取；粒子 GPU 绘制在顶点阶段按 gl_InstanceIndex 读取状态与紧凑索引，
+			故绑定 1..4 的 stage 必须包含顶点（否则顶点阶段读取得到未定义值 0）。
+			*/
+			scene_bindings[binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		}
 
 		//set 0 布局创建信息

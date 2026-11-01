@@ -104,10 +104,11 @@ namespace engine
 		*/
 		VkDescriptorPoolSize pool_sizes[3]{};
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		pool_sizes[0].descriptorCount = config.frame_overlap;
-		//簇数据存储缓冲（第二百八十八轮；每帧槽四条绑定）
+		//场景集 ＋ 粒子专用集（第三百四十一轮：每帧槽各一条 UBO 绑定）
+		pool_sizes[0].descriptorCount = config.frame_overlap * 2;
+		//簇数据存储缓冲（第二百八十八轮；每帧槽四条绑定）＋ 粒子专用集四条（第三百四十一轮）
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * 4;
+		pool_sizes[1].descriptorCount = config.frame_overlap * 8;
 		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		//采样器类描述符按「场景集 ＋ 后处理集 ＋ 逐绘制项集」三部分计
 		pool_sizes[2].descriptorCount = config.frame_overlap
@@ -116,7 +117,8 @@ namespace engine
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		pool_info.maxSets = config.frame_overlap * (2 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
+		//集数：场景 ＋ 采样器 ＋ 后处理 + 逐绘制项 ＋ 粒子专用（第三百四十一轮）
+		pool_info.maxSets = config.frame_overlap * (3 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
 		pool_info.poolSizeCount = 3;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
@@ -191,6 +193,22 @@ namespace engine
 			return false;
 		}
 
+		//分配粒子专用场景集（set 0 同布局，按帧槽独立分配；第三百四十一轮）
+		particle_sets.resize(config.frame_overlap);
+		vector<VkDescriptorSetLayout> particle_layouts(config.frame_overlap, scene_set_layout);
+		VkDescriptorSetAllocateInfo particle_alloc{};
+		particle_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		particle_alloc.descriptorPool = descriptor_pool;
+		particle_alloc.descriptorSetCount = config.frame_overlap;
+		particle_alloc.pSetLayouts = particle_layouts.data();
+		//若分配失败
+		if (!vk_result_check(vkAllocateDescriptorSets(device, &particle_alloc, particle_sets.data()), "vkAllocateDescriptorSets（粒子）"))
+		{
+			logger.error("管线:: 粒子专用描述符集分配失败，回退");
+			destroy();
+			return false;
+		}
+
 		logger.info("管线:: 管线基础设施构建完成（在途帧 {}，颜色格式 {}，深度格式 {}）",
 			config.frame_overlap, static_cast<int32_t>(config.color_format), static_cast<int32_t>(config.depth_format));
 		return true;
@@ -232,6 +250,7 @@ namespace engine
 		sampler_sets.clear();
 		post_sets.clear();
 		draw_sets.clear();
+		particle_sets.clear();
 		next_handle = 1;
 		active_handle = 0;
 		descriptor_pool = VK_NULL_HANDLE;
@@ -654,6 +673,69 @@ namespace engine
 
 		//一次更新四条绑定
 		vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
+		return true;
+	}
+
+	//获取第 slot 帧槽的粒子专用场景集（第三百四十一轮）
+	VkDescriptorSet Pipeline_Context::particle_set_get(uint32_t slot) const
+	{
+		//越界则返回空句柄
+		if (slot >= particle_sets.size())
+			return VK_NULL_HANDLE;
+		return particle_sets[slot];
+	}
+
+	/*
+	向第 slot 帧槽的粒子专用集写绑定 0..4（第三百四十一轮）
+	0 = 场景 UBO（与场景集同一 1200 字节范围）、1 = 粒子状态（只读）、2 = 紧凑索引（只读）、
+	3 / 4 以状态 / 索引占位，保证 set 0 布局的五条绑定全部有效（粒子着色器不读取 3、4）。
+	*/
+	bool Pipeline_Context::particle_buffers_bind(uint32_t slot, VkBuffer ubo_buffer, VkBuffer state_buffer, VkBuffer index_buffer)
+	{
+		//前置：设备、目标集与三缓冲齐备
+		if (device == VK_NULL_HANDLE || slot >= particle_sets.size() || particle_sets[slot] == VK_NULL_HANDLE
+			|| ubo_buffer == VK_NULL_HANDLE || state_buffer == VK_NULL_HANDLE || index_buffer == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 粒子专用集绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//绑定 0：场景 UBO（范围与场景集一致）
+		VkDescriptorBufferInfo ubo_info{};
+		ubo_info.buffer = ubo_buffer;
+		ubo_info.offset = 0;
+		ubo_info.range = 1200;
+		VkWriteDescriptorSet ubo_write{};
+		ubo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		ubo_write.dstSet = particle_sets[slot];
+		ubo_write.dstBinding = 0;
+		ubo_write.dstArrayElement = 0;
+		ubo_write.descriptorCount = 1;
+		ubo_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		ubo_write.pBufferInfo = &ubo_info;
+
+		//绑定 1..4：状态 / 索引 / 状态占位 / 索引占位（四条只读存储缓冲）
+		const VkBuffer storage_buffers[4] = { state_buffer, index_buffer, state_buffer, index_buffer };
+		VkDescriptorBufferInfo storage_infos[4]{};
+		VkWriteDescriptorSet storage_writes[4]{};
+		for (uint32_t index = 0; index < 4; ++index)
+		{
+			storage_infos[index].buffer = storage_buffers[index];
+			storage_infos[index].offset = 0;
+			storage_infos[index].range = VK_WHOLE_SIZE;
+			storage_writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			storage_writes[index].dstSet = particle_sets[slot];
+			storage_writes[index].dstBinding = index + 1;
+			storage_writes[index].dstArrayElement = 0;
+			storage_writes[index].descriptorCount = 1;
+			storage_writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			storage_writes[index].pBufferInfo = &storage_infos[index];
+		}
+
+		//一次更新五条绑定
+		const VkWriteDescriptorSet writes[5] = { ubo_write, storage_writes[0], storage_writes[1],
+			storage_writes[2], storage_writes[3] };
+		vkUpdateDescriptorSets(device, 5, writes, 0, nullptr);
 		return true;
 	}
 

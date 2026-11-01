@@ -443,6 +443,8 @@ namespace engine
 		void particle_gpu_destroy(void);
 		//粒子 billboard 绘制资源惰性创建（第三百一十四轮；单位四边形 ＋ 粒子管线）
 		bool particle_draw_ensure(void);
+		//粒子 GPU 绘制管线惰性创建（第三百四十一轮；粒子GPU.vert ＋ 粒子.frag，不消费实例属性）
+		bool particle_gpu_draw_ensure(void);
 		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
@@ -1532,6 +1534,13 @@ namespace engine
 		写出前 max_count 项（按紧凑顺序 = 池索引升序），返回实际写出的项数。
 		*/
 		uint32_t particle_compact_indices_get(uint32_t* out, uint32_t max_count);
+		/*
+		粒子 GPU 绘制（第三百四十一轮；常驻模式专用）
+		先紧凑索引，再以「紧凑索引 → 状态 → 着色器内 billboard」登记**一个不消费实例属性**的绘制项：
+		顶点来自单位四边形，实例数 = 紧凑计数；相机位置与尺寸经推送常量下发。
+		返回假表示未开启常驻 / 资源或管线不可用 / 无活跃粒子 / size 非法。
+		*/
+		bool particle_gpu_draw(float size);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

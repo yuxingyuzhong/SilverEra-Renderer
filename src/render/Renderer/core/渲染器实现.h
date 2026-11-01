@@ -395,6 +395,8 @@ namespace engine
 		*/
 		Mesh_Handle particle_quad_mesh = 0;
 		uint64_t particle_draw_pipeline = 0;
+		//粒子 GPU 绘制管线（第三百四十一轮；不消费实例属性，按 gl_InstanceIndex 取紧凑索引）
+		uint64_t particle_gpu_pipeline = 0;
 		//粒子混合档与深度写入（第三百一十六轮；切档重建粒子管线）
 		Blend_Mode particle_blend_mode = Blend_Mode::Alpha;
 		bool particle_depth_write = false;
@@ -432,6 +434,8 @@ namespace engine
 		};
 		//计算存储缓冲集合
 		std::vector<Compute_Buffer_Record> compute_buffers;
+		//按句柄取 Vulkan 缓冲（第三百四十一轮；供描述符集写入；未找到返回空）
+		VkBuffer compute_buffer_native(uint64_t handle) const;
 		//下一个计算缓冲句柄
 		uint64_t next_compute_buffer_handle = 1;
 		/*

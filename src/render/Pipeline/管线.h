@@ -181,6 +181,14 @@ namespace engine
 		//第 slot 帧槽的采样器描述符集（set 1）
 		VkDescriptorSet sampler_set_get(uint32_t slot) const;
 		/*
+		粒子专用场景集（第三百四十一轮；set 0 同布局、独立分配）
+		绑定 0 = 场景 UBO、1 = 粒子状态 SSBO、2 = 紧凑索引 SSBO、3/4 = 占位（与簇缓冲同位但集合独立，
+		故不覆盖场景 pass 的绑定）；供「粒子GPU.vert」在着色器内取状态并构造 billboard。
+		*/
+		VkDescriptorSet particle_set_get(uint32_t slot) const;
+		//向第 slot 帧槽的粒子专用集写绑定 0..4（ubo / state / index；绑定 3、4 以 state / index 占位）
+		bool particle_buffers_bind(uint32_t slot, VkBuffer ubo_buffer, VkBuffer state_buffer, VkBuffer index_buffer);
+		/*
 		每帧槽的后处理采样器集数量
 		链式后处理中第 i 级的源 = 第 (i % 目标数) 个中间目标，故每帧槽需「目标数」个后处理集；
 		目标数上限即本常量（4）：下标 0 恒为场景目标，1..3 为额外中间目标。
@@ -320,6 +328,8 @@ namespace engine
 		std::vector<VkDescriptorSet> post_sets;
 		//逐绘制项采样器描述符集（长度 = frame_overlap × DRAW_SET_PER_SLOT；第一百七十四轮）
 		std::vector<VkDescriptorSet> draw_sets;
+		//粒子专用场景集（set 0 同布局、独立分配；第三百四十一轮；长度 = frame_overlap）
+		std::vector<VkDescriptorSet> particle_sets;
 		//批量写入复用的图像描述与写记录（第二百二十一轮；避免每帧堆分配，长度按需增长）
 		std::vector<VkDescriptorImageInfo> draw_batch_infos;
 		std::vector<VkWriteDescriptorSet> draw_batch_writes;

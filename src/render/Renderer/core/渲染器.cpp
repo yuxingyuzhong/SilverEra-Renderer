@@ -80,6 +80,7 @@ namespace engine
 						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
 							== item.instance_offset;
 					can_merge = push_same && post_same && instance_adjacent
+						&& last.instance_input && item.instance_input
 						&& !last.transparent && !item.transparent
 						&& last.pipeline == item.pipeline
 						&& last.layout == item.layout
@@ -1758,6 +1759,7 @@ namespace engine
 			impl->particle_quad_mesh = 0;
 		}
 		impl->particle_draw_pipeline = 0;
+		impl->particle_gpu_pipeline = 0;
 		impl->frame.destroy();
 		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
 		impl->text.shutdown();
@@ -3052,10 +3054,11 @@ namespace engine
 			impl->draw_set_inputs.clear();
 			for (auto& item : impl->pending_items)
 			{
-				//本帧槽的实例缓冲（模型矩阵来源）
-				item.instance_buffer = impl->instance_buffers[slot];
-				//本帧槽的场景 UBO 描述符集（set0）
-				item.scene_set = impl->pipeline.scene_set_get(slot);
+				//本帧槽的实例缓冲（模型矩阵来源；不消费实例属性的项留空，第三百四十一轮）
+				item.instance_buffer = item.instance_input ? impl->instance_buffers[slot] : VK_NULL_HANDLE;
+				//本帧槽的场景集（set0）：粒子专用项取粒子集，其余取场景集
+				item.scene_set = item.particle_scene_set
+					? impl->pipeline.particle_set_get(slot) : impl->pipeline.scene_set_get(slot);
 				//默认回落共享采样器集（set1）
 				item.sampler_set = impl->pipeline.sampler_set_get(slot);
 				item.descriptor_set_count = 2;
@@ -3754,6 +3757,19 @@ namespace engine
 		if (!compute_supported())
 			return false;
 		return impl->compute.self_check_run(magic, value_out);
+	}
+
+	//按句柄取计算缓冲的原生 Vulkan 句柄（第三百四十一轮）
+	VkBuffer Renderer::Impl::compute_buffer_native(uint64_t handle) const
+	{
+		//句柄无效
+		if (handle == 0)
+			return VK_NULL_HANDLE;
+		//线性查找（缓冲数量有限）
+		for (const Compute_Buffer_Record& record : compute_buffers)
+			if (record.handle == handle)
+				return record.buffer;
+		return VK_NULL_HANDLE;
 	}
 
 	//计算存储缓冲加载（第二百四十三轮；第二百四十四轮补设备本地）
@@ -9202,6 +9218,29 @@ namespace engine
 		return true;
 	}
 
+	/*
+	确保粒子 GPU 绘制管线就绪（第三百四十一轮）
+	与 CPU 路径共用单位四边形网格；管线由「粒子GPU.vert ＋ 粒子.frag」构成，
+	顶点输入只声明位置与纹理坐标（SPIR-V 解析结果不含实例属性位），故不消费实例缓冲。
+	*/
+	bool Renderer::particle_gpu_draw_ensure(void)
+	{
+		//单位四边形网格（与 CPU 路径共用）
+		if (impl->particle_quad_mesh == 0)
+		{
+			if (!mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
+				return false;
+		}
+		//已就绪
+		if (impl->particle_gpu_pipeline != 0)
+			return true;
+		//粒子 GPU 管线（关闭背面剔除、深度写入按门面开关、混合档取粒子设置）
+		if (!impl->pipeline_load_ex(impl->particle_gpu_pipeline, "粒子GPU.vert.spv", "粒子.frag.spv",
+			impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
+			return false;
+		return true;
+	}
+
 	//设置粒子混合档（第三百一十六轮；仅 Alpha / Additive）
 	bool Renderer::particle_blend_set(Blend_Mode mode)
 	{
@@ -9215,11 +9254,16 @@ namespace engine
 		if (impl->particle_blend_mode == mode)
 			return true;
 		impl->particle_blend_mode = mode;
-		//释放旧管线，下次绘制按新档重建
+		//释放旧管线，下次绘制按新档重建（含 GPU 绘制管线；第三百四十一轮）
 		if (impl->particle_draw_pipeline != 0)
 		{
 			pipeline_unload(impl->particle_draw_pipeline);
 			impl->particle_draw_pipeline = 0;
+		}
+		if (impl->particle_gpu_pipeline != 0)
+		{
+			pipeline_unload(impl->particle_gpu_pipeline);
+			impl->particle_gpu_pipeline = 0;
 		}
 		return true;
 	}
@@ -9242,11 +9286,16 @@ namespace engine
 		if (impl->particle_depth_write == enabled)
 			return true;
 		impl->particle_depth_write = enabled;
-		//释放旧管线，下次绘制按新设置重建
+		//释放旧管线，下次绘制按新设置重建（含 GPU 绘制管线；第三百四十一轮）
 		if (impl->particle_draw_pipeline != 0)
 		{
 			pipeline_unload(impl->particle_draw_pipeline);
 			impl->particle_draw_pipeline = 0;
+		}
+		if (impl->particle_gpu_pipeline != 0)
+		{
+			pipeline_unload(impl->particle_gpu_pipeline);
+			impl->particle_gpu_pipeline = 0;
 		}
 		return true;
 	}
@@ -9744,6 +9793,89 @@ namespace engine
 		//恢复调用前的管线选择
 		pipeline_bind_set(previous_pipeline);
 		return drawn;
+	}
+
+	/*
+	粒子 GPU 绘制（第三百四十一轮；阶段 D）
+	紧凑索引 → 逐帧槽写粒子专用集（状态 / 索引的原生缓冲，front 会随推进交换）→
+	登记一个「不消费实例属性、使用粒子专用 set0」的绘制项：顶点为单位四边形，实例数 = 紧凑计数，
+	相机位置与尺寸进推送常量首位（其余 128 B 块留零）。
+	*/
+	bool Renderer::particle_gpu_draw(float size)
+	{
+		//前置条件
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
+			return false;
+		//尺寸非法
+		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
+			return false;
+		if (!particle_gpu_available())
+			return false;
+		//绘制资源与管线
+		if (!particle_gpu_draw_ensure())
+			return false;
+		//每帧前置：紧凑索引
+		if (!particle_gpu_compact())
+			return false;
+		uint32_t count = impl->particle_compact_count;
+		//无活跃粒子不登记绘制项
+		if (count == 0)
+			return false;
+		//状态与索引的原生缓冲
+		VkBuffer state_buffer = impl->compute_buffer_native(impl->particle_buffer_front);
+		VkBuffer index_buffer = impl->compute_buffer_native(impl->particle_index_buffer);
+		if (state_buffer == VK_NULL_HANDLE || index_buffer == VK_NULL_HANDLE)
+			return false;
+		//逐帧槽刷新粒子专用集（front 在常驻推进后会交换）
+		for (uint32_t slot = 0; slot < impl->scene_ubos.size(); ++slot)
+			if (!impl->pipeline.particle_buffers_bind(slot, impl->scene_ubos[slot], state_buffer, index_buffer))
+				return false;
+		//四边形网格记录（顶点与索引共用一个缓冲）
+		VkBuffer quad_buffer = VK_NULL_HANDLE;
+		VkDeviceSize quad_index_offset = 0;
+		uint32_t quad_index_count = 0;
+		if (!impl->mesh.mesh_record_get(impl->particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+			return false;
+		//相机世界位置（着色器内 billboard 基准）
+		float camera[3] = {};
+		impl->camera.position_get(camera);
+		/*
+		推送块（128 B）
+		首位 = 相机位置 ＋ 四边形世界边长；其余留零（粒子片元只读 out_uv / out_age）。
+		*/
+		impl->pending_push_constants.emplace_back();
+		std::array<float, 32>& push = impl->pending_push_constants.back();
+		push.fill(0.0f);
+		push[0] = camera[0];
+		push[1] = camera[1];
+		push[2] = camera[2];
+		push[3] = size;
+		//组装绘制项（管线延迟到 frame_render 才绑定；此处只登记状态）
+		Frame_Render_Item item{};
+		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
+		item.layout = impl->pipeline.layout_get();
+		item.scene_set = VK_NULL_HANDLE;
+		item.sampler_set = VK_NULL_HANDLE;
+		item.descriptor_set_count = 2;
+		item.vertex_buffer = quad_buffer;
+		item.index_buffer = quad_buffer;
+		item.index_offset = quad_index_offset;
+		item.index_count = quad_index_count;
+		//不消费实例属性（第三百四十一轮）
+		item.instance_input = false;
+		item.particle_scene_set = true;
+		item.instance_buffer = VK_NULL_HANDLE;
+		item.instance_offset = 0;
+		item.instance_count = count;
+		item.push_constants = push.data();
+		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
+		//粒子不参与阴影视图投影
+		item.cast_shadow = false;
+		//透明标记（非不透明混合项不参与合批）
+		item.transparent = impl->particle_blend_mode != Blend_Mode::Opaque;
+		//登记待绘制项
+		impl->pending_items.push_back(item);
+		return true;
 	}
 
 	/*

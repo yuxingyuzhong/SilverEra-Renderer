@@ -57,6 +57,9 @@ namespace engine
 			return false;
 		if (first.index_offset != next.index_offset || first.index_count != next.index_count)
 			return false;
+		//不使用实例属性的项不参与实例区合并（第三百四十一轮）
+		if (!first.instance_input || !next.instance_input)
+			return false;
 		if (first.instance_buffer != next.instance_buffer)
 			return false;
 		return next.instance_offset == next_expected_offset;
@@ -90,8 +93,16 @@ namespace engine
 		合并段以实例缓冲偏移 0 绑定、由 first_instance 承担起点语义，与逐项绑定后 firstInstance=0 逐字节等价。
 		仅在映射可用、容量足够容纳本批全部命令且非并行分段录制时启用；否则整体回落逐项直接绘制。
 		*/
+		//批内存在「不使用实例属性」的项时整体回落逐项路径（第三百四十一轮）
+		bool indirect_compatible = true;
+		for (uint32_t index = 0; index < item_count; ++index)
+			if (!items[index].instance_input)
+			{
+				indirect_compatible = false;
+				break;
+			}
 		const bool indirect_ready = indirect_mapped != nullptr && indirect_buffer != VK_NULL_HANDLE
-			&& indirect_capacity > 1 && active_secondary_count <= 1;
+			&& indirect_capacity > 1 && active_secondary_count <= 1 && indirect_compatible;
 		if (indirect_ready)
 		{
 			//预扫描本批命令条数（不完整项跳过）
@@ -241,10 +252,11 @@ namespace engine
 		{
 			//当前渲染项
 			const Frame_Render_Item& item = items[index];
-			//管线或顶点 / 索引 / 实例缓冲缺失则跳过该项
+			//管线或顶点 / 索引缓冲缺失则跳过该项；使用实例属性时实例缓冲亦必填（第三百四十一轮）
 			if (item.pipeline == VK_NULL_HANDLE || item.vertex_buffer == VK_NULL_HANDLE
 				|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0
-				|| item.instance_buffer == VK_NULL_HANDLE || item.instance_count == 0)
+				|| item.instance_count == 0
+				|| (item.instance_input && item.instance_buffer == VK_NULL_HANDLE))
 				continue;
 
 			//仅在与当前已绑定管线不同时重绑（同帧各渲染项可挂不同管线）
@@ -289,13 +301,20 @@ namespace engine
 
 			/*
 			绑定顶点与实例缓冲（第二百一十一轮：binding 0 与 binding 1 合并为一次调用）
-			实例缓冲承载逐实例模型矩阵；实例数为 1 时即「逐次绘制」的等价路径，
-			故 binding 1 在任何合法绘制项下都必须有有效缓冲（管线已恒定声明实例属性）。
-			两条绑定互不依赖，合并调用可把逐项的顶点缓冲绑定 API 次数由 2 降为 1（行为不变）。
+			实例缓冲承载逐实例模型矩阵；实例数为 1 时即「逐次绘制」的等价路径。
+			第三百四十一轮：`instance_input` 为假的项（管线不消费实例属性）只绑定 binding 0。
 			*/
-			VkBuffer vertex_buffers[2] = { item.vertex_buffer, item.instance_buffer };
-			VkDeviceSize vertex_offsets[2] = { 0, item.instance_offset };
-			vkCmdBindVertexBuffers(command_buffer, 0, 2, vertex_buffers, vertex_offsets);
+			if (item.instance_input)
+			{
+				VkBuffer vertex_buffers[2] = { item.vertex_buffer, item.instance_buffer };
+				VkDeviceSize vertex_offsets[2] = { 0, item.instance_offset };
+				vkCmdBindVertexBuffers(command_buffer, 0, 2, vertex_buffers, vertex_offsets);
+			}
+			else
+			{
+				const VkDeviceSize vertex_offset = 0;
+				vkCmdBindVertexBuffers(command_buffer, 0, 1, &item.vertex_buffer, &vertex_offset);
+			}
 			//绑定索引缓冲（uint32 索引；偏移由网格记录给出，顶点与索引可共用一个缓冲）
 			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
 
