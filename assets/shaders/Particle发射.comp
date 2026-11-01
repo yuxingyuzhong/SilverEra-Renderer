@@ -102,9 +102,10 @@ void main()
 	state.age = 0.0;
 	state.lifetime = lifetime;
 	states[index] = state;
-	//活跃位图置位与计数加一
+	//活跃位图置位（环回绕可能落到仍活跃的槽位；仅在原位为 0 时计数加一，保持「计数 = 位图基数」不变式）
 	uint word = index / 32u;
 	uint bit = index % 32u;
-	atomicOr(control[2 + word], 1u << bit);
-	atomicAdd(control[1], 1u);
+	uint old_word = atomicOr(control[2 + word], 1u << bit);
+	if ((old_word & (1u << bit)) == 0u)
+		atomicAdd(control[1], 1u);
 }
