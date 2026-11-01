@@ -45,11 +45,13 @@ layout(set = 0, binding = 0) uniform Scene_Block
 	vec4 camera_range;
 } scene;
 
-//推送常量：源 / 宿尺寸（offset 80）与后处理参数（offset 96）
+//推送常量：源 / 宿尺寸（offset 80）、后处理参数（offset 96）与边缘淡出宽度（offset 112）
 layout(push_constant) uniform Push_Post
 {
 	layout(offset = 80) vec4 size_xy;
 	layout(offset = 96) vec4 post_param;
+	//x = 屏幕边缘淡出宽度（第三百七十七轮；≤ 0 回落默认 0.15，0.001..0.5 可配）
+	layout(offset = 112) vec4 post_color;
 } push;
 
 //最大步进次数上限（固定，保证各硬件行为一致）
@@ -169,7 +171,12 @@ void main()
 		return;
 	}
 	//屏幕边缘淡出（避免边缘跳变）与强度混合
-	float edge = smoothstep(0.0, 0.15, min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)));
+	float edge_width = push.post_color.x;
+	//未设置（≤ 0）回落第三百六十七轮的默认宽度 0.15，保持旧画面逐字节不变
+	if (edge_width <= 0.0)
+		edge_width = 0.15;
+	edge_width = min(edge_width, 0.5);
+	float edge = smoothstep(0.0, edge_width, min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y)));
 	vec3 blended = mix(color.rgb, reflection, strength * edge);
 	out_color = vec4(clamp(blended, 0.0, 1.0), color.a);
 }
