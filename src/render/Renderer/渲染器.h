@@ -1507,8 +1507,8 @@ namespace engine
 		bool particle_sort_buckets_set(uint32_t buckets);
 		uint32_t particle_sort_buckets_get(void) const;
 		/*
-		当前粒子 GPU 资源占用字节（第三百二十轮；只读观测）
-		双缓冲（容量 × 32 × 2）＋ 力场缓冲（8 × 40）；资源未创建时为 0。
+		当前粒子 GPU 资源占用字节（第三百二十轮；只读观测；第三百五十二轮补间接命令缓冲）
+		双缓冲（容量 × 32 × 2）＋ 力场缓冲（8 × 40）＋ 控制 / 紧凑索引与计数 ＋ 间接命令缓冲（按帧槽 20 B）；资源未创建时为 0。
 		*/
 		uint64_t particle_gpu_bytes(void) const;
 		/*

@@ -9409,7 +9409,10 @@ namespace engine
 		//紧凑索引与紧凑计数（第三百三十三轮）
 		uint64_t compact = impl->particle_index_buffer != 0
 			? static_cast<uint64_t>(impl->particle_buffer_capacity) * 4u + 4u : 0u;
-		return buffers + forces + control + compact;
+		//间接命令缓冲（第三百五十二轮；按帧槽各 20 B）
+		uint64_t indirect = static_cast<uint64_t>(impl->particle_indirect_buffers.size())
+			* Renderer::Impl::INDIRECT_COMMAND_BYTES;
+		return buffers + forces + control + compact + indirect;
 	}
 
 	/*
