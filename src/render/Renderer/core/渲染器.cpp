@@ -3772,6 +3772,42 @@ namespace engine
 		return VK_NULL_HANDLE;
 	}
 
+	/*
+	计算存储缓冲创建（第三百四十二轮；可追加 Vulkan 用法位）
+	与 compute_buffer_load 同口径的主机可见 STORAGE 缓冲，额外支持追加用法（如 INDIRECT_BUFFER），
+	供「GPU 侧间接命令缓冲」使用：计算着色器写、后续绘制命令读。
+	*/
+	bool Renderer::Impl::compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size,
+		const void* data, VkBufferUsageFlags extra_usage)
+	{
+		//失败路径一律复位句柄
+		handle_out = 0;
+		//尺寸非法
+		if (size == 0 || size > COMPUTE_BUFFER_MAX_BYTES)
+			return false;
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		//主机可见存储缓冲（恒可作拷贝源）＋ 追加用法
+		VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | extra_usage;
+		if (!memory.buffer_create(buffer, allocation, size, usage, true, false))
+			return false;
+		//写入初值（可选）
+		if (data != nullptr && !memory.buffer_write(buffer, allocation, data, size, 0))
+		{
+			memory.buffer_destroy(buffer, allocation);
+			return false;
+		}
+		Compute_Buffer_Record record;
+		record.handle = next_compute_buffer_handle++;
+		record.buffer = buffer;
+		record.allocation = allocation;
+		record.size = size;
+		record.host_visible = true;
+		handle_out = record.handle;
+		compute_buffers.push_back(record);
+		return true;
+	}
+
 	//计算存储缓冲加载（第二百四十三轮；第二百四十四轮补设备本地）
 	bool Renderer::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data, bool device_local)
 	{
@@ -8997,7 +9033,27 @@ namespace engine
 		//紧凑索引（uint32 × 容量）与紧凑计数（4 字节；第三百三十三轮）
 		std::vector<uint8_t> zero_indices(static_cast<std::size_t>(capacity) * 4u, 0u);
 		uint32_t zero_count = 0;
-		bool created = compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
+		/*
+		按帧槽创建间接命令缓冲（第三百四十二轮；阶段 D）
+		每条 20 字节（VkDrawIndexedIndirectCommand），用法 STORAGE ＋ INDIRECT、主机可见（便于回读校验）；
+		每槽一份，保证「上一轮帧仍在读取的命令」不会被本帧写入覆盖。
+		*/
+		uint32_t slot_count = impl->frame.in_flight_count_get();
+		slot_count = slot_count == 0 ? 1u : slot_count;
+		std::vector<uint8_t> zero_command(Renderer::Impl::INDIRECT_COMMAND_BYTES, 0u);
+		bool indirect_created = true;
+		for (uint32_t slot = 0; slot < slot_count && indirect_created; ++slot)
+		{
+			Compute_Buffer_Handle handle = 0;
+			//创建该槽命令缓冲（追加 INDIRECT 用法）
+			indirect_created = impl->compute_buffer_create_usage(handle, Renderer::Impl::INDIRECT_COMMAND_BYTES,
+				zero_command.data(), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+			//成功则登记句柄
+			if (indirect_created)
+				impl->particle_indirect_buffers.push_back(handle);
+		}
+		bool created = indirect_created
+			&& compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_force_buffer,
 				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
@@ -9009,7 +9065,8 @@ namespace engine
 			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv")
 			&& compute_pipeline_load(impl->particle_emit_pipeline, "Particle发射.comp.spv")
 			&& compute_pipeline_load(impl->particle_resident_step_pipeline, "Particle常驻推进.comp.spv")
-			&& compute_pipeline_load(impl->particle_compact_pipeline, "Particle紧凑.comp.spv");
+			&& compute_pipeline_load(impl->particle_compact_pipeline, "Particle紧凑.comp.spv")
+			&& compute_pipeline_load(impl->particle_indirect_pipeline, "Particle间接.comp.spv");
 		//任一环节失败即整体回收
 		if (!created)
 		{
@@ -9020,6 +9077,7 @@ namespace engine
 		impl->particle_buffer_capacity = capacity;
 		impl->particle_control_bytes = control_bytes;
 		impl->particle_resident_active = 0;
+		impl->particle_indirect_written = false;
 		return true;
 	}
 
@@ -9042,6 +9100,9 @@ namespace engine
 			compute_buffer_unload(impl->particle_index_buffer);
 		if (impl->particle_compact_count_buffer != 0)
 			compute_buffer_unload(impl->particle_compact_count_buffer);
+		//间接命令缓冲（第三百四十二轮；按槽逐个卸载）
+		for (Compute_Buffer_Handle handle : impl->particle_indirect_buffers)
+			compute_buffer_unload(handle);
 		if (impl->particle_step_pipeline != 0)
 			compute_pipeline_unload(impl->particle_step_pipeline);
 		if (impl->particle_emit_pipeline != 0)
@@ -9050,6 +9111,11 @@ namespace engine
 			compute_pipeline_unload(impl->particle_resident_step_pipeline);
 		if (impl->particle_compact_pipeline != 0)
 			compute_pipeline_unload(impl->particle_compact_pipeline);
+		if (impl->particle_indirect_pipeline != 0)
+			compute_pipeline_unload(impl->particle_indirect_pipeline);
+		impl->particle_indirect_buffers.clear();
+		impl->particle_indirect_written = false;
+		impl->particle_indirect_last_slot = 0;
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
 		impl->particle_force_buffer = 0;
@@ -9876,6 +9942,128 @@ namespace engine
 		//登记待绘制项
 		impl->pending_items.push_back(item);
 		return true;
+	}
+
+	/*
+	粒子 GPU 间接绘制（第三百四十二轮；阶段 D）
+	紧凑索引 → 「Particle间接.comp」把紧凑计数写成一条 VkDrawIndexedIndirectCommand →
+	登记一个「不消费实例属性、使用粒子专用 set0、GPU 侧间接」的绘制项。
+	命令缓冲按帧槽划分：写入前等待该槽上一轮帧完成，避免覆盖仍被 GPU 读取的命令；
+	录制阶段（帧模块）在该批存在间接项时插入「计算写 → 间接命令读」内存屏障。
+	*/
+	bool Renderer::particle_indirect_draw(float size)
+	{
+		//前置条件
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
+			return false;
+		//尺寸非法
+		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
+			return false;
+		if (!particle_gpu_available())
+			return false;
+		//绘制资源与管线（单位四边形 ＋ 粒子GPU.vert / 粒子.frag）
+		if (!particle_gpu_draw_ensure())
+			return false;
+		//本帧槽与对应命令缓冲
+		uint32_t slot = impl->frame.slot_index_get();
+		if (slot >= impl->particle_indirect_buffers.size())
+			return false;
+		//等待该槽上一轮帧完成（其间接命令不再被读取）
+		if (!impl->frame.slot_wait())
+			return false;
+		//每帧前置：紧凑索引
+		if (!particle_gpu_compact())
+			return false;
+		uint32_t count = impl->particle_compact_count;
+		//无活跃粒子不登记绘制项
+		if (count == 0)
+			return false;
+		//四边形网格记录（索引数写入命令）
+		VkBuffer quad_buffer = VK_NULL_HANDLE;
+		VkDeviceSize quad_index_offset = 0;
+		uint32_t quad_index_count = 0;
+		if (!impl->mesh.mesh_record_get(impl->particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+			return false;
+		//绑定：紧凑计数（只读）/ 该槽命令缓冲（只写）
+		if (!compute_buffer_bind(impl->particle_compact_count_buffer, 0))
+			return false;
+		if (!compute_buffer_bind(impl->particle_indirect_buffers[slot], 1))
+			return false;
+		const uint32_t push[4] = { quad_index_count, 0u, 0u, 0u };
+		if (!compute_dispatch(impl->particle_indirect_pipeline, 1u, 1u, push,
+			static_cast<uint32_t>(sizeof(push))))
+			return false;
+		//命令缓冲原生句柄
+		VkBuffer command_buffer = impl->compute_buffer_native(impl->particle_indirect_buffers[slot]);
+		if (command_buffer == VK_NULL_HANDLE)
+			return false;
+		impl->particle_indirect_last_slot = slot;
+		impl->particle_indirect_written = true;
+		//状态与索引的原生缓冲（逐帧槽刷新粒子专用集：front 在常驻推进后会交换）
+		VkBuffer state_buffer = impl->compute_buffer_native(impl->particle_buffer_front);
+		VkBuffer index_buffer = impl->compute_buffer_native(impl->particle_index_buffer);
+		if (state_buffer == VK_NULL_HANDLE || index_buffer == VK_NULL_HANDLE)
+			return false;
+		for (uint32_t frame_slot = 0; frame_slot < impl->scene_ubos.size(); ++frame_slot)
+			if (!impl->pipeline.particle_buffers_bind(frame_slot, impl->scene_ubos[frame_slot],
+				state_buffer, index_buffer))
+				return false;
+		//相机世界位置（着色器内 billboard 基准）
+		float camera[3] = {};
+		impl->camera.position_get(camera);
+		//推送块（128 B；首位 = 相机位置 ＋ 四边形世界边长，其余留零）
+		impl->pending_push_constants.emplace_back();
+		std::array<float, 32>& push_spatial = impl->pending_push_constants.back();
+		push_spatial.fill(0.0f);
+		push_spatial[0] = camera[0];
+		push_spatial[1] = camera[1];
+		push_spatial[2] = camera[2];
+		push_spatial[3] = size;
+		//组装绘制项（实例数取自命令，instance_count 仅用于统计口径）
+		Frame_Render_Item item{};
+		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
+		item.layout = impl->pipeline.layout_get();
+		item.descriptor_set_count = 2;
+		item.vertex_buffer = quad_buffer;
+		item.index_buffer = quad_buffer;
+		item.index_offset = quad_index_offset;
+		item.index_count = quad_index_count;
+		item.instance_input = false;
+		item.particle_scene_set = true;
+		item.gpu_indirect = true;
+		item.indirect_command_buffer = command_buffer;
+		item.indirect_command_offset = 0;
+		item.instance_count = count;
+		item.push_constants = push_spatial.data();
+		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push_spatial.size());
+		//粒子不参与阴影视图投影
+		item.cast_shadow = false;
+		//透明标记（非不透明混合项不参与合批）
+		item.transparent = impl->particle_blend_mode != Blend_Mode::Opaque;
+		//登记待绘制项
+		impl->pending_items.push_back(item);
+		return true;
+	}
+
+	/*
+	粒子间接绘制命令回读（第三百四十二轮；诊断 / 测试）
+	回读最近一次 particle_indirect_draw 写入的 5 个 uint32：
+	index_count / instance_count / first_index / vertex_offset / first_instance。
+	*/
+	bool Renderer::particle_indirect_command_get(uint32_t command_out[5])
+	{
+		//输出指针为空
+		if (command_out == nullptr)
+			return false;
+		//未初始化 / 未开启常驻 / 尚未写入
+		if (impl == nullptr || !impl->initialized || !impl->particle_resident || !impl->particle_indirect_written)
+			return false;
+		//最近一次写入的帧槽
+		uint32_t slot = impl->particle_indirect_last_slot;
+		if (slot >= impl->particle_indirect_buffers.size())
+			return false;
+		return compute_buffer_read(impl->particle_indirect_buffers[slot], command_out,
+			static_cast<uint32_t>(sizeof(uint32_t) * 5u));
 	}
 
 	/*

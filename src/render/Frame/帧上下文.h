@@ -149,6 +149,16 @@ namespace engine
 		而非普通场景集；配合 instance_input = 假用于「粒子GPU.vert」的着色器内 billboard。
 		*/
 		bool particle_scene_set = false;
+		/*
+		GPU 侧间接绘制（第三百四十二轮；默认假）
+		为真时该绘制项以 vkCmdDrawIndexedIndirect 下达**单条**命令（命令由计算着色器写入 indirect_command_buffer），
+		实例数取自命令而非 instance_count；instance_count 仍参与绘制统计口径。
+		与间接合批路径互斥（instance_input 恒为假，故逐项录制路径接管）。
+		*/
+		bool gpu_indirect = false;
+		//间接命令缓冲（gpu_indirect 为真时必填；一条 20 字节命令，偏移 0）
+		VkBuffer indirect_command_buffer = VK_NULL_HANDLE;
+		VkDeviceSize indirect_command_offset = 0;
 		//实例缓冲（模型矩阵来源；instance_input 为真时必填）
 		VkBuffer instance_buffer = VK_NULL_HANDLE;
 		//实例区在实例缓冲内的字节偏移（一个实例 = 20 浮点 = 80 字节）

@@ -1541,6 +1541,21 @@ namespace engine
 		返回假表示未开启常驻 / 资源或管线不可用 / 无活跃粒子 / size 非法。
 		*/
 		bool particle_gpu_draw(float size);
+		/*
+		粒子 GPU 间接绘制（第三百四十二轮；常驻模式专用）
+		紧凑索引 → 计算着色器把「紧凑计数」写成一条 VkDrawIndexedIndirectCommand →
+		登记一个不消费实例属性的绘制项，录制阶段以**单条** vkCmdDrawIndexedIndirect 下达（实例数取自命令）。
+		命令缓冲按帧槽划分，绘制前等待该槽上一轮帧完成，避免覆盖仍在读取的命令。
+		返回假表示未开启常驻 / 资源或管线不可用 / 无活跃粒子 / size 非法。
+		*/
+		bool particle_indirect_draw(float size);
+		/*
+		粒子间接绘制命令回读（第三百四十二轮；诊断 / 测试）
+		写出最近一次 particle_indirect_draw 写入的 5 个 uint32：
+		index_count / instance_count / first_index / vertex_offset / first_instance。
+		返回假表示未开启常驻 / 尚未写入 / 回读失败。
+		*/
+		bool particle_indirect_command_get(uint32_t command_out[5]);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

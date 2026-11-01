@@ -1,0 +1,30 @@
+#version 450
+/*
+粒子间接绘制命令（第三百四十二轮；深研方向二 阶段 D）
+单线程：读取紧凑计数（活跃粒子数），写成一条 VkDrawIndexedIndirectCommand：
+index_count 取自推送常量、instance_count = 紧凑计数、first_index / vertex_offset / first_instance 恒 0。
+与图形录制共用同一线程组：仅 gl_GlobalInvocationID.x = 0 执行。
+*/
+layout(local_size_x = 1) in;
+
+//binding 0 = 紧凑计数（只读）、binding 1 = 间接命令（只写；5 个 uint32 与 VkDrawIndexedIndirectCommand 逐字段对齐）
+layout(std430, set = 0, binding = 0) readonly buffer Compact_Count { uint count; };
+layout(std430, set = 0, binding = 1) writeonly buffer Command { uint command[]; };
+
+//推送常量：x = 索引数（四边形 = 6）、yzw 保留
+layout(push_constant) uniform Push_Indirect
+{
+	uvec4 params;
+} push;
+
+void main()
+{
+	//仅首个线程写入（单条命令）
+	if (gl_GlobalInvocationID.x != 0u)
+		return;
+	command[0] = push.params.x;
+	command[1] = count;
+	command[2] = 0u;
+	command[3] = 0u;
+	command[4] = 0u;
+}

@@ -38,6 +38,33 @@ namespace engine
 	}
 
 	/*
+	GPU 侧间接命令的可见性屏障（第三百四十二轮）
+	命令缓冲由计算着色器在**前置提交**中写入，本帧提交读取的是同一队列上的后续提交；
+	批内存在 gpu_indirect 项时在录制开始处（动态渲染之外）插入一次性内存屏障，
+	把「计算写入」置为对「间接命令读取」可见（无此类项时不插入，既有路径逐字节不变）。
+	*/
+	static void indirect_command_sync(VkCommandBuffer command_buffer, const Frame_Render_Item* items, uint32_t item_count)
+	{
+		//批内是否存在 GPU 侧间接命令项
+		bool needed = false;
+		for (uint32_t index = 0; index < item_count; ++index)
+			if (items[index].gpu_indirect)
+			{
+				needed = true;
+				break;
+			}
+		//无此类项不插入屏障
+		if (!needed)
+			return;
+		VkMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+		vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+	}
+
+	/*
 	相邻渲染项是否可合并为一条间接命令（第二百五十二轮）
 	条件：管线 / 布局 / 描述符集 / 推送常量 / 顶点、索引、实例缓冲与索引区一致，
 	且下一项的实例区紧跟上一段末尾（同一实例缓冲内连续），合并后以 first_instance 表达起点。
@@ -252,11 +279,12 @@ namespace engine
 		{
 			//当前渲染项
 			const Frame_Render_Item& item = items[index];
-			//管线或顶点 / 索引缓冲缺失则跳过该项；使用实例属性时实例缓冲亦必填（第三百四十一轮）
+			//管线或顶点 / 索引缓冲缺失则跳过该项；使用实例属性时实例缓冲亦必填，GPU 侧间接项须有命令缓冲（第三百四十一 / 三百四十二轮）
 			if (item.pipeline == VK_NULL_HANDLE || item.vertex_buffer == VK_NULL_HANDLE
 				|| item.index_buffer == VK_NULL_HANDLE || item.index_count == 0
 				|| item.instance_count == 0
-				|| (item.instance_input && item.instance_buffer == VK_NULL_HANDLE))
+				|| (item.instance_input && item.instance_buffer == VK_NULL_HANDLE)
+				|| (item.gpu_indirect && item.indirect_command_buffer == VK_NULL_HANDLE))
 				continue;
 
 			//仅在与当前已绑定管线不同时重绑（同帧各渲染项可挂不同管线）
@@ -318,8 +346,16 @@ namespace engine
 			//绑定索引缓冲（uint32 索引；偏移由网格记录给出，顶点与索引可共用一个缓冲）
 			vkCmdBindIndexBuffer(command_buffer, item.index_buffer, item.index_offset, VK_INDEX_TYPE_UINT32);
 
-			//绘制索引几何（实例数由渲染项给出；实例数 ≥ 1）
-			vkCmdDrawIndexed(command_buffer, item.index_count, item.instance_count, 0, 0, 0);
+			/*
+			绘制索引几何（实例数 ≥ 1）
+			第三百四十二轮：GPU 侧间接项以单条 vkCmdDrawIndexedIndirect 下达，实例数取自命令
+			（索引数亦以命令为准，故此处只校验命令缓冲存在）。
+			*/
+			if (item.gpu_indirect)
+				vkCmdDrawIndexedIndirect(command_buffer, item.indirect_command_buffer,
+					item.indirect_command_offset, 1, static_cast<uint32_t>(sizeof(Indirect_Draw_Command)));
+			else
+				vkCmdDrawIndexed(command_buffer, item.index_count, item.instance_count, 0, 0, 0);
 			//累计本批实际绘制量（仅在此处递增，被跳过的项不计）
 			++counts.items;
 			counts.instances += item.instance_count;
@@ -439,6 +475,9 @@ namespace engine
 			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, 4);
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
 		}
+
+		//GPU 侧间接命令的可见性屏障（第三百四十二轮；批内无此类项时不插入）
+		indirect_command_sync(command_buffer, items, item_count);
 
 		/*
 		颜色布局转换：UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
@@ -719,6 +758,9 @@ namespace engine
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
 		}
 
+		//GPU 侧间接命令的可见性屏障（第三百四十二轮；批内无此类项时不插入）
+		indirect_command_sync(command_buffer, items, item_count);
+
 		/*
 		颜色布局转换：SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL
 		离屏目标颜色在帧间恒为着色器可读布局（可能已被采样），故 srcStage = FRAGMENT_SHADER、srcAccess = SHADER_READ。
@@ -985,6 +1027,9 @@ namespace engine
 		barrier.subresourceRange.levelCount = 1;
 		barrier.subresourceRange.baseArrayLayer = 0;
 		barrier.subresourceRange.layerCount = 1;
+
+		//GPU 侧间接命令的可见性屏障（第三百四十二轮；批内无此类项时不插入）
+		indirect_command_sync(command_buffer, items, item_count);
 
 		/*
 		场景 pass · 场景目标颜色布局转换：SHADER_READ_ONLY_OPTIMAL → COLOR_ATTACHMENT_OPTIMAL

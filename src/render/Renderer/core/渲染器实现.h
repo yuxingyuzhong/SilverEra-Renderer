@@ -397,6 +397,15 @@ namespace engine
 		uint64_t particle_draw_pipeline = 0;
 		//粒子 GPU 绘制管线（第三百四十一轮；不消费实例属性，按 gl_InstanceIndex 取紧凑索引）
 		uint64_t particle_gpu_pipeline = 0;
+		/*
+		粒子 GPU 间接绘制（第三百四十二轮；阶段 D）
+		indirect_pipeline 为「Particle间接.comp」；indirect_buffers 为按帧槽划分的 20 字节命令缓冲
+		（STORAGE + INDIRECT，主机可见便于回读）；indirect_last_slot 为最近一次写入的帧槽。
+		*/
+		Compute_Pipeline_Handle particle_indirect_pipeline = 0;
+		std::vector<Compute_Buffer_Handle> particle_indirect_buffers;
+		uint32_t particle_indirect_last_slot = 0;
+		bool particle_indirect_written = false;
 		//粒子混合档与深度写入（第三百一十六轮；切档重建粒子管线）
 		Blend_Mode particle_blend_mode = Blend_Mode::Alpha;
 		bool particle_depth_write = false;
@@ -436,6 +445,13 @@ namespace engine
 		std::vector<Compute_Buffer_Record> compute_buffers;
 		//按句柄取 Vulkan 缓冲（第三百四十一轮；供描述符集写入；未找到返回空）
 		VkBuffer compute_buffer_native(uint64_t handle) const;
+		/*
+		计算存储缓冲创建（第三百四十二轮；可追加 Vulkan 用法位）
+		主机可见 STORAGE（恒含 TRANSFER_SRC），extra_usage 追加额外用法（如 INDIRECT_BUFFER）；
+		句柄自 1 起登记，失败时句柄置 0 且不留下任何资源。
+		*/
+		bool compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data,
+			VkBufferUsageFlags extra_usage);
 		//下一个计算缓冲句柄
 		uint64_t next_compute_buffer_handle = 1;
 		/*
