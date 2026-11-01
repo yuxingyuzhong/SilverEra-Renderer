@@ -75,6 +75,9 @@ namespace engine
 					//描边色是否一致（第一百八十一轮；场景项恒全零）
 					if (post_same)
 						post_same = memcmp(last.post_color, item.post_color, sizeof(last.post_color)) == 0;
+					//逐级额外四参是否一致（第四百零一轮；场景项恒全零）
+					if (post_same)
+						post_same = memcmp(last.post_extra, item.post_extra, sizeof(last.post_extra)) == 0;
 					//实例区是否首尾相接
 					bool instance_adjacent = last.instance_buffer == item.instance_buffer
 						&& last.instance_offset + static_cast<VkDeviceSize>(last.instance_count) * INSTANCE_STRIDE_BYTES
@@ -1048,6 +1051,19 @@ namespace engine
 			pipeline_config.depth_format = impl->swapchain.depth_format_get();
 			pipeline_config.frame_overlap = effective.frame_overlap;
 			pipeline_config.sample_count = impl->msaa_samples;
+			/*
+			推送常量块上限探测（第四百零一轮）
+			Vulkan 保底 128 字节；桌面常见 256。本层把后处理第四组（offset 128..143）做成「有则用、无则降级」，
+			故先取物理设备上限：≥ 144 用 144 并开放 post_stage_extra_set，否则维持 128 并拒绝该接口。
+			*/
+			VkPhysicalDeviceProperties device_props{};
+			vkGetPhysicalDeviceProperties(impl->device.physical_device_get(), &device_props);
+			impl->post_extra_supported = device_props.limits.maxPushConstantsSize >= 144;
+			pipeline_config.max_push_constant_size = impl->post_extra_supported ? 144 : 128;
+			impl->frame.post_extra_enabled = impl->post_extra_supported;
+			if (!impl->post_extra_supported)
+				logger.warn("渲染器:: 设备推送常量上限 {} 字节不足 144，后处理逐级 extra 参数已禁用",
+					device_props.limits.maxPushConstantsSize);
 			if (!impl->pipeline.build(impl->device.device_get(), pipeline_config))
 			{
 				logger.error("渲染器:: 管线基础设施创建失败");
@@ -1807,6 +1823,7 @@ namespace engine
 		{
 			impl->post_stage_param_valid[stage] = false;
 			impl->post_stage_color_valid[stage] = false;
+				impl->post_stage_extra_valid[stage] = false;
 		}
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
@@ -3436,6 +3453,19 @@ namespace engine
 						//否则保持默认黑
 						for (std::size_t each = 0; each < 4; ++each)
 							post_item.post_color[each] = 0.0f;
+					}
+					//逐级额外四参（第四百零一轮；未专设时为 0，既有阶段不读取 → 画面不变）
+					if (index < Impl::POST_CHAIN_MAX_STAGES && impl->post_stage_extra_valid[index])
+					{
+						//该级有专设 extra 则取专设值
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_extra[each] = impl->post_stage_extra[index][each];
+					}
+					else
+					{
+						//否则保持全零
+						for (std::size_t each = 0; each < 4; ++each)
+							post_item.post_extra[each] = 0.0f;
 					}
 					post_items.push_back(post_item);
 				}
@@ -6694,6 +6724,7 @@ namespace engine
 				{
 					impl->post_stage_param_valid[stage] = false;
 					impl->post_stage_color_valid[stage] = false;
+				impl->post_stage_extra_valid[stage] = false;
 				}
 				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）；逐级参数已整体清除",
 					handle, impl->post_chain.size());
@@ -7528,6 +7559,7 @@ namespace engine
 			{
 				impl->post_stage_param_valid[stage] = false;
 				impl->post_stage_color_valid[stage] = false;
+				impl->post_stage_extra_valid[stage] = false;
 			}
 
 			logger.info("渲染器:: 后处理链已清除（回落单级默认后处理）");
@@ -7566,6 +7598,7 @@ namespace engine
 		{
 			impl->post_stage_param_valid[stage] = false;
 			impl->post_stage_color_valid[stage] = false;
+				impl->post_stage_extra_valid[stage] = false;
 		}
 
 		logger.info("渲染器:: 后处理链已设置（{} 级）", count);
@@ -7951,6 +7984,43 @@ namespace engine
 			impl->post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
 		}
 		impl->post_stage_color_valid[stage] = true;
+	}
+
+	/*
+	逐级额外四参（第四百零一轮）
+	写入推送块 offset 128 的第四组；设备推送块上限不足 144 字节时整次拒绝（参数保持全零）。
+	仅拒绝非有限值；stage 须在链内。post_chain_set / 级序压缩时随其他逐级参数一并清除。
+	*/
+	void Renderer::post_stage_extra_set(uint32_t stage, float x, float y, float z, float w)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//设备推送块上限不足：该组不可用
+		if (!impl->post_extra_supported)
+		{
+			logger.warn("渲染器:: 逐级额外四参被拒绝：设备推送块上限不足 144 字节");
+			return;
+		}
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级额外四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		//非有限值整次忽略（保持原值）
+		bool finite = std::isfinite(x) && std::isfinite(y) && std::isfinite(z) && std::isfinite(w);
+		if (!finite)
+		{
+			logger.warn("渲染器:: 逐级额外四参含非有限值（级 {}），整次忽略", stage);
+			return;
+		}
+		impl->post_stage_extra[stage][0] = x;
+		impl->post_stage_extra[stage][1] = y;
+		impl->post_stage_extra[stage][2] = z;
+		impl->post_stage_extra[stage][3] = w;
+		impl->post_stage_extra_valid[stage] = true;
 	}
 
 	//启用 / 关闭视锥剔除

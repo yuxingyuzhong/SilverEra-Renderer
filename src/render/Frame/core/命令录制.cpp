@@ -1309,23 +1309,27 @@ namespace engine
 			//本级源目标（第 stage 级读第 stage % 目标数 个中间目标）
 			const Frame_Render_Target& source = targets[stage % target_count];
 			/*
-			本级「源 / 宿尺寸 ＋ 泛光参数 ＋ 描边色」推送（offset 80，共 12 个浮点）
+			本级「源 / 宿尺寸 ＋ 泛光参数 ＋ 描边色 ＋ 逐级 extra」推送（offset 80）
 			前 4 个为源宽 / 源高 / 宿宽 / 宿高（后处理片元据此映射像素坐标）；
 			其后 4 个为泛光阈值 / 软膝 / 强度 / 保留（由门面写在绘制项里）；
-			最后 4 个为描边色（rgb ＋ 保留；第一百八十一轮，默认黑 = 压暗轮廓）。
+			再后 4 个为描边色（rgb ＋ 保留；第一百八十一轮，默认黑 = 压暗轮廓）；
+			最后 4 个为逐级 extra（第四百零一轮；设备上限不足 144 字节时整组不推送）。
 			*/
-			float stage_uniform[12] = {
+			float stage_uniform[16] = {
 				static_cast<float>(source.extent.width), static_cast<float>(source.extent.height),
 				static_cast<float>(stage_extent.width), static_cast<float>(stage_extent.height),
 				post_items[stage].post_params[0], post_items[stage].post_params[1],
 				post_items[stage].post_params[2], post_items[stage].post_params[3],
 				post_items[stage].post_color[0], post_items[stage].post_color[1],
 				post_items[stage].post_color[2], post_items[stage].post_color[3],
+				post_items[stage].post_extra[0], post_items[stage].post_extra[1],
+				post_items[stage].post_extra[2], post_items[stage].post_extra[3],
 			};
 			//本级绘制项（复制后补推送数据；不改调用方数组）
 			Frame_Render_Item stage_item = post_items[stage];
 			stage_item.push_constants = stage_uniform;
-			stage_item.push_constant_size = static_cast<uint32_t>(sizeof(stage_uniform));
+			stage_item.push_constant_size = post_extra_enabled ? static_cast<uint32_t>(sizeof(stage_uniform))
+				: static_cast<uint32_t>(12 * sizeof(float));
 			stage_item.push_constant_offset = 80;
 
 			//本级颜色附件信息（清屏；全屏后处理覆盖，故内容由后处理决定；MSAA 时解析到宿单采样颜色）

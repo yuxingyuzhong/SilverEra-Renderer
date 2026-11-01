@@ -18,12 +18,15 @@ namespace engine
 		//描述符集布局顺序（set 0 → set 1）
 		VkDescriptorSetLayout set_layouts[2] = { scene_set_layout, sampler_set_layout };
 
-		//推送常量范围（模型矩阵 ＋ 文字颜色 ＋ 后处理尺寸 ＋ 泛光参数）
+		/*
+		推送常量范围（模型矩阵 ＋ 文字颜色 ＋ 后处理尺寸 ＋ 泛光参数 ＋ 描边色 ＋ 逐级 extra）
+		offset 0..63 矩阵、64..79 文字颜色、80..95 源/宿尺寸、96..111 泛光四参、
+		112..127 颜色四分量、128..143 逐级 extra（第四百零一轮；设备上限不足时整块降为 128）。
+		*/
 		VkPushConstantRange push_range{};
 		push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		push_range.offset = 0;
-		//第一百八十一轮由 112 扩为 128：后处理描边色（offset 112，vec4）
-		push_range.size = 128;
+		push_range.size = config.max_push_constant_size >= 144 ? 144 : 128;
 
 		//管线布局创建信息
 		VkPipelineLayoutCreateInfo layout_info{};

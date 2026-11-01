@@ -31,6 +31,12 @@ namespace engine
 		uint32_t frame_overlap = 2;
 		//多重采样数（第九十六轮；1 = 关闭，2/4/8 = MSAA；所有跟随配置的管线按此烘焙）
 		uint32_t sample_count = 1;
+		/*
+		推送常量块大小（第四百零一轮）
+		144 = 在 128 之后再留一组 vec4（后处理逐级 extra，offset 128..143）；
+		设备 maxPushConstantsSize < 144 时由门面降为 128（此时该组不可用，写入接口拒绝）。
+		*/
+		uint32_t max_push_constant_size = 128;
 	};
 
 	/*

@@ -738,6 +738,15 @@ namespace engine
 		*/
 		float post_stage_color[POST_CHAIN_MAX_STAGES][4] = {};
 		bool post_stage_color_valid[POST_CHAIN_MAX_STAGES] = {};
+		/*
+		逐级额外四参（第四百零一轮）
+		写入推送块 offset 128 的第四组；设备 maxPushConstantsSize < 144 时接口拒绝写入（保持全零）。
+		与 param / color 同生命周期：post_chain_set 或级序压缩时整体清除。
+		*/
+		float post_stage_extra[POST_CHAIN_MAX_STAGES][4] = {};
+		bool post_stage_extra_valid[POST_CHAIN_MAX_STAGES] = {};
+		//设备是否支持 144 字节推送块（仅决定 extra 写入接口是否可用）
+		bool post_extra_supported = false;
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
 		/*

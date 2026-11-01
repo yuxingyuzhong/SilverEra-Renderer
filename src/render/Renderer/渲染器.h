@@ -1227,6 +1227,14 @@ namespace engine
 		*/
 		void post_stage_color4_set(uint32_t stage, float r, float g, float b, float a);
 		/*
+		逐级额外四参（第四百零一轮；推送块 offset 128 的第四组）
+		供后续自定义阶段使用（如体积光阴影开关、各向异性散射、噪声抖动），不再抢占 offset 96 / 112 的分量。
+		仅接受有限值（NaN / Inf 整次忽略）；stage 须在链内。
+		设备 maxPushConstantsSize < 144 字节时该组不可用：写入被拒绝并记日志（参数保持全零）。
+		未调用本接口时全零，既有阶段不读取该组，故画面逐字节不变。
+		*/
+		void post_stage_extra_set(uint32_t stage, float x, float y, float z, float w);
+		/*
 		批量读回当前链各级的专设参数（第八十二轮新增；只读诊断）
 		out 按「级序 × 4 浮点」紧排（阈值 / 软膝 / 强度 / 保留），最多写 capacity / 4 级；
 		返回值 = 实际写入的级数 = min(链级数, capacity / 4)；未专设的级写 0。

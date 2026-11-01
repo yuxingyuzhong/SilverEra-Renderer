@@ -187,6 +187,12 @@ namespace engine
 		由门面写入，帧模块随「源 / 宿尺寸 ＋ 泛光参数」一并推送（offset 112）；默认黑色。
 		*/
 		float post_color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		/*
+		后处理逐级额外四参（第四百零一轮；仅后处理链各级使用，offset 128 的 vec4）
+		由门面写入（post_stage_extra_set），帧模块仅在 post_extra_enabled 时随前 12 个浮点一并推送；
+		默认全 0，既有阶段不读取该组，故引入前后画面逐字节一致。
+		*/
+		float post_extra[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		//是否参与阴影投影（第五十二轮；文字绘制项为假，场景几何为真）
 		bool cast_shadow = true;
 		/*
@@ -331,6 +337,12 @@ namespace engine
 			Swapchain_Context& swapchain, Memory_Context& memory, uint32_t frame_overlap);
 		//销毁（幂等；先等设备空闲，再逆序销毁帧槽）
 		void destroy(void);
+		/*
+		推送常量是否含后处理第四组（第四百零一轮）
+		由门面按设备 maxPushConstantsSize 决定：真 → 各级推送 16 个浮点（到 offset 144），
+		假 → 仍推 12 个浮点（到 offset 128），保证布局上限一致的设备照常出帧。
+		*/
+		bool post_extra_enabled = false;
 		//是否已构建完成（至少一个帧槽）
 		bool valid(void) const;
 		/*
