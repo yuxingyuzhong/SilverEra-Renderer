@@ -1466,6 +1466,15 @@ namespace engine
 		size 为四边形世界边长；未开启 / 无活跃粒子 / 资源创建失败 / size 非法时返回假且不登记任何绘制项。
 		*/
 		bool particle_draw(float size);
+		/*
+		粒子混合档（第三百一十六轮；默认 Alpha）
+		仅接受 Alpha / Additive；切换即释放旧粒子管线，下次 particle_draw 惰性重建（不改变既有画面行为）。
+		*/
+		bool particle_blend_set(Blend_Mode mode);
+		Blend_Mode particle_blend_get(void) const;
+		//粒子深度写入（第三百一十六轮；默认关闭；切换同样重建粒子管线）
+		bool particle_depth_write_set(bool enabled);
+		bool particle_depth_write_get(void) const;
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

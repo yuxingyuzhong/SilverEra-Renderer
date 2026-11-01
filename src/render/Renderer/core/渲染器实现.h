@@ -371,6 +371,9 @@ namespace engine
 		*/
 		Mesh_Handle particle_quad_mesh = 0;
 		uint64_t particle_draw_pipeline = 0;
+		//粒子混合档与深度写入（第三百一十六轮；切档重建粒子管线）
+		Blend_Mode particle_blend_mode = Blend_Mode::Alpha;
+		bool particle_depth_write = false;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

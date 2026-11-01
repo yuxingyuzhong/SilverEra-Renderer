@@ -9084,7 +9084,12 @@ namespace engine
 		//粒子管线（Alpha 混合，与场景管线共享布局与描述符集布局）
 		if (impl->particle_draw_pipeline == 0)
 		{
-			if (!pipeline_load(impl->particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv", Blend_Mode::Alpha))
+			/*
+			粒子管线：关闭背面剔除（billboard 朝向由相机决定）、深度写入按门面开关；
+			混合档取粒子混合设置（默认 Alpha）。
+			*/
+			if (!impl->pipeline_load_ex(impl->particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv",
+				impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
 			{
 				mesh_unload(impl->particle_quad_mesh);
 				impl->particle_quad_mesh = 0;
@@ -9092,6 +9097,63 @@ namespace engine
 			}
 		}
 		return true;
+	}
+
+	//设置粒子混合档（第三百一十六轮；仅 Alpha / Additive）
+	bool Renderer::particle_blend_set(Blend_Mode mode)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return false;
+		//仅接受两个半透明档
+		if (mode != Blend_Mode::Alpha && mode != Blend_Mode::Additive)
+			return false;
+		//同值重复设置为空操作
+		if (impl->particle_blend_mode == mode)
+			return true;
+		impl->particle_blend_mode = mode;
+		//释放旧管线，下次绘制按新档重建
+		if (impl->particle_draw_pipeline != 0)
+		{
+			pipeline_unload(impl->particle_draw_pipeline);
+			impl->particle_draw_pipeline = 0;
+		}
+		return true;
+	}
+
+	//当前粒子混合档（未初始化返回 Alpha）
+	Blend_Mode Renderer::particle_blend_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized)
+			return Blend_Mode::Alpha;
+		return impl->particle_blend_mode;
+	}
+
+	//设置粒子深度写入（第三百一十六轮）
+	bool Renderer::particle_depth_write_set(bool enabled)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return false;
+		//同值重复设置为空操作
+		if (impl->particle_depth_write == enabled)
+			return true;
+		impl->particle_depth_write = enabled;
+		//释放旧管线，下次绘制按新设置重建
+		if (impl->particle_draw_pipeline != 0)
+		{
+			pipeline_unload(impl->particle_draw_pipeline);
+			impl->particle_draw_pipeline = 0;
+		}
+		return true;
+	}
+
+	//当前粒子深度写入（未初始化返回假）
+	bool Renderer::particle_depth_write_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->particle_depth_write;
 	}
 
 	/*
