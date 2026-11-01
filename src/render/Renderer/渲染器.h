@@ -1511,6 +1511,12 @@ namespace engine
 		每粒子经环形指针取槽，状态写入 GPU 缓冲并置位图、活跃计数加一。
 		*/
 		uint32_t particle_gpu_emit(uint32_t count);
+		/*
+		常驻推进（第三百二十八轮）
+		仅调度（读 front / 写 back，随后交换），不读回状态；死亡由着色器清位图并减计数；
+		返回假表示未开启常驻 / 计算不可用 / 步长非法。同步链推进与自检在常驻模式下返回假（避免污染常驻状态）。
+		*/
+		bool particle_gpu_step_resident(float dt);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

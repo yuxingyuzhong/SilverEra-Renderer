@@ -1,0 +1,162 @@
+#version 450
+/*
+粒子常驻推进（第三百二十八轮；深研方向二 阶段 C）
+与「Particle推进.comp」同一运算顺序（重力 → 力场 → 阻尼 → 积分 → 碰撞 → 年龄），差异：
+- 状态常驻显存：读 front、写 back，由门面每步交换；
+- 死亡时清活跃位图位并原子减活跃计数（控制缓冲 binding 3）；
+- 不再依赖 CPU 镜像回读。
+控制缓冲布局：control[0] = 环形指针、control[1] = 活跃计数、control[2..] = 活跃位图。
+*/
+layout(local_size_x = 64) in;
+
+//粒子状态（32 字节；与 Host 侧 Particle_State 逐字段一致）
+struct Particle_State
+{
+	float position[3];
+	float velocity[3];
+	float age;
+	float lifetime;
+};
+
+//力场（40 字节；与 Host 侧 Particle_Force_Field 逐字段一致）
+struct Force_Field
+{
+	float position[3];
+	float radius;
+	float strength;
+	float direction[3];
+	uint type;
+	float padding;
+};
+
+//binding 0 = 上一步状态、binding 1 = 下一步状态、binding 2 = 力场、binding 3 = 控制缓冲
+layout(std430, set = 0, binding = 0) readonly buffer Prev_States { Particle_State prev_states[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer Next_States { Particle_State next_states[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Forces { Force_Field forces[]; };
+layout(std430, set = 0, binding = 3) buffer Control { uint control[]; };
+
+//推送常量：重力 + 步长 / 阻尼 + 容量 + 力场数 / 碰撞球 / 地面与材质
+layout(push_constant) uniform Push_Step
+{
+	vec4 gravity_dt;
+	vec4 params;
+	//xyz = 碰撞球心、w = 半径（≤ 0 表示关闭）
+	vec4 sphere;
+	//x = 地面高度、y = 反弹系数、z = 切向摩擦、w = 地面碰撞开关
+	vec4 surface;
+} push;
+
+void main()
+{
+	//池内索引
+	uint index = gl_GlobalInvocationID.x;
+	//容量外的线程直接返回
+	uint capacity = uint(push.params.y + 0.5);
+	if (index >= capacity)
+		return;
+	Particle_State state = prev_states[index];
+	//未登记的槽位（寿命非正）原样写回
+	float lifetime = state.lifetime;
+	if (!(lifetime > 0.0))
+	{
+		next_states[index] = state;
+		return;
+	}
+	float dt = push.gravity_dt.w;
+	//重力
+	for (int axis = 0; axis < 3; ++axis)
+		state.velocity[axis] += push.gravity_dt[axis] * dt;
+	//力场（按配置顺序）
+	uint force_count = uint(push.params.z + 0.5);
+	for (uint field_index = 0; field_index < force_count; ++field_index)
+	{
+		Force_Field field = forces[field_index];
+		//风场：恒定方向加速度
+		if (field.type == 2)
+		{
+			float direction_length = length(vec3(field.direction[0], field.direction[1], field.direction[2]));
+			if (!(direction_length > 1e-6))
+				continue;
+			for (int axis = 0; axis < 3; ++axis)
+				state.velocity[axis] += field.direction[axis] / direction_length * field.strength * dt;
+			continue;
+		}
+		//相对位置与距离
+		vec3 relative = vec3(state.position[0] - field.position[0], state.position[1] - field.position[1],
+			state.position[2] - field.position[2]);
+		float distance = length(relative);
+		//半径外或与力场中心重合则跳过
+		if (!(distance > 1e-6) || !(distance < field.radius))
+			continue;
+		float weight = 1.0 - distance / field.radius;
+		//引力点：指向中心的径向加速度
+		if (field.type == 0)
+		{
+			for (int axis = 0; axis < 3; ++axis)
+				state.velocity[axis] -= relative[axis] / distance * field.strength * weight * dt;
+			continue;
+		}
+		//涡流：绕轴方向的切向加速度
+		vec3 axis_unit = normalize(vec3(field.direction[0], field.direction[1], field.direction[2]));
+		vec3 tangent = cross(axis_unit, relative);
+		float tangent_length = length(tangent);
+		//切向退化则跳过
+		if (!(tangent_length > 1e-6))
+			continue;
+		for (int axis = 0; axis < 3; ++axis)
+			state.velocity[axis] += tangent[axis] / tangent_length * field.strength * weight * dt;
+	}
+	//阻尼与位置积分
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		state.velocity[axis] *= push.params.x;
+		state.position[axis] += state.velocity[axis] * dt;
+	}
+	//碰撞：先地面、再球体
+	if (push.surface.w > 0.5 && state.position[1] < push.surface.x)
+	{
+		state.position[1] = push.surface.x;
+		if (state.velocity[1] < 0.0)
+			state.velocity[1] = -state.velocity[1] * push.surface.y;
+		state.velocity[0] *= 1.0 - push.surface.z;
+		state.velocity[2] *= 1.0 - push.surface.z;
+	}
+	if (push.sphere.w > 0.0)
+	{
+		vec3 delta = vec3(state.position[0] - push.sphere.x, state.position[1] - push.sphere.y,
+			state.position[2] - push.sphere.z);
+		float distance = length(delta);
+		//进入球面
+		if (distance > 1e-6 && distance < push.sphere.w)
+		{
+			vec3 normal = delta / distance;
+			for (int axis = 0; axis < 3; ++axis)
+				state.position[axis] = push.sphere[axis] + normal[axis] * push.sphere.w;
+			float normal_speed = dot(vec3(state.velocity[0], state.velocity[1], state.velocity[2]), normal);
+			//仅处理进入球面
+			if (normal_speed < 0.0)
+			{
+				float normal_after = -normal_speed * push.surface.y;
+				for (int axis = 0; axis < 3; ++axis)
+				{
+					float tangent = state.velocity[axis] - normal_speed * normal[axis];
+					state.velocity[axis] = tangent * (1.0 - push.surface.z) + normal[axis] * normal_after;
+				}
+			}
+		}
+	}
+	state.age += dt;
+	//寿命到期：清位图与计数后标记未登记（lifetime = 0）
+	if (state.age >= lifetime)
+	{
+		state.age = lifetime;
+		state.lifetime = 0.0;
+		uint word = index / 32u;
+		uint bit = 1u << (index % 32u);
+		uint old_value = atomicAnd(control[2 + word], ~bit);
+		//仅当原本置位时才减计数（避免重复扣减；GLSL 无 atomicSub，用 +0xFFFFFFFF 等价减一）
+		if ((old_value & bit) != 0u)
+			atomicAdd(control[1], 0xFFFFFFFFu);
+	}
+	next_states[index] = state;
+}

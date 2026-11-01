@@ -371,6 +371,7 @@ namespace engine
 		bool particle_resident = false;
 		Compute_Buffer_Handle particle_control_buffer = 0;
 		Compute_Pipeline_Handle particle_emit_pipeline = 0;
+		Compute_Pipeline_Handle particle_resident_step_pipeline = 0;
 		uint32_t particle_control_bytes = 0;
 		uint32_t particle_resident_active = 0;
 		Compute_Pipeline_Handle particle_step_pipeline = 0;
