@@ -863,14 +863,16 @@ namespace engine
 				logger.error("管线:: 逐绘制项采样集批量写入的第 {} 条参数不完整", index);
 				return false;
 			}
-			//九条绑定的图像描述（binding 2 以反照率视图占位，场景着色器不采样它）
-			const VkImageView images[binding_count] = { view.albedo, view.shadow, view.albedo, view.normal,
+			//九条绑定的图像描述（binding 2 = 场景深度，未提供时以反照率视图占位，场景着色器不采样它）
+			const VkImageView depth_view = view.depth != VK_NULL_HANDLE ? view.depth : view.albedo;
+			const VkSampler depth_sampler = view.depth_sampler != VK_NULL_HANDLE ? view.depth_sampler : view.sampler;
+			const VkImageView images[binding_count] = { view.albedo, view.shadow, depth_view, view.normal,
 				view.roughness, view.sky, view.emissive, view.ao, view.metallic };
 			for (uint32_t binding = 0; binding < binding_count; ++binding)
 			{
 				const std::size_t write_index = static_cast<std::size_t>(index) * binding_count + binding;
 				//图像描述
-				draw_batch_infos[write_index].sampler = view.sampler;
+				draw_batch_infos[write_index].sampler = binding == 2 ? depth_sampler : view.sampler;
 				draw_batch_infos[write_index].imageView = images[binding];
 				draw_batch_infos[write_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				//写记录

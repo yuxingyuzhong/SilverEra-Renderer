@@ -92,6 +92,9 @@ namespace engine
 		//软边宽度（第三百五十五轮）：落在 [0, 1]
 		if (!unit_interval(params.edge_softness))
 			return false;
+		//软粒子深度档位（第三百六十六轮）：落在 [0, 1]（0 = 关闭）
+		if (!unit_interval(params.soft_depth_range))
+			return false;
 		//力场数量越界
 		if (params.force_count > PARTICLE_FORCE_MAX)
 			return false;

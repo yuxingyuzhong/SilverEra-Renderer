@@ -128,6 +128,12 @@ namespace engine
 		VkImageView draw_emissive = VK_NULL_HANDLE;
 		VkImageView draw_ao = VK_NULL_HANDLE;
 		VkImageView draw_metallic = VK_NULL_HANDLE;
+		/*
+		逐绘制项场景深度（set1 binding 2；第三百六十六轮）
+		为空时该绑定回落反照率占位（与旧行为一致）；粒子软粒子路径填入 HiZ 历史视图与最近邻采样器。
+		*/
+		VkImageView draw_depth = VK_NULL_HANDLE;
+		VkSampler draw_depth_sampler = VK_NULL_HANDLE;
 		//顶点缓冲
 		VkBuffer vertex_buffer = VK_NULL_HANDLE;
 		//索引缓冲

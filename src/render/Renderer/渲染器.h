@@ -463,6 +463,11 @@ namespace engine
 		*/
 		void particle_style_push_fill(std::array<float, 32>& push) const;
 		/*
+		粒子软粒子深度源（第三百六十六轮）
+		取本帧槽 HiZ 历史视图与最近邻采样器的原生句柄（uint64_t）；参数档位为 0 / HiZ 未启用 / 该槽历史未就绪时返回假。
+		*/
+		bool particle_depth_source(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const;
+		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
 		与缓冲是否设备本地无关（主机可见缓冲亦可，用于统一口径的验证）。

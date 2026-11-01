@@ -116,6 +116,12 @@ namespace engine
 		0..1：内半径 = 1 − edge_softness，越大圆盘边缘越柔（整枚粒子越「虚」）。
 		*/
 		float edge_softness;
+		/*
+		软粒子深度档位（第三百六十六轮；0 = 关闭，默认逐字节不变）
+		> 0 时按「场景深度 − 粒子深度」/ 档位 做淡出（数值为相机空间深度差，NDC 口径，建议 1e-3 .. 5e-2）；
+		需要 HiZ 开启且历史就绪，否则门面自动清零档位（画面回落旧行为）。
+		*/
+		float soft_depth_range;
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）

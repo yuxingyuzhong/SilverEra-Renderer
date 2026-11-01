@@ -18,7 +18,15 @@ layout(push_constant) uniform Push_Particle_Color
 	layout(offset = 64) vec4 particle_color_start;
 	layout(offset = 80) vec4 particle_color_end;
 	layout(offset = 96) vec4 particle_style;
+	//软粒子深度档位（第三百六十六轮；x = 档位，0 = 关闭）
+	layout(offset = 112) vec4 particle_soft;
 } push_color;
+
+/*
+场景深度（set1 binding 2；第三百六十六轮）
+软粒子读 HiZ 历史（约两帧前场景深度）；未启用软粒子时该绑定为占位图（档位为 0，不采样）。
+*/
+layout(set = 1, binding = 2) uniform sampler2D scene_depth;
 
 layout(location = 0) out vec4 out_color;
 
@@ -53,5 +61,17 @@ void main()
 	}
 	//后 40% 生命期线性淡出透明度
 	float fade = age < 0.6 ? 1.0 : (1.0 - 0.75 * (age - 0.6) / 0.4);
-	out_color = vec4(color, alpha * fade);
+	float out_alpha = alpha * fade;
+	/*
+	软粒子（第三百六十六轮）
+	档位 > 0 时按「历史场景深度 − 粒子深度」/档位 淡出：粒子贴近或进入几何时趋于透明，消除硬切边。
+	*/
+	if (push_color.particle_soft.x > 0.0)
+	{
+		ivec2 size = textureSize(scene_depth, 0);
+		ivec2 coord = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - 1);
+		float scene_d = texelFetch(scene_depth, coord, 0).r;
+		out_alpha *= clamp((scene_d - gl_FragCoord.z) / push_color.particle_soft.x, 0.0, 1.0);
+	}
+	out_color = vec4(color, out_alpha);
 }

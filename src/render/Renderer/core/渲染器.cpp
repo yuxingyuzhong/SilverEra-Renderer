@@ -3076,6 +3076,9 @@ namespace engine
 					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
 					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
 					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
+					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
+					views.depth = item.draw_depth;
+					views.depth_sampler = item.draw_depth_sampler;
 					impl->draw_set_inputs.push_back(views);
 					++draw_index;
 				}
@@ -9661,6 +9664,30 @@ namespace engine
 	}
 
 	/*
+	粒子软粒子深度源（第三百六十六轮）
+	仅当参数档位 > 0 且 HiZ 已启用、资源有效、该槽历史就绪时输出历史视图与最近邻采样器句柄；
+	其余情况返回假（调用方据此把推送档位清零，画面回落旧行为）。
+	*/
+	bool Renderer::particle_depth_source(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
+	{
+		//默认无有效句柄
+		view_out = 0;
+		sampler_out = 0;
+		//档位关闭 / HiZ 未启用 / 资源未建 / 该槽无历史
+		if (impl == nullptr || impl->particle_params.soft_depth_range <= 0.0f
+			|| !impl->hiz_enabled || !impl->hiz.valid() || !impl->hiz.history_valid(slot))
+			return false;
+		VkImageView history_view = impl->hiz.depth_history_view(slot);
+		VkSampler depth_sampler = impl->hiz.depth_sampler_get();
+		//句柄齐备才算成功
+		if (history_view == VK_NULL_HANDLE || depth_sampler == VK_NULL_HANDLE)
+			return false;
+		view_out = reinterpret_cast<uint64_t>(history_view);
+		sampler_out = reinterpret_cast<uint64_t>(depth_sampler);
+		return true;
+	}
+
+	/*
 	粒子外观推送（第三百五十四轮；第三百五十五轮补软边宽度）
 	按粒子参数填推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、
 	offset 96 = 外观分量（x 颜色启用标志 / y 软边宽度）。
@@ -9847,6 +9874,18 @@ namespace engine
 		//切换粒子管线登记实例化绘制
 		uint64_t previous_pipeline = impl->bound_pipeline_request;
 		pipeline_bind_set(impl->particle_draw_pipeline);
+		/*
+		软粒子深度源（第三百六十六轮）
+		本帧槽 HiZ 历史（约两帧前的场景深度）；未启用 / 未就绪时档位清零，画面回落旧行为。
+		*/
+		uint64_t depth_view_handle = 0;
+		uint64_t depth_sampler_handle = 0;
+		const bool depth_bound = particle_depth_source(impl->frame.slot_index_get(),
+			depth_view_handle, depth_sampler_handle);
+		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
+		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
+		//本次绘制推送的深度档位（未绑定深度时为 0）
+		const float soft_range = depth_bound ? impl->particle_params.soft_depth_range : 0.0f;
 		bool drawn = false;
 		//分桶关闭：单次实例化（池索引顺序）
 		if (buckets == 0)
@@ -9876,6 +9915,24 @@ namespace engine
 			{
 				impl->pending_items.back().cast_shadow = false;
 				particle_style_push_fill(impl->pending_push_constants.back());
+				//软粒子：挂历史深度视图并写深度档位（未绑定时为 0）
+				impl->pending_items.back().draw_depth = depth_view;
+				impl->pending_items.back().draw_depth_sampler = depth_sampler;
+				impl->pending_push_constants.back()[28] = soft_range;
+				/*
+				专属采样集（第三百六十六轮）
+				粒子片元静态声明 set1 binding 2，共享采样器集未写该绑定，故必须落一条专属集；
+				调用方若未绑定纹理，则以默认白纹理补齐（binding 0/2 均不被粒子片元采样）。
+				*/
+				if (impl->pending_items.back().draw_albedo == VK_NULL_HANDLE
+					|| impl->pending_items.back().draw_sampler == VK_NULL_HANDLE)
+				{
+					VkImageView default_view = VK_NULL_HANDLE;
+					VkSampler default_sampler = VK_NULL_HANDLE;
+					impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+					impl->pending_items.back().draw_albedo = default_view;
+					impl->pending_items.back().draw_sampler = default_sampler;
+				}
 			}
 		}
 		else
@@ -9931,6 +9988,20 @@ namespace engine
 				{
 					impl->pending_items.back().cast_shadow = false;
 					particle_style_push_fill(impl->pending_push_constants.back());
+					//软粒子：每桶同样挂历史深度并写档位
+					impl->pending_items.back().draw_depth = depth_view;
+					impl->pending_items.back().draw_depth_sampler = depth_sampler;
+					impl->pending_push_constants.back()[28] = soft_range;
+					//专属采样集（同单次分支：共享集未写 binding 2）
+					if (impl->pending_items.back().draw_albedo == VK_NULL_HANDLE
+						|| impl->pending_items.back().draw_sampler == VK_NULL_HANDLE)
+					{
+						VkImageView default_view = VK_NULL_HANDLE;
+						VkSampler default_sampler = VK_NULL_HANDLE;
+						impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+						impl->pending_items.back().draw_albedo = default_view;
+						impl->pending_items.back().draw_sampler = default_sampler;
+					}
 				}
 				drawn = drawn || registered;
 			}
@@ -10000,6 +10071,18 @@ namespace engine
 		push[3] = size;
 		//颜色覆盖推送（第三百五十四轮；与 CPU 路径同一推送块口径）
 		particle_style_push_fill(push);
+		/*
+		软粒子（第三百六十六轮）
+		绑定本帧槽历史深度＋最近邻采样器；GPU 路径本无逐项纹理快照，故以默认白纹理占位补齐采样集条件。
+		*/
+		uint64_t depth_view_handle = 0;
+		uint64_t depth_sampler_handle = 0;
+		const bool depth_bound = particle_depth_source(impl->frame.slot_index_get(),
+			depth_view_handle, depth_sampler_handle);
+		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
+		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
+		//未绑定深度时档位为 0（画面回落旧行为）
+		push[28] = depth_bound ? impl->particle_params.soft_depth_range : 0.0f;
 		//组装绘制项（管线延迟到 frame_render 才绑定；此处只登记状态）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
@@ -10007,6 +10090,20 @@ namespace engine
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
 		item.descriptor_set_count = 2;
+		/*
+		专属采样集（第三百六十六轮）
+		粒子片元静态声明 set1 binding 2，共享采样器集未写该绑定；以默认白纹理补齐快照，
+		历史深度仅在可用时挂上（未挂时 binding 2 回落反照率占位，档位为 0 不采样）。
+		*/
+		{
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler default_sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+			item.draw_albedo = default_view;
+			item.draw_sampler = default_sampler;
+			item.draw_depth = depth_view;
+			item.draw_depth_sampler = depth_sampler;
+		}
 		item.vertex_buffer = quad_buffer;
 		item.index_buffer = quad_buffer;
 		item.index_offset = quad_index_offset;
@@ -10174,11 +10271,36 @@ namespace engine
 		push_spatial[3] = size;
 		//颜色覆盖推送（第三百五十四轮；与 CPU / GPU 直接路径同一推送块口径）
 		particle_style_push_fill(push_spatial);
+		/*
+		软粒子（第三百六十六轮；与 GPU 直接路径同口径）
+		绑定本帧槽历史深度＋最近邻采样器，并以默认白纹理快照补齐专属采样集条件。
+		*/
+		uint64_t depth_view_handle = 0;
+		uint64_t depth_sampler_handle = 0;
+		const bool depth_bound = particle_depth_source(impl->frame.slot_index_get(),
+			depth_view_handle, depth_sampler_handle);
+		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
+		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
+		//未绑定深度时档位为 0（画面回落旧行为）
+		push_spatial[28] = depth_bound ? impl->particle_params.soft_depth_range : 0.0f;
 		//组装绘制项（实例数取自命令，instance_count 仅用于统计口径）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
 		item.layout = impl->pipeline.layout_get();
 		item.descriptor_set_count = 2;
+		/*
+		专属采样集（第三百六十六轮；与 GPU 直接路径同口径）
+		粒子片元静态声明 set1 binding 2，以默认白纹理补齐快照，历史深度仅在可用时挂上。
+		*/
+		{
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler default_sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+			item.draw_albedo = default_view;
+			item.draw_sampler = default_sampler;
+			item.draw_depth = depth_view;
+			item.draw_depth_sampler = depth_sampler;
+		}
 		item.vertex_buffer = quad_buffer;
 		item.index_buffer = quad_buffer;
 		item.index_offset = quad_index_offset;

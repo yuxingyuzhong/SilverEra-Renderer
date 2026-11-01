@@ -248,6 +248,13 @@ namespace engine
 			VkImageView shadow = VK_NULL_HANDLE;
 			//天空盒（binding 5）
 			VkImageView sky = VK_NULL_HANDLE;
+			/*
+			场景深度（binding 2；第三百六十六轮）
+			后处理用当前帧解析深度；粒子软粒子用 HiZ 历史深度（上一轮给 history 视图与最近邻采样器）。
+			为空时回落反照率视图 ＋ 本项采样器（与旧行为逐字节一致）。
+			*/
+			VkImageView depth = VK_NULL_HANDLE;
+			VkSampler depth_sampler = VK_NULL_HANDLE;
 		};
 		//批量写入第 slot 帧槽的前 count 条逐绘制项采样集（返回是否成功；count ≤ DRAW_SET_PER_SLOT）
 		bool draw_sets_bind_batch(uint32_t slot, const Draw_Set_Views* views, uint32_t count);
