@@ -111,8 +111,12 @@ namespace engine
 				//球心屏幕坐标（v 自上而下，与引擎投影 Y 翻转一致）
 				float center_u = clip[0] * inv_w * 0.5f + 0.5f;
 				float center_v = 0.5f - clip[1] * inv_w * 0.5f;
-				//半高世界尺寸 → 半径占屏幕比例
-				float denom = 2.0f * distance * tan_half;
+				/*
+				半高世界尺寸 → 半径占屏幕比例（第三百零四轮修正）
+				NDC 半高 1.0 对应 distance × tan_half，球投影半径即 radius / (distance × tan_half)；
+				原式多除以 2，小半径光源的覆盖矩形偏小（片元在球内却不在簇列表里）。
+				*/
+				float denom = distance * tan_half;
 				float dv = denom > 1e-6f ? radius / denom : 1.0f;
 				float du = input.aspect > 1e-6f ? dv / input.aspect : 1.0f;
 				u0 = center_u - du;
@@ -290,7 +294,8 @@ namespace engine
 				float inv_w = 1.0f / clip[3];
 				float center_u = clip[0] * inv_w * 0.5f + 0.5f;
 				float center_v = 0.5f - clip[1] * inv_w * 0.5f;
-				float denom = 2.0f * distance_to_camera * tan_half;
+				//半高世界尺寸 → 半径占屏幕比例（第三百零四轮修正：去掉多余的 × 2，与 CPU 参考同口径）
+				float denom = distance_to_camera * tan_half;
 				float dv = denom > 1e-6f ? radius / denom : 1.0f;
 				float du = input.aspect > 1e-6f ? dv / input.aspect : 1.0f;
 				u0 = center_u - du;

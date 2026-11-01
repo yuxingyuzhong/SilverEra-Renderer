@@ -74,7 +74,8 @@ void main()
 		float inv_w = 1.0 / clip.w;
 		float center_u = clip.x * inv_w * 0.5 + 0.5;
 		float center_v = 0.5 - clip.y * inv_w * 0.5;
-		float denom = 2.0 * camera_distance * tan_half;
+		// NDC 半高 1.0 对应 camera_distance × tan_half；球投影半径即 radius / (camera_distance × tan_half)
+		float denom = camera_distance * tan_half;
 		float dv = denom > 1e-6 ? radius / denom : 1.0;
 		float du = push_cluster.params.y > 1e-6 ? dv / push_cluster.params.y : 1.0;
 		u0 = center_u - du;

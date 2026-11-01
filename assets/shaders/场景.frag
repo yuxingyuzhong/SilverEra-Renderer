@@ -270,6 +270,13 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 			: clamp(1.0 - normalized, 0.0, 1.0);
 	}
 	float cone_factor = 1.0;
+	/*
+	衰减为零时提前退出（第三百零四轮）
+	线性衰减（模式 1）在片元超出半径时恰为 0：辐射度加 0、高光 / 清漆 max(…, 0) 均不改变结果；
+	平方反比（模式 2）恒大于 0，不会触发本分支，故与未提前退出逐字节等价。
+	*/
+	if (attenuation <= 0.0)
+		return;
 	//聚光灯锥形衰减（普通点光的有效标志为 0 → 恒 1）
 	if (is_spot)
 	{
