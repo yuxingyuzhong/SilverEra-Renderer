@@ -363,6 +363,8 @@ namespace engine
 		Compute_Buffer_Handle particle_buffer_back = 0;
 		Compute_Pipeline_Handle particle_step_pipeline = 0;
 		uint32_t particle_buffer_capacity = 0;
+		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
+		uint32_t particle_gpu_died_last = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

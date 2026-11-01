@@ -1450,11 +1450,14 @@ namespace engine
 		//GPU 推进是否就绪（需计算路径可用且粒子已开启；首次调用惰性创建缓冲与管线）
 		bool particle_gpu_available(void);
 		/*
-		GPU 单步推进（第三百一十二轮）
-		上传当前 CPU 镜像 → 推进着色器（重力 / 阻尼 / 积分 / 年龄）→ 回读到 CPU 镜像；
-		返回假表示路径不可用或步长非法。死亡回收仍由 CPU 参考路径负责（第三百一十三轮接入 GPU 生命周期）。
+		GPU 单步推进（第三百一十二轮；第三百一十三轮补生命周期）
+		上传当前 CPU 镜像 → 推进着色器（重力 / 阻尼 / 积分 / 年龄）→ 回读覆盖 CPU 镜像；
+		回读后按 `lifetime ≤ 0` 判定 GPU 侧死亡并同步回收镜像中的活跃标记。
+		返回假表示路径不可用或步长非法。
 		*/
 		bool particle_gpu_step(float dt);
+		//最近一次 GPU 单步判定的死亡数（第三百一十三轮；未开启 / 未推进为 0）
+		uint32_t particle_gpu_died_last(void) const;
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

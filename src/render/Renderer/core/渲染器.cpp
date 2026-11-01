@@ -9004,6 +9004,8 @@ namespace engine
 		//步长非法
 		if (!std::isfinite(dt) || dt <= 0.0f)
 			return false;
+		//本次推进的死亡计数先清零
+		impl->particle_gpu_died_last = 0;
 		uint32_t capacity = impl->particle_buffer_capacity;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
 		//上传当前 CPU 镜像到前缓冲
@@ -9022,7 +9024,42 @@ namespace engine
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
 		//回读覆盖 CPU 镜像（GPU 结果作为下一步的上传源）
-		return compute_buffer_read(impl->particle_buffer_back, impl->particle_system.data_get(), bytes);
+		if (!compute_buffer_read(impl->particle_buffer_back, impl->particle_system.data_get(), bytes))
+			return false;
+		/*
+		生命周期同步（第三百一十三轮）
+		GPU 以 lifetime ≤ 0 标记死亡；镜像侧逐索引回收并清零寿命，
+		使下次上传的非活跃槽位保持「lifetime = 0」不变式（着色器据此原样写回）。
+		*/
+		uint32_t died = 0;
+		Particle_State* states = impl->particle_system.data_get();
+		const uint8_t* alive = impl->particle_system.alive_get();
+		for (uint32_t index = 0; index < capacity; ++index)
+		{
+			//非活跃槽位保持零寿命不变式
+			if (alive[index] == 0u)
+			{
+				states[index].lifetime = 0.0f;
+				continue;
+			}
+			//GPU 标记死亡即回收（LIFO 复用索引）
+			if (!(states[index].lifetime > 0.0f))
+			{
+				impl->particle_system.recycle(index);
+				++died;
+			}
+		}
+		impl->particle_gpu_died_last = died;
+		return true;
+	}
+
+	//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
+	uint32_t Renderer::particle_gpu_died_last(void) const
+	{
+		//未开启或未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return 0;
+		return impl->particle_gpu_died_last;
 	}
 
 	/*
