@@ -1,5 +1,8 @@
 #include "src/render/Particle/粒子系统.h"
 
+//std::sqrt
+#include <cmath>
+
 //引擎命名空间
 namespace engine
 {
@@ -81,5 +84,144 @@ namespace engine
 		for (uint32_t index = 0; index < capacity_; ++index)
 			free_indices_.push_back(index);
 		active_count_ = 0;
+	}
+
+	/*
+	推进一个固定步（CPU 参考）
+	顺序固定：速度加重力 → 按步阻尼 → 位置积分 → 年龄累加 → 寿命判定回收；
+	与 GPU 推进着色器保持同一运算顺序，便于 1e-5 阈值逐粒子对照。
+	*/
+	uint32_t Particle_System::step(const Particle_Params& params, float dt)
+	{
+		uint32_t died = 0;
+		for (uint32_t index = 0; index < capacity_; ++index)
+		{
+			//跳过非活跃索引
+			if (alive_[index] == 0u)
+				continue;
+			Particle_State& state = particles_[index];
+			for (uint32_t axis = 0; axis < 3; ++axis)
+			{
+				state.velocity[axis] += params.gravity[axis] * dt;
+				state.velocity[axis] *= params.damping;
+				state.position[axis] += state.velocity[axis] * dt;
+			}
+			state.age += dt;
+			//寿命到期回收
+			if (state.age >= state.lifetime)
+			{
+				recycle(index);
+				++died;
+			}
+		}
+		return died;
+	}
+
+	/*
+	发射（CPU 参考；确定性 LCG）
+	位置按形状采样；速度方向 = normalize(direction ＋ 0.3·随机单位向量)，大小在 [speed_min, speed_max]；
+	寿命在 [lifetime_min, lifetime_max]；池满即停止并返回实际发射数。
+	*/
+	uint32_t Particle_System::emit(const Particle_Emitter& emitter, uint32_t budget)
+	{
+		//发射器非法
+		if (!particle_emitter_valid(emitter))
+			return 0;
+		//本帧发射上限
+		const uint32_t limit = emitter.count < budget ? emitter.count : budget;
+		//单位随机数（[0, 1)；LCG 与 GPU 端一致）
+		auto next_unit = [this](void) -> float
+		{
+			rng_state_ = rng_state_ * 1664525u + 1013904223u;
+			return static_cast<float>((rng_state_ >> 8) & 0x00FFFFFFu) / 16777216.0f;
+		};
+		//[-1, 1] 随机分量
+		auto next_signed = [&next_unit](void) -> float
+		{
+			return next_unit() * 2.0f - 1.0f;
+		};
+		//主方向归一化（发射器校验已保证长度非零）
+		const float direction_length = std::sqrt(emitter.direction[0] * emitter.direction[0]
+			+ emitter.direction[1] * emitter.direction[1]
+			+ emitter.direction[2] * emitter.direction[2]);
+		const float direction_unit[3] = { emitter.direction[0] / direction_length,
+			emitter.direction[1] / direction_length, emitter.direction[2] / direction_length };
+
+		uint32_t spawned = 0;
+		for (; spawned < limit; ++spawned)
+		{
+			uint32_t index = 0;
+			//池满
+			if (!spawn(index))
+				break;
+			Particle_State& state = particles_[index];
+			//发射位置
+			for (uint32_t axis = 0; axis < 3; ++axis)
+				state.position[axis] = emitter.position[axis];
+			if (emitter.shape == static_cast<uint32_t>(Emit_Shape::Box))
+			{
+				for (uint32_t axis = 0; axis < 3; ++axis)
+					state.position[axis] += next_signed() * emitter.extents[axis];
+			}
+			else if (emitter.shape == static_cast<uint32_t>(Emit_Shape::Sphere_Shell))
+			{
+				//球壳方向（长度过小则退化为 +Y）
+				float shell[3] = { next_signed(), next_signed(), next_signed() };
+				float shell_length = std::sqrt(shell[0] * shell[0] + shell[1] * shell[1] + shell[2] * shell[2]);
+				if (!(shell_length > 1e-6f))
+				{
+					shell[0] = 0.0f;
+					shell[1] = 1.0f;
+					shell[2] = 0.0f;
+					shell_length = 1.0f;
+				}
+				for (uint32_t axis = 0; axis < 3; ++axis)
+					state.position[axis] += shell[axis] / shell_length * emitter.extents[0];
+			}
+			//速度方向（主方向 ＋ 0.3 随机扰动）
+			float velocity[3] = { direction_unit[0] + next_signed() * 0.3f,
+				direction_unit[1] + next_signed() * 0.3f,
+				direction_unit[2] + next_signed() * 0.3f };
+			float velocity_length = std::sqrt(velocity[0] * velocity[0] + velocity[1] * velocity[1]
+				+ velocity[2] * velocity[2]);
+			if (!(velocity_length > 1e-6f))
+			{
+				velocity[0] = direction_unit[0];
+				velocity[1] = direction_unit[1];
+				velocity[2] = direction_unit[2];
+				velocity_length = 1.0f;
+			}
+			const float speed = emitter.speed_min + next_unit() * (emitter.speed_max - emitter.speed_min);
+			for (uint32_t axis = 0; axis < 3; ++axis)
+				state.velocity[axis] = velocity[axis] / velocity_length * speed;
+			//年龄与寿命
+			state.age = 0.0f;
+			state.lifetime = emitter.lifetime_min
+				+ next_unit() * (emitter.lifetime_max - emitter.lifetime_min);
+		}
+		return spawned;
+	}
+
+	//重置随机种子（确定性对照用）
+	void Particle_System::seed_set(uint32_t seed)
+	{
+		rng_state_ = seed;
+	}
+
+	//粒子状态数组（长度 = 容量）
+	Particle_State* Particle_System::data_get(void)
+	{
+		return particles_.data();
+	}
+
+	const Particle_State* Particle_System::data_get(void) const
+	{
+		return particles_.data();
+	}
+
+	//逐索引活跃标记（长度 = 容量）
+	const uint8_t* Particle_System::alive_get(void) const
+	{
+		return alive_.data();
 	}
 }

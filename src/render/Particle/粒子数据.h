@@ -51,7 +51,7 @@ namespace engine
 
 	/*
 	全局模拟参数
-	gravity = 每秒平方加速度；damping = 每秒速度衰减系数（0..1，1 = 不衰减）；
+	gravity = 每秒平方加速度；damping = **每步**速度衰减系数（0..1，1 = 不衰减；固定步长口径）；
 	floor_y = 地面高度；restitution / friction = 反弹系数与切向摩擦（0..1）。
 	*/
 	struct Particle_Params
