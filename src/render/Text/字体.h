@@ -36,6 +36,14 @@ namespace engine
 		float y1 = 0.0f;
 		//笔位推进（像素）
 		float advance = 0.0f;
+		/*
+		图集内原始矩形（像素；第三百九十九轮补）
+		供图集扩容后按新高度重算 uv —— 只靠 uv 无法反推图集位置，故单列保存。
+		*/
+		uint32_t atlas_x = 0;
+		uint32_t atlas_y = 0;
+		uint32_t atlas_w = 0;
+		uint32_t atlas_h = 0;
 		//字形是否有可见像素（空白字符为假，但仍携带 advance）
 		bool has_ink = false;
 	};

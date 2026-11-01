@@ -94,7 +94,68 @@ namespace engine
 		glyph.y0 = static_cast<float>(y_offset) + baseline;
 		glyph.x1 = glyph.x0 + static_cast<float>(width);
 		glyph.y1 = glyph.y0 + static_cast<float>(height);
+		//记录图集原始矩形（扩容重算 uv 时必需）
+		glyph.atlas_x = atlas_x;
+		glyph.atlas_y = atlas_y;
+		glyph.atlas_w = width;
+		glyph.atlas_h = height;
 		glyph.has_ink = true;
+	}
+
+	/*
+	字形图集扩容（第三百九十九轮）
+	补烘时空间耗尽不再「跳过字形」，而是把图集高度翻倍：
+	① 新建更大的像素缓冲，逐行拷贝旧内容（宽度不变，故旧行偏移全保留）；
+	② 按新高度重算全部已烘焙字形的 uv（v 分量随高度变化）；
+	③ 重建图集纹理，旧纹理移入退役列表（可能仍被在途帧引用，不在本帧销毁）。
+	返回假表示纹理重建失败（旧图集与全部字形度量保持原样，调用方按「空间不足」处理）。
+	*/
+	static bool atlas_grow(Font_Record& record, Texture_Context& texture)
+	{
+		//新高度（翻倍并对齐到 4 的倍数）
+		uint32_t new_height = record.atlas_height * 2;
+		new_height = (new_height + 3) / 4 * 4;
+		//新像素缓冲（RGB 恒白、A 为覆盖率；新增区域全透明）
+		vector<uint8_t> pixels(static_cast<size_t>(record.atlas_width) * new_height * 4, 0);
+		for (size_t index = 0; index < pixels.size(); index += 4)
+		{
+			pixels[index] = 255;
+			pixels[index + 1] = 255;
+			pixels[index + 2] = 255;
+			pixels[index + 3] = 0;
+		}
+		//拷贝旧图集（宽度相同，逐行整段拷贝）
+		const size_t old_row_bytes = static_cast<size_t>(record.atlas_width) * 4;
+		const size_t old_bytes = old_row_bytes * record.atlas_height;
+		if (old_bytes > 0 && record.atlas_pixels.size() >= old_bytes)
+			::memcpy(pixels.data(), record.atlas_pixels.data(), old_bytes);
+
+		//重建图集纹理（失败则整体回滚，不改变记录）
+		uint64_t new_texture = 0;
+		if (!texture.texture_create_from_memory(new_texture, pixels.data(), record.atlas_width, new_height))
+		{
+			logger.error("字体:: 字形图集扩容时纹理重建失败（{}×{}）", record.atlas_width, new_height);
+			return false;
+		}
+		//旧纹理退役（延迟到字体销毁时统一归还，避免在途帧采样已销毁纹理）
+		if (record.atlas_texture != 0)
+			record.retired_atlas_textures.push_back(record.atlas_texture);
+		record.atlas_texture = new_texture;
+		record.atlas_pixels.swap(pixels);
+		record.atlas_height = new_height;
+
+		//按新高度重算全部字形 uv（u 不变，v 按新高度缩放）
+		for (auto& entry : record.glyphs)
+		{
+			Font_Glyph& glyph = entry.second;
+			//无墨迹字形（空白 / 未支持 / 跳过）没有图集矩形，跳过
+			if (!glyph.has_ink)
+				continue;
+			glyph.v0 = static_cast<float>(glyph.atlas_y) / static_cast<float>(record.atlas_height);
+			glyph.v1 = static_cast<float>(glyph.atlas_y + glyph.atlas_h) / static_cast<float>(record.atlas_height);
+		}
+		logger.info("字体:: 字形图集已扩容到 {}×{}", record.atlas_width, record.atlas_height);
+		return true;
 	}
 
 	//析构
@@ -306,14 +367,20 @@ namespace engine
 
 		/*
 		图集高度
-		ASCII 占用高度之外再留一倍余量（非 ASCII 码点如中文按需补烘时追加进同一张图集），
-		且最低 256 像素；向上取整到 4 的倍数。高度一经确定不再变化，故已烘焙字形 uv 恒稳定。
+		ASCII 占用高度之外再留 3 倍余量（非 ASCII 码点如中文按需补烘时追加进同一张图集），
+		下限 512 像素，向上取整到 4 的倍数；
+		补烘仍不足时按 atlas_grow 翻倍扩容并重算全部 uv（第三百九十九轮）。
 		*/
 		uint32_t ascii_height = cursor_y + shelf_height + 1;
-		uint32_t atlas_height = ascii_height * 2;
+		/*
+		预留余量由「× 2」提为「× 4」（第三百九十九轮）
+		中文标签量大（二十余展区 ＋ 叠加层），× 2 常在补烘途中耗尽，触发多次扩容；
+		× 4 把首轮容量抬到约 500 行像素，常规展示场景一次即可容纳全部中文。
+		*/
+		uint32_t atlas_height = ascii_height * 4;
 		//下限与对齐
-		if (atlas_height < 256)
-			atlas_height = 256;
+		if (atlas_height < 512)
+			atlas_height = 512;
 		atlas_height = (atlas_height + 3) / 4 * 4;
 
 		/*
@@ -480,7 +547,13 @@ namespace engine
 				record.cursor_y += record.shelf_height + 1;
 				record.shelf_height = 0;
 			}
-			//图集高度不足（空间耗尽）：跳过该码点
+			//图集高度不足（空间耗尽）：先扩容再重试，仍不足才跳过（第三百九十九轮）
+			while (record.cursor_y + static_cast<uint32_t>(glyph_height) + 1 > record.atlas_height)
+			{
+				if (!atlas_grow(record, *texture))
+					break;
+			}
+			//扩容后仍放不下（字形本身高于图集，或扩容失败）：跳过该码点
 			if (record.cursor_y + static_cast<uint32_t>(glyph_height) + 1 > record.atlas_height)
 			{
 				logger.warn("字体:: 字形图集空间不足，字形 {} 已跳过", codepoint);
