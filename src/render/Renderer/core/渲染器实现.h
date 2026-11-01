@@ -378,6 +378,14 @@ namespace engine
 		bool particle_depth_write = false;
 		//粒子深度分桶数（第三百一十七轮；0 = 关闭）
 		uint32_t particle_sort_buckets = 0;
+		/*
+		粒子模拟统计（第三百二十二轮）
+		born / died 自 init 累计；sim_ms 为最近一次步进主机侧耗时；gpu_ms 为最近一次 GPU 调度设备耗时（−1 表示不可用）。
+		*/
+		uint64_t particle_born_total = 0;
+		uint64_t particle_died_total = 0;
+		double particle_sim_ms_last = 0.0;
+		double particle_gpu_ms_last = -1.0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

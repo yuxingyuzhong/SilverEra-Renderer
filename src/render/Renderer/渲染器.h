@@ -297,6 +297,17 @@ namespace engine
 		//最近一帧实际使用的 MSAA 采样数（第一百零一轮；1 = 单采样）
 		uint32_t msaa_samples = 1;
 		/*
+		粒子模拟统计（第三百二十二轮；未开启粒子时各项为 0，particle_gpu_ms 为 −1）
+		particle_active = 当前活跃数；particle_born_total / particle_died_total 自 init 累计；
+		particle_sim_ms = 最近一次步进的主机侧耗时（CPU 参考或 GPU 同步链）；
+		particle_gpu_ms = 最近一次 GPU 调度的设备耗时（设备不支持时间戳时为 −1）。
+		*/
+		uint64_t particle_active = 0;
+		uint64_t particle_born_total = 0;
+		uint64_t particle_died_total = 0;
+		double particle_sim_ms = 0.0;
+		double particle_gpu_ms = -1.0;
+		/*
 		渲染工作线程观测（第一百七十七轮）
 		render_threads = 当前生效的工作线程数（0 = 单线程）；
 		parallel_dispatches = 自 init 以来实际派发的并行任务次数（退化为调用线程整段执行的任务不计）；

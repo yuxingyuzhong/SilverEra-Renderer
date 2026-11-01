@@ -3697,6 +3697,12 @@ namespace engine
 		stats.cache_parallel_dispatches = impl->cache_parallel_dispatches;
 		//最近一帧并行录制段数（第一百九十八轮）
 		stats.parallel_segments = impl->frame.last_parallel_segments_get();
+		//粒子模拟统计（第三百二十二轮；关闭时活跃与累计均为 0）
+		stats.particle_active = impl->particle_enabled ? impl->particle_system.active_count_get() : 0u;
+		stats.particle_born_total = impl->particle_born_total;
+		stats.particle_died_total = impl->particle_died_total;
+		stats.particle_sim_ms = impl->particle_sim_ms_last;
+		stats.particle_gpu_ms = impl->particle_gpu_ms_last;
 		return stats;
 	}
 
@@ -8905,7 +8911,10 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !impl->particle_enabled
 			|| !impl->particle_emitter_configured || count == 0)
 			return 0;
-		return impl->particle_system.emit(impl->particle_emitter, count);
+		uint32_t spawned = impl->particle_system.emit(impl->particle_emitter, count);
+		//出生累计（第三百二十二轮）
+		impl->particle_born_total += spawned;
+		return spawned;
 	}
 
 	//推进一步（返回本步死亡数；未开启 / 步长非法返回 0）
@@ -8915,7 +8924,13 @@ namespace engine
 			return 0;
 		if (!std::isfinite(dt) || dt <= 0.0f)
 			return 0;
-		return impl->particle_system.step(impl->particle_params, dt);
+		//主机侧模拟计时（第三百二十二轮）
+		const auto begin = std::chrono::high_resolution_clock::now();
+		uint32_t died = impl->particle_system.step(impl->particle_params, dt);
+		const auto end = std::chrono::high_resolution_clock::now();
+		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(end - begin).count();
+		impl->particle_died_total += died;
+		return died;
 	}
 
 	//当前活跃粒子数（未开启 / 未初始化返回 0）
@@ -9026,6 +9041,8 @@ namespace engine
 			return false;
 		//本次推进的死亡计数先清零
 		impl->particle_gpu_died_last = 0;
+		//GPU 同步链主机侧计时（第三百二十二轮）
+		const auto sim_begin = std::chrono::high_resolution_clock::now();
 		uint32_t capacity = impl->particle_buffer_capacity;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
 		//上传当前 CPU 镜像到前缓冲
@@ -9084,6 +9101,13 @@ namespace engine
 			}
 		}
 		impl->particle_gpu_died_last = died;
+		impl->particle_died_total += died;
+		//GPU 设备耗时（设备不支持时间戳时为 −1）
+		impl->particle_gpu_ms_last = impl->compute.timestamp_supported()
+			? impl->compute.stats_get().elapsed_ms : -1.0;
+		//主机侧模拟耗时（含上传 / 调度 / 回读 + 镜像同步）
+		const auto sim_end = std::chrono::high_resolution_clock::now();
+		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
 		return true;
 	}
 
