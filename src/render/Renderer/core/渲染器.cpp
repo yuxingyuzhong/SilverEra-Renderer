@@ -1941,6 +1941,7 @@ namespace engine
 		//粒子 GPU 推进资源句柄随计算资源一并失效（第三百一十一轮）
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
+		impl->particle_force_buffer = 0;
 		impl->particle_step_pipeline = 0;
 		impl->particle_buffer_capacity = 0;
 		impl->gpu_cull_pipeline = 0;
@@ -8940,8 +8941,12 @@ namespace engine
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
 		//零值初值（未登记槽位 lifetime = 0，GPU 侧原样写回）
 		std::vector<uint8_t> zeros(bytes, 0u);
+		//力场缓冲（固定 8 场 × 40 字节，零值初值）
+		std::vector<uint8_t> zero_forces(static_cast<std::size_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE, 0u);
 		bool created = compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
+			&& compute_buffer_load(impl->particle_force_buffer,
+				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
 			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv");
 		//任一环节失败即整体回收
 		if (!created)
@@ -8965,10 +8970,13 @@ namespace engine
 			compute_buffer_unload(impl->particle_buffer_front);
 		if (impl->particle_buffer_back != 0)
 			compute_buffer_unload(impl->particle_buffer_back);
+		if (impl->particle_force_buffer != 0)
+			compute_buffer_unload(impl->particle_force_buffer);
 		if (impl->particle_step_pipeline != 0)
 			compute_pipeline_unload(impl->particle_step_pipeline);
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
+		impl->particle_force_buffer = 0;
 		impl->particle_step_pipeline = 0;
 		impl->particle_buffer_capacity = 0;
 	}
@@ -9018,15 +9026,25 @@ namespace engine
 		//上传当前 CPU 镜像到前缓冲
 		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
 			return false;
-		//绑定前缓冲只读、后缓冲只写
+		//上传力场数组（仅上传前 force_count 项；第三百一十八轮）
+		if (impl->particle_params.force_count > 0)
+		{
+			uint32_t force_bytes = impl->particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
+			if (!compute_buffer_write(impl->particle_force_buffer, impl->particle_params.forces, force_bytes))
+				return false;
+		}
+		//绑定前缓冲只读、后缓冲只写、力场数组只读
 		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
 			return false;
 		if (!compute_buffer_bind(impl->particle_buffer_back, 1))
 			return false;
-		//推送常量：重力与步长、阻尼与容量
+		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
+			return false;
+		//推送常量：重力与步长、阻尼与容量与力场数
 		const float push[8] = {
 			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
-			impl->particle_params.damping, static_cast<float>(capacity), 0.0f, 0.0f
+			impl->particle_params.damping, static_cast<float>(capacity),
+			static_cast<float>(impl->particle_params.force_count), 0.0f
 		};
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
@@ -9387,12 +9405,14 @@ namespace engine
 		//上传 CPU 侧状态到前缓冲
 		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
 			return false;
-		//绑定前缓冲只读、后缓冲只写
+		//绑定前缓冲只读、后缓冲只写、力场数组只读（零力场）
 		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
 			return false;
 		if (!compute_buffer_bind(impl->particle_buffer_back, 1))
 			return false;
-		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换）
+		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
+			return false;
+		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换；力场数为 0）
 		const float push[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f };
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;

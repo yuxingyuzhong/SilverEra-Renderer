@@ -103,6 +103,68 @@ namespace engine
 			for (uint32_t axis = 0; axis < 3; ++axis)
 			{
 				state.velocity[axis] += params.gravity[axis] * dt;
+			}
+			/*
+			力场作用（第三百一十八轮；与 GPU 推进同序）
+			按配置顺序逐场施加加速度：风场为恒定方向；引力点为半径内线性衰减的径向力；
+			涡流为半径内的轴向切向力（半径外 / 退化方向直接跳过）。
+			*/
+			for (uint32_t field_index = 0; field_index < params.force_count; ++field_index)
+			{
+				const Particle_Force_Field& field = params.forces[field_index];
+				//风场：恒定方向加速度
+				if (field.type == static_cast<uint32_t>(Force_Type::Wind))
+				{
+					float direction_length = std::sqrt(field.direction[0] * field.direction[0]
+						+ field.direction[1] * field.direction[1]
+						+ field.direction[2] * field.direction[2]);
+					//方向退化则跳过
+					if (!(direction_length > 1e-6f))
+						continue;
+					for (uint32_t axis = 0; axis < 3; ++axis)
+						state.velocity[axis] += field.direction[axis] / direction_length * field.strength * dt;
+					continue;
+				}
+				//相对位置与距离
+				float relative[3] = { state.position[0] - field.position[0],
+					state.position[1] - field.position[1], state.position[2] - field.position[2] };
+				float distance = std::sqrt(relative[0] * relative[0] + relative[1] * relative[1]
+					+ relative[2] * relative[2]);
+				//半径外或与力场中心重合则跳过
+				if (!(distance > 1e-6f) || !(distance < field.radius))
+					continue;
+				//线性衰减权重
+				float weight = 1.0f - distance / field.radius;
+				//引力点：指向中心的径向加速度
+				if (field.type == static_cast<uint32_t>(Force_Type::Attractor))
+				{
+					for (uint32_t axis = 0; axis < 3; ++axis)
+						state.velocity[axis] -= relative[axis] / distance * field.strength * weight * dt;
+					continue;
+				}
+				//涡流：绕轴方向的切向加速度
+				float axis_length = std::sqrt(field.direction[0] * field.direction[0]
+					+ field.direction[1] * field.direction[1]
+					+ field.direction[2] * field.direction[2]);
+				//轴退化则跳过
+				if (!(axis_length > 1e-6f))
+					continue;
+				float axis_unit[3] = { field.direction[0] / axis_length, field.direction[1] / axis_length,
+					field.direction[2] / axis_length };
+				float tangent[3] = {
+					axis_unit[1] * relative[2] - axis_unit[2] * relative[1],
+					axis_unit[2] * relative[0] - axis_unit[0] * relative[2],
+					axis_unit[0] * relative[1] - axis_unit[1] * relative[0] };
+				float tangent_length = std::sqrt(tangent[0] * tangent[0] + tangent[1] * tangent[1]
+					+ tangent[2] * tangent[2]);
+				//切向退化则跳过
+				if (!(tangent_length > 1e-6f))
+					continue;
+				for (uint32_t axis = 0; axis < 3; ++axis)
+					state.velocity[axis] += tangent[axis] / tangent_length * field.strength * weight * dt;
+			}
+			for (uint32_t axis = 0; axis < 3; ++axis)
+			{
 				state.velocity[axis] *= params.damping;
 				state.position[axis] += state.velocity[axis] * dt;
 			}

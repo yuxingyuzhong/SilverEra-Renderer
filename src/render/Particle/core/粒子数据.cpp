@@ -62,7 +62,7 @@ namespace engine
 
 	/*
 	全局模拟参数是否合法
-	重力 / 地面高度有限；阻尼 / 反弹 / 摩擦落在 [0, 1]。
+	重力 / 地面高度有限；阻尼 / 反弹 / 摩擦落在 [0, 1]；力场数量与各场类型 / 数值合法。
 	*/
 	bool particle_params_valid(const Particle_Params& params)
 	{
@@ -75,6 +75,37 @@ namespace engine
 			return false;
 		if (!unit_interval(params.restitution))
 			return false;
-		return unit_interval(params.friction);
+		if (!unit_interval(params.friction))
+			return false;
+		//力场数量越界
+		if (params.force_count > PARTICLE_FORCE_MAX)
+			return false;
+		for (uint32_t index = 0; index < params.force_count; ++index)
+		{
+			const Particle_Force_Field& field = params.forces[index];
+			//类型越界
+			if (field.type > static_cast<uint32_t>(Force_Type::Wind))
+				return false;
+			//数值有限、半径非负
+			for (uint32_t axis = 0; axis < 3; ++axis)
+			{
+				if (!finite(field.position[axis]) || !finite(field.direction[axis]))
+					return false;
+			}
+			if (!finite(field.radius) || field.radius < 0.0f)
+				return false;
+			if (!finite(field.strength))
+				return false;
+			//涡流 / 风场方向长度非零（引力点忽略方向）
+			if (field.type != static_cast<uint32_t>(Force_Type::Attractor))
+			{
+				const float length_squared = field.direction[0] * field.direction[0]
+					+ field.direction[1] * field.direction[1]
+					+ field.direction[2] * field.direction[2];
+				if (!(length_squared > 1e-12f))
+					return false;
+			}
+		}
+		return true;
 	}
 }

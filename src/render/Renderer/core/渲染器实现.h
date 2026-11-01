@@ -361,6 +361,8 @@ namespace engine
 		*/
 		Compute_Buffer_Handle particle_buffer_front = 0;
 		Compute_Buffer_Handle particle_buffer_back = 0;
+		//力场数组（第三百一十八轮；8 × 40 字节）
+		Compute_Buffer_Handle particle_force_buffer = 0;
 		Compute_Pipeline_Handle particle_step_pipeline = 0;
 		uint32_t particle_buffer_capacity = 0;
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）

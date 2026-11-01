@@ -1,7 +1,7 @@
 #version 450
 /*
-粒子推进（第三百一十一轮；深研方向二 阶段 A）
-每个线程推进一个粒子：v += gravity·dt → v *= damping → p += v·dt → age += dt → 寿命到期标记死亡。
+粒子推进（第三百一十一轮；第三百一十八轮补力场）
+每个线程推进一个粒子：重力 → 力场（按序）→ 阻尼 → 位置积分 → 年龄 → 寿命到期标记死亡。
 与 CPU 参考（Particle_System::step）保持同一运算顺序与常量口径，供 1e-5 阈值逐粒子对照。
 */
 layout(local_size_x = 64) in;
@@ -15,11 +15,26 @@ struct Particle_State
 	float lifetime;
 };
 
-//binding 0 = 上一步状态（只读）、binding 1 = 下一步状态（只写）
+/*
+力场（40 字节；与 Host 侧 Particle_Force_Field 逐字段一致）
+position = 中心、radius = 半径、strength = 强度、direction = 风方向 / 涡流轴、type = 0 引力点 / 1 涡流 / 2 风场。
+*/
+struct Force_Field
+{
+	float position[3];
+	float radius;
+	float strength;
+	float direction[3];
+	uint type;
+	float padding;
+};
+
+//binding 0 = 上一步状态（只读）、binding 1 = 下一步状态（只写）、binding 2 = 力场数组（只读）
 layout(std430, set = 0, binding = 0) readonly buffer Prev_States { Particle_State prev_states[]; };
 layout(std430, set = 0, binding = 1) writeonly buffer Next_States { Particle_State next_states[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Forces { Force_Field forces[]; };
 
-//推送常量：重力 + 步长 / 阻尼 + 容量
+//推送常量：重力 + 步长 / 阻尼 + 容量 + 力场数
 layout(push_constant) uniform Push_Step
 {
 	vec4 gravity_dt;
@@ -42,14 +57,56 @@ void main()
 		next_states[index] = state;
 		return;
 	}
-	//与 CPU 参考同一顺序：重力 → 阻尼 → 位置积分
+	float dt = push.gravity_dt.w;
+	//与 CPU 参考同一顺序：重力 → 力场 → 阻尼 → 位置积分
+	for (int axis = 0; axis < 3; ++axis)
+		state.velocity[axis] += push.gravity_dt[axis] * dt;
+	uint force_count = uint(push.params.z + 0.5);
+	for (uint field_index = 0; field_index < force_count; ++field_index)
+	{
+		Force_Field field = forces[field_index];
+		//风场：恒定方向加速度
+		if (field.type == 2)
+		{
+			float direction_length = length(vec3(field.direction[0], field.direction[1], field.direction[2]));
+			if (!(direction_length > 1e-6))
+				continue;
+			for (int axis = 0; axis < 3; ++axis)
+				state.velocity[axis] += field.direction[axis] / direction_length * field.strength * dt;
+			continue;
+		}
+		//相对位置与距离
+		vec3 relative = vec3(state.position[0] - field.position[0], state.position[1] - field.position[1],
+			state.position[2] - field.position[2]);
+		float distance = length(relative);
+		//半径外或与力场中心重合则跳过
+		if (!(distance > 1e-6) || !(distance < field.radius))
+			continue;
+		float weight = 1.0 - distance / field.radius;
+		//引力点：指向中心的径向加速度
+		if (field.type == 0)
+		{
+			for (int axis = 0; axis < 3; ++axis)
+				state.velocity[axis] -= relative[axis] / distance * field.strength * weight * dt;
+			continue;
+		}
+		//涡流：绕轴方向的切向加速度
+		vec3 axis_unit = normalize(vec3(field.direction[0], field.direction[1], field.direction[2]));
+		vec3 tangent = cross(axis_unit, relative);
+		float tangent_length = length(tangent);
+		//切向退化则跳过
+		if (!(tangent_length > 1e-6))
+			continue;
+		for (int axis = 0; axis < 3; ++axis)
+			state.velocity[axis] += tangent[axis] / tangent_length * field.strength * weight * dt;
+	}
+	//阻尼与位置积分
 	for (int axis = 0; axis < 3; ++axis)
 	{
-		state.velocity[axis] += push.gravity_dt[axis] * push.gravity_dt.w;
 		state.velocity[axis] *= push.params.x;
-		state.position[axis] += state.velocity[axis] * push.gravity_dt.w;
+		state.position[axis] += state.velocity[axis] * dt;
 	}
-	state.age += push.gravity_dt.w;
+	state.age += dt;
 	//寿命到期：标记为未登记（lifetime = 0），由 Host 侧回收映射处理
 	if (state.age >= lifetime)
 	{

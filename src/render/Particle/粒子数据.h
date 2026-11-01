@@ -31,6 +31,33 @@ namespace engine
 	};
 
 	/*
+	力场类型（第三百一十八轮；越界值一律拒绝）
+	Attractor = 引力 / 斥力点（按半径线性衰减）；Vortex = 绕轴涡流；Wind = 恒定风向。
+	*/
+	enum class Force_Type : uint32_t
+	{
+		Attractor = 0,
+		Vortex = 1,
+		Wind = 2,
+	};
+
+	/*
+	单个力场（40 字节；与 GPU std430 float 数组布局逐字段一致）
+	position = 力场中心；radius = 作用半径（Wind 忽略）；strength = 强度（可负，斥力）；
+	direction = 风方向 / 涡流轴（长度须非零，内部归一化）。
+	*/
+	struct Particle_Force_Field
+	{
+		float position[3];
+		float radius;
+		float strength;
+		float direction[3];
+		uint32_t type;
+		float padding;
+	};
+
+
+	/*
 	发射器（一次配置、逐帧按 count 发射）
 	position = 发射中心；extents = 盒半尺寸 / 球壳半径（点发射忽略）；
 	direction = 主发射方向（长度须非零，内部归一化），与随机锥混合；
@@ -53,6 +80,7 @@ namespace engine
 	全局模拟参数
 	gravity = 每秒平方加速度；damping = **每步**速度衰减系数（0..1，1 = 不衰减；固定步长口径）；
 	floor_y = 地面高度；restitution / friction = 反弹系数与切向摩擦（0..1）。
+	force_count / forces = 力场数量与数组（第三百一十八轮；按顺序逐场施加，最多 PARTICLE_FORCE_MAX 个）。
 	*/
 	struct Particle_Params
 	{
@@ -61,10 +89,16 @@ namespace engine
 		float floor_y;
 		float restitution;
 		float friction;
+		uint32_t force_count;
+		Particle_Force_Field forces[8];
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）
 	constexpr std::size_t PARTICLE_STRIDE = 32;
+	//力场数量上限（第三百一十八轮）
+	constexpr uint32_t PARTICLE_FORCE_MAX = 8;
+	//单个力场字节数（与 GPU 力场缓冲步长一致）
+	constexpr std::size_t PARTICLE_FORCE_STRIDE = 40;
 	//默认粒子容量（未显式配置时）
 	constexpr uint32_t PARTICLE_CAPACITY_DEFAULT = 8192;
 	//单系统粒子容量上限（1 048 576；双缓冲 × 32B ≈ 64 MB）
