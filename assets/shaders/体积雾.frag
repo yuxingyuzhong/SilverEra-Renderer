@@ -59,6 +59,25 @@ layout(push_constant) uniform Push_Post
 //最大步进次数上限（固定，保证各硬件行为一致）
 const int MAX_STEPS = 48;
 
+/*
+密度噪声（第三百七十六轮）
+解析式双正弦调制：成本低（十次以内三角函数），产生絮状浓淡；
+返回值均值约 1（strength = 0 时恒 1，与引入噪声前逐字节一致）。
+strength 取后处理第三组推送的 alpha 分量（offset 112.w，0..1）。
+*/
+float fog_noise(vec3 position, float strength)
+{
+	//强度为 0：不加调制
+	if (strength <= 0.0)
+		return 1.0;
+	//两层正弦交织（各自带相位扰动，避免规则网格观感）
+	float noise = 0.5 + 0.5 * sin(position.x * 2.3 + sin(position.z * 1.7))
+		* sin(position.y * 2.7 + sin(position.x * 1.3));
+	//按强度在「无调制 (1.0)」与「调制 (±0.5 偏差)」之间插值
+	float value = mix(1.0, 0.25 + 1.5 * noise, strength);
+	return max(value, 0.0);
+}
+
 void main()
 {
 	//宿像素 → 源像素映射比例
@@ -106,6 +125,8 @@ void main()
 	int step_count = clamp(int(float(MAX_STEPS) * clamp(push.post_param.w, 0.25, 2.0)), 8, MAX_STEPS);
 	float step_length = travel / float(step_count);
 	float falloff = clamp(push.post_param.y, 0.0, 4.0);
+	//密度噪声强度（第三组推送 alpha；0 = 均匀雾）
+	float noise_strength = clamp(push.post_color.a, 0.0, 1.0);
 
 	//沿视线累积光学厚度（中点采样）
 	float optical = 0.0;
@@ -114,7 +135,9 @@ void main()
 		vec3 position = camera + ray_dir * (step_length * (float(step) + 0.5));
 		//高度衰减：世界 Y 越高密度越低（0 以下不再衰减）
 		float height_density = falloff > 0.0 ? exp(-falloff * max(position.y, 0.0)) : 1.0;
-		optical += density * height_density * step_length;
+		//噪声调制（絮状浓淡）
+		float noise_density = fog_noise(position, noise_strength);
+		optical += density * height_density * noise_density * step_length;
 	}
 	//光学厚度 → 透明度（Beer–Lambert 近似）
 	float alpha = 1.0 - exp(-optical);

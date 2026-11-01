@@ -1220,6 +1220,13 @@ namespace engine
 		*/
 		void post_stage_color_set(uint32_t stage, float r, float g, float b);
 		/*
+		四分量逐级颜色设置（第三百七十六轮；第四分量为自定义阶段的附加标量）
+		前三通道语义同 post_stage_color_set；a 写入推送块 offset 112 的第四分量
+		（0..1，非有限值按 0），供「体积雾密度噪声强度」等自定义阶段使用。
+		未调用本接口时第四分量恒 0，与引入前逐字节一致。
+		*/
+		void post_stage_color4_set(uint32_t stage, float r, float g, float b, float a);
+		/*
 		批量读回当前链各级的专设参数（第八十二轮新增；只读诊断）
 		out 按「级序 × 4 浮点」紧排（阈值 / 软膝 / 强度 / 保留），最多写 capacity / 4 级；
 		返回值 = 实际写入的级数 = min(链级数, capacity / 4)；未专设的级写 0。

@@ -7916,6 +7916,32 @@ namespace engine
 		impl->post_stage_color_valid[stage] = true;
 	}
 
+	/*
+	四分量逐级颜色设置（第三百七十六轮）
+	前三通道与 post_stage_color_set 同口径；第四分量供自定义阶段使用（如体积雾密度噪声强度）。
+	*/
+	void Renderer::post_stage_color4_set(uint32_t stage, float r, float g, float b, float a)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级四分量色设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		//逐分量归一：非有限值按 0，否则钳到 [0, 1]
+		const float channels[4] = { r, g, b, a };
+		for (std::size_t index = 0; index < 4; ++index)
+		{
+			float value = std::isfinite(channels[index]) ? channels[index] : 0.0f;
+			impl->post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+		}
+		impl->post_stage_color_valid[stage] = true;
+	}
+
 	//启用 / 关闭视锥剔除
 	void Renderer::cull_enabled_set(bool enabled)
 	{
