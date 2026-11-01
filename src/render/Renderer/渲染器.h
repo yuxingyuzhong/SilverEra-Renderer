@@ -423,6 +423,12 @@ namespace engine
 		//读回缓冲一段（仅主机可见缓冲直接映射；设备本地缓冲请用 compute_readback）
 		bool compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset = 0);
 		/*
+		粒子 GPU 推进资源（第三百一十一轮）
+		ensure 惰性创建双缓冲（容量 × 32 字节）与推进管线；destroy 幂等释放（须先于计算上下文销毁）。
+		*/
+		bool particle_gpu_ensure(void);
+		void particle_gpu_destroy(void);
+		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
 		与缓冲是否设备本地无关（主机可见缓冲亦可，用于统一口径的验证）。
@@ -1415,9 +1421,9 @@ namespace engine
 		/*
 		粒子系统（第三百一十轮；深研方向二 阶段 A）
 		默认关闭：`particle_enable_set(true)` 前不占用任何粒子状态；关闭时发射 / 步进返回 0。
-		当前为 CPU 参考路径（GPU 推进在后续轮次接入，同一 `Particle_System` 作为参考实现）。
+		当前为 CPU 参考路径（GPU 推进已由 particle_gpu_* 接入，同一 `Particle_System` 作为参考实现）。
 		*/
-		//粒子路径是否可用（已初始化即为真；计算路径接入后改为「计算可用」）
+		//粒子路径是否可用（已初始化且计算路径可用即为真；第三百一十一轮）
 		bool particle_supported(void) const;
 		//开关（仅初始化后允许；关闭不释放容量，重新开启沿用池内容）
 		bool particle_enable_set(bool enabled);
@@ -1436,6 +1442,10 @@ namespace engine
 		uint32_t particle_step(float dt);
 		//当前活跃粒子数（未开启 / 未初始化返回 0）
 		uint32_t particle_active_count(void) const;
+		//GPU 推进是否就绪（需计算路径可用且粒子已开启；首次调用惰性创建缓冲与管线）
+		bool particle_gpu_available(void);
+		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
+		bool particle_gpu_probe(void);
 		/*
 		设置距离雾（第三十八轮新增；默认关闭）
 		color 为雾色（分量 0..1），density 为强度（0..1，0 = 关闭），start / end 为线性距离区间（世界单位，须 start ≥ 0 且 end > start）。

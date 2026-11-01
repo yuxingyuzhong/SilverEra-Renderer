@@ -1931,7 +1931,11 @@ namespace engine
 				impl->shader.module_destroy(record.module);
 		}
 		impl->compute_pipelines.clear();
-		//视锥剔除管线句柄随计算管线表失效（第二百四十八轮）
+		//粒子 GPU 推进资源句柄随计算资源一并失效（第三百一十一轮）
+		impl->particle_buffer_front = 0;
+		impl->particle_buffer_back = 0;
+		impl->particle_step_pipeline = 0;
+		impl->particle_buffer_capacity = 0;
 		impl->gpu_cull_pipeline = 0;
 		//实例压缩管线句柄同样失效（第二百四十九轮）
 		impl->gpu_compact_pipeline = 0;
@@ -8787,13 +8791,13 @@ namespace engine
 
 	/*
 	粒子系统门面（第三百一十轮；默认关闭）
-	当前为 CPU 参考路径（同一 `Particle_System` 后续作为 GPU 推进的对照实现）；
+	CPU 参考路径与 GPU 推进共用同一 `Particle_System` 状态；
 	关闭时发射 / 步进返回 0，且不改变渲染画面。
 	*/
-	//粒子路径是否可用
+	//粒子路径是否可用（第三百一十一轮：改由计算路径可用性决定）
 	bool Renderer::particle_supported(void) const
 	{
-		return impl != nullptr && impl->initialized;
+		return impl != nullptr && impl->initialized && compute_supported();
 	}
 
 	//粒子开关（关闭不释放容量，重新开启沿用池内容）
@@ -8828,6 +8832,8 @@ namespace engine
 			return false;
 		}
 		impl->particle_system.capacity_set(capacity);
+		//容量变化即释放旧尺寸的 GPU 推进资源（下次 ensure 按新容量重建）
+		particle_gpu_destroy();
 		//重置发射器配置（旧发射器可能已超出新容量）
 		impl->particle_emitter_configured = false;
 		return true;
@@ -8905,6 +8911,112 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
 			return 0;
 		return impl->particle_system.active_count_get();
+	}
+
+	//确保粒子 GPU 推进资源就绪（第三百一十一轮；容量变化时重建）
+	bool Renderer::particle_gpu_ensure(void)
+	{
+		//未初始化或计算路径不可用
+		if (impl == nullptr || !impl->initialized || !compute_supported())
+			return false;
+		//按当前池容量分配（容量为 0 视为不可用）
+		uint32_t capacity = impl->particle_system.capacity_get();
+		if (capacity == 0 || capacity > PARTICLE_CAPACITY_MAX)
+			return false;
+		//已按当前容量就绪
+		if (impl->particle_buffer_capacity == capacity && impl->particle_buffer_front != 0
+			&& impl->particle_buffer_back != 0 && impl->particle_step_pipeline != 0)
+			return true;
+		//容量变化：先释放旧资源
+		particle_gpu_destroy();
+		//双缓冲字节数
+		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
+		//零值初值（未登记槽位 lifetime = 0，GPU 侧原样写回）
+		std::vector<uint8_t> zeros(bytes, 0u);
+		bool created = compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
+			&& compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
+			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv");
+		//任一环节失败即整体回收
+		if (!created)
+		{
+			logger.error("渲染器:: 粒子 GPU 推进资源创建失败（容量 {}）", capacity);
+			particle_gpu_destroy();
+			return false;
+		}
+		impl->particle_buffer_capacity = capacity;
+		return true;
+	}
+
+	//释放粒子 GPU 推进资源（第三百一十一轮；幂等）
+	void Renderer::particle_gpu_destroy(void)
+	{
+		//未初始化
+		if (impl == nullptr)
+			return;
+		//双缓冲与推进管线移交门面卸载（计算上下文仍存活时才有效）
+		if (impl->particle_buffer_front != 0)
+			compute_buffer_unload(impl->particle_buffer_front);
+		if (impl->particle_buffer_back != 0)
+			compute_buffer_unload(impl->particle_buffer_back);
+		if (impl->particle_step_pipeline != 0)
+			compute_pipeline_unload(impl->particle_step_pipeline);
+		impl->particle_buffer_front = 0;
+		impl->particle_buffer_back = 0;
+		impl->particle_step_pipeline = 0;
+		impl->particle_buffer_capacity = 0;
+	}
+
+	//粒子 GPU 推进是否就绪（第三百一十一轮；首次调用惰性创建）
+	bool Renderer::particle_gpu_available(void)
+	{
+		//未开启粒子或计算路径不可用
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !compute_supported())
+			return false;
+		return particle_gpu_ensure();
+	}
+
+	/*
+	粒子 GPU 推进自检（第三百一十一轮）
+	上传当前 CPU 状态到前缓冲 → 额定容量调度（零步：dt = 0、阻尼 = 1，恒等变换）→ 回读后缓冲；
+	按 CPU 活跃标记逐索引比对 32 字节，验证「描述符绑定 → 推送常量 → 调度 → 写回 → 读回」整条通路。
+	非活跃槽位可能保留上次状态（回收时不改写状态内容），不参与比对。
+	*/
+	bool Renderer::particle_gpu_probe(void)
+	{
+		//资源未就绪
+		if (!particle_gpu_available())
+			return false;
+		uint32_t capacity = impl->particle_buffer_capacity;
+		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
+		//上传 CPU 侧状态到前缓冲
+		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
+			return false;
+		//绑定前缓冲只读、后缓冲只写
+		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
+			return false;
+		if (!compute_buffer_bind(impl->particle_buffer_back, 1))
+			return false;
+		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换）
+		const float push[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f };
+		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
+			return false;
+		//回读后缓冲
+		std::vector<uint8_t> output(bytes, 0u);
+		if (!compute_buffer_read(impl->particle_buffer_back, output.data(), bytes))
+			return false;
+		//按活跃标记逐索引比对
+		const Particle_State* source = impl->particle_system.data_get();
+		const uint8_t* alive = impl->particle_system.alive_get();
+		for (uint32_t index = 0; index < capacity; ++index)
+		{
+			//跳过非活跃槽位
+			if (alive[index] == 0u)
+				continue;
+			std::size_t offset = static_cast<std::size_t>(index) * PARTICLE_STRIDE;
+			if (memcmp(output.data() + offset, &source[index], PARTICLE_STRIDE) != 0)
+				return false;
+		}
+		return true;
 	}
 
 	//设置距离雾（第三十八轮新增）

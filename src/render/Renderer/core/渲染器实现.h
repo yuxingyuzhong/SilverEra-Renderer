@@ -355,6 +355,14 @@ namespace engine
 		Particle_Params particle_params{};
 		Particle_Emitter particle_emitter{};
 		bool particle_emitter_configured = false;
+		/*
+		粒子 GPU 推进资源（第三百一十一轮；惰性创建）
+		front / back 为双缓冲（容量 × 32 字节主机可见 SSBO）；pipeline 为推进着色器。
+		*/
+		Compute_Buffer_Handle particle_buffer_front = 0;
+		Compute_Buffer_Handle particle_buffer_back = 0;
+		Compute_Pipeline_Handle particle_step_pipeline = 0;
+		uint32_t particle_buffer_capacity = 0;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

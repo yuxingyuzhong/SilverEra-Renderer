@@ -1,0 +1,60 @@
+#version 450
+/*
+粒子推进（第三百一十一轮；深研方向二 阶段 A）
+每个线程推进一个粒子：v += gravity·dt → v *= damping → p += v·dt → age += dt → 寿命到期标记死亡。
+与 CPU 参考（Particle_System::step）保持同一运算顺序与常量口径，供 1e-5 阈值逐粒子对照。
+*/
+layout(local_size_x = 64) in;
+
+//粒子状态（32 字节；与 Host 侧 Particle_State 逐字段一致）
+struct Particle_State
+{
+	float position[3];
+	float velocity[3];
+	float age;
+	float lifetime;
+};
+
+//binding 0 = 上一步状态（只读）、binding 1 = 下一步状态（只写）
+layout(std430, set = 0, binding = 0) readonly buffer Prev_States { Particle_State prev_states[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer Next_States { Particle_State next_states[]; };
+
+//推送常量：重力 + 步长 / 阻尼 + 容量
+layout(push_constant) uniform Push_Step
+{
+	vec4 gravity_dt;
+	vec4 params;
+} push;
+
+void main()
+{
+	//池内索引
+	uint index = gl_GlobalInvocationID.x;
+	//容量外的线程直接返回
+	uint capacity = uint(push.params.y + 0.5);
+	if (index >= capacity)
+		return;
+	Particle_State state = prev_states[index];
+	//未登记的槽位（寿命非正）原样写回
+	float lifetime = state.lifetime;
+	if (!(lifetime > 0.0))
+	{
+		next_states[index] = state;
+		return;
+	}
+	//与 CPU 参考同一顺序：重力 → 阻尼 → 位置积分
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		state.velocity[axis] += push.gravity_dt[axis] * push.gravity_dt.w;
+		state.velocity[axis] *= push.params.x;
+		state.position[axis] += state.velocity[axis] * push.gravity_dt.w;
+	}
+	state.age += push.gravity_dt.w;
+	//寿命到期：标记为未登记（lifetime = 0），由 Host 侧回收映射处理
+	if (state.age >= lifetime)
+	{
+		state.age = lifetime;
+		state.lifetime = 0.0;
+	}
+	next_states[index] = state;
+}
