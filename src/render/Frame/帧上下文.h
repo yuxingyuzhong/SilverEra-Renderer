@@ -371,7 +371,8 @@ namespace engine
 		*/
 		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
 			uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
-			Frame_Readback_Request* readback = nullptr, bool shadow_pass = false);
+			Frame_Readback_Request* readback = nullptr, bool shadow_pass = false,
+			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
 		渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
 		（同帧多 pass；与 render_to_target 的跨帧闭环不同，本路径在同一帧内完成「目标 → 后处理 → 呈现」）。
@@ -572,7 +573,8 @@ namespace engine
 		void command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
-			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false);
+			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false,
+			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
 		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
 		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；

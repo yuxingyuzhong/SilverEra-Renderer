@@ -3458,6 +3458,7 @@ namespace engine
 			Frame_Render_Target target{};
 			if (impl->render_target.target_get(impl->active_target, target.color_image, target.color_view,
 				target.depth_view, target.extent)
+				&& impl->render_target.target_depth_get(impl->active_target, target.depth_image, target.depth_view)
 				&& impl->render_target.target_msaa_get(impl->active_target, target.msaa_color_image,
 					target.msaa_color_view, target.msaa_depth_view, target.sample_count))
 			{
@@ -3465,10 +3466,21 @@ namespace engine
 				target.color_format = impl->swapchain.format_get();
 				target.depth_format = impl->swapchain.depth_format_get();
 				offscreen = true;
+				/*
+				场景退场回调（第三百六十八轮；离屏目标亦生成 Hi-Z 深度历史）
+				与交换链路径同口径：仅 Hi-Z 开启且资源就绪时挂接；尺寸不一致时回调内部静默跳过。
+				*/
+				Frame_Post_Scene_Callback post_scene{};
+				//启用时挂接 Hi-Z 生成回调
+				if (impl->hiz_enabled && impl->hiz.valid())
+				{
+					post_scene.fn = Renderer::Impl::hiz_post_scene_entry;
+					post_scene.user_data = impl.get();
+				}
 				//渲染到离屏目标（不取交换链图像、不呈现）
 				if (!impl->frame.render_to_target(target, impl->pending_items.data(),
 					static_cast<uint32_t>(impl->pending_items.size()), clear_color,
-					impl->ui_channel.draw_callback_get(), readback_ptr))
+					impl->ui_channel.draw_callback_get(), readback_ptr, false, &post_scene))
 				{
 					logger.error("渲染器:: 离屏帧渲染失败");
 					return false;

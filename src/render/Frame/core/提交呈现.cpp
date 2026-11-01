@@ -291,7 +291,7 @@ namespace engine
 	*/
 	bool Frame_Context::render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
 		uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback,
-		Frame_Readback_Request* readback, bool shadow_pass)
+		Frame_Readback_Request* readback, bool shadow_pass, const Frame_Post_Scene_Callback* post_scene)
 	{
 		//前置：帧上下文与目标附件必须齐备（含深度视图，与同帧多 pass 路径同口径）
 		if (!valid() || target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
@@ -364,7 +364,8 @@ namespace engine
 		//录制命令缓冲（目标附件 + 清屏 + 逐项绘制 + UI 阶段 + 可选像素回读 + 回到着色器可读布局）
 		//阴影 pass 使用独立的两查询池（第一百二十八轮），其余离屏路径沿用主四查询池
 		command_record_target(slot.command_buffer, target, items, item_count, clear_color, ui_callback,
-			readback_target, shadow_pass ? slot.shadow_timestamp_pool : slot.timestamp_pool, shadow_pass);
+			readback_target, shadow_pass ? slot.shadow_timestamp_pool : slot.timestamp_pool, shadow_pass,
+			post_scene);
 		//并行上下文只对本帧录制有效
 		active_secondary = nullptr;
 		active_secondary_count = 0;

@@ -739,7 +739,8 @@ namespace engine
 	*/
 	void Frame_Context::command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
-		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool, bool shadow_pass)
+		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool, bool shadow_pass,
+		const Frame_Post_Scene_Callback* post_scene)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -901,6 +902,16 @@ namespace engine
 		//结束场景动态渲染（MSAA 时此处完成解析到目标颜色图像）
 		vkCmdEndRendering(command_buffer);
 		}
+
+		/*
+		场景退场回调（第三百六十八轮；离屏路径的 Hi-Z 深度拷贝与金字塔生成）
+		必须在渲染通道之外执行；单采样直接用目标深度，MSAA 用深度解析后的单采样目标深度。
+		回调自行完成深度布局往返，返回后深度仍为 DEPTH_ATTACHMENT_OPTIMAL。
+		*/
+		if (post_scene != nullptr && post_scene->fn != nullptr
+			&& (target.sample_count <= 1 || target.msaa_depth_view != VK_NULL_HANDLE)
+			&& target.depth_image != VK_NULL_HANDLE && target.depth_view != VK_NULL_HANDLE)
+			post_scene->fn(command_buffer, target.depth_image, target.depth_view, target.extent, post_scene->user_data);
 
 		/*
 		场景 / 后处理分段时间戳（第一百二十八轮）
