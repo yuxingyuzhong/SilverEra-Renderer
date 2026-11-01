@@ -8785,6 +8785,128 @@ namespace engine
 		return impl->attenuation_mode;
 	}
 
+	/*
+	粒子系统门面（第三百一十轮；默认关闭）
+	当前为 CPU 参考路径（同一 `Particle_System` 后续作为 GPU 推进的对照实现）；
+	关闭时发射 / 步进返回 0，且不改变渲染画面。
+	*/
+	//粒子路径是否可用
+	bool Renderer::particle_supported(void) const
+	{
+		return impl != nullptr && impl->initialized;
+	}
+
+	//粒子开关（关闭不释放容量，重新开启沿用池内容）
+	bool Renderer::particle_enable_set(bool enabled)
+	{
+		//未初始化拒绝
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 粒子开关设置失败（未初始化）");
+			return false;
+		}
+		impl->particle_enabled = enabled;
+		return true;
+	}
+
+	//开关状态
+	bool Renderer::particle_enable_get(void) const
+	{
+		//未初始化返回假
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->particle_enabled;
+	}
+
+	//粒子容量（钳制 [1, PARTICLE_CAPACITY_MAX]；重建池并清空）
+	bool Renderer::particle_capacity_set(uint32_t capacity)
+	{
+		//未初始化拒绝
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 粒子容量设置失败（未初始化）");
+			return false;
+		}
+		impl->particle_system.capacity_set(capacity);
+		//重置发射器配置（旧发射器可能已超出新容量）
+		impl->particle_emitter_configured = false;
+		return true;
+	}
+
+	//当前容量（未初始化返回 0）
+	uint32_t Renderer::particle_capacity_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->particle_system.capacity_get();
+	}
+
+	//发射器（须先开启；参数非法整次拒绝）
+	bool Renderer::particle_emitter_set(const Particle_Emitter& emitter)
+	{
+		//未初始化或未开启
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+		{
+			logger.error("渲染器:: 粒子发射器设置失败（未初始化或未开启）");
+			return false;
+		}
+		//参数非法
+		if (!particle_emitter_valid(emitter))
+		{
+			logger.warn("渲染器:: 粒子发射器参数非法（已拒绝）");
+			return false;
+		}
+		impl->particle_emitter = emitter;
+		impl->particle_emitter_configured = true;
+		return true;
+	}
+
+	//模拟参数（须先开启；参数非法整次拒绝）
+	bool Renderer::particle_params_set(const Particle_Params& params)
+	{
+		//未初始化或未开启
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+		{
+			logger.error("渲染器:: 粒子参数设置失败（未初始化或未开启）");
+			return false;
+		}
+		//参数非法
+		if (!particle_params_valid(params))
+		{
+			logger.warn("渲染器:: 粒子参数非法（已拒绝）");
+			return false;
+		}
+		impl->particle_params = params;
+		return true;
+	}
+
+	//发射粒子（返回实际发射数；未开启 / 未配置返回 0）
+	uint32_t Renderer::particle_emit(uint32_t count)
+	{
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled
+			|| !impl->particle_emitter_configured || count == 0)
+			return 0;
+		return impl->particle_system.emit(impl->particle_emitter, count);
+	}
+
+	//推进一步（返回本步死亡数；未开启 / 步长非法返回 0）
+	uint32_t Renderer::particle_step(float dt)
+	{
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return 0;
+		if (!std::isfinite(dt) || dt <= 0.0f)
+			return 0;
+		return impl->particle_system.step(impl->particle_params, dt);
+	}
+
+	//当前活跃粒子数（未开启 / 未初始化返回 0）
+	uint32_t Renderer::particle_active_count(void) const
+	{
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return 0;
+		return impl->particle_system.active_count_get();
+	}
+
 	//设置距离雾（第三十八轮新增）
 	void Renderer::fog_set(const float color[3], float density, float start, float end)
 	{

@@ -19,6 +19,9 @@
 #include "Application/Renderer/src/render/HiZ/HiZ.h"
 //分簇网格与 CPU 逐簇计数参考（第二百六十七轮）
 #include "Application/Renderer/src/render/Cluster/簇划分.h"
+//粒子数据与粒子池（第三百零七 / 三百零八轮）
+#include "Application/Renderer/src/render/Particle/粒子数据.h"
+#include "Application/Renderer/src/render/Particle/粒子系统.h"
 //GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
 #include "Application/Renderer/src/render/GPU驱动/包围体.h"
 #include "Application/Renderer/src/render/GPU驱动/剔除数据.h"
@@ -343,6 +346,15 @@ namespace engine
 		VmaAllocation cluster_placeholder_allocation = VK_NULL_HANDLE;
 		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
 		uint32_t last_cluster_gpu_bytes = 0;
+		/*
+		粒子系统（第三百一十轮；默认关闭）
+		enabled 为假时不发射、不步进；发射器与参数只在开启后接受配置。
+		*/
+		bool particle_enabled = false;
+		Particle_System particle_system;
+		Particle_Params particle_params{};
+		Particle_Emitter particle_emitter{};
+		bool particle_emitter_configured = false;
 		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）

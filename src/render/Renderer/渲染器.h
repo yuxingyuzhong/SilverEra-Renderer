@@ -5,6 +5,9 @@
 #include "Application/Renderer/src/render/Scene/光源数据.h"
 //分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
 #include "Application/Renderer/src/render/Cluster/簇划分.h"
+//粒子数据与粒子池（Vulkan-free；第三百零七 / 三百零八轮）
+#include "Application/Renderer/src/render/Particle/粒子数据.h"
+#include "Application/Renderer/src/render/Particle/粒子系统.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
@@ -1409,6 +1412,30 @@ namespace engine
 		bool light_attenuation_set(uint32_t mode);
 		//读取当前距离衰减模式（第三十六轮新增；未初始化返回 0）
 		uint32_t light_attenuation_get(void) const;
+		/*
+		粒子系统（第三百一十轮；深研方向二 阶段 A）
+		默认关闭：`particle_enable_set(true)` 前不占用任何粒子状态；关闭时发射 / 步进返回 0。
+		当前为 CPU 参考路径（GPU 推进在后续轮次接入，同一 `Particle_System` 作为参考实现）。
+		*/
+		//粒子路径是否可用（已初始化即为真；计算路径接入后改为「计算可用」）
+		bool particle_supported(void) const;
+		//开关（仅初始化后允许；关闭不释放容量，重新开启沿用池内容）
+		bool particle_enable_set(bool enabled);
+		//开关状态
+		bool particle_enable_get(void) const;
+		//容量（钳制 [1, 1 048 576]；重建池并清空全部粒子）
+		bool particle_capacity_set(uint32_t capacity);
+		uint32_t particle_capacity_get(void) const;
+		//发射器（参数非法整次拒绝，保持既有配置；须先开启）
+		bool particle_emitter_set(const Particle_Emitter& emitter);
+		//模拟参数（参数非法整次拒绝；须先开启）
+		bool particle_params_set(const Particle_Params& params);
+		//发射 count 个粒子（返回实际发射数；未开启 / 池满时小于 count）
+		uint32_t particle_emit(uint32_t count);
+		//推进一步（返回本步死亡数；未开启返回 0）
+		uint32_t particle_step(float dt);
+		//当前活跃粒子数（未开启 / 未初始化返回 0）
+		uint32_t particle_active_count(void) const;
 		/*
 		设置距离雾（第三十八轮新增；默认关闭）
 		color 为雾色（分量 0..1），density 为强度（0..1，0 = 关闭），start / end 为线性距离区间（世界单位，须 start ≥ 0 且 end > start）。
