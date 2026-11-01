@@ -1,11 +1,24 @@
 #version 450
 /*
-粒子片元着色器（第三百一十四轮；第三百一十五轮补年龄曲线）
-程序化圆盘 + 软边（不采样任何纹理）；颜色随归一化年龄由暖白渐变到暗红，透明度随后半程淡出。
+粒子片元着色器（第三百一十四轮；第三百一十五轮补年龄曲线；第三百五十四轮补颜色覆盖）
+程序化圆盘 + 软边（不采样任何纹理）；默认颜色随归一化年龄由暖白渐变到暗红，透明度随后半程淡出。
+颜色覆盖启用时（推送块 offset 96.x = 1）改为在 color_start / color_end 间按年龄插值。
 */
 layout(location = 0) in vec2 in_uv;
 //归一化年龄（0 = 刚发射、1 = 寿命尽头）
 layout(location = 1) flat in float in_age;
+
+/*
+颜色覆盖参数（第三百五十四轮；CPU / GPU 三条绘制路径共用同一推送块口径）
+64..79 = 新生端颜色 rgb、80..95 = 衰老端颜色 rgb、96..111 的 x = 启用标志；
+与场景推送块（色调 / 材质参数）同址，粒子着色器不读其余字段。
+*/
+layout(push_constant) uniform Push_Particle_Color
+{
+	layout(offset = 64) vec4 particle_color_start;
+	layout(offset = 80) vec4 particle_color_end;
+	layout(offset = 96) vec4 particle_color_flags;
+} push_color;
 
 layout(location = 0) out vec4 out_color;
 
@@ -18,11 +31,21 @@ void main()
 	float alpha = smoothstep(1.0, 0.65, radius);
 	if (alpha <= 0.0)
 		discard;
-	//年龄曲线：暖白（年轻）→ 橙黄 → 暗红（衰老）
+	//年龄口径（0 = 年轻、1 = 衰老）
 	float age = clamp(in_age, 0.0, 1.0);
-	vec3 young_color = vec3(1.0, 0.92, 0.62);
-	vec3 old_color = vec3(1.0, 0.22, 0.05);
-	vec3 color = mix(young_color, old_color, age);
+	vec3 color;
+	/*
+	颜色来源
+	覆盖启用：两端颜色插值；未启用：内置暖白（年轻）→ 橙黄 → 暗红（衰老）曲线（画面与第三百一十五轮一致）。
+	*/
+	if (push_color.particle_color_flags.x > 0.5)
+		color = mix(push_color.particle_color_start.rgb, push_color.particle_color_end.rgb, age);
+	else
+	{
+		vec3 young_color = vec3(1.0, 0.92, 0.62);
+		vec3 old_color = vec3(1.0, 0.22, 0.05);
+		color = mix(young_color, old_color, age);
+	}
 	//后 40% 生命期线性淡出透明度
 	float fade = age < 0.6 ? 1.0 : (1.0 - 0.75 * (age - 0.6) / 0.4);
 	out_color = vec4(color, alpha * fade);

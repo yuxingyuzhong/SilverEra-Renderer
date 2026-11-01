@@ -9637,6 +9637,25 @@ namespace engine
 	}
 
 	/*
+	粒子颜色推送（第三百五十四轮）
+	按粒子参数填推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、offset 96 = 启用标志（x）。
+	未启用时标志恒写 0：CPU 路径的实例化占位块（材质参数 / UV 变换）不参与粒子着色，但须避免被当成启用标志。
+	*/
+	void Renderer::particle_color_push_fill(std::array<float, 32>& push) const
+	{
+		const Particle_Params& params = impl->particle_params;
+		//颜色覆盖开关（0 = 片元着色器回落内置曲线）
+		push[24] = params.color_enabled ? 1.0f : 0.0f;
+		for (uint32_t channel = 0; channel < 3; ++channel)
+		{
+			//新生端颜色
+			push[16 + channel] = params.color_start[channel];
+			//衰老端颜色
+			push[20 + channel] = params.color_end[channel];
+		}
+	}
+
+	/*
 	粒子 billboard 绘制（第三百一十四轮）
 	按相机位置逐粒子构造「右 / 上基向量 × 半尺寸 ＋ 中心」模型矩阵，一次性实例化登记；
 	登记期间的粒子管线为主状态，登记后恢复调用前的管线选择（纹理状态不变，粒子着色器不采样纹理）。
@@ -9810,10 +9829,21 @@ namespace engine
 				build_matrix(states[index], transforms.data() + static_cast<std::size_t>(written) * 16);
 				++written;
 			}
+			//登记前的计数（用于判定本批是否真的产生了绘制项）
+			const std::size_t items_before = impl->pending_items.size();
+			const std::size_t push_before = impl->pending_push_constants.size();
 			drawn = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
-			//粒子不参与阴影视图投影（刚登记项为粒子实例化项）
-			if (drawn && !impl->pending_items.empty())
+			/*
+			刚登记项为粒子实例化项
+			关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮）；
+			整批被剔除时不会产生新绘制项，此时不改写任何块。
+			*/
+			if (drawn && impl->pending_items.size() > items_before
+				&& impl->pending_push_constants.size() > push_before)
+			{
 				impl->pending_items.back().cast_shadow = false;
+				particle_color_push_fill(impl->pending_push_constants.back());
+			}
 		}
 		else
 		{
@@ -9854,10 +9884,20 @@ namespace engine
 					build_matrix(states[index], transforms.data() + static_cast<std::size_t>(written) * 16);
 					++written;
 				}
+				//登记前的计数（用于判定本桶是否真的产生了绘制项）
+				const std::size_t items_before = impl->pending_items.size();
+				const std::size_t push_before = impl->pending_push_constants.size();
 				bool registered = mesh_draw_instanced(impl->particle_quad_mesh, transforms.data(), written);
-				//粒子不参与阴影视图投影
-				if (registered && !impl->pending_items.empty())
+				/*
+				刚登记项为粒子实例化项
+				关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮；每桶一次）。
+				*/
+				if (registered && impl->pending_items.size() > items_before
+					&& impl->pending_push_constants.size() > push_before)
+				{
 					impl->pending_items.back().cast_shadow = false;
+					particle_color_push_fill(impl->pending_push_constants.back());
+				}
 				drawn = drawn || registered;
 			}
 		}
@@ -9915,7 +9955,7 @@ namespace engine
 		impl->camera.position_get(camera);
 		/*
 		推送块（128 B）
-		首位 = 相机位置 ＋ 四边形世界边长；其余留零（粒子片元只读 out_uv / out_age）。
+		首位 = 相机位置 ＋ 四边形世界边长；64 / 80 / 96 为颜色覆盖（第三百五十四轮），其余留零。
 		*/
 		impl->pending_push_constants.emplace_back();
 		std::array<float, 32>& push = impl->pending_push_constants.back();
@@ -9924,6 +9964,8 @@ namespace engine
 		push[1] = camera[1];
 		push[2] = camera[2];
 		push[3] = size;
+		//颜色覆盖推送（第三百五十四轮；与 CPU 路径同一推送块口径）
+		particle_color_push_fill(push);
 		//组装绘制项（管线延迟到 frame_render 才绑定；此处只登记状态）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);
@@ -10088,7 +10130,7 @@ namespace engine
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
 		impl->camera.position_get(camera);
-		//推送块（128 B；首位 = 相机位置 ＋ 四边形世界边长，其余留零）
+		//推送块（128 B；首位 = 相机位置 ＋ 四边形世界边长，64 / 80 / 96 为颜色覆盖，其余留零）
 		impl->pending_push_constants.emplace_back();
 		std::array<float, 32>& push_spatial = impl->pending_push_constants.back();
 		push_spatial.fill(0.0f);
@@ -10096,6 +10138,8 @@ namespace engine
 		push_spatial[1] = camera[1];
 		push_spatial[2] = camera[2];
 		push_spatial[3] = size;
+		//颜色覆盖推送（第三百五十四轮；与 CPU / GPU 直接路径同一推送块口径）
+		particle_color_push_fill(push_spatial);
 		//组装绘制项（实例数取自命令，instance_count 仅用于统计口径）
 		Frame_Render_Item item{};
 		item.pipeline = impl->pipeline.pipeline_by_handle_get(impl->particle_gpu_pipeline);

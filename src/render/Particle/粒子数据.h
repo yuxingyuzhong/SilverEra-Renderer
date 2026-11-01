@@ -81,6 +81,7 @@ namespace engine
 	gravity = 每秒平方加速度；damping = **每步**速度衰减系数（0..1，1 = 不衰减；固定步长口径）；
 	floor_y = 地面高度；restitution / friction = 反弹系数与切向摩擦（0..1）。
 	force_count / forces = 力场数量与数组（第三百一十八轮；按顺序逐场施加，最多 PARTICLE_FORCE_MAX 个）。
+	color_start / color_end / color_enabled = 颜色覆盖（第三百五十四轮；默认关闭）。
 	*/
 	struct Particle_Params
 	{
@@ -102,6 +103,13 @@ namespace engine
 		1 = 启用「位置钳到 floor_y ＋ 法向反弹 ＋ 切向摩擦」。
 		*/
 		uint32_t ground_enabled;
+		/*
+		颜色覆盖（第三百五十四轮；默认关闭，保持第三百一十五轮暖白 → 暗红曲线）
+		color_start / color_end = 新生 / 衰老端颜色（各通道 0..1）；color_enabled = 1 时按年龄在两色间插值。
+		*/
+		float color_start[3];
+		float color_end[3];
+		uint32_t color_enabled;
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）

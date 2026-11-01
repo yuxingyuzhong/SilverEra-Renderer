@@ -62,7 +62,8 @@ namespace engine
 
 	/*
 	全局模拟参数是否合法
-	重力 / 地面高度有限；阻尼 / 反弹 / 摩擦落在 [0, 1]；力场数量与各场类型 / 数值合法。
+	重力 / 地面高度有限；阻尼 / 反弹 / 摩擦落在 [0, 1]；力场数量与各场类型 / 数值合法；
+	颜色覆盖启用时两端颜色各通道落在 [0, 1]。
 	*/
 	bool particle_params_valid(const Particle_Params& params)
 	{
@@ -83,6 +84,11 @@ namespace engine
 				return false;
 		if (!finite(params.sphere_radius) || params.sphere_radius < 0.0f)
 			return false;
+		//颜色覆盖（第三百五十四轮）：启用时两端颜色各通道须落在 [0, 1]
+		if (params.color_enabled != 0u)
+			for (uint32_t axis = 0; axis < 3; ++axis)
+				if (!unit_interval(params.color_start[axis]) || !unit_interval(params.color_end[axis]))
+					return false;
 		//力场数量越界
 		if (params.force_count > PARTICLE_FORCE_MAX)
 			return false;
