@@ -278,6 +278,13 @@ namespace engine
 		*/
 		bool post_depth_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		/*
+		向第 slot 帧槽的后处理采样器集写「方向光阴影图」（set 1 binding 4；第三百九十九轮）
+		布局中 binding 4 一直存在（与场景集共用一份九绑定布局），此前后处理侧从未写入；
+		供 体积光.frag 等需要阴影判定的后处理片元采样，
+		调用前须保证该阴影图像处于 SHADER_READ_ONLY_OPTIMAL。
+		*/
+		bool post_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
+		/*
 		向第 slot 帧槽的后处理采样器集写「3D LUT 条带」（set 1 binding 3；第一百四十四轮）
 		与场景集的 binding 3（材质法线）共用布局但分属不同描述符集，互不影响；
 		供 色彩查找.frag 采样，调用前须保证该图像处于 SHADER_READ_ONLY_OPTIMAL。

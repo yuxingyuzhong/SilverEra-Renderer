@@ -489,16 +489,23 @@ namespace engine
 	把后处理采样集绑定到给定目标视图组（第九十七轮；第一百二十三轮增加场景深度）
 	签名（采样器 ＋ 视图组与数量 ＋ 深度视图）未变则直接返回；变化时先等尽在途帧，再逐帧槽写入。
 	binding 0 = 该级源（views[index]）、binding 1 = 场景目标（views[0]）、
-	binding 2 = 场景深度（depth_view 非空时才写，供景深类片元采样）。
+	binding 2 = 场景深度（depth_view 非空时才写，供景深类片元采样）、
+	binding 4 = 方向光阴影图（第三百九十九轮；视图由本函数自查目标池，未创建时不写）。
 	*/
 	bool Renderer::Impl::post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler, VkImageView depth_view)
 	{
 		//数量钳到每帧槽后处理集上限
 		if (count > PRESENT_TARGET_MAX)
 			count = PRESENT_TARGET_MAX;
-		//签名比较：采样器、数量、深度与逐视图一致则空操作
+		//取方向光阴影图视图（未创建时为空，后续不写 binding 4；第三百九十九轮）
+		VkImage shadow_image = VK_NULL_HANDLE;
+		VkImageView shadow_view = VK_NULL_HANDLE;
+		VkImageView shadow_depth_view = VK_NULL_HANDLE;
+		VkExtent2D shadow_extent{};
+		render_target.target_get(shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent);
+		//签名比较：采样器、数量、深度、阴影与逐视图一致则空操作
 		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count
-			&& post_bound_depth == depth_view;
+			&& post_bound_depth == depth_view && post_bound_shadow == shadow_view;
 		for (uint32_t index = 0; same && index < count; ++index)
 			if (post_bound_views[index] != views[index])
 				same = false;
@@ -516,11 +523,15 @@ namespace engine
 				//深度视图非空时一并写入（景深等深度采样阶段使用）
 				if (depth_view != VK_NULL_HANDLE)
 					pipeline.post_depth_bind(slot, sampler, depth_view, index);
+				//阴影视图非空时一并写入（体积光等阴影判定阶段使用；第三百九十九轮）
+				if (shadow_view != VK_NULL_HANDLE)
+					pipeline.post_shadow_bind(slot, sampler, shadow_view, index);
 			}
 		//更新签名缓存
 		post_bound_sampler = sampler;
 		post_bound_view_count = count;
 		post_bound_depth = depth_view;
+		post_bound_shadow = shadow_view;
 		for (uint32_t index = 0; index < count; ++index)
 			post_bound_views[index] = views[index];
 		post_bind_cached = true;

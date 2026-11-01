@@ -706,6 +706,8 @@ namespace engine
 		VkSampler post_bound_sampler = VK_NULL_HANDLE;
 		//后处理采样集 binding 2 已绑定的场景深度视图（第一百二十三轮）
 		VkImageView post_bound_depth = VK_NULL_HANDLE;
+		//后处理采样集 binding 4 已绑定的方向光阴影视图（第三百九十九轮）
+		VkImageView post_bound_shadow = VK_NULL_HANDLE;
 		bool post_bind_cached = false;
 		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
 		bool ssaa_extent_failed = false;
