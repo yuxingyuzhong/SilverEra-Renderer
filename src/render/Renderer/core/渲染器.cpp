@@ -9126,7 +9126,6 @@ namespace engine
 		impl->camera.position_get(camera);
 		//逐粒子模型矩阵（列主序 16 浮点）
 		std::vector<float> transforms(static_cast<std::size_t>(alive_count) * 16, 0.0f);
-		float half = size * 0.5f;
 		uint32_t written = 0;
 		for (uint32_t index = 0; index < capacity; ++index)
 		{
@@ -9134,6 +9133,11 @@ namespace engine
 			if (alive[index] == 0u)
 				continue;
 			const Particle_State& state = states[index];
+			//归一化年龄（0 = 刚发射、1 = 寿命尽头；寿命非正按 0）
+			float age_ratio = state.lifetime > 0.0f ? state.age / state.lifetime : 0.0f;
+			age_ratio = age_ratio < 0.0f ? 0.0f : (age_ratio > 1.0f ? 1.0f : age_ratio);
+			//尺寸随年龄收缩（最多 35%；第三百一十五轮）
+			float half = size * 0.5f * (1.0f - 0.35f * age_ratio);
 			//视线方向（相机 → 粒子）
 			float forward[3] = { state.position[0] - camera[0], state.position[1] - camera[1],
 				state.position[2] - camera[2] };
@@ -9175,8 +9179,8 @@ namespace engine
 			matrix[4] = up[0] * half;
 			matrix[5] = up[1] * half;
 			matrix[6] = up[2] * half;
-			//局部 Z 轴（四边形为平面，仅保持矩阵可逆）
-			matrix[10] = half;
+			//局部 Z 轴（四边形为平面；w 分量承载归一化年龄，第三百一十五轮）
+			matrix[11] = age_ratio;
 			//中心平移
 			matrix[12] = state.position[0];
 			matrix[13] = state.position[1];
