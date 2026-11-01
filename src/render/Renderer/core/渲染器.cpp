@@ -8839,9 +8839,14 @@ namespace engine
 			logger.error("渲染器:: 粒子容量设置失败（未初始化）");
 			return false;
 		}
+		uint32_t old_capacity = impl->particle_system.capacity_get();
 		impl->particle_system.capacity_set(capacity);
-		//容量变化即释放旧尺寸的 GPU 推进资源（下次 ensure 按新容量重建）
-		particle_gpu_destroy();
+		//容量实际变化时才等尽在途帧并释放旧尺寸 GPU 资源（同值重复设置为空操作；第三百二十轮）
+		if (old_capacity != impl->particle_system.capacity_get())
+		{
+			impl->frame.frames_wait();
+			particle_gpu_destroy();
+		}
 		//重置发射器配置（旧发射器可能已超出新容量）
 		impl->particle_emitter_configured = false;
 		return true;
@@ -9047,7 +9052,8 @@ namespace engine
 			static_cast<float>(impl->particle_params.force_count), 0.0f,
 			impl->particle_params.sphere_center[0], impl->particle_params.sphere_center[1],
 			impl->particle_params.sphere_center[2], impl->particle_params.sphere_radius,
-			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction, 0.0f
+			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction,
+			static_cast<float>(impl->particle_params.ground_enabled)
 		};
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
@@ -9194,6 +9200,19 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->particle_sort_buckets;
+	}
+
+	//当前粒子 GPU 资源占用字节（第三百二十轮）
+	uint64_t Renderer::particle_gpu_bytes(void) const
+	{
+		//未初始化或资源未创建
+		if (impl == nullptr || !impl->initialized || impl->particle_buffer_capacity == 0
+			|| impl->particle_buffer_front == 0 || impl->particle_buffer_back == 0)
+			return 0;
+		uint64_t buffers = static_cast<uint64_t>(impl->particle_buffer_capacity) * PARTICLE_STRIDE * 2u;
+		uint64_t forces = impl->particle_force_buffer != 0
+			? static_cast<uint64_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE : 0u;
+		return buffers + forces;
 	}
 
 	/*

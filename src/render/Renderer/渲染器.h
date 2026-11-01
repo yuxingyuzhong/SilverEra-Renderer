@@ -1482,6 +1482,11 @@ namespace engine
 		*/
 		bool particle_sort_buckets_set(uint32_t buckets);
 		uint32_t particle_sort_buckets_get(void) const;
+		/*
+		当前粒子 GPU 资源占用字节（第三百二十轮；只读观测）
+		双缓冲（容量 × 32 × 2）＋ 力场缓冲（8 × 40）；资源未创建时为 0。
+		*/
+		uint64_t particle_gpu_bytes(void) const;
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*
