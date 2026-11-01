@@ -307,7 +307,10 @@ namespace engine
 		uint64_t particle_died_total = 0;
 		double particle_sim_ms = 0.0;
 		double particle_gpu_ms = -1.0;
-		//最近一次常驻紧凑的主机侧耗时（第三百四十轮；未紧凑为 0）
+		/*
+		最近一次常驻紧凑的主机侧耗时（第三百四十轮；未紧凑为 0）
+		第三百四十九轮起，间接路径的紧凑与写命令合并为同一次提交，故该值含「写间接命令」的耗时。
+		*/
 		double particle_compact_ms = 0.0;
 		/*
 		最近一次粒子绘制登记的路径（第三百四十八轮）

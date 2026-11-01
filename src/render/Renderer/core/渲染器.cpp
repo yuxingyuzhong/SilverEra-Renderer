@@ -9978,31 +9978,98 @@ namespace engine
 		//等待该槽上一轮帧完成（其间接命令不再被读取）
 		if (!impl->frame.slot_wait())
 			return false;
-		//每帧前置：紧凑索引
-		if (!particle_gpu_compact())
-			return false;
-		uint32_t count = impl->particle_compact_count;
-		//无活跃粒子不登记绘制项
-		if (count == 0)
-			return false;
 		//四边形网格记录（索引数写入命令）
 		VkBuffer quad_buffer = VK_NULL_HANDLE;
 		VkDeviceSize quad_index_offset = 0;
 		uint32_t quad_index_count = 0;
 		if (!impl->mesh.mesh_record_get(impl->particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
 			return false;
-		//绑定：紧凑计数（只读）/ 该槽命令缓冲（只写）
-		if (!compute_buffer_bind(impl->particle_compact_count_buffer, 0))
-			return false;
-		if (!compute_buffer_bind(impl->particle_indirect_buffers[slot], 1))
-			return false;
-		const uint32_t push[4] = { quad_index_count, 0u, 0u, 0u };
-		if (!compute_dispatch(impl->particle_indirect_pipeline, 1u, 1u, push,
-			static_cast<uint32_t>(sizeof(push))))
-			return false;
 		//命令缓冲原生句柄
 		VkBuffer command_buffer = impl->compute_buffer_native(impl->particle_indirect_buffers[slot]);
 		if (command_buffer == VK_NULL_HANDLE)
+			return false;
+		/*
+		紧凑索引 ＋ 写命令合并为一次提交（第三百四十九轮；优化）
+		两次调度在同一一次性命令缓冲内完成（计算→计算屏障分隔），只等一次围栏：
+		此前为「紧凑一次提交 ＋ 写命令一次提交」，每帧多一次提交与围栏等待（约 20–40 µs）。
+		*/
+		const auto compact_begin = std::chrono::high_resolution_clock::now();
+		uint32_t capacity = impl->particle_buffer_capacity;
+		//清零紧凑计数
+		uint32_t zero = 0;
+		if (!compute_buffer_write(impl->particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
+			return false;
+		/*
+		两次调度用**不同的计算描述符集槽**（第三百四十九轮）
+		描述符集内容在提交时读取、而非录制时快照，故同一次提交内切换绑定必须换集：
+		槽 0 = 紧凑（控制 / 索引 / 计数），槽 1 = 写命令（计数 / 命令缓冲）；
+		两个集的绑定都在提交前写好，录制时只切槽。
+		*/
+		const uint32_t previous_slot = impl->compute.slot_get();
+		if (!impl->compute.slot_set(0))
+			return false;
+		if (!compute_buffer_bind(impl->particle_control_buffer, 0)
+			|| !compute_buffer_bind(impl->particle_index_buffer, 1)
+			|| !compute_buffer_bind(impl->particle_compact_count_buffer, 2))
+			return false;
+		//槽 1：紧凑计数（只读）/ 该槽命令缓冲（只写）
+		VkBuffer count_buffer = impl->compute_buffer_native(impl->particle_compact_count_buffer);
+		if (!impl->compute.storage_bind(1, 0, count_buffer, 0, static_cast<VkDeviceSize>(sizeof(uint32_t)))
+			|| !impl->compute.storage_bind(1, 1, command_buffer, 0,
+				static_cast<VkDeviceSize>(Renderer::Impl::INDIRECT_COMMAND_BYTES)))
+			return false;
+		//两次调度各自的计算上下文句柄
+		uint64_t compact_context = 0;
+		uint64_t indirect_context = 0;
+		for (const Renderer::Impl::Compute_Pipeline_Record& record : impl->compute_pipelines)
+		{
+			if (record.handle == impl->particle_compact_pipeline)
+				compact_context = record.context_handle;
+			//写命令管线句柄
+			else if (record.handle == impl->particle_indirect_pipeline)
+				indirect_context = record.context_handle;
+		}
+		if (compact_context == 0 || indirect_context == 0)
+			return false;
+		const uint32_t compact_push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
+		const uint32_t indirect_push[4] = { quad_index_count, 0u, 0u, 0u };
+		const bool dispatched = impl->compute.single_submit([&](VkCommandBuffer command) -> bool
+		{
+			if (!impl->compute.timestamp_begin(command))
+				return false;
+			//切到槽 0 并录制第一次调度：活跃位图 → 紧凑索引 ＋ 计数
+			if (!impl->compute.slot_set(0))
+				return false;
+			if (!impl->compute.dispatch_ceil(command, compact_context, capacity, 64u,
+				compact_push, static_cast<uint32_t>(sizeof(compact_push))))
+				return false;
+			if (!impl->compute.barrier(command, Compute_Barrier::ComputeToCompute))
+				return false;
+			//切到槽 1 并录制第二次调度：紧凑计数 → 间接命令（单线程）
+			if (!impl->compute.slot_set(1))
+				return false;
+			if (!impl->compute.dispatch_ceil(command, indirect_context, 1u, 1u,
+				indirect_push, static_cast<uint32_t>(sizeof(indirect_push))))
+				return false;
+			return impl->compute.barrier(command, Compute_Barrier::ComputeToHost);
+		});
+		//恢复调用前的计算帧槽
+		impl->compute.slot_set(previous_slot);
+		//围栏等待之后读回计时（不支持时间戳时为空操作）
+		if (dispatched)
+			impl->compute.timestamp_refresh();
+		//回读索引数（防御越界）
+		uint32_t count = 0;
+		if (!dispatched || !compute_buffer_read(impl->particle_compact_count_buffer, &count,
+			static_cast<uint32_t>(sizeof(count))))
+			return false;
+		if (count > capacity)
+			count = capacity;
+		impl->particle_compact_count = count;
+		const auto compact_end = std::chrono::high_resolution_clock::now();
+		impl->particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
+		//无活跃粒子不登记绘制项
+		if (count == 0)
 			return false;
 		impl->particle_indirect_last_slot = slot;
 		impl->particle_indirect_written = true;
