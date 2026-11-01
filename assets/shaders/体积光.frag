@@ -79,8 +79,9 @@ void main()
 	ivec2 depth_size = textureSize(depth_image, 0);
 	ivec2 depth_coord = clamp(coord, ivec2(0), depth_size - ivec2(1));
 	vec2 uv = (vec2(depth_coord) + vec2(0.5)) / vec2(depth_size);
-	//光源屏幕位置（x 固定中心、y 可配）与采样参数
-	vec2 light_uv = vec2(0.5, clamp(push.post_param.w, 0.0, 1.0));
+	//光源屏幕位置（第三百九十轮：x 由颜色第四分量给出，≤ 0 回落 0.5；y 取通用四参 w）
+	float light_x = push.post_color.a > 0.0 ? clamp(push.post_color.a, 0.0, 1.0) : 0.5;
+	vec2 light_uv = vec2(light_x, clamp(push.post_param.w, 0.0, 1.0));
 	int samples = clamp(int(float(MAX_SAMPLES) * clamp(push.post_param.z, 0.25, 2.0)), 8, MAX_SAMPLES);
 	float decay = clamp(push.post_param.y, 0.5, 1.0);
 
