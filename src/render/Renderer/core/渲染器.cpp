@@ -9679,10 +9679,12 @@ namespace engine
 		常驻模式绘制（第三百三十轮）
 		回读活跃位图与状态缓冲后按位图展开活跃标记；容量上限 65536（百万级整缓冲回读不可接受，
 		大容量绘制留待间接绘制路径）。回读失败时不登记绘制项。
+		临时数组取自 Impl 复用缓冲（第三百六十四轮；每帧 clear 后重填，语义与局部 vector 一致）。
 		*/
-		std::vector<uint8_t> resident_bitmap;
-		std::vector<Particle_State> resident_states;
-		std::vector<uint8_t> resident_alive;
+		std::vector<uint8_t>& resident_bitmap = impl->particle_draw_resident_bitmap;
+		std::vector<Particle_State>& resident_states = impl->particle_draw_resident_states;
+		std::vector<uint8_t>& resident_alive = impl->particle_draw_resident_alive;
+		resident_bitmap.clear();
 		if (impl->particle_resident)
 		{
 			//大容量 / 资源未就绪
@@ -9784,11 +9786,13 @@ namespace engine
 		关闭时按池索引顺序单次实例化；开启时按视线距离分桶、桶间由远及近各登记一次实例化绘制。
 		*/
 		uint32_t buckets = impl->particle_sort_buckets;
-		std::vector<float> depths(static_cast<std::size_t>(capacity), 0.0f);
+		//视线深度临时数组（第三百六十四轮；仅分桶需要时填充）
+		std::vector<float>& depths = impl->particle_draw_depths;
 		float min_depth = 0.0f;
 		float max_depth = 0.0f;
 		if (buckets > 0)
 		{
+			depths.assign(static_cast<std::size_t>(capacity), 0.0f);
 			//逐活跃粒子记录视线距离并求范围
 			bool first = true;
 			for (uint32_t index = 0; index < capacity; ++index)
@@ -9823,7 +9827,8 @@ namespace engine
 		//分桶关闭：单次实例化（池索引顺序）
 		if (buckets == 0)
 		{
-			std::vector<float> transforms(static_cast<std::size_t>(alive_count) * 16, 0.0f);
+			std::vector<float>& transforms = impl->particle_draw_transforms;
+			transforms.assign(static_cast<std::size_t>(alive_count) * 16, 0.0f);
 			uint32_t written = 0;
 			for (uint32_t index = 0; index < capacity; ++index)
 			{
@@ -9872,7 +9877,8 @@ namespace engine
 				//空桶跳过
 				if (bucket_count == 0)
 					continue;
-				std::vector<float> transforms(static_cast<std::size_t>(bucket_count) * 16, 0.0f);
+				std::vector<float>& transforms = impl->particle_draw_transforms;
+				transforms.assign(static_cast<std::size_t>(bucket_count) * 16, 0.0f);
 				uint32_t written = 0;
 				for (uint32_t index = 0; index < capacity; ++index)
 				{

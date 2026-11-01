@@ -356,6 +356,16 @@ namespace engine
 		Particle_Emitter particle_emitter{};
 		bool particle_emitter_configured = false;
 		/*
+		CPU 绘制临时缓冲（第三百六十四轮；逐帧复用）
+		particle_draw 每次调用都会重建实例矩阵 / 深度 / 常驻回读三组临时数组，容量稳定时可复用底层存储，
+		避免每帧重复分配（内容每次 clear 后重填，语义与局部 vector 一致）。
+		*/
+		std::vector<float> particle_draw_transforms;
+		std::vector<float> particle_draw_depths;
+		std::vector<uint8_t> particle_draw_resident_bitmap;
+		std::vector<Particle_State> particle_draw_resident_states;
+		std::vector<uint8_t> particle_draw_resident_alive;
+		/*
 		粒子 GPU 推进资源（第三百一十一轮；惰性创建）
 		front / back 为双缓冲（容量 × 32 字节主机可见 SSBO）；pipeline 为推进着色器。
 		*/
