@@ -54,6 +54,12 @@ void main()
 	uint invocation = gl_GlobalInvocationID.x;
 	uint budget = uint(push.params.y + 0.5);
 	uint capacity = uint(push.params.x + 0.5);
+	/*
+	逐线程随机种子（第三百四十五轮修正）
+	此前 rng_state 未初始化，所有线程从同一状态出发 → 序列完全相同，粒子位置 / 速度 / 寿命全部一致
+	（外观退化为单个叠加点）。现以「本次种子 ＋ 调用编号」混合初始化，使各线程序列互不相同。
+	*/
+	rng_state = uint(push.params.z) ^ (invocation * 1973u + 9277u);
 	//超出本次数量的线程直接返回
 	if (invocation >= budget || capacity == 0)
 		return;

@@ -65,9 +65,13 @@ void main()
 		right = vec3(1.0, 0.0, 0.0);
 	//上向量 = right × forward
 	vec3 up = cross(right, forward);
-	//billboard：中心 ＋ 右 / 上 × 半尺寸
+	/*
+	billboard：中心 ＋ 右 / 上 × 半尺寸（第三百四十五轮修正）
+	与 CPU 路径逐式一致：四边形顶点为 ±0.5、缩放为 half_size，世界尺寸 = 2 × 0.5 × half_size = half_size；
+	此前多乘了一个 2.0，导致 GPU 路径的粒子外观是 CPU 路径的 2 倍。
+	*/
 	vec3 world = vec3(state.position[0], state.position[1], state.position[2])
-		+ right * (in_position.x * 2.0 * half_size) + up * (in_position.y * 2.0 * half_size);
+		+ right * (in_position.x * half_size) + up * (in_position.y * half_size);
 	out_uv = in_uv;
 	out_age = age_ratio;
 	gl_Position = scene.view_proj * vec4(world, 1.0);
