@@ -3715,6 +3715,8 @@ namespace engine
 		stats.particle_sim_ms = impl->particle_sim_ms_last;
 		stats.particle_gpu_ms = impl->particle_gpu_ms_last;
 		stats.particle_compact_ms = impl->particle_compact_ms_last;
+		//最近一次粒子绘制路径（第三百四十八轮；0 未登记 / 1 CPU / 2 GPU 直接 / 3 GPU 间接）
+		stats.particle_draw_path = impl->particle_draw_path_last;
 		return stats;
 	}
 
@@ -9858,6 +9860,9 @@ namespace engine
 		}
 		//恢复调用前的管线选择
 		pipeline_bind_set(previous_pipeline);
+		//登记路径观测（第三百四十八轮；1 = CPU 参考）
+		if (drawn)
+			impl->particle_draw_path_last = 1;
 		return drawn;
 	}
 
@@ -9941,6 +9946,8 @@ namespace engine
 		item.transparent = impl->particle_blend_mode != Blend_Mode::Opaque;
 		//登记待绘制项
 		impl->pending_items.push_back(item);
+		//登记路径观测（第三百四十八轮；2 = GPU 直接绘制）
+		impl->particle_draw_path_last = 2;
 		return true;
 	}
 
@@ -10042,6 +10049,8 @@ namespace engine
 		item.transparent = impl->particle_blend_mode != Blend_Mode::Opaque;
 		//登记待绘制项
 		impl->pending_items.push_back(item);
+		//登记路径观测（第三百四十八轮；3 = GPU 间接绘制）
+		impl->particle_draw_path_last = 3;
 		return true;
 	}
 

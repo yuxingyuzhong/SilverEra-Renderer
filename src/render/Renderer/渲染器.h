@@ -310,6 +310,12 @@ namespace engine
 		//最近一次常驻紧凑的主机侧耗时（第三百四十轮；未紧凑为 0）
 		double particle_compact_ms = 0.0;
 		/*
+		最近一次粒子绘制登记的路径（第三百四十八轮）
+		0 = 尚未登记 / 粒子未开启；1 = CPU 参考（`particle_draw`）；2 = GPU 直接（`particle_gpu_draw`）；
+		3 = GPU 间接（`particle_indirect_draw`）。仅反映「最近一次登记」，与实际出帧可相差一帧。
+		*/
+		uint32_t particle_draw_path = 0;
+		/*
 		渲染工作线程观测（第一百七十七轮）
 		render_threads = 当前生效的工作线程数（0 = 单线程）；
 		parallel_dispatches = 自 init 以来实际派发的并行任务次数（退化为调用线程整段执行的任务不计）；
