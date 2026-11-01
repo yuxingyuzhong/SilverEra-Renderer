@@ -9439,6 +9439,40 @@ namespace engine
 		uint32_t capacity = impl->particle_system.capacity_get();
 		const Particle_State* states = impl->particle_system.data_get();
 		const uint8_t* alive = impl->particle_system.alive_get();
+		/*
+		常驻模式绘制（第三百三十轮）
+		回读活跃位图与状态缓冲后按位图展开活跃标记；容量上限 65536（百万级整缓冲回读不可接受，
+		大容量绘制留待间接绘制路径）。回读失败时不登记绘制项。
+		*/
+		std::vector<uint8_t> resident_bitmap;
+		std::vector<Particle_State> resident_states;
+		std::vector<uint8_t> resident_alive;
+		if (impl->particle_resident)
+		{
+			//大容量 / 资源未就绪
+			if (capacity > 65536u || !particle_gpu_available())
+				return false;
+			uint32_t words = (capacity + 31u) / 32u;
+			resident_bitmap.resize(static_cast<std::size_t>(words) * 4u, 0u);
+			resident_states.resize(capacity);
+			//位图位于控制缓冲偏移 8
+			if (!compute_buffer_read(impl->particle_control_buffer, resident_bitmap.data(), words * 4u, 8u))
+				return false;
+			uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
+			if (!compute_buffer_read(impl->particle_buffer_front, resident_states.data(), bytes))
+				return false;
+			//按位展开活跃标记
+			resident_alive.assign(capacity, 0u);
+			for (uint32_t index = 0; index < capacity; ++index)
+			{
+				uint32_t word = 0;
+				std::memcpy(&word, resident_bitmap.data() + static_cast<std::size_t>(index / 32u) * 4u, 4u);
+				if ((word & (1u << (index % 32u))) != 0u)
+					resident_alive[index] = 1u;
+			}
+			states = resident_states.data();
+			alive = resident_alive.data();
+		}
 		//统计活跃粒子
 		uint32_t alive_count = 0;
 		for (uint32_t index = 0; index < capacity; ++index)
