@@ -3704,11 +3704,14 @@ namespace engine
 		//最近一帧并行录制段数（第一百九十八轮）
 		stats.parallel_segments = impl->frame.last_parallel_segments_get();
 		//粒子模拟统计（第三百二十二轮；关闭时活跃与累计均为 0）
-		stats.particle_active = impl->particle_enabled ? impl->particle_system.active_count_get() : 0u;
+		//常驻模式取 GPU 活跃计数（第三百四十轮：与 particle_active_count 同口径）
+		stats.particle_active = impl->particle_enabled
+			? (impl->particle_resident ? impl->particle_resident_active : impl->particle_system.active_count_get()) : 0u;
 		stats.particle_born_total = impl->particle_born_total;
 		stats.particle_died_total = impl->particle_died_total;
 		stats.particle_sim_ms = impl->particle_sim_ms_last;
 		stats.particle_gpu_ms = impl->particle_gpu_ms_last;
+		stats.particle_compact_ms = impl->particle_compact_ms_last;
 		return stats;
 	}
 
@@ -9459,6 +9462,8 @@ namespace engine
 		uint32_t capacity = impl->particle_buffer_capacity;
 		if (capacity == 0)
 			return false;
+		//主机侧计时（第三百四十轮）
+		const auto compact_begin = std::chrono::high_resolution_clock::now();
 		//清零紧凑计数
 		uint32_t zero = 0;
 		if (!compute_buffer_write(impl->particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
@@ -9481,6 +9486,8 @@ namespace engine
 		if (count > capacity)
 			count = capacity;
 		impl->particle_compact_count = count;
+		const auto compact_end = std::chrono::high_resolution_clock::now();
+		impl->particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
 		return true;
 	}
 

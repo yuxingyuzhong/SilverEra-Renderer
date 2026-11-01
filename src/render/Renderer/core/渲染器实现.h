@@ -385,6 +385,8 @@ namespace engine
 		Compute_Buffer_Handle particle_index_buffer = 0;
 		Compute_Buffer_Handle particle_compact_count_buffer = 0;
 		uint32_t particle_compact_count = 0;
+		//最近一次紧凑的主机侧耗时（毫秒；第三百四十轮）
+		double particle_compact_ms_last = 0.0;
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
 		uint32_t particle_gpu_died_last = 0;
 		/*

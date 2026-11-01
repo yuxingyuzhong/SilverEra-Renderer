@@ -307,6 +307,8 @@ namespace engine
 		uint64_t particle_died_total = 0;
 		double particle_sim_ms = 0.0;
 		double particle_gpu_ms = -1.0;
+		//最近一次常驻紧凑的主机侧耗时（第三百四十轮；未紧凑为 0）
+		double particle_compact_ms = 0.0;
 		/*
 		渲染工作线程观测（第一百七十七轮）
 		render_threads = 当前生效的工作线程数（0 = 单线程）；
