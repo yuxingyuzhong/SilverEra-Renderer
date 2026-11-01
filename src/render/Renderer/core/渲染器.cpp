@@ -4192,6 +4192,30 @@ namespace engine
 		return impl->hiz.history_valid(slot);
 	}
 
+	/*
+	HiZ 深度历史采样句柄（第三百六十五轮）
+	历史视图与最近邻采样器以 uint64_t 原生句柄输出（门面公共头不引入 Vulkan 类型）；
+	历史在生成结束时已转为 SHADER_READ_ONLY，可直接作为 sampler2D 绑定。
+	*/
+	bool Renderer::hiz_history_sample_get(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
+	{
+		//默认无有效句柄
+		view_out = 0;
+		sampler_out = 0;
+		//未初始化 / 未启用 / 资源未建 / 该槽无历史
+		if (impl == nullptr || !impl->initialized || !impl->hiz_enabled || !impl->hiz.valid()
+			|| !impl->hiz.history_valid(slot))
+			return false;
+		VkImageView history_view = impl->hiz.depth_history_view(slot);
+		VkSampler depth_sampler = impl->hiz.depth_sampler_get();
+		//句柄齐备才算成功
+		if (history_view == VK_NULL_HANDLE || depth_sampler == VK_NULL_HANDLE)
+			return false;
+		view_out = reinterpret_cast<uint64_t>(history_view);
+		sampler_out = reinterpret_cast<uint64_t>(depth_sampler);
+		return true;
+	}
+
 
 	/*
 	Cluster 光照开关设置（第二百六十六轮）

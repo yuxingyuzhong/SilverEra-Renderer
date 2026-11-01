@@ -524,6 +524,14 @@ namespace engine
 		//指定帧槽是否已生成过有效金字塔（索引超出在途帧数返回假）
 		bool hiz_history_ready(uint32_t slot) const;
 		/*
+		HiZ 深度历史采样句柄（第三百六十五轮；阶段 E 软粒子地基）
+		该槽历史已生成时写出历史视图与最近邻采样器的原生句柄（uint64_t 承载 VkImageView / VkSampler）；
+		生成结束时历史已转为 SHADER_READ_ONLY 布局，可直接以 sampler2D 采样，
+		内容 = 该槽上一次使用时的场景深度（双在途帧槽下约为两帧前）。
+		未启用 Hi-Z / 资源未建 / 该槽无历史时返回假且出参归零。
+		*/
+		bool hiz_history_sample_get(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const;
+		/*
 		Cluster 光照开关与资源状态（第二百六十六轮）
 		cluster_enable_set(true) 在计算路径可用时惰性创建每帧槽光源记录 SSBO，失败返回假且开关保持关闭；
 		关闭时只停用上传、保留已建资源。cluster_supported 反映计算路径是否可用。
