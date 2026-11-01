@@ -7858,6 +7858,39 @@ namespace engine
 		impl->post_stage_param_valid[stage] = true;
 	}
 
+	/*
+	设置某一级后处理链的通用四参（第三百七十三轮）
+	与 post_stage_param4_set 写同一份逐级参数，但不做调色语义的取值校验（仅拒绝非有限值）；
+	供体积雾等自定义后处理阶段使用任意量纲的参数。
+	*/
+	void Renderer::post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w)
+	{
+		//未初始化则静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//级序须落在当前链内（链外下标无意义）
+		if (stage >= impl->post_chain.size() || stage >= Impl::POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 逐级通用四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>(impl->post_chain.size()));
+			return;
+		}
+		//非有限值整次忽略（保持原值）
+		bool finite = (x == x) && (y == y) && (z == z) && (w == w)
+			&& x <= 3.4e38f && x >= -3.4e38f && y <= 3.4e38f && y >= -3.4e38f
+			&& z <= 3.4e38f && z >= -3.4e38f && w <= 3.4e38f && w >= -3.4e38f;
+		if (!finite)
+		{
+			logger.warn("渲染器:: 逐级通用四参含非有限值（级 {}），整次忽略", stage);
+			return;
+		}
+		impl->post_stage_param[stage][0] = x;
+		impl->post_stage_param[stage][1] = y;
+		impl->post_stage_param[stage][2] = z;
+		impl->post_stage_param[stage][3] = w;
+		impl->post_stage_param_valid[stage] = true;
+	}
+
 	//设置某一级后处理链的描边色（第一百八十一轮）
 	void Renderer::post_stage_color_set(uint32_t stage, float r, float g, float b)
 	{

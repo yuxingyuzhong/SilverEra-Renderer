@@ -1207,6 +1207,13 @@ namespace engine
 		*/
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
 		/*
+		四参逐级设置（第三百七十三轮；通用后处理参数，不做调色语义校验）
+		与 post_stage_param4_set 写同一份逐级参数，但只要求四个分量有限（NaN / Inf 整次忽略），
+		不限制取值范围——供「体积雾 / 屏幕空间步进」等自定义后处理阶段使用。
+		生效后自下一次 frame_render 起按该级下发（offset 96 的四个浮点）。
+		*/
+		void post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w);
+		/*
 		设置某一级后处理链的描边色（第一百八十一轮新增；配合 `深度描边.frag`）
 		stage 为链内级序（0 起，须小于当前链级数）；rgb 为描边色（0..1，非有限值按 0，其余逐分量钳制）。
 		默认黑 (0,0,0) 表示把轮廓压暗到黑，与引入该参数前逐字节一致；post_chain_set 会清除全部逐级专设色。
