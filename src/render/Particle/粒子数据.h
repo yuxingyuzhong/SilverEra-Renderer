@@ -97,6 +97,11 @@ namespace engine
 		*/
 		float sphere_center[3];
 		float sphere_radius;
+		/*
+		地面碰撞开关（第三百一十九轮；默认 0 = 关闭，保持自由落体不触发地面）
+		1 = 启用「位置钳到 floor_y ＋ 法向反弹 ＋ 切向摩擦」。
+		*/
+		uint32_t ground_enabled;
 	};
 
 	//单个粒子状态字节数（与 `Particle_State` 大小一致；GPU 缓冲步长）

@@ -172,7 +172,7 @@ namespace engine
 			碰撞（第三百一十九轮；与 GPU 同序）
 			先地面平面（位置钳到地面、法向反弹、切向摩擦），再球体（进入球面推出、法向反弹、切向摩擦）。
 			*/
-			if (state.position[1] < params.floor_y)
+			if (params.ground_enabled != 0u && state.position[1] < params.floor_y)
 			{
 				state.position[1] = params.floor_y;
 				if (state.velocity[1] < 0.0f)

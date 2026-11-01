@@ -41,7 +41,7 @@ layout(push_constant) uniform Push_Step
 	vec4 params;
 	//xyz = 碰撞球心、w = 半径（≤ 0 表示关闭）
 	vec4 sphere;
-	//x = 地面高度、y = 反弹系数、z = 切向摩擦、w 保留
+	//x = 地面高度、y = 反弹系数、z = 切向摩擦、w = 地面碰撞开关（> 0.5 启用）
 	vec4 surface;
 } push;
 
@@ -114,7 +114,7 @@ void main()
 	碰撞（第三百一十九轮；与 CPU 参考同序）
 	先地面平面（钳位、法向反弹、切向摩擦），再球体（推出球面、法向反弹、切向摩擦）。
 	*/
-	if (state.position[1] < push.surface.x)
+	if (push.surface.w > 0.5 && state.position[1] < push.surface.x)
 	{
 		state.position[1] = push.surface.x;
 		if (state.velocity[1] < 0.0)
