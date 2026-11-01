@@ -8975,14 +8975,22 @@ namespace engine
 		//控制缓冲（环形指针 ＋ 活跃计数 ＋ 位图；第三百二十七轮）
 		uint32_t control_bytes = 8u + ((capacity + 31u) / 32u) * 4u;
 		std::vector<uint8_t> zero_control(control_bytes, 0u);
+		//紧凑索引（uint32 × 容量）与紧凑计数（4 字节；第三百三十三轮）
+		std::vector<uint8_t> zero_indices(static_cast<std::size_t>(capacity) * 4u, 0u);
+		uint32_t zero_count = 0;
 		bool created = compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_force_buffer,
 				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
 			&& compute_buffer_load(impl->particle_control_buffer, control_bytes, zero_control.data())
+			&& compute_buffer_load(impl->particle_index_buffer, static_cast<uint32_t>(zero_indices.size()),
+				zero_indices.data())
+			&& compute_buffer_load(impl->particle_compact_count_buffer, static_cast<uint32_t>(sizeof(zero_count)),
+				&zero_count)
 			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv")
 			&& compute_pipeline_load(impl->particle_emit_pipeline, "Particle发射.comp.spv")
-			&& compute_pipeline_load(impl->particle_resident_step_pipeline, "Particle常驻推进.comp.spv");
+			&& compute_pipeline_load(impl->particle_resident_step_pipeline, "Particle常驻推进.comp.spv")
+			&& compute_pipeline_load(impl->particle_compact_pipeline, "Particle紧凑.comp.spv");
 		//任一环节失败即整体回收
 		if (!created)
 		{
@@ -9011,21 +9019,31 @@ namespace engine
 			compute_buffer_unload(impl->particle_force_buffer);
 		if (impl->particle_control_buffer != 0)
 			compute_buffer_unload(impl->particle_control_buffer);
+		if (impl->particle_index_buffer != 0)
+			compute_buffer_unload(impl->particle_index_buffer);
+		if (impl->particle_compact_count_buffer != 0)
+			compute_buffer_unload(impl->particle_compact_count_buffer);
 		if (impl->particle_step_pipeline != 0)
 			compute_pipeline_unload(impl->particle_step_pipeline);
 		if (impl->particle_emit_pipeline != 0)
 			compute_pipeline_unload(impl->particle_emit_pipeline);
 		if (impl->particle_resident_step_pipeline != 0)
 			compute_pipeline_unload(impl->particle_resident_step_pipeline);
+		if (impl->particle_compact_pipeline != 0)
+			compute_pipeline_unload(impl->particle_compact_pipeline);
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
 		impl->particle_force_buffer = 0;
 		impl->particle_control_buffer = 0;
+		impl->particle_index_buffer = 0;
+		impl->particle_compact_count_buffer = 0;
 		impl->particle_step_pipeline = 0;
 		impl->particle_emit_pipeline = 0;
 		impl->particle_resident_step_pipeline = 0;
+		impl->particle_compact_pipeline = 0;
 		impl->particle_control_bytes = 0;
 		impl->particle_resident_active = 0;
+		impl->particle_compact_count = 0;
 		impl->particle_buffer_capacity = 0;
 	}
 
@@ -9268,7 +9286,10 @@ namespace engine
 		uint64_t forces = impl->particle_force_buffer != 0
 			? static_cast<uint64_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE : 0u;
 		uint64_t control = static_cast<uint64_t>(impl->particle_control_bytes);
-		return buffers + forces + control;
+		//紧凑索引与紧凑计数（第三百三十三轮）
+		uint64_t compact = impl->particle_index_buffer != 0
+			? static_cast<uint64_t>(impl->particle_buffer_capacity) * 4u + 4u : 0u;
+		return buffers + forces + control + compact;
 	}
 
 	/*
@@ -9421,6 +9442,71 @@ namespace engine
 		const auto sim_end = std::chrono::high_resolution_clock::now();
 		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
 		return true;
+	}
+
+	/*
+	常驻紧凑索引（第三百三十三轮；阶段 D）
+	清零紧凑计数 → 绑定控制 / 索引 / 计数 → 按容量调度 → 回读计数；
+	紧凑数组元素互异且覆盖全部活跃索引，但**顺序不保证为池索引升序**（原子取位由并发执行决定）。
+	*/
+	bool Renderer::particle_gpu_compact(void)
+	{
+		//前置条件
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
+			return false;
+		if (!particle_gpu_available())
+			return false;
+		uint32_t capacity = impl->particle_buffer_capacity;
+		if (capacity == 0)
+			return false;
+		//清零紧凑计数
+		uint32_t zero = 0;
+		if (!compute_buffer_write(impl->particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
+			return false;
+		//绑定：控制缓冲（位图）/ 紧凑索引 / 紧凑计数
+		if (!compute_buffer_bind(impl->particle_control_buffer, 0))
+			return false;
+		if (!compute_buffer_bind(impl->particle_index_buffer, 1))
+			return false;
+		if (!compute_buffer_bind(impl->particle_compact_count_buffer, 2))
+			return false;
+		const uint32_t push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
+		if (!compute_dispatch(impl->particle_compact_pipeline, capacity, 64u, push,
+			static_cast<uint32_t>(sizeof(push))))
+			return false;
+		//回读索引数（防御越界）
+		uint32_t count = 0;
+		if (!compute_buffer_read(impl->particle_compact_count_buffer, &count, static_cast<uint32_t>(sizeof(count))))
+			return false;
+		if (count > capacity)
+			count = capacity;
+		impl->particle_compact_count = count;
+		return true;
+	}
+
+	//最近一次紧凑结果索引数（未开启常驻返回 0）
+	uint32_t Renderer::particle_compact_count_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+			return 0;
+		return impl->particle_compact_count;
+	}
+
+	//回读紧凑索引（诊断 / 测试用；返回实际写出项数）
+	uint32_t Renderer::particle_compact_indices_get(uint32_t* out, uint32_t max_count)
+	{
+		if (out == nullptr || max_count == 0)
+			return 0;
+		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+			return 0;
+		uint32_t count = impl->particle_compact_count;
+		if (count > max_count)
+			count = max_count;
+		if (count == 0)
+			return 0;
+		if (!compute_buffer_read(impl->particle_index_buffer, out, count * static_cast<uint32_t>(sizeof(uint32_t))))
+			return 0;
+		return count;
 	}
 
 	/*

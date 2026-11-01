@@ -1517,6 +1517,19 @@ namespace engine
 		返回假表示未开启常驻 / 计算不可用 / 步长非法。同步链推进与自检在常驻模式下返回假（避免污染常驻状态）。
 		*/
 		bool particle_gpu_step_resident(float dt);
+		/*
+		常驻紧凑索引（第三百三十三轮；阶段 D）
+		把活跃位图压缩为连续索引数组（供 GPU 侧绘制按 gl_InstanceIndex 取粒子），
+		紧凑计数由原子自增产出；返回假表示未开启常驻 / 计算不可用。
+		*/
+		bool particle_gpu_compact(void);
+		//最近一次紧凑结果的索引数（未紧凑 / 未开启常驻为 0）
+		uint32_t particle_compact_count_get(void) const;
+		/*
+		回读紧凑索引（第三百三十三轮；诊断 / 测试用）
+		写出前 max_count 项（按紧凑顺序 = 池索引升序），返回实际写出的项数。
+		*/
+		uint32_t particle_compact_indices_get(uint32_t* out, uint32_t max_count);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

@@ -1,0 +1,35 @@
+#version 450
+/*
+粒子紧凑索引（第三百三十三轮；深研方向二 阶段 D）
+把活跃位图压缩为连续索引：每个线程处理一个池索引，活跃则原子取位写入索引数组并计数加一。
+控制缓冲布局：[0] 环形写指针、[1] 活跃计数、[2..] 活跃位图（每 32 粒子一字）。
+*/
+layout(local_size_x = 64) in;
+
+//binding 0 = 控制缓冲（只读位图）、binding 1 = 紧凑索引（只写）、binding 2 = 紧凑计数
+layout(std430, set = 0, binding = 0) readonly buffer Control { uint control[]; };
+layout(std430, set = 0, binding = 1) writeonly buffer Indices { uint indices[]; };
+layout(std430, set = 0, binding = 2) buffer Compact_Count { uint count; };
+
+//推送常量：x = 容量、y = 位图字数、zw 保留
+layout(push_constant) uniform Push_Compact
+{
+	uvec4 params;
+} push;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	uint capacity = push.params.x;
+	//越界线程直接返回
+	if (index >= capacity)
+		return;
+	//读取该索引所在位图字
+	uint word = control[2 + index / 32u];
+	//非活跃索引跳过
+	if ((word & (1u << (index % 32u))) == 0u)
+		return;
+	//原子取紧凑位并写入索引
+	uint slot = atomicAdd(count, 1u);
+	indices[slot] = index;
+}

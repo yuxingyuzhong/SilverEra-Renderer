@@ -376,6 +376,15 @@ namespace engine
 		uint32_t particle_resident_active = 0;
 		Compute_Pipeline_Handle particle_step_pipeline = 0;
 		uint32_t particle_buffer_capacity = 0;
+		/*
+		常驻紧凑索引（第三百三十三轮；阶段 D）
+		compact_pipeline 为「Particle紧凑.comp」，index_buffer 为 uint32 × 容量，compact_count_buffer 存原子计数；
+		compact_count 为最近一次回读的索引数。
+		*/
+		Compute_Pipeline_Handle particle_compact_pipeline = 0;
+		Compute_Buffer_Handle particle_index_buffer = 0;
+		Compute_Buffer_Handle particle_compact_count_buffer = 0;
+		uint32_t particle_compact_count = 0;
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
 		uint32_t particle_gpu_died_last = 0;
 		/*
