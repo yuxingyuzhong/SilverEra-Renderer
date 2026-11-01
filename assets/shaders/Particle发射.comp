@@ -1,0 +1,110 @@
+#version 450
+/*
+粒子发射（第三百二十七轮；深研方向二 阶段 C）
+每个线程发射一个粒子：环形写指针取槽 → 写入状态 → 置活跃位图 → 活跃计数加一。
+控制缓冲布局：control[0] = 环形指针、control[1] = 活跃计数、control[2..] = 活跃位图（每 32 粒子一字）。
+发射参数经推送常量下发；随机数用线性同余（与 CPU 参考同分布口径，不要求逐粒子一致）。
+*/
+layout(local_size_x = 64) in;
+
+//粒子状态（32 字节；与 Host 侧 Particle_State 逐字段一致）
+struct Particle_State
+{
+	float position[3];
+	float velocity[3];
+	float age;
+	float lifetime;
+};
+
+//binding 0 = 目标状态（只写新槽）、binding 1 = 控制缓冲（指针 / 计数 / 位图）
+layout(std430, set = 0, binding = 0) writeonly buffer States { Particle_State states[]; };
+layout(std430, set = 0, binding = 1) buffer Control { uint control[]; };
+
+//推送常量：发射位置与形状 / 速度与寿命区间 / 容量、数量、种子、半径 / 主方向
+layout(push_constant) uniform Push_Emit
+{
+	//xyz = 发射中心、w = 形状（0 点 / 1 盒 / 2 球壳）
+	vec4 emit_position;
+	//x = 速度下限、y = 速度上限、z = 寿命下限、w = 寿命上限
+	vec4 speed_lifetime;
+	//x = 容量、y = 本次数量、z = 随机种子、w = 球壳半径（盒形状用同一半径）
+	vec4 params;
+	//xyz = 主方向、w = 保留
+	vec4 main_direction;
+} push;
+
+//逐线程随机状态（LCG 常数与 CPU 参考一致）
+uint rng_state;
+
+//单位随机数（[0, 1)）
+float next_unit()
+{
+	rng_state = rng_state * 1664525u + 1013904223u;
+	return float((rng_state >> 8) & 0x00FFFFFFu) / 16777216.0;
+}
+
+//[-1, 1] 随机分量
+float next_signed()
+{
+	return next_unit() * 2.0 - 1.0;
+}
+
+void main()
+{
+	uint invocation = gl_GlobalInvocationID.x;
+	uint budget = uint(push.params.y + 0.5);
+	uint capacity = uint(push.params.x + 0.5);
+	//超出本次数量的线程直接返回
+	if (invocation >= budget || capacity == 0)
+		return;
+	//环形取槽（原子自增保证唯一）
+	uint slot = atomicAdd(control[0], 1u);
+	uint index = slot % capacity;
+	//发射形状
+	vec3 position = vec3(push.emit_position[0], push.emit_position[1], push.emit_position[2]);
+	uint shape = uint(push.emit_position.w + 0.5);
+	float radius = push.params.w;
+	if (shape == 1)
+	{
+		//盒：三轴随机偏移
+		position += vec3(next_signed(), next_signed(), next_signed()) * radius;
+	}
+	else if (shape == 2)
+	{
+		//球壳：随机单位方向 × 半径
+		vec3 direction = vec3(next_signed(), next_signed(), next_signed());
+		float length_value = length(direction);
+		if (!(length_value > 1e-6))
+			direction = vec3(0.0, 1.0, 0.0);
+		else
+			direction = direction / length_value;
+		position += direction * radius;
+	}
+	//速度：主方向 ＋ 0.3 随机扰动后归一化 × 区间随机速度
+	vec3 direction_main = normalize(vec3(push.main_direction[0], push.main_direction[1], push.main_direction[2]));
+	vec3 velocity_direction = direction_main + vec3(next_signed(), next_signed(), next_signed()) * 0.3;
+	float velocity_length = length(velocity_direction);
+	if (!(velocity_length > 1e-6))
+		velocity_direction = direction_main;
+	else
+		velocity_direction = velocity_direction / velocity_length;
+	float speed = push.speed_lifetime.x + next_unit() * (push.speed_lifetime.y - push.speed_lifetime.x);
+	vec3 velocity = velocity_direction * speed;
+	//寿命
+	float lifetime = push.speed_lifetime.z + next_unit() * (push.speed_lifetime.w - push.speed_lifetime.z);
+
+	Particle_State state;
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		state.position[axis] = position[axis];
+		state.velocity[axis] = velocity[axis];
+	}
+	state.age = 0.0;
+	state.lifetime = lifetime;
+	states[index] = state;
+	//活跃位图置位与计数加一
+	uint word = index / 32u;
+	uint bit = index % 32u;
+	atomicOr(control[2 + word], 1u << bit);
+	atomicAdd(control[1], 1u);
+}

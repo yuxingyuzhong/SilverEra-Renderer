@@ -1498,6 +1498,19 @@ namespace engine
 		双缓冲（容量 × 32 × 2）＋ 力场缓冲（8 × 40）；资源未创建时为 0。
 		*/
 		uint64_t particle_gpu_bytes(void) const;
+		/*
+		常驻推进开关（第三百二十七轮；默认关闭）
+		为真时发射与活跃数由 GPU 侧「活跃位图 ＋ 环形写指针」维护，CPU 镜像不参与；
+		计算路径不可用 / 未开启粒子时返回假。切换不重建状态缓冲（容量变化仍按既有规则重建）。
+		*/
+		bool particle_resident_set(bool enabled);
+		bool particle_resident_get(void) const;
+		/*
+		GPU 发射（常驻模式；第三百二十七轮）
+		返回实际写入的粒子数（池满时小于 count；未开启常驻 / 计算不可用 / 发射器未配置返回 0）。
+		每粒子经环形指针取槽，状态写入 GPU 缓冲并置位图、活跃计数加一。
+		*/
+		uint32_t particle_gpu_emit(uint32_t count);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*

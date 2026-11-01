@@ -363,6 +363,16 @@ namespace engine
 		Compute_Buffer_Handle particle_buffer_back = 0;
 		//力场数组（第三百一十八轮；8 × 40 字节）
 		Compute_Buffer_Handle particle_force_buffer = 0;
+		/*
+		常驻推进（第三百二十七轮；默认关闭）
+		control 缓冲 = [0] 环形写指针、[1] 活跃计数、[2..] 活跃位图（每 32 粒子一字）；
+		emit_pipeline 为「Particle发射.comp」；resident_active 为最近一次回读的 GPU 活跃数。
+		*/
+		bool particle_resident = false;
+		Compute_Buffer_Handle particle_control_buffer = 0;
+		Compute_Pipeline_Handle particle_emit_pipeline = 0;
+		uint32_t particle_control_bytes = 0;
+		uint32_t particle_resident_active = 0;
 		Compute_Pipeline_Handle particle_step_pipeline = 0;
 		uint32_t particle_buffer_capacity = 0;
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）

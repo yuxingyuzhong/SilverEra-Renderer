@@ -1938,12 +1938,17 @@ namespace engine
 				impl->shader.module_destroy(record.module);
 		}
 		impl->compute_pipelines.clear();
-		//粒子 GPU 推进资源句柄随计算资源一并失效（第三百一十一轮）
+		//粒子 GPU 推进资源句柄随计算资源一并失效（第三百一十一轮；第三百二十七轮补常驻资源）
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
 		impl->particle_force_buffer = 0;
+		impl->particle_control_buffer = 0;
 		impl->particle_step_pipeline = 0;
+		impl->particle_emit_pipeline = 0;
 		impl->particle_buffer_capacity = 0;
+		impl->particle_control_bytes = 0;
+		impl->particle_resident_active = 0;
+		impl->particle_resident = false;
 		impl->gpu_cull_pipeline = 0;
 		//实例压缩管线句柄同样失效（第二百四十九轮）
 		impl->gpu_compact_pipeline = 0;
@@ -8938,6 +8943,9 @@ namespace engine
 	{
 		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
 			return 0;
+		//常驻模式返回最近一次回读的 GPU 活跃数（第三百二十七轮）
+		if (impl->particle_resident)
+			return impl->particle_resident_active;
 		return impl->particle_system.active_count_get();
 	}
 
@@ -8963,11 +8971,16 @@ namespace engine
 		std::vector<uint8_t> zeros(bytes, 0u);
 		//力场缓冲（固定 8 场 × 40 字节，零值初值）
 		std::vector<uint8_t> zero_forces(static_cast<std::size_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE, 0u);
+		//控制缓冲（环形指针 ＋ 活跃计数 ＋ 位图；第三百二十七轮）
+		uint32_t control_bytes = 8u + ((capacity + 31u) / 32u) * 4u;
+		std::vector<uint8_t> zero_control(control_bytes, 0u);
 		bool created = compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
 			&& compute_buffer_load(impl->particle_force_buffer,
 				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
-			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv");
+			&& compute_buffer_load(impl->particle_control_buffer, control_bytes, zero_control.data())
+			&& compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv")
+			&& compute_pipeline_load(impl->particle_emit_pipeline, "Particle发射.comp.spv");
 		//任一环节失败即整体回收
 		if (!created)
 		{
@@ -8976,6 +8989,8 @@ namespace engine
 			return false;
 		}
 		impl->particle_buffer_capacity = capacity;
+		impl->particle_control_bytes = control_bytes;
+		impl->particle_resident_active = 0;
 		return true;
 	}
 
@@ -8992,12 +9007,20 @@ namespace engine
 			compute_buffer_unload(impl->particle_buffer_back);
 		if (impl->particle_force_buffer != 0)
 			compute_buffer_unload(impl->particle_force_buffer);
+		if (impl->particle_control_buffer != 0)
+			compute_buffer_unload(impl->particle_control_buffer);
 		if (impl->particle_step_pipeline != 0)
 			compute_pipeline_unload(impl->particle_step_pipeline);
+		if (impl->particle_emit_pipeline != 0)
+			compute_pipeline_unload(impl->particle_emit_pipeline);
 		impl->particle_buffer_front = 0;
 		impl->particle_buffer_back = 0;
 		impl->particle_force_buffer = 0;
+		impl->particle_control_buffer = 0;
 		impl->particle_step_pipeline = 0;
+		impl->particle_emit_pipeline = 0;
+		impl->particle_control_bytes = 0;
+		impl->particle_resident_active = 0;
 		impl->particle_buffer_capacity = 0;
 	}
 
@@ -9236,7 +9259,91 @@ namespace engine
 		uint64_t buffers = static_cast<uint64_t>(impl->particle_buffer_capacity) * PARTICLE_STRIDE * 2u;
 		uint64_t forces = impl->particle_force_buffer != 0
 			? static_cast<uint64_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE : 0u;
-		return buffers + forces;
+		uint64_t control = static_cast<uint64_t>(impl->particle_control_bytes);
+		return buffers + forces + control;
+	}
+
+	/*
+	常驻推进开关（第三百二十七轮）
+	开启时尝试回读一次 GPU 活跃计数作为缓存；关闭时常驻计数不再参与。
+	*/
+	bool Renderer::particle_resident_set(bool enabled)
+	{
+		//未初始化 / 未开启粒子 / 计算不可用
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !compute_supported())
+			return false;
+		impl->particle_resident = enabled;
+		//开启时同步一次计数缓存
+		if (enabled && particle_gpu_available())
+		{
+			uint32_t active = 0;
+			if (compute_buffer_read(impl->particle_control_buffer, &active, 4u, 4u))
+				impl->particle_resident_active = active;
+		}
+		return true;
+	}
+
+	//常驻推进是否开启（未初始化返回假）
+	bool Renderer::particle_resident_get(void) const
+	{
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		return impl->particle_resident;
+	}
+
+	/*
+	GPU 发射（常驻模式；第三百二十七轮）
+	回读活跃计数 → 计算本次可发射数 → 绑定状态 / 控制 / 力场 / 占位 → 调度发射管线 → 再回读计数。
+	*/
+	uint32_t Renderer::particle_gpu_emit(uint32_t count)
+	{
+		//前置条件
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident
+			|| !impl->particle_emitter_configured || count == 0)
+			return 0;
+		if (!particle_gpu_available())
+			return 0;
+		uint32_t capacity = impl->particle_buffer_capacity;
+		//当前活跃计数（GPU 侧 [1]）
+		uint32_t active = 0;
+		if (!compute_buffer_read(impl->particle_control_buffer, &active, 4u, 4u))
+			return 0;
+		impl->particle_resident_active = active;
+		//池满
+		if (active >= capacity)
+			return 0;
+		//本次发射数（不超过剩余容量）
+		uint32_t budget = count;
+		if (active + budget > capacity)
+			budget = capacity - active;
+		//绑定：状态（只写新槽）/ 控制 / 力场（占位）/ 状态（占位）
+		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
+			return 0;
+		if (!compute_buffer_bind(impl->particle_control_buffer, 1))
+			return 0;
+		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
+			return 0;
+		if (!compute_buffer_bind(impl->particle_buffer_front, 3))
+			return 0;
+		const Particle_Emitter& emitter = impl->particle_emitter;
+		//推送常量：位置与形状 / 速度与寿命 / 容量数量种子半径 / 主方向
+		const float push[16] = {
+			emitter.position[0], emitter.position[1], emitter.position[2], static_cast<float>(emitter.shape),
+			emitter.speed_min, emitter.speed_max, emitter.lifetime_min, emitter.lifetime_max,
+			static_cast<float>(capacity), static_cast<float>(budget),
+			static_cast<float>(impl->particle_born_total + 1u), emitter.extents[0],
+			emitter.direction[0], emitter.direction[1], emitter.direction[2], 0.0f
+		};
+		if (!compute_dispatch(impl->particle_emit_pipeline, budget, 64u, push, sizeof(push)))
+			return 0;
+		//回读新计数并结算实际发射数
+		uint32_t after = 0;
+		if (!compute_buffer_read(impl->particle_control_buffer, &after, 4u, 4u))
+			return 0;
+		impl->particle_resident_active = after;
+		uint32_t spawned = after > active ? after - active : 0u;
+		impl->particle_born_total += spawned;
+		return spawned;
 	}
 
 	/*
