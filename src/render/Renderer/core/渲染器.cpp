@@ -8975,6 +8975,56 @@ namespace engine
 		return particle_gpu_ensure();
 	}
 
+	//读取指定池索引的粒子状态（第三百一十二轮；非活跃返回假）
+	bool Renderer::particle_state_get(uint32_t index, Particle_State& state) const
+	{
+		//未开启粒子或未初始化
+		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+			return false;
+		//索引越界
+		if (index >= impl->particle_system.capacity_get())
+			return false;
+		//非活跃槽位不对外暴露
+		if (impl->particle_system.alive_get()[index] == 0u)
+			return false;
+		state = impl->particle_system.data_get()[index];
+		return true;
+	}
+
+	/*
+	GPU 单步推进（第三百一十二轮）
+	上传 CPU 镜像 → 推进着色器 → 回读覆盖 CPU 镜像；
+	参数走推送常量：gravity_dt = {g.x, g.y, g.z, dt}、params = {damping, capacity, 0, 0}。
+	*/
+	bool Renderer::particle_gpu_step(float dt)
+	{
+		//资源未就绪
+		if (!particle_gpu_available())
+			return false;
+		//步长非法
+		if (!std::isfinite(dt) || dt <= 0.0f)
+			return false;
+		uint32_t capacity = impl->particle_buffer_capacity;
+		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
+		//上传当前 CPU 镜像到前缓冲
+		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
+			return false;
+		//绑定前缓冲只读、后缓冲只写
+		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
+			return false;
+		if (!compute_buffer_bind(impl->particle_buffer_back, 1))
+			return false;
+		//推送常量：重力与步长、阻尼与容量
+		const float push[8] = {
+			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
+			impl->particle_params.damping, static_cast<float>(capacity), 0.0f, 0.0f
+		};
+		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
+			return false;
+		//回读覆盖 CPU 镜像（GPU 结果作为下一步的上传源）
+		return compute_buffer_read(impl->particle_buffer_back, impl->particle_system.data_get(), bytes);
+	}
+
 	/*
 	粒子 GPU 推进自检（第三百一十一轮）
 	上传当前 CPU 状态到前缓冲 → 额定容量调度（零步：dt = 0、阻尼 = 1，恒等变换）→ 回读后缓冲；

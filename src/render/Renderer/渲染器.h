@@ -1442,8 +1442,19 @@ namespace engine
 		uint32_t particle_step(float dt);
 		//当前活跃粒子数（未开启 / 未初始化返回 0）
 		uint32_t particle_active_count(void) const;
+		/*
+		读取指定池索引的粒子状态（第三百一十二轮；对照与观测用）
+		未开启 / 未初始化 / 索引越界 / 该索引非活跃时返回假（state 不变）。
+		*/
+		bool particle_state_get(uint32_t index, Particle_State& state) const;
 		//GPU 推进是否就绪（需计算路径可用且粒子已开启；首次调用惰性创建缓冲与管线）
 		bool particle_gpu_available(void);
+		/*
+		GPU 单步推进（第三百一十二轮）
+		上传当前 CPU 镜像 → 推进着色器（重力 / 阻尼 / 积分 / 年龄）→ 回读到 CPU 镜像；
+		返回假表示路径不可用或步长非法。死亡回收仍由 CPU 参考路径负责（第三百一十三轮接入 GPU 生命周期）。
+		*/
+		bool particle_gpu_step(float dt);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
 		/*
