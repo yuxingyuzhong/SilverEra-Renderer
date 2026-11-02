@@ -44,80 +44,29 @@ namespace engine
 			path_out = asset_detail::trimmed(rest);
 			return !path_out.empty();
 		}
-	}
 
-	//解析场景清单
-	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out)
-	{
-		//先清空输出
-		out.meshes.clear();
-		out.materials.clear();
-		out.places.clear();
-		//路径为空
-		if (path.empty())
+		//清单清空（失败契约）
+		void manifest_reset(Scene_Manifest& manifest)
 		{
-			logger.warn("资产加载:: 场景清单路径为空");
-			return false;
-		}
-
-		const std::filesystem::path file_path = asset_detail::path_from_utf8(path);
-		std::error_code code;
-		const uintmax_t byte_count = std::filesystem::file_size(file_path, code);
-		//文件不存在 / 不可读
-		if (code)
-		{
-			logger.warn("资产加载:: 无法读取场景清单 ({})", path);
-			return false;
-		}
-		//空文件或超限
-		if (byte_count == 0 || byte_count > MAX_FILE_BYTES)
-		{
-			logger.warn("资产加载:: 场景清单体量非法（{} 字节，上限 {}）", byte_count, MAX_FILE_BYTES);
-			return false;
-		}
-
-		std::ifstream file(file_path, std::ios::binary);
-		if (!file)
-		{
-			logger.warn("资产加载:: 场景清单打开失败 ({})", path);
-			return false;
+			manifest.meshes.clear();
+			manifest.materials.clear();
+			manifest.places.clear();
 		}
 
 		/*
-		失败清空守卫
-		契约要求「失败时输出为空」；解析途中任何提前返回都要把已收集的内容清掉，
-		故用一个小守卫在成功时置位，否则析构时清空。
+		解析单行清单记录（第四百二十四轮；第四百三十轮抽出供「内存行」入口复用）
+		空行 / 注释行直接跳过；未知指令 / 字段缺失 / ID 重复 / 引用未知 ID 一律失败。
 		*/
-		struct 清空守卫
+		bool manifest_line_parse(const std::string& line, Scene_Manifest& out)
 		{
-			//被保护的清单
-			Scene_Manifest& 清单;
-			//是否成功（成功则不清空）
-			bool 成功 = false;
-			//析构：失败则清空
-			~清空守卫(void)
-			{
-				if (!成功)
-				{
-					清单.meshes.clear();
-					清单.materials.clear();
-					清单.places.clear();
-				}
-			}
-		} 守卫{ out };
-
-		std::string line;
-		while (std::getline(file, line))
-		{
-			asset_detail::trim_carriage_return(line);
 			std::istringstream stream(line);
 			std::string tag;
 			//空行
 			if (!(stream >> tag))
-				continue;
+				return true;
 			//注释行
 			if (tag[0] == '#')
-				continue;
+				return true;
 
 			//网格引用
 			if (tag == "mesh")
@@ -125,7 +74,7 @@ namespace engine
 				Scene_Mesh_Ref ref;
 				if (!id_and_path_read(stream, ref.id, ref.path))
 				{
-					logger.warn("资产加载:: 清单 mesh 行缺字段 ({})", path);
+					logger.warn("资产加载:: 清单 mesh 行缺字段");
 					return false;
 				}
 				//ID 重复
@@ -145,7 +94,7 @@ namespace engine
 				Scene_Mtl_Ref ref;
 				if (!id_and_path_read(stream, ref.id, ref.path))
 				{
-					logger.warn("资产加载:: 清单 mtl 行缺字段 ({})", path);
+					logger.warn("资产加载:: 清单 mtl 行缺字段");
 					return false;
 				}
 				//ID 重复
@@ -165,7 +114,7 @@ namespace engine
 				Scene_Place place;
 				if (!(stream >> place.mesh_id))
 				{
-					logger.warn("资产加载:: 清单 place 行缺网格 ID ({})", path);
+					logger.warn("资产加载:: 清单 place 行缺网格 ID");
 					return false;
 				}
 				/*
@@ -182,7 +131,7 @@ namespace engine
 						place.material_id = token;
 						if (!(stream >> token) || !float_parse(token, place.position[0]))
 						{
-							logger.warn("资产加载:: 清单 place 行坐标非法 ({})", path);
+							logger.warn("资产加载:: 清单 place 行坐标非法");
 							return false;
 						}
 					}
@@ -194,7 +143,7 @@ namespace engine
 					{
 						if (!(stream >> token) || !float_parse(token, values[index]))
 						{
-							logger.warn("资产加载:: 清单 place 行坐标非法 ({})", path);
+							logger.warn("资产加载:: 清单 place 行坐标非法");
 							return false;
 						}
 					}
@@ -239,7 +188,7 @@ namespace engine
 				}
 				if (out.places.size() >= MAX_PLACES)
 				{
-					logger.warn("资产加载:: 清单摆放记录超限 ({})", path);
+					logger.warn("资产加载:: 清单摆放记录超限");
 					return false;
 				}
 				out.places.push_back(place);
@@ -250,6 +199,71 @@ namespace engine
 				logger.warn("资产加载:: 清单出现未知指令（{}）", tag);
 				return false;
 			}
+			return true;
+		}
+	}
+
+	//解析场景清单
+	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out)
+	{
+		//先清空输出
+		manifest_reset(out);
+		//路径为空
+		if (path.empty())
+		{
+			logger.warn("资产加载:: 场景清单路径为空");
+			return false;
+		}
+
+		const std::filesystem::path file_path = asset_detail::path_from_utf8(path);
+		std::error_code code;
+		const uintmax_t byte_count = std::filesystem::file_size(file_path, code);
+		//文件不存在 / 不可读
+		if (code)
+		{
+			logger.warn("资产加载:: 无法读取场景清单 ({})", path);
+			return false;
+		}
+		//空文件或超限
+		if (byte_count == 0 || byte_count > MAX_FILE_BYTES)
+		{
+			logger.warn("资产加载:: 场景清单体量非法（{} 字节，上限 {}）", byte_count, MAX_FILE_BYTES);
+			return false;
+		}
+
+		std::ifstream file(file_path, std::ios::binary);
+		if (!file)
+		{
+			logger.warn("资产加载:: 场景清单打开失败 ({})", path);
+			return false;
+		}
+
+		/*
+			失败清空守卫
+			契约要求「失败时输出为空」；解析途中任何提前返回都要把已收集的内容清掉，
+			故用一个小守卫在成功时置位，否则析构时清空。
+		*/
+		struct 清空守卫
+		{
+			//被保护的清单
+			Scene_Manifest& 清单;
+			//是否成功（成功则不清空）
+			bool 成功 = false;
+			//析构：失败则清空
+			~清空守卫(void)
+			{
+				if (!成功)
+					manifest_reset(清单);
+			}
+		} 守卫{ out };
+
+		std::string line;
+		while (std::getline(file, line))
+		{
+			asset_detail::trim_carriage_return(line);
+			//逐行解析
+			if (!manifest_line_parse(line, out))
+				return false;
 		}
 
 		//没有任何摆放记录
@@ -259,6 +273,54 @@ namespace engine
 			return false;
 		}
 		//成功：守卫不再清空
+		守卫.成功 = true;
+		return true;
+	}
+
+	/*
+	按内存行解析场景清单（第四百三十轮）
+	供关卡装载复用：关卡文件里的 `mesh` / `mtl` / `place` 行直接交给本入口，
+	语法与错误口径同文件版（含「至少一条 place」）。
+	*/
+	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out)
+	{
+		//先清空输出
+		manifest_reset(out);
+		//没有任何行
+		if (lines.empty())
+		{
+			logger.warn("资产加载:: 清单行集合为空");
+			return false;
+		}
+
+		//失败清空守卫
+		struct 清空守卫
+		{
+			//被保护的清单
+			Scene_Manifest& 清单;
+			//是否成功（成功则不清空）
+			bool 成功 = false;
+			//析构：失败则清空
+			~清空守卫(void)
+			{
+				if (!成功)
+					manifest_reset(清单);
+			}
+		} 守卫{ out };
+
+		for (const std::string& line : lines)
+		{
+			//逐行解析
+			if (!manifest_line_parse(line, out))
+				return false;
+		}
+
+		//没有任何摆放记录
+		if (out.places.empty())
+		{
+			logger.warn("资产加载:: 清单行集合未包含任何 place");
+			return false;
+		}
 		守卫.成功 = true;
 		return true;
 	}

@@ -7086,6 +7086,99 @@ namespace engine
 	}
 
 	/*
+	按清单装配资产（第四百三十轮抽出；scene_load 与 level_load 共用）
+	调用方已完成清单解析与目录计算；本函数负责资源创建、对象装配与失败整体回退。
+	同一网格 / 材质库只加载一次，place 按顺序复用句柄。
+	*/
+	namespace
+	{
+		bool asset_scene_build(Renderer& renderer, const Scene_Manifest& 清单, const std::string& 目录, Asset_Scene& scene_out)
+		{
+			scene_out.objects.clear();
+			scene_out.meshes.clear();
+			scene_out.materials.clear();
+
+			//网格（ID → 句柄）
+			std::vector<std::pair<std::string, Mesh_Handle>> 网格表;
+			网格表.reserve(清单.meshes.size());
+			for (const Scene_Mesh_Ref& ref : 清单.meshes)
+			{
+				Mesh_Handle 句柄 = 0;
+				if (!renderer.mesh_load_obj(句柄, 目录 + ref.path))
+				{
+					logger.warn("渲染器:: 场景清单网格加载失败（{}），整体回退", ref.path);
+					//回退已建网格
+					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+						renderer.mesh_unload(item.second);
+					scene_out.meshes.clear();
+					return false;
+				}
+				网格表.emplace_back(ref.id, 句柄);
+				scene_out.meshes.push_back(句柄);
+			}
+
+			//材质库（ID → 句柄组）
+			std::vector<std::pair<std::string, std::vector<Material_Handle>>> 材质表;
+			材质表.reserve(清单.materials.size());
+			for (const Scene_Mtl_Ref& ref : 清单.materials)
+			{
+				std::vector<Material_Handle> 句柄组;
+				if (!renderer.material_load_mtl(句柄组, 目录 + ref.path))
+				{
+					logger.warn("渲染器:: 场景清单材质库加载失败（{}），整体回退", ref.path);
+					//回退已建材质与网格
+					for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
+						for (Material_Handle 句柄 : item.second)
+							renderer.material_unload(句柄);
+					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+						renderer.mesh_unload(item.second);
+					scene_out.meshes.clear();
+					scene_out.materials.clear();
+					return false;
+				}
+				for (Material_Handle 句柄 : 句柄组)
+					scene_out.materials.push_back(句柄);
+				材质表.emplace_back(ref.id, 句柄组);
+			}
+
+			//按 place 顺序装配对象
+			for (const Scene_Place& place : 清单.places)
+			{
+				Asset_Object object;
+				//网格句柄（解析阶段已保证 ID 存在）
+				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+				{
+					if (item.first == place.mesh_id)
+					{
+						object.mesh = item.second;
+						break;
+					}
+				}
+				//材质句柄组（可选）
+				if (!place.material_id.empty())
+				{
+					for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
+					{
+						if (item.first == place.material_id)
+						{
+							object.materials = item.second;
+							break;
+						}
+					}
+				}
+				//位置与缩放
+				for (std::size_t index = 0; index < 3; ++index)
+				{
+					object.position[index] = place.position[index];
+					object.scale[index] = place.scale[index];
+				}
+				scene_out.objects.push_back(object);
+			}
+			return true;
+		}
+	}
+
+	/*
 	从场景清单装载整套资产（第四百二十四轮）
 	清单解析在资产加载模块；这里只做「路径解析 ＋ 资源创建 ＋ 对象装配 ＋ 失败回退」。
 	同一网格 / 材质库只加载一次，place 按顺序复用句柄。
@@ -7109,84 +7202,94 @@ namespace engine
 		//清单所在目录（保留 UTF-8 编码；相对路径直接前缀拼接）
 		const std::size_t cut = path.find_last_of("/\\");
 		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
+		//按清单装配
+		return asset_scene_build(*this, 清单, 目录, scene_out);
+	}
 
-		//网格（ID → 句柄）
-		std::vector<std::pair<std::string, Mesh_Handle>> 网格表;
-		网格表.reserve(清单.meshes.size());
-		for (const Scene_Mesh_Ref& ref : 清单.meshes)
+	/*
+	保存关卡到文本文件（第四百三十轮）
+	门面入口与 `level_text_write` 等价；纯文件层，要求渲染器已初始化（与其它门面一致）。
+	*/
+	bool Renderer::level_save(const Level_Data& level, const std::string& path)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
 		{
-			Mesh_Handle 句柄 = 0;
-			if (!mesh_load_obj(句柄, 目录 + ref.path))
+			logger.error("渲染器:: 关卡保存失败：尚未初始化");
+			return false;
+		}
+		return level_text_write(level, path);
+	}
+
+	/*
+	装载关卡（第四百三十轮）
+	顺序：读文本 → 校验相机 → 装配资产（失败整体回退）→ 应用相机 / 光照 / 雾。
+	先装配后应用，保证「装载失败时既有场景状态不被改动」。
+	*/
+	bool Renderer::level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path)
+	{
+		//默认无结果
+		level_out = Level_Data();
+		scene_out = Asset_Scene();
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 关卡装载失败：尚未初始化");
+			return false;
+		}
+		//读取关卡文本
+		if (!level_text_read(path, level_out))
+			return false;
+
+		/*
+		相机参数校验（与 `scene_apply` 三入参版同口径）
+		`scene_apply` 为 void，非法时静默拒绝；关卡装载要求显式失败，故在此先判一次。
+		*/
+		const Camera_Data& camera = level_out.camera;
+		bool camera_valid = (camera.fov > 0.0f) && (camera.fov < 3.14159265f)
+			&& (camera.near_plane > 0.0f) && (camera.far_plane > camera.near_plane)
+			&& (!camera.ortho || camera.ortho_height > 0.0f);
+		//若相机参数非法
+		if (!camera_valid)
+		{
+			logger.warn("渲染器:: 关卡相机非法（视场角 {}、近平面 {}、远平面 {}），装载拒绝",
+				camera.fov, camera.near_plane, camera.far_plane);
+			level_out = Level_Data();
+			return false;
+		}
+
+		//关卡所在目录（资产路径相对它解析）
+		const std::size_t cut = path.find_last_of("/\\");
+		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
+
+		//资产段落（为空表示空场景）
+		Asset_Scene 场景;
+		if (!level_out.asset_lines.empty())
+		{
+			Scene_Manifest 清单;
+			if (!scene_manifest_parse_lines(level_out.asset_lines, 清单))
 			{
-				logger.warn("渲染器:: 场景清单网格加载失败（{}），整体回退", ref.path);
-				//回退已建网格
-				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-					mesh_unload(item.second);
-				scene_out.meshes.clear();
+				level_out = Level_Data();
 				return false;
 			}
-			网格表.emplace_back(ref.id, 句柄);
-			scene_out.meshes.push_back(句柄);
-		}
-
-		//材质库（ID → 句柄组）
-		std::vector<std::pair<std::string, std::vector<Material_Handle>>> 材质表;
-		材质表.reserve(清单.materials.size());
-		for (const Scene_Mtl_Ref& ref : 清单.materials)
-		{
-			std::vector<Material_Handle> 句柄组;
-			if (!material_load_mtl(句柄组, 目录 + ref.path))
+			//装配资产（失败整体回退）
+			if (!asset_scene_build(*this, 清单, 目录, 场景))
 			{
-				logger.warn("渲染器:: 场景清单材质库加载失败（{}），整体回退", ref.path);
-				//回退已建材质与网格
-				for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
-					for (Material_Handle 句柄 : item.second)
-						material_unload(句柄);
-				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-					mesh_unload(item.second);
-				scene_out.meshes.clear();
-				scene_out.materials.clear();
+				level_out = Level_Data();
 				return false;
 			}
-			for (Material_Handle 句柄 : 句柄组)
-				scene_out.materials.push_back(句柄);
-			材质表.emplace_back(ref.id, 句柄组);
 		}
 
-		//按 place 顺序装配对象
-		for (const Scene_Place& place : 清单.places)
-		{
-			Asset_Object object;
-			//网格句柄（解析阶段已保证 ID 存在）
-			for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-			{
-				if (item.first == place.mesh_id)
-				{
-					object.mesh = item.second;
-					break;
-				}
-			}
-			//材质句柄组（可选）
-			if (!place.material_id.empty())
-			{
-				for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
-				{
-					if (item.first == place.material_id)
-					{
-						object.materials = item.second;
-						break;
-					}
-				}
-			}
-			//位置与缩放
-			for (std::size_t index = 0; index < 3; ++index)
-			{
-				object.position[index] = place.position[index];
-				object.scale[index] = place.scale[index];
-			}
-			scene_out.objects.push_back(object);
-		}
+		//应用相机 / 光照 / 雾（相机已校验，三组必然生效）
+		scene_apply(level_out.camera, level_out.light, level_out.fog);
+		scene_out = 场景;
 		return true;
+	}
+
+	//释放关卡装配的全部资产资源（等价于 scene_unload；幂等）
+	void Renderer::level_unload(Asset_Scene& scene)
+	{
+		scene_unload(scene);
 	}
 
 	//释放场景清单创建的全部资源（幂等）

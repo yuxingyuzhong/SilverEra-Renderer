@@ -26,6 +26,8 @@
 #include "Application/Renderer/src/render/Text/文字布局数据.h"
 //计算公共语义类型（Vulkan-free）：句柄与字节上限（第二百四十三轮）
 #include "Application/Renderer/src/render/Compute/计算数据.h"
+//关卡数据与文本读写（Vulkan-free；第四百二十九轮）
+#include "Application/Renderer/src/render/Level/关卡文件.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -1031,6 +1033,22 @@ namespace engine
 		任一网格或材质库创建失败即整体回退（已建资源全部释放）并返回假；成功时按 place 顺序写出对象。
 		*/
 		bool scene_load(Asset_Scene& scene_out, const std::string& path);
+		/*
+		保存关卡到文本文件（第四百三十轮；方向六阶段 B）
+		与 `level_text_write` 等价的门面入口；失败（路径为空 / 打不开 / 名称含换行）返回假。
+		*/
+		bool level_save(const Level_Data& level, const std::string& path);
+		/*
+		装载关卡（第四百三十轮；方向六阶段 B）
+		读取关卡文本 → 应用相机 / 光照 / 雾（三组入参）→ 按 `asset_lines` 装配资产（同一文件只加载一次）。
+		资产路径相对关卡文件所在目录；相机参数非法 / 文本非法 / 任一资产创建失败 → 整体回退并返回假。
+		成功时 `level_out` 与 `scene_out` 均有效；资产须由 `scene_unload`（或 `level_unload`）释放。
+		*/
+		bool level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path);
+		/*
+		释放关卡装配的全部资产资源（第四百三十轮；等价于 `scene_unload`，幂等）
+		*/
+		void level_unload(Asset_Scene& scene);
 		/*
 		共享加载 OBJ 网格（第四百二十五轮；资源缓存 ＋ 引用计数）
 		同一路径只创建一次资源：首次创建（refs = 1）、后续命中仅引用计数 +1 并返回同一句柄；

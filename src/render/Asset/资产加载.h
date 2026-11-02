@@ -121,4 +121,12 @@ namespace engine
 	仅做语法与「ID 是否被引用」的静态检查，不校验 OBJ / MTL 文件是否存在。
 	*/
 	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out);
+
+	/*
+	按内存行解析场景清单（第四百三十轮）
+	行内容与 `scene_manifest_parse` 完全同语法（`mesh` / `mtl` / `place`，`#` 注释、空行忽略）；
+	供关卡装载复用（关卡文件里的资产段落不落成独立清单文件）。
+	失败口径同文件版（含「至少一条 place」），失败时输出清空。
+	*/
+	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out);
 }
