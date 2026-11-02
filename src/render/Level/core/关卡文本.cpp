@@ -157,6 +157,83 @@ namespace engine
 		{
 			out = Level_Data();
 		}
+
+		//单个浮点有限
+		bool finite_one(float value)
+		{
+			return std::isfinite(value);
+		}
+
+		//若干浮点全部有限
+		bool finite_many(const float* values, std::size_t count)
+		{
+			for (std::size_t index = 0; index < count; ++index)
+			{
+				//任一非有限即失败
+				if (!finite_one(values[index]))
+					return false;
+			}
+			return true;
+		}
+
+		/*
+		写出前校验（第四百三十六轮）
+		版本 ≥ 1；相机 / 光照 / 雾全部浮点（含有效光源槽位）有限。校验失败不落盘。
+		*/
+		bool level_write_validate(const Level_Data& level)
+		{
+			//版本
+			if (level.version < 1)
+				return false;
+			const Camera_Data& camera = level.camera;
+			if (!finite_many(camera.position, 3) || !finite_many(camera.target, 3)
+				|| !finite_many(camera.up, 3) || !finite_many(&camera.fov, 1)
+				|| !finite_many(&camera.near_plane, 1) || !finite_many(&camera.far_plane, 1)
+				|| !finite_many(&camera.ortho_height, 1) || !finite_many(&camera.aspect, 1)
+				|| !finite_many(camera.clear_color, 4))
+				return false;
+
+			const Light_Data& light = level.light;
+			if (!finite_many(light.direction, 3) || !finite_many(light.color, 3)
+				|| !finite_many(&light.intensity, 1) || !finite_many(&light.ambient, 1)
+				|| !finite_many(&light.specular_intensity, 2)
+				|| !finite_many(light.ambient_color, 3) || !finite_many(light.ambient_ground, 3)
+				|| !finite_many(&light.ambient_hemisphere, 1)
+				|| !finite_many(light.fill_direction, 3) || !finite_many(light.fill_color, 3)
+				|| !finite_many(&light.fill_intensity, 1)
+				|| !finite_many(&light.directional_specular, 2)
+				|| !finite_many(&light.shadow_bias, 3)
+				|| !finite_many(&light.pbr_roughness, 2)
+				|| !finite_many(&light.toon_rim, 1) || !finite_many(light.toon_shadow_tint, 3)
+				|| !finite_many(&light.toon_specular, 1)
+				|| !finite_many(&light.outline_width, 1) || !finite_many(light.outline_color, 3))
+				return false;
+
+			//有效点光槽位
+			for (uint32_t index = 0; index < light.point_count && index < MAX_POINT_LIGHTS; ++index)
+			{
+				if (!finite_many(light.point_position[index], 3) || !finite_many(light.point_color[index], 3)
+					|| !finite_one(light.point_radius[index]) || !finite_one(light.point_intensity[index])
+					|| !finite_one(light.point_specular[index]) || !finite_one(light.point_shininess[index]))
+					return false;
+			}
+			//有效聚光槽位
+			for (uint32_t index = 0; index < light.spot_count && index < MAX_SPOT_LIGHTS; ++index)
+			{
+				if (!finite_many(light.spot_position[index], 3) || !finite_many(light.spot_direction[index], 3)
+					|| !finite_many(light.spot_color[index], 3) || !finite_one(light.spot_radius[index])
+					|| !finite_one(light.spot_intensity[index]) || !finite_one(light.spot_inner_deg[index])
+					|| !finite_one(light.spot_outer_deg[index]) || !finite_one(light.spot_specular[index])
+					|| !finite_one(light.spot_shininess[index]))
+					return false;
+			}
+
+			const Fog_Data& fog = level.fog;
+			if (!finite_many(fog.color, 3) || !finite_many(&fog.density, 1)
+				|| !finite_many(&fog.start, 2) || !finite_many(&fog.height_falloff, 1))
+				return false;
+			return true;
+		}
 	}
 
 	//读取关卡文本
@@ -233,6 +310,18 @@ namespace engine
 				std::string rest;
 				std::getline(stream, rest);
 				out.name = asset_detail::trimmed(rest);
+				continue;
+			}
+			//格式版本
+			if (tag == "version")
+			{
+				int value = 0;
+				if (!int_field_read(stream, value) || value != 1)
+				{
+					logger.warn("关卡:: 不支持的格式版本（{}）", path);
+					return false;
+				}
+				out.version = value;
 				continue;
 			}
 			//相机组
@@ -739,6 +828,12 @@ namespace engine
 			logger.warn("关卡:: 关卡名含换行，拒绝写出");
 			return false;
 		}
+		//写出前校验（第四百三十六轮：版本 ≥ 1 且全部浮点有限）
+		if (!level_write_validate(level))
+		{
+			logger.warn("关卡:: 写出前校验失败（版本 {} 或存在非有限字段）", level.version);
+			return false;
+		}
 
 		const std::filesystem::path file_path = asset_detail::path_from_utf8(path);
 		std::error_code code;
@@ -754,6 +849,8 @@ namespace engine
 
 		file << "# 白银纪元 · 关卡文件（方向六；第四百二十九轮）\n";
 		file << "level " << level.name << '\n';
+		//格式版本（第四百三十六轮）
+		file << "version " << level.version << '\n';
 
 		//相机组
 		floats_write(file, "camera position", level.camera.position, 3);

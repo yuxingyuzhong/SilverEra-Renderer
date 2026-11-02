@@ -17,6 +17,8 @@ namespace engine
 	{
 		//关卡名（可为空；`level` 记录取行尾全部文本）
 		std::string name;
+		//格式版本（第四百三十六轮；当前只接受 1，缺省行按 1）
+		int version = 1;
 		//相机组
 		Camera_Data camera;
 		//光照组
@@ -47,6 +49,7 @@ namespace engine
 	写出关卡文本（第四百二十九轮）
 	按固定顺序输出全部受支持字段（未使用的点光 / 聚光槽位不写出）；
 	资产段落按 `asset_lines` 原样逐行写出。路径按 UTF-8 解释；失败（路径为空 / 打不开）返回假。
+	第四百三十六轮起：先校验版本 ≥ 1 与全部浮点字段有限，校验失败不落盘。
 	*/
 	bool level_text_write(const Level_Data& level, const std::string& path);
 
