@@ -1839,6 +1839,10 @@ namespace engine
 		impl->material_toon_steps = 0.0f;
 		impl->material_toon_rim = 0.0f;
 		impl->material_toon_specular = 0.0f;
+		//逐物体暗部色调恢复默认（(1,1,1) 不色偏，第四百零九轮）
+		impl->material_toon_tint[0] = 1.0f;
+		impl->material_toon_tint[1] = 1.0f;
+		impl->material_toon_tint[2] = 1.0f;
 		//逐物体色调恢复默认（白色，第六十九轮）
 		impl->material_tint_active = false;
 		for (std::size_t index = 0; index < 4; ++index)
@@ -5629,13 +5633,14 @@ namespace engine
 		return impl->mesh.mesh_update_indices(handle, first_index, count, indices);
 	}
 
-	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个 ＋ 卡通 4 浮点 / 个），返回首个实例的字节偏移
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 ＋ 卡通 4 ＋ 暗部色调 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
 		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
-		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular)
+		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular,
+		float toon_tint_r, float toon_tint_g, float toon_tint_b)
 	{
-		//首个实例的字节偏移（追加前的元素个数 × 80）
+		//首个实例的字节偏移（追加前的元素个数 × 实例步长）
 		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
 		//逐实例追加
 		for (uint32_t instance = 0; instance < count; ++instance)
@@ -5681,12 +5686,28 @@ namespace engine
 			target[INSTANCE_TOON_OFFSET + 1] = toon_active ? toon_rim : 0.0f;
 			target[INSTANCE_TOON_OFFSET + 2] = toon_active ? toon_specular : 0.0f;
 			target[INSTANCE_TOON_OFFSET + 3] = toon_active ? 1.0f : 0.0f;
+			/*
+			逐物体卡通暗部色调（第四百零九轮）
+			xyz = 色调；仅当卡通覆盖标志为真时被片元读取（默认 (1,1,1) 即不色偏）；
+			w 保留为 0。
+			*/
+			target[INSTANCE_TOON_TINT_OFFSET + 0] = toon_tint_r;
+			target[INSTANCE_TOON_TINT_OFFSET + 1] = toon_tint_g;
+			target[INSTANCE_TOON_TINT_OFFSET + 2] = toon_tint_b;
+			target[INSTANCE_TOON_TINT_OFFSET + 3] = 0.0f;
 		}
 		return offset;
 	}
 
-	//绘制网格
+	//绘制整个网格（内部转交区间绘制；区间 (0, 0) 表示整段，第四百一十轮）
 	bool Renderer::mesh_draw(Mesh_Handle handle, const float* transform, const float* color)
+	{
+		return mesh_draw_range(handle, transform, color, 0u, 0u);
+	}
+
+	//按索引区间绘制网格（第四百一十轮；物体多材质的分段绘制基础）
+	bool Renderer::mesh_draw_range(Mesh_Handle handle, const float* transform, const float* color,
+		uint32_t first_index, uint32_t range_count)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
@@ -5703,6 +5724,23 @@ namespace engine
 		{
 			logger.error("渲染器:: 网格绘制失败：网格句柄 {} 无效", handle);
 			return false;
+		}
+		/*
+		索引区间（第四百一十轮）
+		(0, 0) 表示整段（mesh_draw 的转发口径）；否则校验区间并把索引偏移推进到区间起点。
+		*/
+		if (first_index != 0u || range_count != 0u)
+		{
+			//区间越界（首索引超出总数或区间长度溢出）
+			if (first_index >= index_count || range_count > index_count - first_index)
+			{
+				logger.error("渲染器:: 索引区间越界（首 {} ＋ 长 {}，网格索引数 {}）",
+					first_index, range_count, index_count);
+				return false;
+			}
+			//索引偏移推进到区间起点（uint32 索引，步长 4 字节）
+			index_offset += static_cast<VkDeviceSize>(first_index) * sizeof(uint32_t);
+			index_count = range_count;
 		}
 
 		/*
@@ -5742,7 +5780,8 @@ namespace engine
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1,
 			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
 			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
-			impl->material_toon_rim, impl->material_toon_specular);
+			impl->material_toon_rim, impl->material_toon_specular, impl->material_toon_tint[0],
+			impl->material_toon_tint[1], impl->material_toon_tint[2]);
 
 		/*
 		组装待绘制项
@@ -5854,6 +5893,59 @@ namespace engine
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
 		impl->pending_items.push_back(item);
 		return true;
+	}
+
+	//多材质分段绘制（第四百一十轮；一个物体一次请求内使用多个材质）
+	bool Renderer::mesh_draw_sections(Mesh_Handle handle, const float* transform,
+		const Material_Handle* materials, uint32_t count)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 多材质绘制失败：尚未初始化");
+			return false;
+		}
+		//材质数组非空且段数为正
+		if (materials == nullptr || count == 0)
+		{
+			logger.warn("渲染器:: 多材质绘制参数非法（材质数组为空或段数 0），已忽略");
+			return false;
+		}
+		//取网格索引总数
+		uint32_t vertex_count = 0;
+		uint32_t total_indices = 0;
+		if (!impl->mesh.mesh_counts_get(handle, vertex_count, total_indices))
+		{
+			logger.error("渲染器:: 多材质绘制失败：网格句柄 {} 无效", handle);
+			return false;
+		}
+		//每段索引数按 3 对齐（避免切断三角形），余数归最后一段
+		uint32_t segment = ((total_indices / count) / 3u) * 3u;
+		//段数多于三角形数：无法均分
+		if (segment == 0)
+		{
+			logger.warn("渲染器:: 多材质绘制段数 {} 多于三角形数（索引总数 {}），已忽略", count, total_indices);
+			return false;
+		}
+		//逐段绑定材质并按区间登记
+		uint32_t first = 0;
+		bool success = true;
+		for (uint32_t index = 0; index < count; ++index)
+		{
+			//最后一段吞掉余数
+			uint32_t length = (index + 1u == count) ? (total_indices - first) : segment;
+			//区间为空则跳过
+			if (length == 0)
+				continue;
+			//绑定该段的材质（0 或无效句柄由绑定入口回落默认）
+			material_bind_set(materials[index]);
+			if (!mesh_draw_range(handle, transform, nullptr, first, length))
+				success = false;
+			first += length;
+		}
+		//恢复默认绑定
+		material_bind_set(0);
+		return success;
 	}
 
 	//实例化绘制（同一网格 × count 个模型矩阵，一次绘制调用提交）
@@ -5994,7 +6086,8 @@ namespace engine
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count,
 			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
 			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
-			impl->material_toon_rim, impl->material_toon_specular);
+			impl->material_toon_rim, impl->material_toon_specular, impl->material_toon_tint[0],
+			impl->material_toon_tint[1], impl->material_toon_tint[2]);
 
 		/*
 		组装待绘制项
@@ -6816,6 +6909,14 @@ namespace engine
 			record.toon_steps = data.toon_steps;
 			record.toon_rim = data.toon_rim;
 			record.toon_specular = data.toon_specular;
+			/*
+			暗部色调（第四百零九轮）
+			各分量合法域 [0, 1]；非有限或越界按 1（不色偏），不影响卡通覆盖标志本身。
+			*/
+			for (std::size_t index = 0; index < 3; ++index)
+				record.toon_shadow_tint[index] = (std::isfinite(data.toon_shadow_tint[index])
+					&& data.toon_shadow_tint[index] >= 0.0f && data.toon_shadow_tint[index] <= 1.0f)
+					? data.toon_shadow_tint[index] : 1.0f;
 		}
 		//若声明卡通覆盖但参数非法则告警
 		if (data.toon_override && !record.toon_override)
@@ -6989,6 +7090,10 @@ namespace engine
 			impl->material_toon_steps = 0.0f;
 			impl->material_toon_rim = 0.0f;
 			impl->material_toon_specular = 0.0f;
+			//清除逐物体暗部色调（第四百零九轮；回落 (1,1,1) 不色偏）
+			impl->material_toon_tint[0] = 1.0f;
+			impl->material_toon_tint[1] = 1.0f;
+			impl->material_toon_tint[2] = 1.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -7014,6 +7119,10 @@ namespace engine
 			impl->material_toon_steps = 0.0f;
 			impl->material_toon_rim = 0.0f;
 			impl->material_toon_specular = 0.0f;
+			//清除逐物体暗部色调（第四百零九轮；回落 (1,1,1) 不色偏）
+			impl->material_toon_tint[0] = 1.0f;
+			impl->material_toon_tint[1] = 1.0f;
+			impl->material_toon_tint[2] = 1.0f;
 			return;
 		}
 		//取目标记录
@@ -7087,6 +7196,9 @@ namespace engine
 		impl->material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;
 		impl->material_toon_rim = record.toon_override ? record.toon_rim : 0.0f;
 		impl->material_toon_specular = record.toon_override ? record.toon_specular : 0.0f;
+		//逐物体暗部色调（第四百零九轮；无覆盖时回落 (1,1,1) 不色偏）
+		for (std::size_t index = 0; index < 3; ++index)
+			impl->material_toon_tint[index] = record.toon_override ? record.toon_shadow_tint[index] : 1.0f;
 		//按记录同步逐物体色调（第六十九轮）
 		impl->material_tint_active = record.tint_override;
 		for (std::size_t index = 0; index < 4; ++index)

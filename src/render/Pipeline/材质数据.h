@@ -56,6 +56,12 @@ namespace engine
 		float toon_steps = 0.0f;
 		float toon_rim = 0.0f;
 		float toon_specular = 0.0f;
+		/*
+		逐物体卡通暗部色调（第四百零九轮）
+		仅当 toon_override 为真时参与着色；默认 (1,1,1) 为乘性恒等（不色偏）。
+		各分量合法域 [0, 1]，越界 / 非有限按 1 登记。
+		*/
+		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 		//是否覆盖反照率色调（第六十九轮；false 时用白色，画面不变）
 		bool tint_override = false;
 		//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）

@@ -504,6 +504,8 @@ namespace engine
 			float toon_rim = 0.0f;
 			//逐物体卡通高光阈值（0..1；仅 toon_override 为真时生效）
 			float toon_specular = 0.0f;
+			//逐物体卡通暗部色调（各分量 0..1；默认 (1,1,1) 不色偏；第四百零九轮）
+			float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 			//是否覆盖反照率色调（第六十九轮；false 时用白色）
 			bool tint_override = false;
 			//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
@@ -907,6 +909,8 @@ namespace engine
 		float material_toon_rim = 0.0f;
 		//逐物体卡通高光阈值（0..1）
 		float material_toon_specular = 0.0f;
+		//逐物体卡通暗部色调（各分量 0..1；默认 (1,1,1) 不色偏；第四百零九轮）
+		float material_toon_tint[3] = { 1.0f, 1.0f, 1.0f };
 		//二次元风格化：色阶数（第一百七十四轮；0 = 关闭，1..8 = 量化档数）
 		uint32_t toon_steps = 0;
 		//二次元风格化：边缘光强度（第一百七十四轮；0 = 关闭，0..1）

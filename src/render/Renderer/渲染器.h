@@ -801,6 +801,24 @@ namespace engine
 		同一帧内可多次调用以登记多个网格（各自独立的模型矩阵）。
 		*/
 		bool mesh_draw(Mesh_Handle handle, const float* transform, const float* color = nullptr);
+		/*
+		按索引区间绘制网格（第四百一十轮；物体多材质的分段绘制基础）
+		first_index 与 index_count 描述该网格索引区内的一个区间（count 个 uint32 索引）；
+		first_index == 0 且 index_count == 0 视为整段（等价于 mesh_draw，内部即以此转发）；
+		区间越界（first_index ≥ 总索引数 或 first_index + index_count > 总索引数）整次拒绝并告警；
+		其余语义（模型矩阵 / 颜色 / 剔除 / 合批 / 延迟登记）与 mesh_draw 一致。
+		*/
+		bool mesh_draw_range(Mesh_Handle handle, const float* transform, const float* color,
+			uint32_t first_index, uint32_t index_count);
+		/*
+		多材质分段绘制（第四百一十轮；一个物体一次请求内使用多个材质）
+		把网格索引区按 count 个材质均分（每段索引数按 3 对齐，避免切断三角形；余数归最后一段），
+		逐段先 material_bind_set(materials[i]) 再按区间登记绘制，结束后恢复 material_bind_set(0)；
+		materials 为空 / count 为 0 / 句柄无效 / 段数多于三角形数返回假且不登记任何绘制项；
+		任一段登记失败时返回假（已登记的段不回滚，与 mesh_draw 的既有语义一致）。
+		*/
+		bool mesh_draw_sections(Mesh_Handle handle, const float* transform,
+			const Material_Handle* materials, uint32_t count);
 
 		/*
 		实例化绘制网格（同一网格 × N 个模型矩阵，一次绘制调用提交）

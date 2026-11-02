@@ -26,6 +26,11 @@ x = 色阶数（0 = 不覆盖）、y = 边缘光强度、z = 卡通高光阈值�
 零向量表示不覆盖，片元着色器回落场景 UBO 的全局卡通参数，故默认画面不变。
 */
 layout(location = 8) in vec4 in_toon;
+/*
+逐物体卡通暗部色调（第四百零九轮；按实例步进，步长 112 的第 96..111 字节）
+xyz = 暗部色调（默认 (1,1,1) = 不色偏）、w 保留；仅当卡通覆盖标志 > 0.5 时参与着色。
+*/
+layout(location = 9) in vec4 in_toon_tint;
 
 //传递给片元着色器的纹理坐标
 layout(location = 0) out vec2 out_uv;
@@ -37,6 +42,8 @@ layout(location = 2) out vec3 out_world;
 layout(location = 3) flat out vec4 out_material;
 //传递给片元着色器的逐物体卡通参数（第四百零八轮；整实例恒定，同样 flat）
 layout(location = 4) flat out vec4 out_toon;
+//传递给片元着色器的逐物体暗部色调（第四百零九轮；整实例恒定，flat）
+layout(location = 5) flat out vec4 out_toon_tint;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -70,5 +77,7 @@ void main()
 	out_material = in_material;
 	//逐物体卡通参数原样下传（第四百零八轮）
 	out_toon = in_toon;
+	//逐物体卡通暗部色调原样下传（第四百零九轮）
+	out_toon_tint = in_toon_tint;
 	gl_Position = scene.view_proj * world;
 }

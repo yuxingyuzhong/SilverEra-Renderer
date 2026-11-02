@@ -14,6 +14,11 @@ x = 色阶数（0 = 不覆盖）、y = 边缘光强度、z = 卡通高光阈值�
 覆盖标志为 0（默认）时回落场景 UBO 的全局卡通参数，画面与引入前逐字节一致。
 */
 layout(location = 4) flat in vec4 in_toon;
+/*
+逐物体卡通暗部色调（第四百零九轮）
+xyz = 暗部色调、w 保留；仅在覆盖标志（in_toon.w）> 0.5 时参与着色，默认 (1,1,1) 即不色偏。
+*/
+layout(location = 5) flat in vec4 in_toon_tint;
 
 /*
 逐物体反照率色调（第六十九轮）
@@ -532,6 +537,9 @@ void main()
 	默认 (1,1,1) 时下方乘子恒为 1，画面与引入前逐字节一致。
 	*/
 	vec3 toon_shadow_tint = vec3(scene.camera_range.z, scene.camera_range.w, scene.cascade_params2.w);
+	//逐物体暗部色调覆盖（第四百零九轮；覆盖标志为真时改用实例色调，默认 (1,1,1) 即不色偏）
+	if (in_toon.w > 0.5)
+		toon_shadow_tint = in_toon_tint.xyz;
 	//主方向光量化后的受光系数（未提供法线 / 方向光关闭时保持 1，即不参与暗部判定）
 	float toon_primary_shade = 1.0;
 	/*
