@@ -7317,6 +7317,34 @@ namespace engine
 		return 登记数;
 	}
 
+	//校验材质实例数据（第四百四十八轮；方向七阶段 A）
+	bool Renderer::material_instance_validate(const Material_Instance_Data& data) const
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//模板句柄须为已登记材质
+		if (data.模板 == 0 || data.模板 > impl->materials.size() || !impl->materials[data.模板 - 1].valid)
+			return false;
+		//覆盖底色：四分量有限且落在 [0,1]
+		if (data.use_tint)
+		{
+			for (std::size_t index = 0; index < 4; ++index)
+			{
+				const float value = data.tint[index];
+				if (!std::isfinite(value) || value < 0.0f || value > 1.0f)
+					return false;
+			}
+		}
+		//覆盖自发光：有限且落在 [0,1]
+		if (data.use_emissive)
+		{
+			if (!std::isfinite(data.emissive) || data.emissive < 0.0f || data.emissive > 1.0f)
+				return false;
+		}
+		return true;
+	}
+
 	//释放场景清单创建的全部资源（幂等）
 	void Renderer::scene_unload(Asset_Scene& scene)
 	{

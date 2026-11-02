@@ -408,6 +408,25 @@ namespace engine
 	};
 
 	/*
+	材质实例（第四百四十八轮；方向七阶段 A）
+	模板材质句柄 ＋ 逐实例覆盖参数；本身不持有 GPU 资源，绘制时与模板合成（阶段 C）。
+	覆盖范围：tint（含 alpha）与自发光强度；未覆盖项沿用模板。
+	*/
+	struct Material_Instance_Data
+	{
+		//模板材质句柄（须为已登记材质）
+		Material_Handle 模板 = 0;
+		//覆盖底色（RGBA，0..1；仅 use_tint 为真时生效）
+		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//是否覆盖底色
+		bool use_tint = false;
+		//覆盖自发光强度（0..1；仅 use_emissive 为真时生效，乘性）
+		float emissive = 0.0f;
+		//是否覆盖自发光
+		bool use_emissive = false;
+	};
+
+	/*
 	渲染器（门面）
 	生命周期：init → frame_render × N → shutdown
 	状态机：未初始化 → 已初始化 → 已销毁（shutdown 幂等，可重复调用）
@@ -1063,6 +1082,12 @@ namespace engine
 		返回成功登记的对象数（任一对象失败即跳过该项并继续）。仅登记，不提交帧。
 		*/
 		uint32_t scene_draw(const Asset_Scene& scene);
+		/*
+		校验材质实例数据（第四百四十八轮；方向七阶段 A）
+		规则：模板句柄须为已登记材质；`use_tint` 为真时 tint 四分量须有限且落在 [0,1]；
+		`use_emissive` 为真时 emissive 须有限且落在 [0,1]。不建资源、不改变任何状态。
+		*/
+		bool material_instance_validate(const Material_Instance_Data& data) const;
 		/*
 		共享加载 OBJ 网格（第四百二十五轮；资源缓存 ＋ 引用计数）
 		同一路径只创建一次资源：首次创建（refs = 1）、后续命中仅引用计数 +1 并返回同一句柄；
