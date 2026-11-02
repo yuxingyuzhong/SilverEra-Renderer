@@ -1021,6 +1021,33 @@ namespace engine
 		*/
 		bool scene_load(Asset_Scene& scene_out, const std::string& path);
 		/*
+		共享加载 OBJ 网格（第四百二十五轮；资源缓存 ＋ 引用计数）
+		同一路径只创建一次资源：首次创建（refs = 1）、后续命中仅引用计数 +1 并返回同一句柄；
+		释放须走 `mesh_release`（不可与 `mesh_unload` 混用同一句柄）。
+		路径按 UTF-8 解释；键做「分隔符统一 ＋ ASCII 小写」归一化。
+		*/
+		bool mesh_load_obj_shared(Mesh_Handle& handle_out, const std::string& path);
+		/*
+		释放共享网格（引用计数 -1；归零才真正卸载并删缓存条目）
+		未登记的句柄按非共享资源直接卸载（兼容混用）。
+		*/
+		void mesh_release(Mesh_Handle handle);
+		/*
+		共享加载纹理文件（第四百二十五轮）
+		语义同 `mesh_load_obj_shared`；释放须走 `texture_release`。
+		*/
+		bool texture_load_file_shared(uint64_t& handle_out, const std::string& path);
+		/*
+		释放共享纹理（引用计数 -1；归零才真正卸载）
+		未登记的句柄按非共享资源直接卸载。
+		*/
+		void texture_release(uint64_t handle);
+		/*
+		当前资产缓存条目数（第四百二十五轮；只读诊断）
+		网格缓存与纹理缓存条目之和。
+		*/
+		uint32_t asset_cache_count(void) const;
+		/*
 		释放场景清单创建的全部资源（网格 ＋ 材质；幂等）
 		不负责卸载调用方另行创建的其它资源。
 		*/

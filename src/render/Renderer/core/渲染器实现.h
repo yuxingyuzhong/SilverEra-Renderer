@@ -559,6 +559,22 @@ namespace engine
 		Mesh_Context mesh;
 		//纹理模块
 		Texture_Context texture;
+		/*
+		资产缓存（第四百二十五轮；共享加载 ＋ 引用计数）
+		键 = 「类型前缀 ＋ 归一化路径」（分隔符统一 '/'、ASCII 转小写）；
+		首次创建登记 refs = 1，命中只加引用计数；释放归零时才真正卸载并删条目。
+		*/
+		struct Asset_Cache_Entry
+		{
+			//资源句柄
+			uint64_t handle = 0;
+			//引用计数（≥ 1）
+			uint32_t refs = 0;
+		};
+		//网格缓存（键形如 "mesh:<路径>"）
+		std::unordered_map<std::string, Asset_Cache_Entry> mesh_cache;
+		//纹理缓存（键形如 "texture:<路径>"）
+		std::unordered_map<std::string, Asset_Cache_Entry> texture_cache;
 		//相机（生成每帧视图 × 投影矩阵）
 		Camera camera;
 		//UI 通道（供上层接入 ImGui Vulkan 后端；不代管 UI）

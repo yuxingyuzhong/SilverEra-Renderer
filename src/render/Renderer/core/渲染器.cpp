@@ -217,6 +217,29 @@ namespace engine
 
 		//白色（RGBA；第六十九轮：未设置逐物体色调时的默认推送值，乘到反照率上画面不变）
 		const float WHITE_COLOR_RGBA[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+		/*
+		资产缓存键（第四百二十五轮）
+		形如「前缀:归一化路径」：分隔符统一为 '/'、ASCII 字母转小写（Windows 路径不区分大小写）。
+		*/
+		std::string asset_key_build(const char* prefix, const std::string& path)
+		{
+			std::string key(prefix);
+			key.push_back(':');
+			key.reserve(key.size() + path.size());
+			for (char ch : path)
+			{
+				char value = ch;
+				//路径分隔符统一
+				if (value == '\\')
+					value = '/';
+				//ASCII 大写转小写（非 ASCII 字节原样保留）
+				if (value >= 'A' && value <= 'Z')
+					value = static_cast<char>(value - 'A' + 'a');
+				key.push_back(value);
+			}
+			return key;
+		}
 	}
 
 	//渲染层版本查询
@@ -1757,6 +1780,9 @@ namespace engine
 		*/
 		impl->thread_pool.threads_stop();
 		impl->render_threads = 0;
+		//清空资产缓存表（第四百二十五轮；资源本身随各模块销毁释放，表只保留路径键）
+		impl->mesh_cache.clear();
+		impl->texture_cache.clear();
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		/*
 		阴影资源（第五十二轮）
@@ -7152,6 +7178,138 @@ namespace engine
 		scene.meshes.clear();
 		scene.materials.clear();
 		scene.objects.clear();
+	}
+
+	/*
+	共享加载 OBJ 网格（第四百二十五轮）
+	命中缓存只加引用计数；首次走既有 mesh_load_obj 并在成功后登记。
+	*/
+	bool Renderer::mesh_load_obj_shared(Mesh_Handle& handle_out, const std::string& path)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 共享网格加载失败：尚未初始化");
+			return false;
+		}
+		//归一化键
+		const std::string key = asset_key_build("mesh", path);
+		auto found = impl->mesh_cache.find(key);
+		//命中：仅引用计数加一
+		if (found != impl->mesh_cache.end())
+		{
+			found->second.refs += 1;
+			handle_out = found->second.handle;
+			return true;
+		}
+		//首次：正常加载后登记（失败不入缓存）
+		Mesh_Handle 句柄 = 0;
+		if (!mesh_load_obj(句柄, path))
+			return false;
+		Impl::Asset_Cache_Entry entry{};
+		entry.handle = 句柄;
+		entry.refs = 1;
+		impl->mesh_cache.emplace(key, entry);
+		handle_out = 句柄;
+		return true;
+	}
+
+	//释放共享网格（引用计数 -1；归零才真正卸载）
+	void Renderer::mesh_release(Mesh_Handle handle)
+	{
+		//未初始化或无效句柄
+		if (impl == nullptr || !impl->initialized || handle == 0)
+			return;
+		//按句柄查找登记项（条目数很少，线性查找足够）
+		for (auto it = impl->mesh_cache.begin(); it != impl->mesh_cache.end(); ++it)
+		{
+			//跳过非目标项
+			if (it->second.handle != handle)
+				continue;
+			//仍有其它引用：只减计数
+			if (it->second.refs > 1)
+			{
+				it->second.refs -= 1;
+				return;
+			}
+			//归零：删条目后真正卸载
+			impl->mesh_cache.erase(it);
+			mesh_unload(handle);
+			return;
+		}
+		//未登记：按非共享资源处理（兼容混用）
+		mesh_unload(handle);
+	}
+
+	//共享加载纹理文件（第四百二十五轮）
+	bool Renderer::texture_load_file_shared(uint64_t& handle_out, const std::string& path)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 共享纹理加载失败：尚未初始化");
+			return false;
+		}
+		//归一化键
+		const std::string key = asset_key_build("texture", path);
+		auto found = impl->texture_cache.find(key);
+		//命中：仅引用计数加一
+		if (found != impl->texture_cache.end())
+		{
+			found->second.refs += 1;
+			handle_out = found->second.handle;
+			return true;
+		}
+		//首次：正常加载后登记
+		uint64_t 句柄 = 0;
+		if (!texture_load_file(句柄, path))
+			return false;
+		Impl::Asset_Cache_Entry entry{};
+		entry.handle = 句柄;
+		entry.refs = 1;
+		impl->texture_cache.emplace(key, entry);
+		handle_out = 句柄;
+		return true;
+	}
+
+	//释放共享纹理（引用计数 -1；归零才真正卸载）
+	void Renderer::texture_release(uint64_t handle)
+	{
+		//未初始化或无效句柄
+		if (impl == nullptr || !impl->initialized || handle == 0)
+			return;
+		//按句柄查找登记项
+		for (auto it = impl->texture_cache.begin(); it != impl->texture_cache.end(); ++it)
+		{
+			//跳过非目标项
+			if (it->second.handle != handle)
+				continue;
+			//仍有其它引用：只减计数
+			if (it->second.refs > 1)
+			{
+				it->second.refs -= 1;
+				return;
+			}
+			//归零：删条目后真正卸载
+			impl->texture_cache.erase(it);
+			texture_unload(handle);
+			return;
+		}
+		//未登记：按非共享资源处理
+		texture_unload(handle);
+	}
+
+	//当前资产缓存条目数（诊断）
+	uint32_t Renderer::asset_cache_count(void) const
+	{
+		//未初始化：无缓存
+		if (impl == nullptr)
+			return 0;
+		return static_cast<uint32_t>(impl->mesh_cache.size() + impl->texture_cache.size());
 	}
 
 	//登记材质（图形管线 ＋ 纹理 ＋ 混合档）
