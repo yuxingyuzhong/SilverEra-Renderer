@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 //预编译头
 #include "Application/Renderer/common/前置头文件包含.h"
 //光源数据记录（Vulkan-free；第二百六十五轮）
