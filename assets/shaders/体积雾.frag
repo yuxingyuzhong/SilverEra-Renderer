@@ -8,7 +8,7 @@ post_param.x = 密度（0 = 关闭，原样输出；0.001..1）
 post_param.y = 高度衰减系数（0..4；> 0 时按 exp(−系数 × max(世界 Y, 0)) 逐点衰减）
 post_param.z = 最大步进距离（世界单位，1..50）
 post_param.w = 步数缩放（0.25..2，对应 8..48 步）
-post_color.rgb = 雾颜色（后处理第三组推送常量，offset 112）
+post_color.rgb = 雾颜色（后处理第三组推送常量，offset 112）`r`npost_extra.x = 雾基准高度（世界 Y；第四百零四轮；默认 0 = 与引入前一致）
 天空（深度 = 1）按远平面距离计步，故远景整体被雾覆盖，近景薄。
 注意：MSAA 开启时主 pass 的多重采样深度由场景 pass 结束时按样本 0 解析到单采样深度图（第一百九十轮），故本段可直接使用。
 */
@@ -54,6 +54,8 @@ layout(push_constant) uniform Push_Post
 	layout(offset = 80) vec4 size_xy;
 	layout(offset = 96) vec4 post_param;
 	layout(offset = 112) vec4 post_color;
+	/* 逐级额外四参（第四百零四轮；x = 雾基准高度（世界 Y；默认 0 = 与引入前一致）） */
+	layout(offset = 128) vec4 post_extra;
 } push;
 
 //最大步进次数上限（固定，保证各硬件行为一致）
@@ -127,14 +129,18 @@ void main()
 	float falloff = clamp(push.post_param.y, 0.0, 4.0);
 	//密度噪声强度（第三组推送 alpha；0 = 均匀雾）
 	float noise_strength = clamp(push.post_color.a, 0.0, 1.0);
+	/* 雾基准高度（第四百零四轮；世界 Y，默认 0）
+	   高度衰减以该高度为起点：基准以下保持全密度、以上按 falloff 指数衰减；
+	   基准 0 时与引入前逐字节一致（max(y-0,0) == max(y,0)）。 */
+	float base_height = push.post_extra.x;
 
 	//沿视线累积光学厚度（中点采样）
 	float optical = 0.0;
 	for (int step = 0; step < step_count; ++step)
 	{
 		vec3 position = camera + ray_dir * (step_length * (float(step) + 0.5));
-		//高度衰减：世界 Y 越高密度越低（0 以下不再衰减）
-		float height_density = falloff > 0.0 ? exp(-falloff * max(position.y, 0.0)) : 1.0;
+		//高度衰减：相对基准高度，越高密度越低（基准以下不再衰减）
+		float height_density = falloff > 0.0 ? exp(-falloff * max(position.y - base_height, 0.0)) : 1.0;
 		//噪声调制（絮状浓淡）
 		float noise_density = fog_noise(position, noise_strength);
 		optical += density * height_density * noise_density * step_length;
