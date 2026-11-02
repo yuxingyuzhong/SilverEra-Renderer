@@ -14,6 +14,16 @@ stb_image 实现（**全层唯一**定义 STB_IMAGE_IMPLEMENTATION 的编译单�
 #include "external/stb/stb_image.h"
 #pragma warning(pop)
 
+namespace
+{
+	//UTF-8 字符串 → 文件系统路径（中文路径按 u8 解释；第四百二十八轮）
+	std::filesystem::path path_from_utf8(const std::string& text)
+	{
+		std::u8string u8(reinterpret_cast<const char8_t*>(text.data()), text.size());
+		return std::filesystem::path(u8);
+	}
+}
+
 namespace engine
 {
 	/*
@@ -32,8 +42,8 @@ namespace engine
 			return false;
 		}
 
-		//以二进制方式打开并定位到末尾取文件长度
-		std::ifstream file(path, std::ios::binary | std::ios::ate);
+		//以二进制方式打开并定位到末尾取文件长度（路径按 UTF-8 解释，支持中文目录）
+		std::ifstream file(path_from_utf8(path), std::ios::binary | std::ios::ate);
 		//若文件不存在或不可读
 		if (!file)
 		{
