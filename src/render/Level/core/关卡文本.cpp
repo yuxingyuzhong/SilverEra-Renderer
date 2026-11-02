@@ -224,6 +224,9 @@ namespace engine
 			//聚光灯阴影序号（第四百八十一轮；0..7）
 			if (light.spot_shadow_index < 0 || light.spot_shadow_index > 7)
 				return false;
+			//多盏聚光灯阴影开关（第五百零七轮；0 / 1）
+			if (light.spot_shadow_all < 0 || light.spot_shadow_all > 1)
+				return false;
 
 			//有效点光槽位
 			for (uint32_t index = 0; index < light.point_count && index < MAX_POINT_LIGHTS; ++index)
@@ -675,6 +678,18 @@ namespace engine
 						return false;
 					}
 					out.light.spot_shadow_index = static_cast<int>(index);
+				}
+				//多盏聚光灯阴影（第五百零七轮；0 / 1）
+				else if (key == "spot_shadow_all")
+				{
+					uint32_t enabled = 0;
+					//越界与多余字段由 uint_field_read 判定
+					if (!uint_field_read(stream, enabled) || enabled > 1)
+					{
+						logger.warn("关卡:: light spot_shadow_all 字段非法");
+						return false;
+					}
+					out.light.spot_shadow_all = static_cast<int>(enabled);
 				}
 				else if (key == "pbr")
 				{
@@ -1134,6 +1149,8 @@ namespace engine
 		}
 		//聚光灯阴影序号（第四百八十一轮）
 		integer_write(file, "light spot_shadow_index", static_cast<long long>(level.light.spot_shadow_index));
+		//多盏聚光灯阴影开关（第五百零七轮）
+		integer_write(file, "light spot_shadow_all", static_cast<long long>(level.light.spot_shadow_all));
 		{
 			//PBR-lite 三项
 			file << "light pbr " << (level.light.pbr_enabled != 0 ? 1 : 0)

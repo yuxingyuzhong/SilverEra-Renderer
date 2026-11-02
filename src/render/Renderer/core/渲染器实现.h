@@ -616,15 +616,17 @@ namespace engine
 		//阴影目标句柄（第五十二轮；0 = 未创建）
 		uint64_t shadow_target = 0;
 		/*
-		聚光灯阴影目标（第四百八十三轮；方案 B 基础设施）
-		与 shadow_target 同参数的独立第二张图，采样绑定 set 1 binding 9；
-		本轮仅创建与绑定，着色器尚未采样，故画面与引入前逐字节一致。
+		聚光灯阴影目标（第四百八十三轮；方案 B 基础设施；第五百零七轮扩为 4 张）
+		与 shadow_target 同参数的独立阴影图，采样绑定 set 1 binding 9 的数组元素 0..3；
+		元素 0 与旧单盏行为兼容，其余三张供多盏聚光灯各自投影。
 		*/
-		uint64_t spot_shadow_target = 0;
-		//聚光灯阴影矩阵（第四百八十三轮；所选聚光灯的透视视图投影，关闭时零矩阵）
-		float spot_view_proj[16] = {};
-		//聚光灯阴影深度跨度（第四百八十四轮；法线偏移换算用，0 = 无有效聚光灯）
-		float spot_shadow_span = 0.0f;
+		uint64_t spot_shadow_targets[4] = {};
+		//聚光灯阴影矩阵（第四百八十三轮；第五百零七轮扩为 4 份，关闭时为零矩阵）
+		float spot_view_proj_tiles[4][16] = {};
+		//聚光灯阴影深度跨度（第四百八十四轮；第五百零七轮扩为 4 份，0 = 该瓦片无有效聚光灯）
+		float spot_shadow_spans[4] = {};
+		//聚光灯阴影槽位映射（第五百零七轮；8 个前向槽位各自对应的瓦片号，-1 = 不投影）
+		float spot_shadow_slot_tiles[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
 		bool shadow_enabled = false;
 		/*
@@ -642,6 +644,12 @@ namespace engine
 		float spot_shadow_strength = 1.0f;
 		//聚光灯阴影序号（第四百七十九轮；指向已登记聚光灯槽位 0..7，越界视为无聚光阴影）
 		int spot_shadow_index = 0;
+		/*
+		多盏聚光灯阴影（第五百零七轮）
+		开启时前 4 盏聚光灯按声明顺序各占瓦片 0..3，各自独立阴影图；
+		关闭时沿用 spot_shadow_index 的单盏语义（写入瓦片 0），画面与引入前一致。
+		*/
+		bool spot_shadow_all = false;
 		/*
 		阴影光源正交视锥（第一百零七轮）
 		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
@@ -965,8 +973,8 @@ namespace engine
 		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		//场景 UBO 浮点数（324 个 32 位浮点 = 1296 字节；第四百八十四轮追加 spot_shadow_extra）
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 324;
+		//场景 UBO 浮点数（384 个 32 位浮点 = 1536 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射）
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 384;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*

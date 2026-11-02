@@ -95,11 +95,12 @@ namespace engine
 
 		/*
 		描述符池与每帧槽描述符集
-		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 10；
-		采样器布局已含 10 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
+		池容量：UNIFORM_BUFFER × frame_overlap ＋ COMBINED_IMAGE_SAMPLER × frame_overlap × 13；
+		采样器布局含 10 个 binding（0 = 当前源、1 = 场景目标 / 阴影图、2 = 场景深度、
 		3 = 法线贴图、4 = 粗糙度贴图、5 = 天空盒、6 = 自发光贴图、
-		7 = 环境光遮蔽贴图、8 = 金属度贴图、9 = 聚光灯阴影图；第四百八十三轮由 9 增为 10），
-		故采样器类描述符按十倍计；
+		7 = 环境光遮蔽贴图、8 = 金属度贴图、9 = 聚光灯阴影图数组（4 个元素）；
+		第五百零七轮 binding 9 由 1 个元素扩为 4，故单集描述符数为 9 + 4 = 13），
+		故采样器类描述符按十三倍计；
 		最大集数 = frame_overlap × (2 + POST_SET_PER_SLOT)。
 		*/
 		VkDescriptorPoolSize pool_sizes[3]{};
@@ -112,7 +113,7 @@ namespace engine
 		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		//采样器类描述符按「场景集 ＋ 后处理集 ＋ 逐绘制项集」三部分计
 		pool_sizes[2].descriptorCount = config.frame_overlap
-			* (1 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 10;
+			* (1 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 13;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
@@ -615,11 +616,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 1296 字节：… ＋ 聚光灯阴影矩阵 ＋ 附加项；第四百八十四轮由 1280 扩为 1296）
+		//缓冲描述（场景 UBO 1536 字节：… ＋ 四份聚光灯矩阵 / 跨度 / 槽位映射；第五百零七轮由 1296 扩为 1536）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 1296;
+		buffer_info.range = 1536;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -700,11 +701,11 @@ namespace engine
 			return false;
 		}
 
-		//绑定 0：场景 UBO（范围与场景集一致，第四百八十四轮由 1280 扩为 1296）
+		//绑定 0：场景 UBO（范围与场景集一致，第五百零七轮由 1296 扩为 1536）
 		VkDescriptorBufferInfo ubo_info{};
 		ubo_info.buffer = ubo_buffer;
 		ubo_info.offset = 0;
-		ubo_info.range = 1296;
+		ubo_info.range = 1536;
 		VkWriteDescriptorSet ubo_write{};
 		ubo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		ubo_write.dstSet = particle_sets[slot];
@@ -783,8 +784,8 @@ namespace engine
 	}
 
 	/*
-	逐绘制项采样器集一次性写入（第一百七十四轮；第四百八十三轮增 binding 9 聚光灯阴影图）
-	binding 0 = 反照率、1 = 阴影图、3 = 法线、4 = 粗糙度、5 = 天空盒、6 = 自发光、7 = 遮蔽、8 = 金属度、9 = 聚光灯阴影；
+	逐绘制项采样器集一次性写入（第一百七十四轮；第四百八十三轮增 binding 9；第五百零七轮 binding 9 扩为 4 元素）
+	binding 0 = 反照率、1 = 阴影图、3 = 法线、4 = 粗糙度、5 = 天空盒、6 = 自发光、7 = 遮蔽、8 = 金属度、9 = 聚光灯阴影图数组；
 	binding 2（场景深度）在场景绘制中不被采样，写默认白纹理占位以保持描述符完整。
 	*/
 	bool Pipeline_Context::draw_set_bind(uint32_t slot, uint32_t index, VkSampler sampler,
@@ -804,16 +805,21 @@ namespace engine
 			return false;
 		}
 
-		//十条绑定的图像描述（binding 2 以反照率视图占位，场景着色器不采样它）
-		const VkImageView views[10] = { albedo_view, shadow_view, albedo_view, normal_view, roughness_view,
-			sky_view, emissive_view, ao_view, metallic_view, spot_shadow_view };
-		VkDescriptorImageInfo infos[10]{};
+		//十三条绑定的图像描述（binding 2 以反照率视图占位；binding 9 的 4 个数组元素共用同一视图）
+		const VkImageView views[13] = { albedo_view, shadow_view, albedo_view, normal_view, roughness_view,
+			sky_view, emissive_view, ao_view, metallic_view, spot_shadow_view, spot_shadow_view,
+			spot_shadow_view, spot_shadow_view };
+		VkDescriptorImageInfo infos[13]{};
 		VkWriteDescriptorSet writes[10]{};
-		for (uint32_t binding = 0; binding < 10; ++binding)
+		for (uint32_t binding = 0; binding < 13; ++binding)
 		{
 			infos[binding].sampler = sampler;
 			infos[binding].imageView = views[binding];
 			infos[binding].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+		//binding 0..8：单值写
+		for (uint32_t binding = 0; binding < 9; ++binding)
+		{
 			writes[binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			writes[binding].dstSet = target;
 			writes[binding].dstBinding = binding;
@@ -822,14 +828,22 @@ namespace engine
 			writes[binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			writes[binding].pImageInfo = &infos[binding];
 		}
+		//binding 9：4 个数组元素一次写入
+		writes[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[9].dstSet = target;
+		writes[9].dstBinding = 9;
+		writes[9].dstArrayElement = 0;
+		writes[9].descriptorCount = 4;
+		writes[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[9].pImageInfo = &infos[9];
 		//一次提交全部绑定
 		vkUpdateDescriptorSets(device, 10, writes, 0, nullptr);
 		return true;
 	}
 
 	/*
-	逐绘制项采样集的批量写入（第二百二十一轮，优化；第四百八十三轮增 binding 9）
-	把 count 项 × 10 条绑定合并为一次 vkUpdateDescriptorSets；
+	逐绘制项采样集的批量写入（第二百二十一轮，优化；第四百八十三轮增 binding 9；第五百零七轮扩为 4 元素数组）
+	把 count 项 × 13 条描述符（9 条单值 ＋ binding 9 的 4 个数组元素）合并为一次 vkUpdateDescriptorSets；
 	各项目标集与逐项调用一致（draw_set_get(slot, index)），写内容逐字段相同，故画面逐字节不变。
 	*/
 	bool Pipeline_Context::draw_sets_bind_batch(uint32_t slot, const Draw_Set_Views* views, uint32_t count)
@@ -843,12 +857,12 @@ namespace engine
 			logger.error("管线:: 逐绘制项采样集批量写入参数不完整");
 			return false;
 		}
-		//每条绑定的写记录数（与逐项实现同布局）
-		const uint32_t binding_count = 10;
+		//每条目的描述符数（13）与写记录数（9 条单值 ＋ 1 条数组写 = 10）
+		const uint32_t descriptor_count = 13;
+		const uint32_t record_count = 10;
 		//复用缓冲（容量不足时扩容一次，之后不再分配）
-		const std::size_t write_count = static_cast<std::size_t>(count) * binding_count;
-		draw_batch_infos.resize(write_count);
-		draw_batch_writes.resize(write_count);
+		draw_batch_infos.resize(static_cast<std::size_t>(count) * descriptor_count);
+		draw_batch_writes.resize(static_cast<std::size_t>(count) * record_count);
 		for (uint32_t index = 0; index < count; ++index)
 		{
 			const Draw_Set_Views& view = views[index];
@@ -858,35 +872,50 @@ namespace engine
 			if (target == VK_NULL_HANDLE || view.sampler == VK_NULL_HANDLE || view.albedo == VK_NULL_HANDLE
 				|| view.normal == VK_NULL_HANDLE || view.roughness == VK_NULL_HANDLE || view.emissive == VK_NULL_HANDLE
 				|| view.ao == VK_NULL_HANDLE || view.metallic == VK_NULL_HANDLE || view.shadow == VK_NULL_HANDLE
-				|| view.sky == VK_NULL_HANDLE || view.spot_shadow == VK_NULL_HANDLE)
+				|| view.sky == VK_NULL_HANDLE
+				|| view.spot_shadow[0] == VK_NULL_HANDLE || view.spot_shadow[1] == VK_NULL_HANDLE
+				|| view.spot_shadow[2] == VK_NULL_HANDLE || view.spot_shadow[3] == VK_NULL_HANDLE)
 			{
 				logger.error("管线:: 逐绘制项采样集批量写入的第 {} 条参数不完整", index);
 				return false;
 			}
-			//十条绑定的图像描述（binding 2 = 场景深度，未提供时以反照率视图占位，场景着色器不采样它）
+			//十三条描述符的图像描述（binding 2 = 场景深度，未提供时以反照率视图占位，场景着色器不采样它）
 			const VkImageView depth_view = view.depth != VK_NULL_HANDLE ? view.depth : view.albedo;
 			const VkSampler depth_sampler = view.depth_sampler != VK_NULL_HANDLE ? view.depth_sampler : view.sampler;
-			const VkImageView images[binding_count] = { view.albedo, view.shadow, depth_view, view.normal,
-				view.roughness, view.sky, view.emissive, view.ao, view.metallic, view.spot_shadow };
-			for (uint32_t binding = 0; binding < binding_count; ++binding)
+			const VkImageView images[descriptor_count] = { view.albedo, view.shadow, depth_view, view.normal,
+				view.roughness, view.sky, view.emissive, view.ao, view.metallic,
+				view.spot_shadow[0], view.spot_shadow[1], view.spot_shadow[2], view.spot_shadow[3] };
+			//图像描述（每项 13 条）
+			const std::size_t info_base = static_cast<std::size_t>(index) * descriptor_count;
+			for (uint32_t descriptor = 0; descriptor < descriptor_count; ++descriptor)
 			{
-				const std::size_t write_index = static_cast<std::size_t>(index) * binding_count + binding;
-				//图像描述
-				draw_batch_infos[write_index].sampler = binding == 2 ? depth_sampler : view.sampler;
-				draw_batch_infos[write_index].imageView = images[binding];
-				draw_batch_infos[write_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				//写记录
-				draw_batch_writes[write_index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				draw_batch_writes[write_index].dstSet = target;
-				draw_batch_writes[write_index].dstBinding = binding;
-				draw_batch_writes[write_index].dstArrayElement = 0;
-				draw_batch_writes[write_index].descriptorCount = 1;
-				draw_batch_writes[write_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-				draw_batch_writes[write_index].pImageInfo = &draw_batch_infos[write_index];
+				draw_batch_infos[info_base + descriptor].sampler = descriptor == 2 ? depth_sampler : view.sampler;
+				draw_batch_infos[info_base + descriptor].imageView = images[descriptor];
+				draw_batch_infos[info_base + descriptor].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			}
+			//写记录（每项 10 条：binding 0..8 单值、binding 9 数组）
+			const std::size_t record_base = static_cast<std::size_t>(index) * record_count;
+			for (uint32_t binding = 0; binding < 9; ++binding)
+			{
+				draw_batch_writes[record_base + binding].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				draw_batch_writes[record_base + binding].dstSet = target;
+				draw_batch_writes[record_base + binding].dstBinding = binding;
+				draw_batch_writes[record_base + binding].dstArrayElement = 0;
+				draw_batch_writes[record_base + binding].descriptorCount = 1;
+				draw_batch_writes[record_base + binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				draw_batch_writes[record_base + binding].pImageInfo = &draw_batch_infos[info_base + binding];
+			}
+			//binding 9：4 个数组元素一次写入
+			draw_batch_writes[record_base + 9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			draw_batch_writes[record_base + 9].dstSet = target;
+			draw_batch_writes[record_base + 9].dstBinding = 9;
+			draw_batch_writes[record_base + 9].dstArrayElement = 0;
+			draw_batch_writes[record_base + 9].descriptorCount = 4;
+			draw_batch_writes[record_base + 9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			draw_batch_writes[record_base + 9].pImageInfo = &draw_batch_infos[info_base + 9];
 		}
 		//一次提交全部条目
-		vkUpdateDescriptorSets(device, static_cast<uint32_t>(write_count), draw_batch_writes.data(), 0, nullptr);
+		vkUpdateDescriptorSets(device, static_cast<uint32_t>(draw_batch_writes.size()), draw_batch_writes.data(), 0, nullptr);
 		return true;
 	}
 
@@ -922,12 +951,12 @@ namespace engine
 		return true;
 	}
 
-	//向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9；第四百八十三轮）
-	bool Pipeline_Context::spot_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	//向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9 的数组元素 index；第五百零七轮扩为 4 元素）
+	bool Pipeline_Context::spot_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index)
 	{
-		//前置：设备、目标集、采样器与视图齐备
+		//前置：设备、目标集、采样器与视图齐备，索引在数组范围内
 		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
-			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE || index >= 4)
 		{
 			logger.error("管线:: 聚光灯阴影图绑定参数不完整");
 			return false;
@@ -939,12 +968,12 @@ namespace engine
 		image_info.imageView = view;
 		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		//描述符写（set 1 binding 9）
+		//描述符写（set 1 binding 9，数组元素 index）
 		VkWriteDescriptorSet write{};
 		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		write.dstSet = sampler_sets[slot];
 		write.dstBinding = 9;
-		write.dstArrayElement = 0;
+		write.dstArrayElement = index;
 		write.descriptorCount = 1;
 		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		write.pImageInfo = &image_info;

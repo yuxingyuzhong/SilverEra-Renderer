@@ -129,7 +129,7 @@ namespace engine
 		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
 		*/
 		uint64_t shadow_signature_build(const float light_view_proj[16], const float light_view_proj_far[16],
-			const float light_view_proj_far2[16], const float spot_view_proj[16],
+			const float light_view_proj_far2[16], const float spot_view_proj_tiles[64],
 			const float* instances, std::size_t instance_count, std::size_t shadow_item_count,
 			uint32_t shadow_size, uint32_t cascade_count)
 		{
@@ -152,9 +152,9 @@ namespace engine
 			//第三级级联矩阵（第一百四十六轮；非三级时为零矩阵）
 			for (std::size_t index = 0; index < 16; ++index)
 				mix_float(light_view_proj_far2[index]);
-			//聚光灯阴影矩阵（第四百八十四轮；未开启时为零矩阵，不影响既有签名分布）
-			for (std::size_t index = 0; index < 16; ++index)
-				mix_float(spot_view_proj[index]);
+			//聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为 4 瓦片 64 浮点；未开启时为零矩阵，不影响既有签名分布）
+			for (std::size_t index = 0; index < 64; ++index)
+				mix_float(spot_view_proj_tiles[index]);
 			//实例矩阵（每项 16 个 float）
 			for (std::size_t index = 0; index < instance_count; ++index)
 				mix_float(instances[index]);
@@ -1789,36 +1789,40 @@ namespace engine
 					return false;
 				}
 			/*
-			③ 聚光灯阴影目标（第四百八十三轮；方案 B 基础设施）
-			与方向光阴影目标同参数的第二张图；写入各帧槽场景采样集 binding 9。
-			本轮着色器尚未采样 binding 9，故创建与绑定不改变画面。
+			③ 聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张，按需建立）
+			瓦片 0 恒建（与旧单盏行为一致）；瓦片 1..3 仅在 spot_shadow_all 首次开启时按需创建，
+			避免未使用多盏时的显存与初始化开销。
 			*/
-			if (!impl->render_target.target_create(impl->spot_shadow_target, impl->shadow_size, impl->shadow_size,
-				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			for (std::size_t tile = 0; tile < 1; ++tile)
 			{
-				logger.error("渲染器:: 聚光灯阴影目标创建失败");
-				shutdown();
-				return false;
-			}
-			VkImage spot_shadow_image = VK_NULL_HANDLE;
-			VkImageView spot_shadow_view = VK_NULL_HANDLE;
-			VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
-			VkExtent2D spot_shadow_extent{};
-			if (!impl->render_target.target_get(impl->spot_shadow_target, spot_shadow_image, spot_shadow_view,
-				spot_shadow_depth_view, spot_shadow_extent))
-			{
-				logger.error("渲染器:: 聚光灯阴影目标查询失败");
-				shutdown();
-				return false;
-			}
-			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-				//把聚光灯阴影图写入该帧槽场景采样集的 binding 9
-				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, spot_shadow_view))
+				if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size, impl->shadow_size,
+					VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 				{
-					logger.error("渲染器:: 聚光灯阴影图绑定失败（帧槽 {}）", slot);
+					logger.error("渲染器:: 聚光灯阴影目标创建失败（瓦片 {}）", tile);
 					shutdown();
 					return false;
 				}
+				VkImage spot_shadow_image = VK_NULL_HANDLE;
+				VkImageView spot_shadow_view = VK_NULL_HANDLE;
+				VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
+				VkExtent2D spot_shadow_extent{};
+				if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image, spot_shadow_view,
+					spot_shadow_depth_view, spot_shadow_extent))
+				{
+					logger.error("渲染器:: 聚光灯阴影目标查询失败（瓦片 {}）", tile);
+					shutdown();
+					return false;
+				}
+				for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					//把该瓦片阴影图写入帧槽场景采样集 binding 9 的对应数组元素
+					if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, spot_shadow_view,
+						static_cast<uint32_t>(tile)))
+					{
+						logger.error("渲染器:: 聚光灯阴影图绑定失败（帧槽 {}，瓦片 {}）", slot, tile);
+						shutdown();
+						return false;
+					}
+			}
 		}
 		logger.info("渲染器:: 初始化完成（校验层 {}）", impl->device.validation_get() ? "开" : "关");
 		return true;
@@ -1859,11 +1863,14 @@ namespace engine
 				render_target_destroy(impl->shadow_target);
 				impl->shadow_target = 0;
 			}
-			//归还聚光灯阴影目标（第四百八十三轮）
-			if (impl->spot_shadow_target != 0)
+			//归还聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张）
+			for (std::size_t tile = 0; tile < 4; ++tile)
 			{
-				render_target_destroy(impl->spot_shadow_target);
-				impl->spot_shadow_target = 0;
+				if (impl->spot_shadow_targets[tile] != 0)
+				{
+					render_target_destroy(impl->spot_shadow_targets[tile]);
+					impl->spot_shadow_targets[tile] = 0;
+				}
 			}
 			//阴影图已失效（第五十五轮）
 			impl->shadow_pass_ready = false;
@@ -2343,42 +2350,71 @@ namespace engine
 			}
 		}
 		/*
-		聚光灯阴影矩阵（第四百八十四轮；方案 B）
-		仅所选槽位（spot_shadow_index）：透视视图投影（半锥角 = 外锥角、近 0.1、远 = 衰减半径），单级；
-		写入独立的 spot_view_proj（方向光矩阵保持原样，两图互不覆盖）；
-		序号越界或该槽不是聚光灯时视为无聚光阴影（spot_view_proj 为零矩阵）。
+		聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为多盏）
+		两路径：
+		① spot_shadow_all 开启：前 4 盏聚光灯按声明顺序各占瓦片 0..3，各写一份矩阵与跨度；
+		② 关闭：仅 spot_shadow_index 所选槽位写入瓦片 0（与旧单盏行为逐字节一致）。
+		同时把「前向槽位 → 瓦片号」写入槽位映射，着色器按灯查找对应阴影图。
 		*/
-		impl->spot_shadow_span = 0.0f;
-		std::memset(impl->spot_view_proj, 0, sizeof(impl->spot_view_proj));
-		const bool spot_shadow_light_valid = impl->spot_shadow_enabled
-			&& impl->spot_shadow_index >= 0
-			&& impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
-			&& impl->point_lights[impl->spot_shadow_index].is_spot;
-		if (spot_shadow_light_valid)
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
-			const Impl::Point_Light& spot = impl->point_lights[impl->spot_shadow_index];
-			glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
-			//方向退化时取默认传播方向
-			if (glm::dot(spot_direction, spot_direction) < 1e-12f)
-				spot_direction = glm::vec3(0.0f, 0.0f, -1.0f);
-			spot_direction = glm::normalize(spot_direction);
-			//上向量与光向平行时改用 X 轴（避免 lookAt 退化）
-			glm::vec3 spot_up = glm::abs(spot_direction.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-			glm::vec3 spot_position(spot.position[0], spot.position[1], spot.position[2]);
-			//外锥余弦反解半锥角（钳到 (0.02, 1.5) 弧度）
-			float outer_cos = spot.spot_outer_cos;
-			outer_cos = outer_cos < -0.999f ? -0.999f : (outer_cos > 0.999f ? 0.999f : outer_cos);
-			float half_angle = std::acos(outer_cos);
-			half_angle = half_angle < 0.02f ? 0.02f : (half_angle > 1.5f ? 1.5f : half_angle);
-			//衰减半径即远平面（钳到 ≥ 0.2）
-			float far_plane = spot.radius > 0.2f ? spot.radius : 0.2f;
-			glm::mat4 spot_view = glm::lookAt(spot_position, spot_position + spot_direction, spot_up);
-			glm::mat4 spot_proj = glm::perspective(2.0f * half_angle, 1.0f, 0.1f, far_plane);
-			spot_proj[1][1] *= -1.0f;
-			glm::mat4 spot_vp = spot_proj * spot_view;
-			std::memcpy(impl->spot_view_proj, glm::value_ptr(spot_vp), sizeof(float) * 16);
-			//本片深度跨度（着色器法线偏移换算用）
-			impl->spot_shadow_span = far_plane - 0.1f;
+			std::memset(impl->spot_view_proj_tiles[tile], 0, sizeof(impl->spot_view_proj_tiles[tile]));
+			impl->spot_shadow_spans[tile] = 0.0f;
+		}
+		for (std::size_t slot = 0; slot < 8; ++slot)
+			impl->spot_shadow_slot_tiles[slot] = -1.0f;
+		//是否存在至少一盏有效聚光阴影
+		bool spot_shadow_light_valid = false;
+		if (impl->spot_shadow_enabled)
+		{
+			//可投影的光源槽位（最多 4 盏，按声明顺序）
+			int candidates[4] = { -1, -1, -1, -1 };
+			//候选数量
+			std::size_t candidate_count = 0;
+			if (impl->spot_shadow_all)
+			{
+				//多盏：收集前 4 盏聚光灯
+				for (std::size_t index = 0; index < impl->point_light_count && candidate_count < 4; ++index)
+					if (impl->point_lights[index].is_spot)
+						candidates[candidate_count++] = static_cast<int>(index);
+			}
+			//单盏：仅所选槽位且必须是聚光灯
+			else if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
+				&& impl->point_lights[impl->spot_shadow_index].is_spot)
+			{
+				candidates[0] = impl->spot_shadow_index;
+				candidate_count = 1;
+			}
+			for (std::size_t tile = 0; tile < candidate_count; ++tile)
+			{
+				const Impl::Point_Light& spot = impl->point_lights[static_cast<std::size_t>(candidates[tile])];
+				glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
+				//方向退化时取默认传播方向
+				if (glm::dot(spot_direction, spot_direction) < 1e-12f)
+					spot_direction = glm::vec3(0.0f, 0.0f, -1.0f);
+				spot_direction = glm::normalize(spot_direction);
+				//上向量与光向平行时改用 X 轴（避免 lookAt 退化）
+				glm::vec3 spot_up = glm::abs(spot_direction.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+				glm::vec3 spot_position(spot.position[0], spot.position[1], spot.position[2]);
+				//外锥余弦反解半锥角（钳到 (0.02, 1.5) 弧度）
+				float outer_cos = spot.spot_outer_cos;
+				outer_cos = outer_cos < -0.999f ? -0.999f : (outer_cos > 0.999f ? 0.999f : outer_cos);
+				float half_angle = std::acos(outer_cos);
+				half_angle = half_angle < 0.02f ? 0.02f : (half_angle > 1.5f ? 1.5f : half_angle);
+				//衰减半径即远平面（钳到 ≥ 0.2）
+				float far_plane = spot.radius > 0.2f ? spot.radius : 0.2f;
+				glm::mat4 spot_view = glm::lookAt(spot_position, spot_position + spot_direction, spot_up);
+				glm::mat4 spot_proj = glm::perspective(2.0f * half_angle, 1.0f, 0.1f, far_plane);
+				spot_proj[1][1] *= -1.0f;
+				glm::mat4 spot_vp = spot_proj * spot_view;
+				std::memcpy(impl->spot_view_proj_tiles[tile], glm::value_ptr(spot_vp), sizeof(float) * 16);
+				//该瓦片深度跨度（着色器法线偏移换算用）
+				impl->spot_shadow_spans[tile] = far_plane - 0.1f;
+				//前向槽位 → 瓦片号（未登记到映射表的槽位恒为 -1）
+				if (candidates[tile] >= 0 && candidates[tile] < 8)
+					impl->spot_shadow_slot_tiles[candidates[tile]] = static_cast<float>(tile);
+				spot_shadow_light_valid = true;
+			}
 		}
 		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
@@ -2402,7 +2438,7 @@ namespace engine
 			const float* instance_floats = impl->pending_instances.empty()
 				? nullptr : impl->pending_instances.front().data();
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				impl->light_view_proj_far, impl->light_view_proj_far2, impl->spot_view_proj, instance_floats,
+				impl->light_view_proj_far, impl->light_view_proj_far2, &impl->spot_view_proj_tiles[0][0], instance_floats,
 				impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
 				shadow_item_count, impl->shadow_size, impl->cascade_count);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
@@ -2532,29 +2568,35 @@ namespace engine
 					}
 				}
 				/*
-				聚光灯阴影 pass（第四百八十四轮；方案 B）
-				方向光级联之外追加一遍：写入独立的 spot_shadow_target，单级整幅（无分片）；
-				复用同一阴影管线与实例缓冲，推送常量换成 spot_view_proj；清屏后整幅绘制。
+				聚光灯阴影 pass（第四百八十四轮；第五百零七轮扩为多瓦片）
+				方向光级联之外，按有效瓦片逐张追加：每张写入独立的 spot_shadow_targets[tile]，单级整幅（无分片）；
+				复用同一阴影管线与实例缓冲，推送常量换成该瓦片的矩阵；首张清屏，其后同样清屏（各自独立图）。
 				*/
-				if (spot_shadow_light_valid && impl->spot_shadow_target != 0)
+				if (spot_shadow_light_valid)
 				{
-					for (auto& shadow_item : shadow_items)
-						shadow_item.push_constants = impl->spot_view_proj;
-					Frame_Render_Target spot_target{};
-					if (!impl->render_target.target_get(impl->spot_shadow_target, spot_target.color_image,
-						spot_target.color_view, spot_target.depth_view, spot_target.extent))
+					for (std::size_t tile = 0; tile < 4; ++tile)
 					{
-						logger.error("渲染器:: 聚光灯阴影目标附件查询失败");
-						return false;
-					}
-					spot_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
-					spot_target.depth_format = impl->swapchain.depth_format_get();
-					spot_target.sample_count = 1;
-					if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
-						static_cast<uint32_t>(shadow_items.size()), shadow_clear, nullptr, nullptr, true))
-					{
-						logger.error("渲染器:: 聚光灯阴影 pass 提交失败");
-						return false;
+						//该瓦片无有效聚光灯则跳过
+						if (impl->spot_shadow_spans[tile] <= 0.0f || impl->spot_shadow_targets[tile] == 0)
+							continue;
+						for (auto& shadow_item : shadow_items)
+							shadow_item.push_constants = impl->spot_view_proj_tiles[tile];
+						Frame_Render_Target spot_target{};
+						if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
+							spot_target.color_view, spot_target.depth_view, spot_target.extent))
+						{
+							logger.error("渲染器:: 聚光灯阴影目标附件查询失败（瓦片 {}）", tile);
+							return false;
+						}
+						spot_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
+						spot_target.depth_format = impl->swapchain.depth_format_get();
+						spot_target.sample_count = 1;
+						if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
+							static_cast<uint32_t>(shadow_items.size()), shadow_clear, nullptr, nullptr, true))
+						{
+							logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
+							return false;
+						}
 					}
 				}
 				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
@@ -2859,25 +2901,25 @@ namespace engine
 		scene_block[298] = static_cast<float>(impl->cluster_grid.y);
 		scene_block[299] = static_cast<float>(impl->cluster_grid.z);
 		/*
-		聚光灯阴影参数（第四百七十六 / 479 轮；x = 偏置、y = 软度、z = 强度、w = 阴影序号）
-		与方向光 shadow_params / shadow_strength 独立；聚光阴影未开启时着色器不读取本段。
-		序号取当前所选槽位（无有效聚光阴影时写 0，着色器不会匹配任何灯 → 恒 1）。
+		聚光灯阴影参数（第四百七十六 / 479 轮；x = 偏置、y = 软度、z = 强度、w = 开关）
+		与方向光 shadow_params / shadow_strength 独立；w > 0.5 表示本帧存在有效聚光阴影。
 		*/
 		scene_block[300] = impl->spot_shadow_bias;
 		scene_block[301] = impl->spot_shadow_softness;
 		scene_block[302] = impl->spot_shadow_strength;
+		//w = 开关（第五百零七轮起不再编码序号，序号改由槽位映射表达）
+		scene_block[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
 		/*
-		w = 序号 + 1（0 = 无有效聚光阴影；第四百八十四轮改为编码「开关 + 序号」，
-		使聚光阴影与方向光阴影互不依赖）。
+		聚光灯阴影矩阵 / 跨度 / 槽位映射（第五百零七轮）
+		304..367 = 4 份透视矩阵；368..371 = 4 份深度跨度；372..379 = 8 个前向槽位的瓦片号（-1 = 不投影）。
 		*/
-		scene_block[303] = spot_shadow_light_valid ? static_cast<float>(impl->spot_shadow_index + 1) : 0.0f;
-		/*
-		聚光灯阴影矩阵与跨度（第四百八十四轮；304..319 矩阵、320..323 附加项）
-		x = 本帧聚光灯深度跨度（法线偏移换算；0 = 无有效聚光灯），yzw 保留。
-		*/
-		for (std::size_t index = 0; index < 16; ++index)
-			scene_block[304 + index] = impl->spot_view_proj[index];
-		scene_block[320] = impl->spot_shadow_span;
+		for (std::size_t tile = 0; tile < 4; ++tile)
+			for (std::size_t index = 0; index < 16; ++index)
+				scene_block[304 + tile * 16 + index] = impl->spot_view_proj_tiles[tile][index];
+		for (std::size_t tile = 0; tile < 4; ++tile)
+			scene_block[368 + tile] = impl->spot_shadow_spans[tile];
+		for (std::size_t slot = 0; slot < 8; ++slot)
+			scene_block[372 + slot] = impl->spot_shadow_slot_tiles[slot];
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -3262,15 +3304,18 @@ namespace engine
 				impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
 					shadow_depth_view, shadow_extent);
 			}
-			//聚光灯阴影图视图（第四百八十三轮；未建立时以默认白纹理占位）
-			VkImageView spot_shadow_view = default_view;
-			if (impl->spot_shadow_target != 0)
+			//聚光灯阴影图视图（第四百八十三轮；第五百零七轮扩为 4 张；未建立时以默认白纹理占位）
+			VkImageView spot_shadow_views[4] = { default_view, default_view, default_view, default_view };
+			for (std::size_t tile = 0; tile < 4; ++tile)
 			{
+				//该瓦片未建立则保持默认白纹理
+				if (impl->spot_shadow_targets[tile] == 0)
+					continue;
 				VkImage spot_shadow_image = VK_NULL_HANDLE;
 				VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
 				VkExtent2D spot_shadow_extent{};
-				impl->render_target.target_get(impl->spot_shadow_target, spot_shadow_image, spot_shadow_view,
-					spot_shadow_depth_view, spot_shadow_extent);
+				impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image,
+					spot_shadow_views[tile], spot_shadow_depth_view, spot_shadow_extent);
 			}
 			//天空盒立方体视图（未设置时用内置纯白立方体）
 			VkImageView sky_view = VK_NULL_HANDLE;
@@ -3311,7 +3356,10 @@ namespace engine
 					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
 					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
 					//聚光灯阴影图（第四百八十三轮；binding 9）
-					views.spot_shadow = spot_shadow_view != VK_NULL_HANDLE ? spot_shadow_view : default_view;
+						views.spot_shadow[0] = spot_shadow_views[0];
+						views.spot_shadow[1] = spot_shadow_views[1];
+						views.spot_shadow[2] = spot_shadow_views[2];
+						views.spot_shadow[3] = spot_shadow_views[3];
 					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
 					views.depth = item.draw_depth;
 					views.depth_sampler = item.draw_depth_sampler;
@@ -9682,6 +9730,48 @@ namespace engine
 		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
 		//聚光灯阴影序号（第四百七十九轮；非法值由 setter 整次忽略）
 		spot_shadow_index_set(light.spot_shadow_index);
+		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
+		impl->spot_shadow_all = light.spot_shadow_all != 0;
+		/*
+		多盏瓦片按需建立（第五百零七轮）
+		首次开启时创建瓦片 1..3 并绑定到各帧槽 binding 9 的对应元素；
+		创建失败仅告警，该瓦片按「无聚光阴影」处理，不影响其余瓦片。
+		*/
+		if (impl->spot_shadow_all)
+		{
+			//默认采样器（与瓦片 0 共用）
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
+			for (std::size_t tile = 1; tile < 4; ++tile)
+			{
+				//已建立则跳过
+				if (impl->spot_shadow_targets[tile] != 0)
+					continue;
+				if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
+					impl->shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+				{
+					impl->spot_shadow_targets[tile] = 0;
+					logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 创建失败，按无阴影处理", tile);
+					continue;
+				}
+				VkImage image = VK_NULL_HANDLE;
+				VkImageView view = VK_NULL_HANDLE;
+				VkImageView depth_view = VK_NULL_HANDLE;
+				VkExtent2D extent{};
+				if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], image, view, depth_view, extent))
+				{
+					impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+					impl->spot_shadow_targets[tile] = 0;
+					logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 查询失败，按无阴影处理", tile);
+					continue;
+				}
+				for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+					if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, view,
+						static_cast<uint32_t>(tile)))
+						logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 绑定失败（帧槽 {}）", tile, slot);
+			}
+		}
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
@@ -12137,17 +12227,22 @@ namespace engine
 			logger.error("渲染器:: 阴影分辨率切换失败：旧阴影图查询失败");
 			return;
 		}
-		//旧聚光灯阴影图视图（第四百八十七轮；失败回绑用）
-		VkImage old_spot_image = VK_NULL_HANDLE;
-		VkImageView old_spot_view = VK_NULL_HANDLE;
-		VkImageView old_spot_depth_view = VK_NULL_HANDLE;
-		VkExtent2D old_spot_extent{};
-		if (impl->spot_shadow_target != 0
-			&& !impl->render_target.target_get(impl->spot_shadow_target, old_spot_image, old_spot_view,
-				old_spot_depth_view, old_spot_extent))
+		//旧聚光灯阴影图视图（第四百八十七轮；第五百零七轮扩为 4 张；失败回绑用）
+		VkImageView old_spot_views[4] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
-			logger.error("渲染器:: 阴影分辨率切换失败：旧聚光灯阴影图查询失败");
-			return;
+			//该瓦片未建立则跳过
+			if (impl->spot_shadow_targets[tile] == 0)
+				continue;
+			VkImage old_spot_image = VK_NULL_HANDLE;
+			VkImageView old_spot_depth_view = VK_NULL_HANDLE;
+			VkExtent2D old_spot_extent{};
+			if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], old_spot_image, old_spot_views[tile],
+				old_spot_depth_view, old_spot_extent))
+			{
+				logger.error("渲染器:: 阴影分辨率切换失败：旧聚光灯阴影图查询失败（瓦片 {}）", tile);
+				return;
+			}
 		}
 		//先建新目标（失败则旧目标原样保留）；颜色格式固定 UNORM，理由见 init ⑳ ①
 		uint64_t candidate = 0;
@@ -12158,15 +12253,23 @@ namespace engine
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影目标创建失败（保持 {}）", impl->shadow_size);
 			return;
 		}
-		//聚光灯阴影目标同分辨率重建（第四百八十七轮；与方向光共用 shadow_size）
-		uint64_t candidate_spot = 0;
-		if (impl->spot_shadow_target != 0
-			&& !impl->render_target.target_create(candidate_spot, resolution, resolution,
-				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+		//聚光灯阴影目标同分辨率重建（第四百八十七轮；第五百零七轮扩为 4 张）
+		uint64_t candidate_spot_tiles[4] = {};
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
-			logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影目标创建失败（保持 {}）", impl->shadow_size);
-			impl->render_target.target_destroy(candidate);
-			return;
+			//该瓦片未建立则跳过
+			if (impl->spot_shadow_targets[tile] == 0)
+				continue;
+			if (!impl->render_target.target_create(candidate_spot_tiles[tile], resolution, resolution,
+				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			{
+				logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影目标创建失败（瓦片 {}）", tile);
+				impl->render_target.target_destroy(candidate);
+				for (std::size_t created = 0; created < tile; ++created)
+					if (candidate_spot_tiles[created] != 0)
+						impl->render_target.target_destroy(candidate_spot_tiles[created]);
+				return;
+			}
 		}
 		//取新目标颜色视图与默认采样器
 		VkImage new_image = VK_NULL_HANDLE;
@@ -12180,23 +12283,31 @@ namespace engine
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
 			impl->render_target.target_destroy(candidate);
-			if (candidate_spot != 0)
-				impl->render_target.target_destroy(candidate_spot);
+			for (std::size_t tile = 0; tile < 4; ++tile)
+				if (candidate_spot_tiles[tile] != 0)
+					impl->render_target.target_destroy(candidate_spot_tiles[tile]);
 			return;
 		}
-		//新聚光灯阴影图颜色视图（第四百八十七轮）
-		VkImage new_spot_image = VK_NULL_HANDLE;
-		VkImageView new_spot_view = VK_NULL_HANDLE;
-		VkImageView new_spot_depth_view = VK_NULL_HANDLE;
-		VkExtent2D new_spot_extent{};
-		if (candidate_spot != 0
-			&& !impl->render_target.target_get(candidate_spot, new_spot_image, new_spot_view,
-				new_spot_depth_view, new_spot_extent))
+		//新聚光灯阴影图颜色视图（第四百八十七轮；第五百零七轮扩为 4 张）
+		VkImageView new_spot_views[4] = { default_view, default_view, default_view, default_view };
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
-			logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影图查询失败");
-			impl->render_target.target_destroy(candidate);
-			impl->render_target.target_destroy(candidate_spot);
-			return;
+			//该瓦片未重建则沿用默认白纹理占位
+			if (candidate_spot_tiles[tile] == 0)
+				continue;
+			VkImage new_spot_image = VK_NULL_HANDLE;
+			VkImageView new_spot_depth_view = VK_NULL_HANDLE;
+			VkExtent2D new_spot_extent{};
+			if (!impl->render_target.target_get(candidate_spot_tiles[tile], new_spot_image, new_spot_views[tile],
+				new_spot_depth_view, new_spot_extent))
+			{
+				logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影图查询失败（瓦片 {}）", tile);
+				impl->render_target.target_destroy(candidate);
+				for (std::size_t created = 0; created < 4; ++created)
+					if (candidate_spot_tiles[created] != 0)
+						impl->render_target.target_destroy(candidate_spot_tiles[created]);
+				return;
+			}
 		}
 		//逐帧槽改绑新阴影图
 		for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
@@ -12208,28 +12319,43 @@ namespace engine
 				for (std::size_t revert = 0; revert <= slot; ++revert)
 					impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
 				impl->render_target.target_destroy(candidate);
-				if (candidate_spot != 0)
-					impl->render_target.target_destroy(candidate_spot);
+				for (std::size_t tile = 0; tile < 4; ++tile)
+					if (candidate_spot_tiles[tile] != 0)
+						impl->render_target.target_destroy(candidate_spot_tiles[tile]);
 				return;
 			}
 		}
-		//逐帧槽改绑新聚光灯阴影图（第四百八十七轮）
-		if (candidate_spot != 0)
+		//逐帧槽改绑新聚光灯阴影图（第四百八十七轮；第五百零七轮四瓦片）
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
+			//该瓦片未重建则无需改绑
+			if (candidate_spot_tiles[tile] == 0)
+				continue;
 			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 			{
-				//任一槽失败：方向光与聚光两处绑定全部回绑旧图
-				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, new_spot_view))
+				//任一槽失败：方向光与全部聚光瓦片绑定一并回绑旧图
+				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, new_spot_views[tile],
+					static_cast<uint32_t>(tile)))
 				{
-					logger.error("渲染器:: 阴影分辨率切换失败：帧槽 {} 聚光灯阴影绑定失败，回绑旧图", slot);
+					logger.error("渲染器:: 阴影分辨率切换失败：帧槽 {} 聚光灯阴影绑定失败（瓦片 {}），回绑旧图", slot, tile);
 					for (std::size_t revert = 0; revert < impl->config.frame_overlap; ++revert)
 					{
 						impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
-						impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(revert), sampler,
-							old_spot_view != VK_NULL_HANDLE ? old_spot_view : new_spot_view);
+						for (std::size_t target_tile = 0; target_tile < 4; ++target_tile)
+						{
+							//优先回绑旧视图；旧瓦片不存在时保持新视图
+							if (candidate_spot_tiles[target_tile] == 0)
+								continue;
+							VkImageView revert_view = old_spot_views[target_tile] != VK_NULL_HANDLE
+								? old_spot_views[target_tile] : new_spot_views[target_tile];
+							impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(revert), sampler, revert_view,
+								static_cast<uint32_t>(target_tile));
+						}
 					}
 					impl->render_target.target_destroy(candidate);
-					impl->render_target.target_destroy(candidate_spot);
+					for (std::size_t created = 0; created < 4; ++created)
+						if (candidate_spot_tiles[created] != 0)
+							impl->render_target.target_destroy(candidate_spot_tiles[created]);
 					return;
 				}
 			}
@@ -12237,10 +12363,13 @@ namespace engine
 		//全部改绑成功后销毁旧目标并更新状态
 		impl->render_target.target_destroy(impl->shadow_target);
 		impl->shadow_target = candidate;
-		if (candidate_spot != 0)
+		for (std::size_t tile = 0; tile < 4; ++tile)
 		{
-			impl->render_target.target_destroy(impl->spot_shadow_target);
-			impl->spot_shadow_target = candidate_spot;
+			//未重建的瓦片保持原目标
+			if (candidate_spot_tiles[tile] == 0)
+				continue;
+			impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+			impl->spot_shadow_targets[tile] = candidate_spot_tiles[tile];
 		}
 		impl->shadow_size = resolution;
 		//新目标尚无有效内容，下一帧必须重绘阴影图

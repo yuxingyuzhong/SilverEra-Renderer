@@ -234,14 +234,14 @@ namespace engine
 			VkImageView ao_view, VkImageView metallic_view, VkImageView shadow_view, VkImageView sky_view,
 			VkImageView spot_shadow_view);
 		/*
-		逐绘制项采样集的批量写入（第二百二十一轮，优化；第四百八十三轮增 binding 9）
-		每项的采样器与十个视图先收集到 Draw_Set_Views，再由 draw_sets_bind_batch 一次性
-		提交 count × 10 条描述符写（每帧一次 vkUpdateDescriptorSets，替代逐项一次）。
+		逐绘制项采样集的批量写入（第二百二十一轮，优化；第四百八十三轮增 binding 9；第五百零七轮 binding 9 扩为 4 张）
+		每项的采样器与视图先收集到 Draw_Set_Views，再由 draw_sets_bind_batch 一次性
+		提交 count × 13 条描述符写（9 条单值绑定 ＋ binding 9 的 4 个数组元素）。
 		写入顺序与逐项调用完全一致（下标 0..count-1 对应 draw_set_get 的同一批集），故画面逐字节不变。
 		*/
 		struct Draw_Set_Views
 		{
-			//采样器（九条绑定共用）
+			//采样器（全部绑定共用）
 			VkSampler sampler = VK_NULL_HANDLE;
 			//反照率（binding 0；binding 2 也以它占位）
 			VkImageView albedo = VK_NULL_HANDLE;
@@ -259,8 +259,8 @@ namespace engine
 			VkImageView shadow = VK_NULL_HANDLE;
 			//天空盒（binding 5）
 			VkImageView sky = VK_NULL_HANDLE;
-			//聚光灯阴影图（binding 9；第四百八十三轮）
-			VkImageView spot_shadow = VK_NULL_HANDLE;
+			//聚光灯阴影图数组（binding 9 的 4 个数组元素；第五百零七轮）
+			VkImageView spot_shadow[4] = {};
 			/*
 			场景深度（binding 2；第三百六十六轮）
 			后处理用当前帧解析深度；粒子软粒子用 HiZ 历史深度（上一轮给 history 视图与最近邻采样器）。
@@ -278,8 +278,11 @@ namespace engine
 		场景片元以 binding 1 采样阴影图；后处理集的 binding 1 由 post_scene_bind 独立维护。
 		*/
 		bool shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view);
-		//向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9；第四百八十三轮）
-		bool spot_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view);
+		/*
+		向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9 的数组元素 index）
+		index 取 0..3（第五百零七轮由单张扩为 4 张）；默认写元素 0，与旧调用兼容。
+		*/
+		bool spot_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		//向第 slot 帧槽的后处理采样器集写采样器（set 1 binding 0；index ∈ [0, POST_SET_PER_SLOT)）
 		bool post_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		/*

@@ -59,7 +59,7 @@ layout(set = 1, binding = 7) uniform sampler2D ao_map;
 //金属度贴图（第一百六十九轮；set 1 binding 8；取红通道乘到金属度；默认白 → ×1）
 layout(set = 1, binding = 8) uniform sampler2D metallic_map;
 //聚光灯阴影图（第四百八十四轮；set 1 binding 9；与方向光阴影图独立）
-layout(set = 1, binding = 9) uniform sampler2D spot_shadow_map;
+layout(set = 1, binding = 9) uniform sampler2D spot_shadow_map[4];
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -125,12 +125,14 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 cluster_params;
 	vec4 spot_shadow_params;
 	/*
-	聚光灯阴影矩阵（第四百八十三 / 484 轮）
-	所选聚光灯的透视视图投影；未开启聚光阴影时为零矩阵（着色器不采样）。
+	聚光灯阴影矩阵 / 跨度 / 槽位映射（第四百八十三 / 484 轮；第五百零七轮扩为 4 瓦片）
+	spot_view_proj_tiles = 4 盏聚光灯各自的透视视图投影（未使用瓦片为零矩阵）；
+	spot_shadow_spans = 4 份深度跨度（法线偏移换算）；
+	spot_shadow_slots = 8 个前向槽位的瓦片号（-1 = 该灯不投影），每 4 个一组。
 	*/
-	mat4 spot_view_proj;
-	//聚光灯阴影附加项（第四百八十四轮；x = 深度跨度（法线偏移换算）、yzw 保留）
-	vec4 spot_shadow_extra;
+	mat4 spot_view_proj_tiles[4];
+	vec4 spot_shadow_spans;
+	vec4 spot_shadow_slots[2];
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
@@ -377,7 +379,7 @@ float cascade_span_of(int index)
 /*
 单级阴影因子（未乘阴影强度；count 为级数、index 为级序）
 矩阵、深度跨度与阴影图显式传入（第四百八十四轮）：方向光取级联矩阵 / 跨度 / binding 1，
-聚光取 spot_view_proj / spot_shadow_extra.x / binding 9。
+聚光取 spot_view_proj_tiles[i] / spot_shadow_spans[i] / binding 9 的数组元素 i。
 */
 float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_tex, int count, int index,
 	vec3 world_pos, vec3 normal, float bias, float softness)
@@ -443,22 +445,54 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 }
 
 /*
-聚光灯阴影系数（第四百七十四 / 476 / 479 / 484 轮）
-与方向光阴影完全独立：开关 + 序号由 spot_shadow_params.w（序号 + 1；0 = 关闭）表达，
-矩阵 / 跨度 / 阴影图分别取 spot_view_proj / spot_shadow_extra.x / binding 9；
-只有 light_index 与序号一致的那盏聚光灯被遮蔽。
+聚光灯阴影系数（第四百七十四 / 476 / 479 / 484 轮；第五百零七轮扩为多盏）
+与方向光阴影完全独立：开关由 spot_shadow_params.w 表达（> 0.5 = 本帧存在有效聚光阴影）；
+槽位映射 spot_shadow_slots 把「前向槽位」映射到「瓦片号」（-1 = 该灯不投影），
+矩阵 / 跨度 / 阴影图分别取对应瓦片的 spot_view_proj_tiles / spot_shadow_spans / binding 9 数组元素。
 */
 float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 {
 	//阴影总开关关闭，或聚光阴影未开启（w = 0）
 	if (scene.shadow_params.x < 0.5 || scene.spot_shadow_params.w < 0.5)
 		return 1.0;
-	//非所选聚光灯（第四百七十九轮；w 编码为序号 + 1）
-	if (light_index != int(scene.spot_shadow_params.w + 0.5) - 1)
+	//槽位越界（前向路径最多 8 盏）
+	if (light_index < 0 || light_index >= 8)
 		return 1.0;
-	float sample_factor = shadow_sample_core(scene.spot_view_proj, scene.spot_shadow_extra.x,
-		spot_shadow_map, 1, 0, world_pos, normal, scene.spot_shadow_params.x, scene.spot_shadow_params.y);
-	return mix(1.0, sample_factor, clamp(scene.spot_shadow_params.z, 0.0, 1.0));
+	//取该槽位所在组的映射（每 4 个槽位一组）
+	vec4 slots = scene.spot_shadow_slots[light_index / 4];
+	//该槽位的瓦片号（-1 = 不投影）
+	float tile_value = -1.0;
+	if (light_index % 4 == 0)
+		tile_value = slots.x;
+	else if (light_index % 4 == 1)
+		tile_value = slots.y;
+	else if (light_index % 4 == 2)
+		tile_value = slots.z;
+	else
+		tile_value = slots.w;
+	//未映射到任何瓦片：该灯不受聚光阴影影响
+	if (tile_value < -0.5)
+		return 1.0;
+	//瓦片号与质量参数
+	int tile = int(tile_value + 0.5);
+	float bias = scene.spot_shadow_params.x;
+	float softness = scene.spot_shadow_params.y;
+	float strength = clamp(scene.spot_shadow_params.z, 0.0, 1.0);
+	/*
+	按瓦片取矩阵 / 跨度 / 阴影图
+	显式四分支：采样器数组不做动态索引，避免驱动对「动态一致索引」的限制。
+	*/
+	if (tile == 0)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[0], scene.spot_shadow_spans.x,
+			spot_shadow_map[0], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 1)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[1], scene.spot_shadow_spans.y,
+			spot_shadow_map[1], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 2)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[2], scene.spot_shadow_spans.z,
+			spot_shadow_map[2], 1, 0, world_pos, normal, bias, softness), strength);
+	return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[3], scene.spot_shadow_spans.w,
+		spot_shadow_map[3], 1, 0, world_pos, normal, bias, softness), strength);
 }
 
 float shadow_factor(vec3 world_pos, vec3 normal)
