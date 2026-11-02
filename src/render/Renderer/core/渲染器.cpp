@@ -6985,10 +6985,13 @@ namespace engine
 	字段换算与贴图解码都在这里完成；贴图相对 MTL 所在目录解析（UTF-8 窄路径直接拼接，避免宽窄转换）。
 	任一材质创建失败即回退本次已建的全部材质与纹理，并清空输出。
 	*/
-	bool Renderer::material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path)
+	bool Renderer::material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path,
+		std::vector<std::string>* names_out)
 	{
-		//默认无输出
+		//默认无输出（句柄与名称都清空）
 		handles_out.clear();
+		if (names_out != nullptr)
+			names_out->clear();
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 		{
@@ -7077,10 +7080,16 @@ namespace engine
 				for (uint64_t 贴图 : 纹理)
 					texture_unload(贴图);
 				handles_out.clear();
+				//名称输出同步清空
+				if (names_out != nullptr)
+					names_out->clear();
 				return false;
 			}
 			已建.push_back(材质);
 			handles_out.push_back(材质);
+			//名称与句柄同序输出（第四百六十七轮）
+			if (names_out != nullptr)
+				names_out->push_back(项.name);
 		}
 		return true;
 	}
@@ -7092,7 +7101,19 @@ namespace engine
 	*/
 	namespace
 	{
-		bool asset_scene_build(Renderer& renderer, const Scene_Manifest& 清单, const std::string& 目录, Asset_Scene& scene_out)
+		//材质库项（第四百六十七轮：增材质名，供实例按模板名解析）
+		struct 材质库项
+		{
+			//材质库 ID
+			std::string id;
+			//材质名（与句柄按下标对齐）
+			std::vector<std::string> names;
+			//句柄组
+			std::vector<Material_Handle> handles;
+		};
+
+		bool asset_scene_build(Renderer& renderer, const Scene_Manifest& 清单, const std::string& 目录,
+			const std::vector<Level_Material>& 实例声明, Asset_Scene& scene_out)
 		{
 			scene_out.objects.clear();
 			scene_out.meshes.clear();
@@ -7117,18 +7138,19 @@ namespace engine
 				scene_out.meshes.push_back(句柄);
 			}
 
-			//材质库（ID → 句柄组）
-			std::vector<std::pair<std::string, std::vector<Material_Handle>>> 材质表;
+			//材质库（ID → 名称 ＋ 句柄组）
+			std::vector<材质库项> 材质表;
 			材质表.reserve(清单.materials.size());
 			for (const Scene_Mtl_Ref& ref : 清单.materials)
 			{
-				std::vector<Material_Handle> 句柄组;
-				if (!renderer.material_load_mtl(句柄组, 目录 + ref.path))
+				材质库项 项;
+				项.id = ref.id;
+				if (!renderer.material_load_mtl(项.handles, 目录 + ref.path, &项.names))
 				{
 					logger.warn("渲染器:: 场景清单材质库加载失败（{}），整体回退", ref.path);
 					//回退已建材质与网格
-					for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
-						for (Material_Handle 句柄 : item.second)
+					for (const 材质库项& item : 材质表)
+						for (Material_Handle 句柄 : item.handles)
 							renderer.material_unload(句柄);
 					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
 						renderer.mesh_unload(item.second);
@@ -7136,9 +7158,66 @@ namespace engine
 					scene_out.materials.clear();
 					return false;
 				}
-				for (Material_Handle 句柄 : 句柄组)
+				for (Material_Handle 句柄 : 项.handles)
 					scene_out.materials.push_back(句柄);
-				材质表.emplace_back(ref.id, 句柄组);
+				材质表.push_back(std::move(项));
+			}
+
+			//材质实例表（实例名 → 覆盖数据；第四百六十七轮）
+			std::vector<std::pair<std::string, Material_Instance_Data>> 实例表;
+			实例表.reserve(实例声明.size());
+			for (const Level_Material& 声明 : 实例声明)
+			{
+				//按模板材质名在全库中找句柄
+				Material_Handle 模板 = 0;
+				for (const 材质库项& 库 : 材质表)
+				{
+					for (std::size_t index = 0; index < 库.names.size() && index < 库.handles.size(); ++index)
+					{
+						if (库.names[index] == 声明.模板)
+						{
+							模板 = 库.handles[index];
+							break;
+						}
+					}
+					if (模板 != 0)
+						break;
+				}
+				//模板未命中
+				if (模板 == 0)
+				{
+					logger.warn("渲染器:: 材质实例 {} 的模板 {} 未命中，整体回退", 声明.实例名, 声明.模板);
+					//回退材质与网格
+					for (const 材质库项& 库 : 材质表)
+						for (Material_Handle 句柄 : 库.handles)
+							renderer.material_unload(句柄);
+					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+						renderer.mesh_unload(item.second);
+					scene_out.meshes.clear();
+					scene_out.materials.clear();
+					return false;
+				}
+				Material_Instance_Data 数据;
+				数据.模板 = 模板;
+				for (std::size_t index = 0; index < 4; ++index)
+					数据.tint[index] = 声明.tint[index];
+				数据.use_tint = 声明.use_tint;
+				数据.emissive = 声明.emissive;
+				数据.use_emissive = 声明.use_emissive;
+				//实例数据校验（模板已登记 ＋ 覆盖值合法）
+				if (!renderer.material_instance_validate(数据))
+				{
+					logger.warn("渲染器:: 材质实例 {} 数据非法，整体回退", 声明.实例名);
+					for (const 材质库项& 库 : 材质表)
+						for (Material_Handle 句柄 : 库.handles)
+							renderer.material_unload(句柄);
+					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+						renderer.mesh_unload(item.second);
+					scene_out.meshes.clear();
+					scene_out.materials.clear();
+					return false;
+				}
+				实例表.emplace_back(声明.实例名, 数据);
 			}
 
 			//按 place 顺序装配对象
@@ -7154,17 +7233,28 @@ namespace engine
 						break;
 					}
 				}
-				//材质句柄组（可选）
+				//材质列（可选）：先查实例表，未命中再查材质库（第四百六十七轮）
 				if (!place.material_id.empty())
 				{
-					for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
+					for (const std::pair<std::string, Material_Instance_Data>& item : 实例表)
 					{
 						if (item.first == place.material_id)
 						{
-							object.materials = item.second;
+							object.materials.push_back(item.second.模板);
+							object.material_instances.push_back(item.second);
 							break;
 						}
 					}
+					//实例未命中：按材质库 ID 取整组句柄
+					if (object.materials.empty())
+						for (const 材质库项& 库 : 材质表)
+						{
+							if (库.id == place.material_id)
+							{
+								object.materials = 库.handles;
+								break;
+							}
+						}
 				}
 				//位置 / 缩放 / 旋转
 				for (std::size_t index = 0; index < 3; ++index)
@@ -7203,8 +7293,8 @@ namespace engine
 		//清单所在目录（保留 UTF-8 编码；相对路径直接前缀拼接）
 		const std::size_t cut = path.find_last_of("/\\");
 		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
-		//按清单装配
-		return asset_scene_build(*this, 清单, 目录, scene_out);
+		//按清单装配（清单文件没有材质实例声明）
+		return asset_scene_build(*this, 清单, 目录, {}, scene_out);
 	}
 
 	/*
@@ -7269,13 +7359,18 @@ namespace engine
 		if (!level_out.asset_lines.empty())
 		{
 			Scene_Manifest 清单;
-			if (!scene_manifest_parse_lines(level_out.asset_lines, 清单))
+			//材质实例名表（第四百六十七轮；place 材质列可引用实例）
+			std::vector<std::string> 实例名表;
+			实例名表.reserve(level_out.materials.size());
+			for (const Level_Material& material : level_out.materials)
+				实例名表.push_back(material.实例名);
+			if (!scene_manifest_parse_lines(level_out.asset_lines, 清单, 实例名表))
 			{
 				level_out = Level_Data();
 				return false;
 			}
 			//装配资产（失败整体回退）
-			if (!asset_scene_build(*this, 清单, 目录, 场景))
+			if (!asset_scene_build(*this, 清单, 目录, level_out.materials, 场景))
 			{
 				level_out = Level_Data();
 				return false;

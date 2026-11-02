@@ -122,17 +122,21 @@ namespace engine
 	};
 
 	/*
-	解析场景清单（第四百二十四轮）
+	解析场景清单（第四百二十四轮；第四百六十七轮增可引用实例名）
 	失败（路径不可读 / 超限 / 未知指令 / 字段缺失 / ID 重复）返回假并清空输出；
 	仅做语法与「ID 是否被引用」的静态检查，不校验 OBJ / MTL 文件是否存在。
+	`实例名表` 为关卡材质实例声明（方向七阶段 B）；`place` 的材质列命中实例名即视为合法，
+	未命中再查材质库；清单文件版一般传空表。
 	*/
-	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out);
+	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out,
+		const std::vector<std::string>& 实例名表 = {});
 
 	/*
-	按内存行解析场景清单（第四百三十轮）
+	按内存行解析场景清单（第四百三十轮；第四百六十七轮增可引用实例名）
 	行内容与 `scene_manifest_parse` 完全同语法（`mesh` / `mtl` / `place`，`#` 注释、空行忽略）；
 	供关卡装载复用（关卡文件里的资产段落不落成独立清单文件）。
 	失败口径同文件版（含「至少一条 place」），失败时输出清空。
 	*/
-	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out);
+	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out,
+		const std::vector<std::string>& 实例名表 = {});
 }

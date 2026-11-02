@@ -54,10 +54,12 @@ namespace engine
 		}
 
 		/*
-		解析单行清单记录（第四百二十四轮；第四百三十轮抽出供「内存行」入口复用）
+		解析单行清单记录（第四百二十四轮；第四百三十轮抽出供「内存行」入口复用；
+		第四百六十七轮增实例名表：`place` 材质列可引用关卡材质实例）
 		空行 / 注释行直接跳过；未知指令 / 字段缺失 / ID 重复 / 引用未知 ID 一律失败。
 		*/
-		bool manifest_line_parse(const std::string& line, Scene_Manifest& out)
+		bool manifest_line_parse(const std::string& line, Scene_Manifest& out,
+			const std::vector<std::string>& 实例名表)
 		{
 			std::istringstream stream(line);
 			std::string tag;
@@ -192,9 +194,19 @@ namespace engine
 					logger.warn("资产加载:: 清单 place 引用了未知网格（{}）", place.mesh_id);
 					return false;
 				}
-				//材质 ID（若非空）必须存在
+				//材质列（若非空）须命中实例名或材质库 ID
 				if (!place.material_id.empty())
 				{
+					//先查实例表（第四百六十七轮）
+					bool instance_found = false;
+					for (const std::string& existing : 实例名表)
+					{
+						if (existing == place.material_id)
+						{
+							instance_found = true;
+							break;
+						}
+					}
 					bool mtl_found = false;
 					for (const Scene_Mtl_Ref& existing : out.materials)
 					{
@@ -204,9 +216,10 @@ namespace engine
 							break;
 						}
 					}
-					if (!mtl_found)
+					//实例与材质库均未命中
+					if (!instance_found && !mtl_found)
 					{
-						logger.warn("资产加载:: 清单 place 引用了未知材质（{}）", place.material_id);
+						logger.warn("资产加载:: 清单 place 引用了未知材质或实例（{}）", place.material_id);
 						return false;
 					}
 				}
@@ -228,7 +241,8 @@ namespace engine
 	}
 
 	//解析场景清单
-	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out)
+	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out,
+		const std::vector<std::string>& 实例名表)
 	{
 		//先清空输出
 		manifest_reset(out);
@@ -286,7 +300,7 @@ namespace engine
 		{
 			asset_detail::trim_carriage_return(line);
 			//逐行解析
-			if (!manifest_line_parse(line, out))
+			if (!manifest_line_parse(line, out, 实例名表))
 				return false;
 		}
 
@@ -306,7 +320,8 @@ namespace engine
 	供关卡装载复用：关卡文件里的 `mesh` / `mtl` / `place` 行直接交给本入口，
 	语法与错误口径同文件版（含「至少一条 place」）。
 	*/
-	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out)
+	bool scene_manifest_parse_lines(const std::vector<std::string>& lines, Scene_Manifest& out,
+		const std::vector<std::string>& 实例名表)
 	{
 		//先清空输出
 		manifest_reset(out);
@@ -335,7 +350,7 @@ namespace engine
 		for (const std::string& line : lines)
 		{
 			//逐行解析
-			if (!manifest_line_parse(line, out))
+			if (!manifest_line_parse(line, out, 实例名表))
 				return false;
 		}
 

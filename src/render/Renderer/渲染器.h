@@ -361,6 +361,25 @@ namespace engine
 	};
 
 	/*
+	材质实例（第四百四十八轮；方向七阶段 A）
+	模板材质句柄 ＋ 逐实例覆盖参数；本身不持有 GPU 资源，绘制时与模板合成（阶段 C）。
+	覆盖范围：tint（含 alpha）与自发光强度；未覆盖项沿用模板。
+	*/
+	struct Material_Instance_Data
+	{
+		//模板材质句柄（须为已登记材质）
+		Material_Handle 模板 = 0;
+		//覆盖底色（RGBA，0..1；仅 use_tint 为真时生效）
+		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//是否覆盖底色
+		bool use_tint = false;
+		//覆盖自发光强度（0..1；仅 use_emissive 为真时生效，乘性）
+		float emissive = 0.0f;
+		//是否覆盖自发光
+		bool use_emissive = false;
+	};
+
+	/*
 	场景对象（第四百二十四轮；资产加载方向第三阶段）
 	materials 为该网格的材质句柄（按 OBJ 段序号对齐，供 mesh_draw_sections 逐段绑定；空表示无材质）。
 	*/
@@ -370,6 +389,12 @@ namespace engine
 		Mesh_Handle mesh = 0;
 		//材质句柄（按段序号对齐）
 		std::vector<Material_Handle> materials;
+		/*
+		材质实例覆盖（第四百六十七轮；方向七阶段 B-B）
+		与 materials 等长；模板字段填模板句柄，use_tint / use_emissive 为假表示不覆盖。
+		空数组表示该对象没有实例覆盖（绘制路径与旧版逐字节一致）。
+		*/
+		std::vector<Material_Instance_Data> material_instances;
 		//位置（世界坐标）
 		float position[3] = { 0.0f, 0.0f, 0.0f };
 		//缩放（三轴）
@@ -405,25 +430,6 @@ namespace engine
 	{
 		//内部状态（解析结果 ＋ 完成标记 ＋ 已建句柄）
 		std::shared_ptr<void> state;
-	};
-
-	/*
-	材质实例（第四百四十八轮；方向七阶段 A）
-	模板材质句柄 ＋ 逐实例覆盖参数；本身不持有 GPU 资源，绘制时与模板合成（阶段 C）。
-	覆盖范围：tint（含 alpha）与自发光强度；未覆盖项沿用模板。
-	*/
-	struct Material_Instance_Data
-	{
-		//模板材质句柄（须为已登记材质）
-		Material_Handle 模板 = 0;
-		//覆盖底色（RGBA，0..1；仅 use_tint 为真时生效）
-		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-		//是否覆盖底色
-		bool use_tint = false;
-		//覆盖自发光强度（0..1；仅 use_emissive 为真时生效，乘性）
-		float emissive = 0.0f;
-		//是否覆盖自发光
-		bool use_emissive = false;
 	};
 
 	/*
@@ -1048,9 +1054,12 @@ namespace engine
 		换算口径：tint = Kd（第四分量为 d）、粗糙度 = √(2 / (Ns + 2))、自发光强度 = Ke 亮度、
 		d < 1 时启用 alpha 裁剪（阈值 0.5）；map_Kd / map_Bump 相对 MTL 所在目录解码为纹理。
 		句柄按文件内声明顺序写入 handles_out（与 OBJ 的 usemtl 顺序对齐，同名材质按名字自行匹配）。
+		`名称输出`（第四百六十七轮；方向七阶段 B-B）非空时按同样顺序写出材质名，
+		供关卡材质实例按「模板材质名」解析句柄。
 		任一材质创建失败即整次回退（已建材质与纹理全部释放）并返回假。
 		*/
-		bool material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path);
+		bool material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path,
+			std::vector<std::string>* names_out = nullptr);
 		/*
 		从场景清单装载整套资产（第四百二十四轮；资产加载方向第三阶段）
 		清单格式见 `资产加载.h` 的 Scene_Manifest 注释：mesh / mtl 声明 ＋ place 摆放。
