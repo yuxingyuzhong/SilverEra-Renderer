@@ -615,11 +615,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 1200 字节：… ＋ 第三级级联矩阵与参数 ＋ 卡通高光参数 ＋ 簇参数；第二百八十九轮由 1184 扩为 1200，使片元可读取簇参数）
+		//缓冲描述（场景 UBO 1216 字节：… ＋ 簇参数 ＋ 聚光阴影参数；第四百七十六轮由 1200 扩为 1216）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 1200;
+		buffer_info.range = 1216;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -700,11 +700,11 @@ namespace engine
 			return false;
 		}
 
-		//绑定 0：场景 UBO（范围与场景集一致）
+		//绑定 0：场景 UBO（范围与场景集一致，第四百七十六轮由 1200 扩为 1216）
 		VkDescriptorBufferInfo ubo_info{};
 		ubo_info.buffer = ubo_buffer;
 		ubo_info.offset = 0;
-		ubo_info.range = 1200;
+		ubo_info.range = 1216;
 		VkWriteDescriptorSet ubo_write{};
 		ubo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		ubo_write.dstSet = particle_sets[slot];

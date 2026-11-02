@@ -121,6 +121,11 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	x 为 0（默认）时下方点光循环走原前向路径，画面逐字节不变。
 	*/
 	vec4 cluster_params;
+	/*
+	聚光灯阴影参数（第四百七十六轮；x = 偏置 0..0.05、y = 软度 0..1、z = 强度 0..1、w 保留）
+	与方向光 shadow_params / shadow_strength 独立；仅聚光阴影开启时（cascade_params.x = 0）参与着色。
+	*/
+	vec4 spot_shadow_params;
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
@@ -364,8 +369,11 @@ float cascade_span_of(int index)
 	return scene.cascade_params.z;
 }
 
-//单级阴影因子（未乘阴影强度；index 为级序、count 为级数）
-float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
+/*
+单级阴影因子（未乘阴影强度；index 为级序、count 为级数）
+bias / softness 显式传入（第四百七十六轮）：方向光取 shadow_params，聚光取独立的 spot_shadow_params。
+*/
+float shadow_sample_ex(int index, int count, vec3 world_pos, vec3 normal, float bias, float softness)
 {
 	/*
 	法线偏移（第五十九轮）
@@ -375,7 +383,7 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 	*/
 	vec3 sample_pos = world_pos;
 	if (length(normal) > 0.000001)
-		sample_pos += normalize(normal) * (scene.shadow_params.y * cascade_span_of(index));
+		sample_pos += normalize(normal) * (bias * cascade_span_of(index));
 	//光源空间裁剪坐标
 	vec4 light_clip = cascade_matrix_of(index) * vec4(sample_pos, 1.0);
 	//位于光源背后
@@ -402,13 +410,13 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 	//纹素坐标（最近点，避免插值得到无意义的打包字节）
 	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
 	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
-	float current = ndc.z - scene.shadow_params.y;
+	float current = ndc.z - bias;
 	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
-	if (scene.shadow_params.w <= 0.0)
+	if (softness <= 0.0)
 		return shadow_compare(texel, current, size);
 	//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
-	float softness = clamp(scene.shadow_params.w, 0.0, 1.0);
-	int radius = softness <= 0.25 ? 1 : (softness <= 0.75 ? 2 : 3);
+	float soft = clamp(softness, 0.0, 1.0);
+	int radius = soft <= 0.25 ? 1 : (soft <= 0.75 ? 2 : 3);
 	float sum = 0.0;
 	int samples = 0;
 	for (int offset_y = -radius; offset_y <= radius; ++offset_y)
@@ -420,17 +428,26 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 	return sum / float(samples);
 }
 
+//单级阴影因子（方向光口径：偏置 / 软度取 shadow_params）
+float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
+{
+	return shadow_sample_ex(index, count, world_pos, normal, scene.shadow_params.y, scene.shadow_params.w);
+}
+
 /*
-聚光灯阴影系数（第四百七十四轮；方案 A：复用方向光阴影图与参数）
-聚光模式以 cascade_params.x = 0 标识；shadow_sample 用 light_view_proj 直接投影（单级、无分片）；
-锥外 / 阴影图外由 shadow_sample 返回 1；最终按 shadow_strength 插值。
+聚光灯阴影系数（第四百七十四轮；第四百七十六轮改用独立的 spot_shadow_params）
+聚光模式以 cascade_params.x = 0 标识；shadow_sample_ex 用 light_view_proj 直接投影（单级、无分片）；
+偏置 / 软度取 spot_shadow_params.xy，强度取 spot_shadow_params.z（0 → 恒 1）；
+锥外 / 阴影图外由 shadow_sample_ex 返回 1。
 */
 float spot_shadow_factor(vec3 world_pos, vec3 normal)
 {
 	//未启用阴影或非聚光模式
 	if (scene.shadow_params.x < 0.5 || scene.cascade_params.x > 0.5)
 		return 1.0;
-	return mix(1.0, shadow_sample(0, 1, world_pos, normal), clamp(scene.shadow_strength, 0.0, 1.0));
+	float sample_factor = shadow_sample_ex(0, 1, world_pos, normal,
+		scene.spot_shadow_params.x, scene.spot_shadow_params.y);
+	return mix(1.0, sample_factor, clamp(scene.spot_shadow_params.z, 0.0, 1.0));
 }
 
 float shadow_factor(vec3 world_pos, vec3 normal)

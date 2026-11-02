@@ -145,6 +145,15 @@ namespace engine
 		开启期间方向光阴影让位（着色器按 cascade_params.x = 0 判聚光模式），属 v1 互斥限制。
 		*/
 		int spot_shadow_enabled = 0;
+		/*
+		聚光灯阴影质量参数（第四百七十六轮）
+		与方向光阴影的 shadow_bias / shadow_softness / shadow_strength 相互独立：
+		透视深度精度沿距离变化剧烈，默认偏置取 0.010（大于方向光的 0.003）；
+		软度 0 为硬边、强度 1 为全遮蔽。仅在 spot_shadow_enabled 非 0 时参与着色。
+		*/
+		float spot_shadow_bias = 0.010f;
+		float spot_shadow_softness = 0.0f;
+		float spot_shadow_strength = 1.0f;
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;

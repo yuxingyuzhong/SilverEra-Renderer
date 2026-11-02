@@ -2784,6 +2784,13 @@ namespace engine
 		scene_block[298] = static_cast<float>(impl->cluster_grid.y);
 		scene_block[299] = static_cast<float>(impl->cluster_grid.z);
 		/*
+		聚光灯阴影参数（第四百七十六轮；x = 偏置、y = 软度、z = 强度、w 保留）
+		与方向光 shadow_params / shadow_strength 独立；聚光阴影未开启时着色器不读取本段。
+		*/
+		scene_block[300] = impl->spot_shadow_bias;
+		scene_block[301] = impl->spot_shadow_softness;
+		scene_block[302] = impl->spot_shadow_strength;
+		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
@@ -9566,6 +9573,8 @@ namespace engine
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
 			shadow_enable_set(true);
+		//聚光灯阴影独立质量参数（第四百七十六轮；非法值由 setter 整次忽略）
+		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
@@ -11919,6 +11928,43 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->shadow_strength : 1.0f;
+	}
+
+	/*
+	设置聚光灯阴影质量参数（第四百七十六轮新增）
+	三项与方向光阴影独立；任一非法即整次忽略，已设值保持不变。
+	*/
+	void Renderer::spot_shadow_params_set(float bias, float softness, float strength)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//三项范围校验（取反比较使 NaN 判非法）
+		if (!(bias >= 0.0f && bias <= 0.05f) || !(softness >= 0.0f && softness <= 1.0f)
+			|| !(strength >= 0.0f && strength <= 1.0f))
+		{
+			logger.warn("渲染器:: 聚光灯阴影参数非法（{} / {} / {}），整次忽略", bias, softness, strength);
+			return;
+		}
+		impl->spot_shadow_bias = bias;
+		impl->spot_shadow_softness = softness;
+		impl->spot_shadow_strength = strength;
+	}
+
+	//当前聚光灯阴影参数（第四百七十六轮）
+	void Renderer::spot_shadow_params_get(float* bias_out, float* softness_out, float* strength_out) const
+	{
+		//未初始化按默认值输出
+		const bool ready = impl != nullptr && impl->initialized;
+		//偏置
+		if (bias_out != nullptr)
+			*bias_out = ready ? impl->spot_shadow_bias : 0.010f;
+		//软度
+		if (softness_out != nullptr)
+			*softness_out = ready ? impl->spot_shadow_softness : 0.0f;
+		//强度
+		if (strength_out != nullptr)
+			*strength_out = ready ? impl->spot_shadow_strength : 1.0f;
 	}
 
 	/*

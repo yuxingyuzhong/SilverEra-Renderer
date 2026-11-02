@@ -624,6 +624,13 @@ namespace engine
 		*/
 		bool spot_shadow_enabled = false;
 		/*
+		聚光灯阴影质量参数（第四百七十六轮）
+		与方向光阴影参数相互独立：偏置 0..0.05（默认 0.010）、软度 0..1（默认 0）、强度 0..1（默认 1）。
+		*/
+		float spot_shadow_bias = 0.010f;
+		float spot_shadow_softness = 0.0f;
+		float spot_shadow_strength = 1.0f;
+		/*
 		阴影光源正交视锥（第一百零七轮）
 		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
 		*/
@@ -946,7 +953,8 @@ namespace engine
 		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 300;
+		//场景 UBO 浮点数（300 个 32 位浮点 = 1200 字节；第四百七十六轮追加聚光阴影参数后为 304 = 1216 字节）
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 304;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*

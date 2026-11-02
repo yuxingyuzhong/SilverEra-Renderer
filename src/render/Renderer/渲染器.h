@@ -1902,6 +1902,15 @@ namespace engine
 		//当前阴影强度（未初始化时为默认 1）
 		float shadow_strength(void) const;
 		/*
+		聚光灯阴影质量参数（第四百七十六轮新增）
+		与方向光阴影的偏置 / 软度 / 强度相互独立（聚光为透视投影，深度精度与正交级联不同）：
+		bias ∈ [0, 0.05]（默认 0.010）、softness ∈ [0, 1]（默认 0）、strength ∈ [0, 1]（默认 1）。
+		任一非法即整次忽略并告警；仅在 `Light_Data.spot_shadow_enabled` 非 0 时参与着色。
+		*/
+		void spot_shadow_params_set(float bias, float softness, float strength);
+		//当前聚光灯阴影参数（未初始化时写默认 0.010 / 0 / 1）
+		void spot_shadow_params_get(float* bias_out, float* softness_out, float* strength_out) const;
+		/*
 		阴影图分辨率（第五十四轮新增）
 		仅支持 512 / 1024 / 2048（默认 1024）；切换会等尽在途帧、重建阴影目标并重新绑定各帧槽，
 		非法值整次忽略；降低分辨率可减少阴影 pass 的填充开销。
