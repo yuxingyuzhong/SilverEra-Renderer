@@ -43,6 +43,19 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//逐物体材质金属度（合法域 [0, 1]；仅 pbr_override 为真时生效）
 		float pbr_metallic = 0.0f;
+		/*
+		逐物体卡通参数（第四百零八轮）
+		toon_override 为真时，该材质绑定的后续绘制按本材质的卡通参数着色（随实例属性下发）；
+		否则沿用场景 UBO 的全局卡通参数（`pbr_params.w` 色阶数 / `sky_params.w` 边缘光 /
+		`toon_specular_params.x` 卡通高光阈值），画面与引入前逐字节一致。
+		toon_steps：色阶数（0 = 关闭；1..8 = 量化档数，合法域 [0, 8]）；
+		toon_rim：边缘光强度（0 = 关闭；0..1）；
+		toon_specular：卡通高光阈值（0 = 关闭；0..1）。
+		*/
+		bool toon_override = false;
+		float toon_steps = 0.0f;
+		float toon_rim = 0.0f;
+		float toon_specular = 0.0f;
 		//是否覆盖反照率色调（第六十九轮；false 时用白色，画面不变）
 		bool tint_override = false;
 		//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）

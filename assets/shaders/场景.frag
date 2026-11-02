@@ -8,6 +8,12 @@ layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec3 in_world;
 //逐物体材质（第六十八轮；x = 粗糙度缩放、y = 金属度、z = 覆盖标志、w 保留）
 layout(location = 3) flat in vec4 in_material;
+/*
+逐物体卡通参数（第四百零八轮）
+x = 色阶数（0 = 不覆盖）、y = 边缘光强度、z = 卡通高光阈值、w = 覆盖标志（> 0.5 时三项整体覆盖）；
+覆盖标志为 0（默认）时回落场景 UBO 的全局卡通参数，画面与引入前逐字节一致。
+*/
+layout(location = 4) flat in vec4 in_toon;
 
 /*
 逐物体反照率色调（第六十九轮）
@@ -509,6 +515,18 @@ void main()
 	float toon_levels = scene.pbr_params.w;
 	float toon_rim = scene.sky_params.w;
 	/*
+	逐物体卡通参数覆盖（第四百零八轮）
+	覆盖标志（in_toon.w > 0.5）为真时，色阶数 / 边缘光 / 卡通高光阈值改用逐物体值；
+	默认覆盖标志为 0 时三项与全局值逐字节一致，故未设置材质的绘制画面不变。
+	*/
+	float toon_specular = scene.toon_specular_params.x;
+	if (in_toon.w > 0.5)
+	{
+		toon_levels = in_toon.x;
+		toon_rim = in_toon.y;
+		toon_specular = in_toon.z;
+	}
+	/*
 	二次元暗部色调（第一百七十八轮；三个保留分量拼 RGB）
 	266 / 267（camera_range.zw）= 红 / 绿，291（cascade_params2.w）= 蓝；
 	默认 (1,1,1) 时下方乘子恒为 1，画面与引入前逐字节一致。
@@ -731,11 +749,11 @@ void main()
 	阈值 > 0 时按「三通道最大高光亮度」二值化：低于阈值整块归零、不低于阈值整块保留，
 	形成硬边高光块（配合色阶量化的硬边阴影）；默认 0 时整段跳过，画面逐字节不变。
 	*/
-	if (scene.toon_specular_params.x > 0.0)
+	if (toon_specular > 0.0)
 	{
 		float specular_level = max(max(specular.r, specular.g), specular.b);
 		//高光阈值化（低于阈值的高光整块抹除）
-		if (specular_level < scene.toon_specular_params.x)
+		if (specular_level < toon_specular)
 			specular = vec3(0.0);
 		//重新合成以应用阈值化后的高光
 		lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;

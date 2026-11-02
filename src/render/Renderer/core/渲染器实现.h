@@ -496,6 +496,14 @@ namespace engine
 			float pbr_roughness = 1.0f;
 			//逐物体材质金属度（0..1；仅 pbr_override 为真时生效）
 			float pbr_metallic = 0.0f;
+			//是否覆盖全局卡通参数（第四百零八轮；false 时沿用场景 UBO 的全局卡通参数）
+			bool toon_override = false;
+			//逐物体色阶数（0..8；仅 toon_override 为真时生效）
+			float toon_steps = 0.0f;
+			//逐物体边缘光强度（0..1；仅 toon_override 为真时生效）
+			float toon_rim = 0.0f;
+			//逐物体卡通高光阈值（0..1；仅 toon_override 为真时生效）
+			float toon_specular = 0.0f;
 			//是否覆盖反照率色调（第六十九轮；false 时用白色）
 			bool tint_override = false;
 			//逐物体反照率色调（RGBA，各分量 0..1；仅 tint_override 为真时生效）
@@ -887,6 +895,18 @@ namespace engine
 		float material_pbr_roughness = 1.0f;
 		//逐物体材质金属度（0..1）
 		float material_pbr_metallic = 0.0f;
+		/*
+		逐物体卡通参数吸附状态（第四百零八轮）
+		material_bind_set 绑定带 toon_override 的材质后，后续 mesh_draw / mesh_draw_instanced
+		的实例属性携带该组卡通参数；绑定 0 或带 toon_override = false 的材质时回落全局。
+		*/
+		bool material_toon_active = false;
+		//逐物体色阶数（0..8）
+		float material_toon_steps = 0.0f;
+		//逐物体边缘光强度（0..1）
+		float material_toon_rim = 0.0f;
+		//逐物体卡通高光阈值（0..1）
+		float material_toon_specular = 0.0f;
 		//二次元风格化：色阶数（第一百七十四轮；0 = 关闭，1..8 = 量化档数）
 		uint32_t toon_steps = 0;
 		//二次元风格化：边缘光强度（第一百七十四轮；0 = 关闭，0..1）

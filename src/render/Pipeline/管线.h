@@ -13,12 +13,14 @@ Vulkan 头
 //游戏引擎命名空间
 namespace engine
 {
-	//单个实例的浮点数（模型矩阵 16 ＋ 材质 4；第六十八轮由 16 扩为 20）
-	constexpr uint32_t INSTANCE_FLOAT_COUNT = 20;
+	//单个实例的浮点数（模型矩阵 16 ＋ 材质 4 ＋ 逐物体卡通 4；第六十八轮由 16 扩为 20，第四百零八轮扩为 24）
+	constexpr uint32_t INSTANCE_FLOAT_COUNT = 24;
 	//单个实例的字节步长（图形管线实例绑定步长与渲染层实例缓冲共用，避免两侧漂移）
 	constexpr uint32_t INSTANCE_STRIDE_BYTES = INSTANCE_FLOAT_COUNT * 4;
 	//实例材质在单个实例内的浮点偏移（模型矩阵之后）
 	constexpr uint32_t INSTANCE_MATERIAL_OFFSET = 16;
+	//逐物体卡通参数在单个实例内的浮点偏移（实例材质之后；第四百零八轮）
+	constexpr uint32_t INSTANCE_TOON_OFFSET = 20;
 
 	//图形管线配置
 	struct Pipeline_Config

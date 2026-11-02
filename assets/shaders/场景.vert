@@ -20,6 +20,12 @@ x = 粗糙度缩放、y = 金属度、z = 覆盖标志（> 0.5 时覆盖全局 p
 零向量表示不覆盖，片元着色器回落场景 UBO 的全局参数，故默认画面不变。
 */
 layout(location = 7) in vec4 in_material;
+/*
+逐物体卡通参数（第四百零八轮；按实例步进，步长 96 的第 80..95 字节）
+x = 色阶数（0 = 不覆盖）、y = 边缘光强度、z = 卡通高光阈值、w = 覆盖标志（> 0.5 时三项整体覆盖）
+零向量表示不覆盖，片元着色器回落场景 UBO 的全局卡通参数，故默认画面不变。
+*/
+layout(location = 8) in vec4 in_toon;
 
 //传递给片元着色器的纹理坐标
 layout(location = 0) out vec2 out_uv;
@@ -29,6 +35,8 @@ layout(location = 1) out vec3 out_normal;
 layout(location = 2) out vec3 out_world;
 //传递给片元着色器的逐物体材质（整实例恒定，用 flat 避免边缘插值把覆盖标志抹成半值）
 layout(location = 3) flat out vec4 out_material;
+//传递给片元着色器的逐物体卡通参数（第四百零八轮；整实例恒定，同样 flat）
+layout(location = 4) flat out vec4 out_toon;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -60,5 +68,7 @@ void main()
 	out_normal = mat3(model) * in_normal;
 	//逐物体材质原样下传（整实例恒定）
 	out_material = in_material;
+	//逐物体卡通参数原样下传（第四百零八轮）
+	out_toon = in_toon;
 	gl_Position = scene.view_proj * world;
 }

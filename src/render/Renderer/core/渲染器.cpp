@@ -1834,6 +1834,11 @@ namespace engine
 		impl->material_pbr_active = false;
 		impl->material_pbr_roughness = 1.0f;
 		impl->material_pbr_metallic = 0.0f;
+		//逐物体卡通参数恢复默认（不覆盖全局，第四百零八轮）
+		impl->material_toon_active = false;
+		impl->material_toon_steps = 0.0f;
+		impl->material_toon_rim = 0.0f;
+		impl->material_toon_specular = 0.0f;
 		//逐物体色调恢复默认（白色，第六十九轮）
 		impl->material_tint_active = false;
 		for (std::size_t index = 0; index < 4; ++index)
@@ -5624,11 +5629,11 @@ namespace engine
 		return impl->mesh.mesh_update_indices(handle, first_index, count, indices);
 	}
 
-	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个），返回首个实例的字节偏移
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 浮点 / 个 ＋ 卡通 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
 		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
-		float emissive)
+		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular)
 	{
 		//首个实例的字节偏移（追加前的元素个数 × 80）
 		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
@@ -5667,6 +5672,15 @@ namespace engine
 			target[INSTANCE_MATERIAL_OFFSET + 2] = material_active ? 1.0f : 0.0f;
 			//第 4 分量为自发光强度（第七十轮；恒生效，0 = 无自发光）
 			target[INSTANCE_MATERIAL_OFFSET + 3] = emissive;
+			/*
+			逐物体卡通参数（第四百零八轮）
+			覆盖标志置于第 4 分量（w）：0 = 不覆盖，片元着色器回落场景 UBO 的全局卡通参数；
+			故未带 toon_override 的绘制项与旧版逐字节一致。
+			*/
+			target[INSTANCE_TOON_OFFSET + 0] = toon_active ? toon_steps : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 1] = toon_active ? toon_rim : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 2] = toon_active ? toon_specular : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 3] = toon_active ? 1.0f : 0.0f;
 		}
 		return offset;
 	}
@@ -5727,7 +5741,8 @@ namespace engine
 		//追加本项模型矩阵与材质并取其在本帧实例缓冲内的字节偏移
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1,
 			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
-			impl->material_emissive);
+			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
+			impl->material_toon_rim, impl->material_toon_specular);
 
 		/*
 		组装待绘制项
@@ -5978,7 +5993,8 @@ namespace engine
 		//追加本批模型矩阵与材质并取首个实例在本帧实例缓冲内的字节偏移
 		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count,
 			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
-			impl->material_emissive);
+			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
+			impl->material_toon_rim, impl->material_toon_specular);
 
 		/*
 		组装待绘制项
@@ -6787,6 +6803,25 @@ namespace engine
 			logger.warn("渲染器:: 材质 PBR 参数非法（粗糙度 {}、金属度 {}），按不覆盖登记",
 				data.pbr_roughness, data.pbr_metallic);
 		/*
+		逐物体卡通参数（第四百零八轮）
+		合法域：色阶数 [0, 8]、边缘光 [0, 1]、卡通高光阈值 [0, 1]；
+		任一项非有限或越界则按「不覆盖」登记（不把脏值写进实例属性），覆盖标志本身不受影响。
+		*/
+		record.toon_override = data.toon_override
+			&& std::isfinite(data.toon_steps) && data.toon_steps >= 0.0f && data.toon_steps <= 8.0f
+			&& std::isfinite(data.toon_rim) && data.toon_rim >= 0.0f && data.toon_rim <= 1.0f
+			&& std::isfinite(data.toon_specular) && data.toon_specular >= 0.0f && data.toon_specular <= 1.0f;
+		if (record.toon_override)
+		{
+			record.toon_steps = data.toon_steps;
+			record.toon_rim = data.toon_rim;
+			record.toon_specular = data.toon_specular;
+		}
+		//若声明卡通覆盖但参数非法则告警
+		if (data.toon_override && !record.toon_override)
+			logger.warn("渲染器:: 材质卡通参数非法（色阶 {}、边缘光 {}、高光阈值 {}），按不覆盖登记",
+				data.toon_steps, data.toon_rim, data.toon_specular);
+		/*
 		逐物体反照率色调（第六十九轮）
 		四个分量都在 [0, 1] 才视为覆盖；否则按「不覆盖」登记，不把脏值送进推送常量。
 		*/
@@ -6949,6 +6984,11 @@ namespace engine
 			impl->material_alpha_cutoff = 0.0f;
 			impl->material_clear_coat = 0.0f;
 			impl->material_clear_coat_roughness = 0.15f;
+			//清除逐物体卡通覆盖（第四百零八轮）
+			impl->material_toon_active = false;
+			impl->material_toon_steps = 0.0f;
+			impl->material_toon_rim = 0.0f;
+			impl->material_toon_specular = 0.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
@@ -6969,6 +7009,11 @@ namespace engine
 			impl->material_alpha_cutoff = 0.0f;
 			impl->material_clear_coat = 0.0f;
 			impl->material_clear_coat_roughness = 0.15f;
+			//清除逐物体卡通覆盖（第四百零八轮）
+			impl->material_toon_active = false;
+			impl->material_toon_steps = 0.0f;
+			impl->material_toon_rim = 0.0f;
+			impl->material_toon_specular = 0.0f;
 			return;
 		}
 		//取目标记录
@@ -7037,6 +7082,11 @@ namespace engine
 			impl->material_pbr_active = false;
 		impl->material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
 		impl->material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
+		//按记录的卡通覆盖标志同步逐物体卡通参数（第四百零八轮；无覆盖时三项清零即回落全局）
+		impl->material_toon_active = record.toon_override;
+		impl->material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;
+		impl->material_toon_rim = record.toon_override ? record.toon_rim : 0.0f;
+		impl->material_toon_specular = record.toon_override ? record.toon_specular : 0.0f;
 		//按记录同步逐物体色调（第六十九轮）
 		impl->material_tint_active = record.tint_override;
 		for (std::size_t index = 0; index < 4; ++index)
