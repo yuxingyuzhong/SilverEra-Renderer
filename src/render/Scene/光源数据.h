@@ -56,7 +56,7 @@ shininess：逐盏光泽度（0 = 跟随全局）；type / flags 供着色器分
 		uint32_t type = 0;
 		//标志位（bit0 = 该记录有效）
 		uint32_t flags = 0;
-		//保留（对齐 80 字节）
+		//保留（对齐 80 字节；第四百八十八轮起点光 / 聚光记录写入前向路径槽位）
 		float reserved = 0.0f;
 	};
 

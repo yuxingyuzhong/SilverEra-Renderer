@@ -766,10 +766,11 @@ void main()
 				accumulate_point_light(normal, to_view, albedo_color.rgb, material_roughness_cached,
 					material_metallic_cached, toon_levels, light.pos_radius, light.color_intensity,
 					light.direction, light.cone, light.shininess, light.type == 2u, radiance, specular);
-				//聚光灯阴影（第四百七十四 / 479 轮；仅遮蔽所选序号的聚光灯）
+				//聚光灯阴影（第四百七十四 / 479 / 488 轮；仅遮蔽所选序号的聚光灯）
 				if (light.type == 2u)
 				{
-					float spot_shadow = spot_shadow_factor(in_world, normal, int(light_index));
+					//Cluster 记录的 reserved 携带前向路径槽位（与 spot_shadow_index 同口径）
+					float spot_shadow = spot_shadow_factor(in_world, normal, int(light.reserved));
 					radiance *= spot_shadow;
 					specular *= spot_shadow;
 				}

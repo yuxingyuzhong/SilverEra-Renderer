@@ -10162,6 +10162,8 @@ namespace engine
 			record.shininess = light.shininess;
 			record.type = static_cast<uint32_t>(light.is_spot ? Light_Type::Spot : Light_Type::Point);
 			record.flags = 1u;
+			//前向路径槽位（第四百八十八轮；供 Cluster 路径按同一序号定位聚光阴影）
+			record.reserved = static_cast<float>(index);
 			push(record);
 		}
 		return written < capacity ? written : capacity;
