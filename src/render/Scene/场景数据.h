@@ -154,6 +154,12 @@ namespace engine
 		float spot_shadow_bias = 0.010f;
 		float spot_shadow_softness = 0.0f;
 		float spot_shadow_strength = 1.0f;
+		/*
+		聚光灯阴影序号（第四百七十九轮）
+		指向已登记的聚光灯槽位（0..7）；阴影图只由该盏聚光投影，且只遮蔽该盏聚光灯
+		（修复多盏聚光时全部被第 1 盏阴影误遮蔽的缺陷）。越界时按「无聚光阴影」处理。
+		*/
+		int spot_shadow_index = 0;
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;

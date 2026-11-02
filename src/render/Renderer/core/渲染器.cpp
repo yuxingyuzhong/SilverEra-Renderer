@@ -2303,13 +2303,18 @@ namespace engine
 			}
 		}
 		/*
-		聚光灯阴影矩阵覆盖（第四百七十四轮；方案 A：复用方向光阴影图）
-		仅第 1 盏聚光灯：透视视图投影（半锥角 = 外锥角、近 0.1、远 = 衰减半径），单级；
+		聚光灯阴影矩阵覆盖（第四百七十四轮；第四百七十九轮改为按序号选择）
+		仅所选槽位（spot_shadow_index）：透视视图投影（半锥角 = 外锥角、近 0.1、远 = 衰减半径），单级；
 		开启时方向光矩阵被覆盖，着色器据 cascade_params.x = 0 走聚光采样路径。
+		序号越界或该槽不是聚光灯时视为无聚光阴影（保持方向光矩阵）。
 		*/
-		if (impl->spot_shadow_enabled && impl->point_light_count > 0 && impl->point_lights[0].is_spot)
+		const bool spot_shadow_light_valid = impl->spot_shadow_enabled
+			&& impl->spot_shadow_index >= 0
+			&& impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
+			&& impl->point_lights[impl->spot_shadow_index].is_spot;
+		if (spot_shadow_light_valid)
 		{
-			const Impl::Point_Light& spot = impl->point_lights[0];
+			const Impl::Point_Light& spot = impl->point_lights[impl->spot_shadow_index];
 			glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
 			//方向退化时取默认传播方向
 			if (glm::dot(spot_direction, spot_direction) < 1e-12f)
@@ -2697,11 +2702,11 @@ namespace engine
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			scene_block[184 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		/*
-		聚光灯阴影模式（第四百七十四轮）
-		级联数写 0 以告知着色器走「聚光单级」采样路径（方向光阴影让位）。
+		聚光灯阴影模式（第四百七十四 / 479 轮）
+		级联数写 0 以告知着色器走「聚光单级」采样路径（方向光阴影让位）；
+		所选序号写入 spot_shadow_params.w，着色器据此只遮蔽该盏聚光灯。
 		*/
-		const bool spot_shadow_mode = impl->spot_shadow_enabled && impl->point_light_count > 0
-			&& impl->point_lights[0].is_spot;
+		const bool spot_shadow_mode = spot_shadow_light_valid;
 		/*
 		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
 		写入 UBO 供场景片元解包比较；阴影关闭时字段保留但不参与计算。
@@ -2784,12 +2789,14 @@ namespace engine
 		scene_block[298] = static_cast<float>(impl->cluster_grid.y);
 		scene_block[299] = static_cast<float>(impl->cluster_grid.z);
 		/*
-		聚光灯阴影参数（第四百七十六轮；x = 偏置、y = 软度、z = 强度、w 保留）
+		聚光灯阴影参数（第四百七十六 / 479 轮；x = 偏置、y = 软度、z = 强度、w = 阴影序号）
 		与方向光 shadow_params / shadow_strength 独立；聚光阴影未开启时着色器不读取本段。
+		序号取当前所选槽位（无有效聚光阴影时写 0，着色器不会匹配任何灯 → 恒 1）。
 		*/
 		scene_block[300] = impl->spot_shadow_bias;
 		scene_block[301] = impl->spot_shadow_softness;
 		scene_block[302] = impl->spot_shadow_strength;
+		scene_block[303] = static_cast<float>(impl->spot_shadow_index);
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -9575,6 +9582,8 @@ namespace engine
 			shadow_enable_set(true);
 		//聚光灯阴影独立质量参数（第四百七十六轮；非法值由 setter 整次忽略）
 		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
+		//聚光灯阴影序号（第四百七十九轮；非法值由 setter 整次忽略）
+		spot_shadow_index_set(light.spot_shadow_index);
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
@@ -11965,6 +11974,31 @@ namespace engine
 		//强度
 		if (strength_out != nullptr)
 			*strength_out = ready ? impl->spot_shadow_strength : 1.0f;
+	}
+
+	/*
+	设置聚光灯阴影序号（第四百七十九轮新增）
+	序号指向已登记的光源槽位（0..7，点光与聚光共用）；该槽不是聚光灯时按无聚光阴影处理。
+	*/
+	void Renderer::spot_shadow_index_set(int index)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//序号须落在 0..7（取反比较使 NaN 判非法；int 入参无 NaN，仍保留统一写法）
+		if (!(index >= 0 && index < static_cast<int>(Impl::POINT_LIGHT_UBO_MAX)))
+		{
+			logger.warn("渲染器:: 聚光灯阴影序号非法（{}），整次忽略", index);
+			return;
+		}
+		impl->spot_shadow_index = index;
+	}
+
+	//当前聚光灯阴影序号（第四百七十九轮）
+	int Renderer::spot_shadow_index(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->spot_shadow_index : 0;
 	}
 
 	/*

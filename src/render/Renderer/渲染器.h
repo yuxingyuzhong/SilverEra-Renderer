@@ -1911,6 +1911,14 @@ namespace engine
 		//当前聚光灯阴影参数（未初始化时写默认 0.010 / 0 / 1）
 		void spot_shadow_params_get(float* bias_out, float* softness_out, float* strength_out) const;
 		/*
+		聚光灯阴影序号（第四百七十九轮新增）
+		index 指向已登记的聚光灯槽位（0..7）：阴影图只由该盏聚光投影，且只遮蔽该盏聚光灯；
+		越界（≥ 8）或该槽不是聚光灯时按「无聚光阴影」处理；非法值整次忽略并告警。
+		*/
+		void spot_shadow_index_set(int index);
+		//当前聚光灯阴影序号（未初始化时为默认 0）
+		int spot_shadow_index(void) const;
+		/*
 		阴影图分辨率（第五十四轮新增）
 		仅支持 512 / 1024 / 2048（默认 1024）；切换会等尽在途帧、重建阴影目标并重新绑定各帧槽，
 		非法值整次忽略；降低分辨率可减少阴影 pass 的填充开销。

@@ -630,6 +630,8 @@ namespace engine
 		float spot_shadow_bias = 0.010f;
 		float spot_shadow_softness = 0.0f;
 		float spot_shadow_strength = 1.0f;
+		//聚光灯阴影序号（第四百七十九轮；指向已登记聚光灯槽位 0..7，越界视为无聚光阴影）
+		int spot_shadow_index = 0;
 		/*
 		阴影光源正交视锥（第一百零七轮）
 		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
