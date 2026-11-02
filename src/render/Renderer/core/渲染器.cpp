@@ -7227,7 +7227,8 @@ namespace engine
 	顺序：读文本 → 校验相机 → 装配资产（失败整体回退）→ 应用相机 / 光照 / 雾。
 	先装配后应用，保证「装载失败时既有场景状态不被改动」。
 	*/
-	bool Renderer::level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path)
+	bool Renderer::level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path,
+		bool apply_scene)
 	{
 		//默认无结果
 		level_out = Level_Data();
@@ -7281,8 +7282,9 @@ namespace engine
 			}
 		}
 
-		//应用相机 / 光照 / 雾（相机已校验，三组必然生效）
-		scene_apply(level_out.camera, level_out.light, level_out.fog);
+		//应用相机 / 光照 / 雾（相机已校验，三组必然生效；仅当调用方要求时）
+		if (apply_scene)
+			scene_apply(level_out.camera, level_out.light, level_out.fog);
 		scene_out = 场景;
 		return true;
 	}

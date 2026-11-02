@@ -1049,8 +1049,10 @@ namespace engine
 		读取关卡文本 → 应用相机 / 光照 / 雾（三组入参）→ 按 `asset_lines` 装配资产（同一文件只加载一次）。
 		资产路径相对关卡文件所在目录；相机参数非法 / 文本非法 / 任一资产创建失败 → 整体回退并返回假。
 		成功时 `level_out` 与 `scene_out` 均有效；资产须由 `scene_unload`（或 `level_unload`）释放。
+		`apply_scene = false` 时只装配资产、不应用相机 / 光照 / 雾（第四百三十二轮：供展示场景只借资产）。
 		*/
-		bool level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path);
+		bool level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path,
+			bool apply_scene = true);
 		/*
 		释放关卡装配的全部资产资源（第四百三十轮；等价于 `scene_unload`，幂等）
 		*/
