@@ -8,6 +8,27 @@
 namespace engine
 {
 	/*
+	材质实例声明（第四百六十六轮；方向七阶段 B）
+	关卡文本的 `material` 行：实例名 ＋ 模板材质名 ＋ 可选 tint / emissive 覆盖。
+	只保存声明（Vulkan-free），不持有句柄；装配阶段由场景侧按实例名查表。
+	*/
+	struct Level_Material
+	{
+		//实例名（place 行材质列引用；同一关卡内唯一）
+		std::string 实例名;
+		//模板材质名（引用 `mtl` 行里的材质名）
+		std::string 模板;
+		//是否覆盖底色
+		bool use_tint = false;
+		//覆盖底色（RGBA；use_tint 为假时无意义）
+		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		//是否覆盖自发光强度
+		bool use_emissive = false;
+		//覆盖自发光强度（use_emissive 为假时无意义）
+		float emissive = 0.0f;
+	};
+
+	/*
 	关卡数据（第四百二十九轮；方向六阶段 A）
 	聚合「关卡的相机 / 光照 / 雾 / 资产摆放」；四部分都复用既有结构，
 	资产段落以清单原文保存（`mesh` / `mtl` / `place` 行），装载时交给场景清单链路。
@@ -27,6 +48,8 @@ namespace engine
 		Fog_Data fog;
 		//资产声明行（`mesh` / `mtl` / `place`，已去首尾空白的原文）
 		std::vector<std::string> asset_lines;
+		//材质实例声明（第四百六十六轮；按文本出现顺序，旧文件为空）
+		std::vector<Level_Material> materials;
 	};
 
 	/*
@@ -39,6 +62,7 @@ namespace engine
 	         specular_scale|shadow|pbr|toon|outline <值…>；point / spot 逐盏一行
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
+	  material <实例名> <模板材质名> [tint r g b a] [emissive v]（第四百六十六轮；结构化保存）
 	浮点按 `%.9g` 写出（二进制 32 位浮点可唯一还原），故读写往返逐位一致。
 	失败（路径不可读 / 超限 / 未知段或键 / 字段数不符 / 非有限值 / 光源超过 8 盏）时返回假并清空输出。
 	本函数只做文本层校验，不校验资产文件是否存在、不建 GPU 资源。

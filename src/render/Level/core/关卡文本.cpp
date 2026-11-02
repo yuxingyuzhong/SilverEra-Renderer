@@ -20,6 +20,8 @@ namespace engine
 		constexpr uint32_t MAX_SPOT_LIGHTS = 8u;
 		//资产声明行上限
 		constexpr uint32_t MAX_ASSET_LINES = 20000u;
+		//材质实例声明上限（第四百六十六轮；独立于资产行额度）
+		constexpr uint32_t MAX_LEVEL_MATERIALS = 256u;
 
 		//浮点文本（9 位有效数字：二进制 32 位浮点可唯一还原）
 		std::string number_text(float value)
@@ -232,6 +234,28 @@ namespace engine
 			if (!finite_many(fog.color, 3) || !finite_many(&fog.density, 1)
 				|| !finite_many(&fog.start, 2) || !finite_many(&fog.height_falloff, 1))
 				return false;
+			//材质实例声明（第四百六十六轮；阶段 B）
+			for (const Level_Material& material : level.materials)
+			{
+				//实例名 / 模板名须非空且不含空白（写出后仍可被逐列解析）
+				if (material.实例名.empty() || material.模板.empty()
+					|| material.实例名.find_first_of(" \t\r\n") != std::string::npos
+					|| material.模板.find_first_of(" \t\r\n") != std::string::npos)
+					return false;
+				//覆盖底色四项须有限且在 [0,1]
+				if (material.use_tint)
+				{
+					if (!finite_many(material.tint, 4))
+						return false;
+					for (std::size_t index = 0; index < 4; ++index)
+						if (material.tint[index] < 0.0f || material.tint[index] > 1.0f)
+							return false;
+				}
+				//覆盖自发光须有限且在 [0,1]
+				if (material.use_emissive)
+					if (!finite_one(material.emissive) || material.emissive < 0.0f || material.emissive > 1.0f)
+						return false;
+			}
 			return true;
 		}
 	}
@@ -764,6 +788,101 @@ namespace engine
 				}
 				continue;
 			}
+			//材质实例声明（第四百六十六轮；阶段 B；先于资产行解析）
+			if (tag == "material")
+			{
+				std::string instance_name;
+				std::string template_name;
+				//缺实例名或模板材质名
+				if (!(stream >> instance_name) || !(stream >> template_name))
+				{
+					logger.warn("关卡:: material 行缺实例名或模板材质名 ({})", path);
+					return false;
+				}
+				//实例名重复
+				for (const Level_Material& existing : out.materials)
+				{
+					if (existing.实例名 == instance_name)
+					{
+						logger.warn("关卡:: material 实例名重复（{}）", instance_name);
+						return false;
+					}
+				}
+				//数量上限
+				if (out.materials.size() >= MAX_LEVEL_MATERIALS)
+				{
+					logger.warn("关卡:: 材质实例超限 ({})", path);
+					return false;
+				}
+				Level_Material material;
+				material.实例名 = instance_name;
+				material.模板 = template_name;
+				//可选覆盖项（顺序固定：tint → emissive）
+				std::string key;
+				while (stream >> key)
+				{
+					//覆盖底色
+					if (key == "tint")
+					{
+						//重复或顺序错误
+						if (material.use_tint || material.use_emissive)
+						{
+							logger.warn("关卡:: material 覆盖项顺序非法（{}）", key);
+							return false;
+						}
+						float values[4] = {};
+						//缺字段
+						if (!floats_read_n(stream, values, 4))
+						{
+							logger.warn("关卡:: material tint 字段非法");
+							return false;
+						}
+						for (std::size_t index = 0; index < 4; ++index)
+						{
+							//非有限或越界
+							if (!std::isfinite(values[index]) || values[index] < 0.0f || values[index] > 1.0f)
+							{
+								logger.warn("关卡:: material tint 数值越界");
+								return false;
+							}
+							material.tint[index] = values[index];
+						}
+						material.use_tint = true;
+						continue;
+					}
+					//覆盖自发光
+					if (key == "emissive")
+					{
+						//重复覆盖
+						if (material.use_emissive)
+						{
+							logger.warn("关卡:: material 覆盖项重复（{}）", key);
+							return false;
+						}
+						float value = 0.0f;
+						//缺字段
+						if (!floats_read_n(stream, &value, 1))
+						{
+							logger.warn("关卡:: material emissive 字段非法");
+							return false;
+						}
+						//非有限或越界
+						if (!std::isfinite(value) || value < 0.0f || value > 1.0f)
+						{
+							logger.warn("关卡:: material emissive 数值越界");
+							return false;
+						}
+						material.emissive = value;
+						material.use_emissive = true;
+						continue;
+					}
+					//未知覆盖项
+					logger.warn("关卡:: material 出现未知覆盖项（{}）", key);
+					return false;
+				}
+				out.materials.push_back(material);
+				continue;
+			}
 			//资产声明行（原样保留，装载阶段交给场景清单链路）
 			if (tag == "mesh" || tag == "mtl" || tag == "place")
 			{
@@ -965,6 +1084,20 @@ namespace engine
 		}
 		integer_write(file, "fog mode", static_cast<long long>(level.fog.mode));
 		floats_write(file, "fog height_falloff", &level.fog.height_falloff, 1);
+
+		//材质实例声明（第四百六十六轮；阶段 B；先于资产行写出）
+		for (const Level_Material& material : level.materials)
+		{
+			file << "material " << material.实例名 << ' ' << material.模板;
+			//覆盖底色
+			if (material.use_tint)
+				file << " tint " << number_text(material.tint[0]) << ' ' << number_text(material.tint[1])
+					<< ' ' << number_text(material.tint[2]) << ' ' << number_text(material.tint[3]);
+			//覆盖自发光
+			if (material.use_emissive)
+				file << " emissive " << number_text(material.emissive);
+			file << '\n';
+		}
 
 		//资产声明行（原样）
 		for (const std::string& asset_line : level.asset_lines)
