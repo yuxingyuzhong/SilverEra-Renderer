@@ -359,6 +359,36 @@ namespace engine
 	};
 
 	/*
+	场景对象（第四百二十四轮；资产加载方向第三阶段）
+	materials 为该网格的材质句柄（按 OBJ 段序号对齐，供 mesh_draw_sections 逐段绑定；空表示无材质）。
+	*/
+	struct Asset_Object
+	{
+		//网格句柄
+		Mesh_Handle mesh = 0;
+		//材质句柄（按段序号对齐）
+		std::vector<Material_Handle> materials;
+		//位置（世界坐标）
+		float position[3] = { 0.0f, 0.0f, 0.0f };
+		//缩放（三轴）
+		float scale[3] = { 1.0f, 1.0f, 1.0f };
+	};
+
+	/*
+	场景清单加载结果（第四百二十四轮）
+	objects 按清单 place 顺序输出；meshes / materials 为本次创建的全部资源（scene_unload 用）。
+	*/
+	struct Asset_Scene
+	{
+		//摆放对象
+		std::vector<Asset_Object> objects;
+		//本次创建的网格
+		std::vector<Mesh_Handle> meshes;
+		//本次创建的材质
+		std::vector<Material_Handle> materials;
+	};
+
+	/*
 	渲染器（门面）
 	生命周期：init → frame_render × N → shutdown
 	状态机：未初始化 → 已初始化 → 已销毁（shutdown 幂等，可重复调用）
@@ -983,6 +1013,18 @@ namespace engine
 		任一材质创建失败即整次回退（已建材质与纹理全部释放）并返回假。
 		*/
 		bool material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path);
+		/*
+		从场景清单装载整套资产（第四百二十四轮；资产加载方向第三阶段）
+		清单格式见 `资产加载.h` 的 Scene_Manifest 注释：mesh / mtl 声明 ＋ place 摆放。
+		路径按清单文件所在目录解析；同一网格 / 材质库只加载一次。
+		任一网格或材质库创建失败即整体回退（已建资源全部释放）并返回假；成功时按 place 顺序写出对象。
+		*/
+		bool scene_load(Asset_Scene& scene_out, const std::string& path);
+		/*
+		释放场景清单创建的全部资源（网格 ＋ 材质；幂等）
+		不负责卸载调用方另行创建的其它资源。
+		*/
+		void scene_unload(Asset_Scene& scene);
 		/*
 		卸载材质（句柄无效则忽略）
 		若材质自行登记了具名管线，则随卸载一并释放；卸载后其句柄失效。

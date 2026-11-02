@@ -7036,6 +7036,124 @@ namespace engine
 		return true;
 	}
 
+	/*
+	从场景清单装载整套资产（第四百二十四轮）
+	清单解析在资产加载模块；这里只做「路径解析 ＋ 资源创建 ＋ 对象装配 ＋ 失败回退」。
+	同一网格 / 材质库只加载一次，place 按顺序复用句柄。
+	*/
+	bool Renderer::scene_load(Asset_Scene& scene_out, const std::string& path)
+	{
+		//默认无结果
+		scene_out.objects.clear();
+		scene_out.meshes.clear();
+		scene_out.materials.clear();
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 场景清单加载失败：尚未初始化");
+			return false;
+		}
+		//解析清单
+		Scene_Manifest 清单;
+		if (!scene_manifest_parse(path, 清单))
+			return false;
+		//清单所在目录（保留 UTF-8 编码；相对路径直接前缀拼接）
+		const std::size_t cut = path.find_last_of("/\\");
+		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
+
+		//网格（ID → 句柄）
+		std::vector<std::pair<std::string, Mesh_Handle>> 网格表;
+		网格表.reserve(清单.meshes.size());
+		for (const Scene_Mesh_Ref& ref : 清单.meshes)
+		{
+			Mesh_Handle 句柄 = 0;
+			if (!mesh_load_obj(句柄, 目录 + ref.path))
+			{
+				logger.warn("渲染器:: 场景清单网格加载失败（{}），整体回退", ref.path);
+				//回退已建网格
+				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+					mesh_unload(item.second);
+				scene_out.meshes.clear();
+				return false;
+			}
+			网格表.emplace_back(ref.id, 句柄);
+			scene_out.meshes.push_back(句柄);
+		}
+
+		//材质库（ID → 句柄组）
+		std::vector<std::pair<std::string, std::vector<Material_Handle>>> 材质表;
+		材质表.reserve(清单.materials.size());
+		for (const Scene_Mtl_Ref& ref : 清单.materials)
+		{
+			std::vector<Material_Handle> 句柄组;
+			if (!material_load_mtl(句柄组, 目录 + ref.path))
+			{
+				logger.warn("渲染器:: 场景清单材质库加载失败（{}），整体回退", ref.path);
+				//回退已建材质与网格
+				for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
+					for (Material_Handle 句柄 : item.second)
+						material_unload(句柄);
+				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+					mesh_unload(item.second);
+				scene_out.meshes.clear();
+				scene_out.materials.clear();
+				return false;
+			}
+			for (Material_Handle 句柄 : 句柄组)
+				scene_out.materials.push_back(句柄);
+			材质表.emplace_back(ref.id, 句柄组);
+		}
+
+		//按 place 顺序装配对象
+		for (const Scene_Place& place : 清单.places)
+		{
+			Asset_Object object;
+			//网格句柄（解析阶段已保证 ID 存在）
+			for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
+			{
+				if (item.first == place.mesh_id)
+				{
+					object.mesh = item.second;
+					break;
+				}
+			}
+			//材质句柄组（可选）
+			if (!place.material_id.empty())
+			{
+				for (const std::pair<std::string, std::vector<Material_Handle>>& item : 材质表)
+				{
+					if (item.first == place.material_id)
+					{
+						object.materials = item.second;
+						break;
+					}
+				}
+			}
+			//位置与缩放
+			for (std::size_t index = 0; index < 3; ++index)
+			{
+				object.position[index] = place.position[index];
+				object.scale[index] = place.scale[index];
+			}
+			scene_out.objects.push_back(object);
+		}
+		return true;
+	}
+
+	//释放场景清单创建的全部资源（幂等）
+	void Renderer::scene_unload(Asset_Scene& scene)
+	{
+		//网格
+		for (Mesh_Handle 句柄 : scene.meshes)
+			mesh_unload(句柄);
+		//材质
+		for (Material_Handle 句柄 : scene.materials)
+			material_unload(句柄);
+		scene.meshes.clear();
+		scene.materials.clear();
+		scene.objects.clear();
+	}
+
 	//登记材质（图形管线 ＋ 纹理 ＋ 混合档）
 	bool Renderer::material_load(Material_Handle& handle_out, const Material_Data& data)
 	{

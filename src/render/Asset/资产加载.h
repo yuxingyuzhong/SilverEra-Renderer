@@ -64,4 +64,61 @@ namespace engine
 	贴图路径原样保留（不解析相对目录）；解析目录由调用方处理。
 	*/
 	bool mtl_materials_load(const std::string& path, std::vector<Mtl_Material>& out);
+
+	/*
+	场景清单（第四百二十四轮；资产加载方向第三阶段）
+	纯文本行格式（UTF-8，一行一条，`#` 起首为注释）：
+	  mesh  <网格ID> <OBJ 路径>
+	  mtl   <材质ID> <MTL 路径>
+	  place <网格ID> [材质ID] <x> <y> <z> <sx> <sy> <sz>
+	路径相对清单文件所在目录；`place` 的材质列可省略（表示无材质）。
+	本结构只做文本解析，不建 GPU 资源；资源创建由门面 `scene_load` 完成。
+	*/
+	struct Scene_Mesh_Ref
+	{
+		//网格 ID（清单内唯一）
+		std::string id;
+		//OBJ 路径（相对清单目录）
+		std::string path;
+	};
+
+	//清单里的材质库引用
+	struct Scene_Mtl_Ref
+	{
+		//材质 ID（清单内唯一）
+		std::string id;
+		//MTL 路径（相对清单目录）
+		std::string path;
+	};
+
+	//清单里的一个摆放记录
+	struct Scene_Place
+	{
+		//网格 ID
+		std::string mesh_id;
+		//材质 ID（空串表示无材质）
+		std::string material_id;
+		//位置（世界坐标）
+		float position[3] = { 0.0f, 0.0f, 0.0f };
+		//缩放（三轴）
+		float scale[3] = { 1.0f, 1.0f, 1.0f };
+	};
+
+	//整份清单
+	struct Scene_Manifest
+	{
+		//网格引用
+		std::vector<Scene_Mesh_Ref> meshes;
+		//材质库引用
+		std::vector<Scene_Mtl_Ref> materials;
+		//摆放记录
+		std::vector<Scene_Place> places;
+	};
+
+	/*
+	解析场景清单（第四百二十四轮）
+	失败（路径不可读 / 超限 / 未知指令 / 字段缺失 / ID 重复）返回假并清空输出；
+	仅做语法与「ID 是否被引用」的静态检查，不校验 OBJ / MTL 文件是否存在。
+	*/
+	bool scene_manifest_parse(const std::string& path, Scene_Manifest& out);
 }

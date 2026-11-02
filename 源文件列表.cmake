@@ -24,6 +24,7 @@
 target_sources(RendererCore PRIVATE
     "src/render/Asset/core/mtl文件加载.cpp"
     "src/render/Asset/core/obj文件加载.cpp"
+    "src/render/Asset/core/场景清单加载.cpp"
     "src/render/Cluster/core/簇划分.cpp"
     "src/render/Compute/core/Compute.cpp"
     "src/render/Device/core/实例创建.cpp"
