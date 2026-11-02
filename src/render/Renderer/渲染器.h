@@ -975,6 +975,15 @@ namespace engine
 		*/
 		bool material_load(Material_Handle& handle_out, const Material_Data& data);
 		/*
+		从 MTL 材质库创建材质（第四百二十三轮；资产加载方向第二阶段）
+		解析 newmtl / Kd / Ks / Ke / Ns / d / Tr / map_Kd / map_Bump；
+		换算口径：tint = Kd（第四分量为 d）、粗糙度 = √(2 / (Ns + 2))、自发光强度 = Ke 亮度、
+		d < 1 时启用 alpha 裁剪（阈值 0.5）；map_Kd / map_Bump 相对 MTL 所在目录解码为纹理。
+		句柄按文件内声明顺序写入 handles_out（与 OBJ 的 usemtl 顺序对齐，同名材质按名字自行匹配）。
+		任一材质创建失败即整次回退（已建材质与纹理全部释放）并返回假。
+		*/
+		bool material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path);
+		/*
 		卸载材质（句柄无效则忽略）
 		若材质自行登记了具名管线，则随卸载一并释放；卸载后其句柄失效。
 		*/

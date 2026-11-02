@@ -1,4 +1,6 @@
 #include "src/render/Asset/局部命名空间使用.h"
+//模块内共享解析工具（路径转换 / 去空白）
+#include "src/render/Asset/core/文本解析工具.h"
 
 //文件读取（ifstream / getline / istringstream）
 #include <fstream>
@@ -14,13 +16,6 @@ namespace engine
 		constexpr uint32_t MAX_ATTRIBUTES = 4000000u;
 		//索引数量上限（约 400 万三角形）
 		constexpr uint32_t MAX_INDICES = 12000000u;
-
-		//UTF-8 字符串 → 文件系统路径（中文路径按 u8 解释）
-		std::filesystem::path path_from_utf8(const std::string& text)
-		{
-			std::u8string u8(reinterpret_cast<const char8_t*>(text.data()), text.size());
-			return std::filesystem::path(u8);
-		}
 
 		//十进制整数解析（失败返回假；不接受浮点 / 空串 / 越界）
 		bool integer_parse(const std::string& text, int64_t& value)
@@ -111,17 +106,6 @@ namespace engine
 					&& left.normal == right.normal;
 			}
 		};
-
-		//去掉首尾空白（usemtl 名称可能带空格）
-		std::string trimmed(const std::string& text)
-		{
-			std::size_t begin = text.find_first_not_of(" \t\r\n");
-			//全空白
-			if (begin == std::string::npos)
-				return std::string();
-			std::size_t end = text.find_last_not_of(" \t\r\n");
-			return text.substr(begin, end - begin + 1);
-		}
 
 		/*
 		面顶点标记解析（v / v/vt / v//vn / v/vt/vn）
@@ -259,7 +243,7 @@ namespace engine
 			return false;
 		}
 
-		const std::filesystem::path file_path = path_from_utf8(path);
+		const std::filesystem::path file_path = asset_detail::path_from_utf8(path);
 		std::error_code code;
 		const uintmax_t byte_count = std::filesystem::file_size(file_path, code);
 		//文件不存在 / 不可读
@@ -369,7 +353,7 @@ namespace engine
 			{
 				std::string name;
 				std::getline(stream, name);
-				name = trimmed(name);
+				name = asset_detail::trimmed(name);
 				/*
 				收尾上一段（只有确实吃到面时才建段）
 				段序号即材质槽，故只在建段时推进；空段（该材质没有面）直接丢弃，名字不占序号。

@@ -6931,6 +6931,111 @@ namespace engine
 		impl->bound_pipeline_request = target;
 	}
 
+	/*
+	从 MTL 材质库创建材质（第四百二十三轮）
+	字段换算与贴图解码都在这里完成；贴图相对 MTL 所在目录解析（UTF-8 窄路径直接拼接，避免宽窄转换）。
+	任一材质创建失败即回退本次已建的全部材质与纹理，并清空输出。
+	*/
+	bool Renderer::material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path)
+	{
+		//默认无输出
+		handles_out.clear();
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: MTL 材质加载失败：尚未初始化");
+			return false;
+		}
+		//解析材质库
+		std::vector<Mtl_Material> 材质项;
+		if (!mtl_materials_load(path, 材质项))
+			return false;
+		//MTL 所在目录（保留 UTF-8 编码；贴图路径直接前缀拼接）
+		const std::size_t cut = path.find_last_of("/\\");
+		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
+
+		//本次已创建的资源（失败时整体回退）
+		std::vector<uint64_t> 纹理;
+		std::vector<Material_Handle> 已建;
+		//逐项创建
+		for (const Mtl_Material& 项 : 材质项)
+		{
+			Material_Data 描述;
+			//反照率取 Kd，第四分量为不透明度
+			描述.tint_override = true;
+			描述.tint[0] = 项.diffuse[0];
+			描述.tint[1] = 项.diffuse[1];
+			描述.tint[2] = 项.diffuse[2];
+			描述.tint[3] = 项.opacity;
+			/*
+			PBR 近似
+			Ns 是镜面指数：0 最粗糙、1000 最光滑；按 roughness = √(2 / (Ns + 2)) 换算，
+			下限取 0.06（材质层的合法域是 (0.05, 4]，恰好 0.05 会被判非法）。
+			OBJ 材质库没有金属度语义，一律按电介质（0）处理。
+			*/
+			描述.pbr_override = true;
+			float 粗糙 = std::sqrt(2.0f / (项.shininess + 2.0f));
+			if (粗糙 < 0.06f)
+				粗糙 = 0.06f;
+			if (粗糙 > 4.0f)
+				粗糙 = 4.0f;
+			描述.pbr_roughness = 粗糙;
+			描述.pbr_metallic = 0.0f;
+			//自发光强度取 Ke 的亮度（钳到 [0,1]）
+			float 亮度 = 0.2126f * 项.emissive[0] + 0.7152f * 项.emissive[1] + 0.0722f * 项.emissive[2];
+			if (亮度 < 0.0f)
+				亮度 = 0.0f;
+			if (亮度 > 1.0f)
+				亮度 = 1.0f;
+			描述.emissive = 亮度;
+			//半透明：材质层没有整体透明度字段，改用 alpha 裁剪近似
+			if (项.opacity < 0.999f)
+				描述.alpha_cutoff = 0.5f;
+			//漫反射贴图（解码失败不阻断材质创建）
+			if (!项.diffuse_map.empty())
+			{
+				uint64_t 贴图 = 0;
+				if (texture_load_file(贴图, 目录 + 项.diffuse_map))
+				{
+					描述.texture = 贴图;
+					纹理.push_back(贴图);
+				}
+				else
+					logger.warn("渲染器:: MTL 漫反射贴图加载失败（{}），该材质按无贴图创建", 项.diffuse_map);
+			}
+			//法线 / 凹凸贴图
+			if (!项.normal_map.empty())
+			{
+				uint64_t 贴图 = 0;
+				if (texture_load_file(贴图, 目录 + 项.normal_map))
+				{
+					描述.normal_texture = 贴图;
+					描述.normal_strength = 1.0f;
+					纹理.push_back(贴图);
+				}
+				else
+					logger.warn("渲染器:: MTL 法线贴图加载失败（{}），该材质按无法线创建", 项.normal_map);
+			}
+			//创建材质
+			Material_Handle 材质 = 0;
+			if (!material_load(材质, 描述))
+			{
+				logger.warn("渲染器:: MTL 材质 {} 创建失败，回退本次已建资源", 项.name);
+				//回退材质
+				for (Material_Handle 已建项 : 已建)
+					material_unload(已建项);
+				//回退纹理
+				for (uint64_t 贴图 : 纹理)
+					texture_unload(贴图);
+				handles_out.clear();
+				return false;
+			}
+			已建.push_back(材质);
+			handles_out.push_back(材质);
+		}
+		return true;
+	}
+
 	//登记材质（图形管线 ＋ 纹理 ＋ 混合档）
 	bool Renderer::material_load(Material_Handle& handle_out, const Material_Data& data)
 	{

@@ -22,6 +22,7 @@
 # =============================================================================
 #
 target_sources(RendererCore PRIVATE
+    "src/render/Asset/core/mtl文件加载.cpp"
     "src/render/Asset/core/obj文件加载.cpp"
     "src/render/Cluster/core/簇划分.cpp"
     "src/render/Compute/core/Compute.cpp"
@@ -79,6 +80,7 @@ target_sources(RendererCore PRIVATE
 # 使头文件改名 / 迁移时 VS 也能改写引用
 target_sources(RendererCore PRIVATE
     "common/前置头文件包含.h"
+    "src/render/Asset/core/文本解析工具.h"
     "src/render/Asset/局部命名空间使用.h"
     "src/render/Asset/资产加载.h"
     "src/render/Cluster/簇划分.h"
