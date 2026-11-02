@@ -44,8 +44,12 @@ namespace engine
 		std::vector<Vertex> vertices;
 		//索引集合
 		std::vector<uint32_t> indices;
-		//分段描述（可为空：空表示整段，多材质绘制入口回落到「按材质数均分」）
-		std::vector<Mesh_Section> sections;
+		/*
+		注意（第四百一十六轮修正）：分段描述不再作为 `Mesh_Data` 的字段——
+		本层与 EngineCore 都有 `engine::Mesh_Data`（同名不同定义），字段增删会改变结构体大小，
+		在同时链接两层的 Test 里触发 ODR 冲突（曾导致 `Mesh_Loader_Test` 崩溃 / 卡住）。
+		分段改由门面 `mesh_load_sections(handle, data, sections, count)` 单独传入。
+		*/
 	};
 
 	//网格句柄（0 表示无效）

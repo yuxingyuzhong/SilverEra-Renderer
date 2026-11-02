@@ -5571,8 +5571,30 @@ namespace engine
 			logger.error("渲染器:: 网格加载失败：尚未初始化");
 			return false;
 		}
-		//转交网格模块创建顶点 / 索引缓冲
+		//转交网格模块创建顶点 / 索引缓冲（无分段）
 		return impl->mesh.mesh_create(handle_out, data);
+	}
+
+	//加载带子网格分段的网格（第四百一十六轮）
+	bool Renderer::mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
+		const Mesh_Section* sections, uint32_t count)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: 网格加载失败：尚未初始化");
+			return false;
+		}
+		//段数组非空且段数为正（否则等价于整段，走 mesh_load 语义）
+		if (sections == nullptr || count == 0)
+		{
+			logger.warn("渲染器:: 分段网格加载参数非法（段数组为空或段数 0），已忽略");
+			handle_out = 0;
+			return false;
+		}
+		//转交网格模块（分段校验在网格模块完成）
+		std::vector<Mesh_Section> 段(sections, sections + count);
+		return impl->mesh.mesh_create(handle_out, data, 段);
 	}
 
 	//卸载网格

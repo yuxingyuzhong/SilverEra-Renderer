@@ -60,7 +60,8 @@ namespace engine
 	}
 
 	//创建网格
-	bool Mesh_Context::mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data)
+	bool Mesh_Context::mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data,
+		const std::vector<Mesh_Section>& sections)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -146,7 +147,7 @@ namespace engine
 		非空时逐段校验：索引数为 3 的倍数、区间不越过索引区；任一不合法则整次拒绝（不留半成品记录）。
 		注意：此处缓冲已创建，失败路径必须先销毁它（否则 VMA 会报未释放的专用分配）。
 		*/
-		for (const Mesh_Section& section : data.sections)
+		for (const Mesh_Section& section : sections)
 		{
 			//段索引数须为完整三角形
 			if (section.index_count % 3u != 0u)
@@ -166,7 +167,7 @@ namespace engine
 			}
 		}
 		//保存分段描述
-		record.sections = data.sections;
+		record.sections = sections;
 		record.valid = true;
 		records.push_back(record);
 

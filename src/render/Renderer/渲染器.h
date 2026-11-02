@@ -684,6 +684,14 @@ namespace engine
 		*/
 		bool mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data);
 		/*
+		加载带子网格分段的网格（第四百一十六轮）
+		与 mesh_load 相同，但额外保存 sections（每段 first_index / index_count / material）；
+		段校验在网格模块完成（索引数为 3 的倍数、区间不越界），任一不合法整次拒绝并返回假。
+		注意（第四百一十六轮修正）：分段不作为 Mesh_Data 字段，避免与 EngineCore 同名 Mesh_Data 的 ODR 冲突。
+		*/
+		bool mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
+			const Mesh_Section* sections, uint32_t count);
+		/*
 		加载程序化三角形（第一百四十二轮新增）
 		单个正面朝 +Z 的等腰三角形（3 顶点 / 3 索引）；仅需已初始化，无参数校验。
 		*/

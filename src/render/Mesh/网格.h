@@ -71,7 +71,9 @@ namespace engine
 		bool valid(void) const;
 
 		//创建网格（顶点 / 索引合入一个设备本地缓冲后上传；句柄自 1 起，0 表无效）
-		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data);
+		//sections 为可选分段描述（第四百一十六轮；空表示整段），随记录保存供多材质绘制入口使用
+		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data,
+			const std::vector<Mesh_Section>& sections = {});
 		//销毁网格
 		void mesh_destroy(Mesh_Handle handle);
 		/*
