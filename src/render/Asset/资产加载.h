@@ -70,8 +70,9 @@ namespace engine
 	纯文本行格式（UTF-8，一行一条，`#` 起首为注释）：
 	  mesh  <网格ID> <OBJ 路径>
 	  mtl   <材质ID> <MTL 路径>
-	  place <网格ID> [材质ID] <x> <y> <z> <sx> <sy> <sz>
-	路径相对清单文件所在目录；`place` 的材质列可省略（表示无材质）。
+	  place <网格ID> [材质ID] <x> <y> <z> <sx> <sy> <sz> [<rx> <ry> <rz>]
+	路径相对清单文件所在目录；`place` 的材质列可省略（表示无材质）；
+	旋转三轴可省略（度，缺省 0 = 不旋转；第四百三十一轮）。
 	本结构只做文本解析，不建 GPU 资源；资源创建由门面 `scene_load` 完成。
 	*/
 	struct Scene_Mesh_Ref
@@ -102,6 +103,11 @@ namespace engine
 		float position[3] = { 0.0f, 0.0f, 0.0f };
 		//缩放（三轴）
 		float scale[3] = { 1.0f, 1.0f, 1.0f };
+		/*
+		欧拉角旋转（度；第四百三十一轮）
+		顺序 X → Y → Z（变换矩阵 R = Rz·Ry·Rx）；缺省全零 = 不旋转。
+		*/
+		float rotation_deg[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
 	//整份清单

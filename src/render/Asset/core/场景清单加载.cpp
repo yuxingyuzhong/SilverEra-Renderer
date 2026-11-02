@@ -153,6 +153,30 @@ namespace engine
 					place.scale[1] = values[3];
 					place.scale[2] = values[4];
 				}
+				//可选三轴旋转（度；第四百三十一轮）
+				{
+					std::string extra;
+					if (stream >> extra)
+					{
+						float rotation[3] = {};
+						if (!float_parse(extra, rotation[0])
+							|| !(stream >> extra) || !float_parse(extra, rotation[1])
+							|| !(stream >> extra) || !float_parse(extra, rotation[2]))
+						{
+							logger.warn("资产加载:: 清单 place 行旋转非法（需三个角度）");
+							return false;
+						}
+						//旋转之后不允许多余字段
+						if (stream >> extra)
+						{
+							logger.warn("资产加载:: 清单 place 行字段过多");
+							return false;
+						}
+						place.rotation_deg[0] = rotation[0];
+						place.rotation_deg[1] = rotation[1];
+						place.rotation_deg[2] = rotation[2];
+					}
+				}
 				//网格 ID 必须存在
 				bool mesh_found = false;
 				for (const Scene_Mesh_Ref& existing : out.meshes)

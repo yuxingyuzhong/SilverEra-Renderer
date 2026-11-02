@@ -49,4 +49,13 @@ namespace engine
 	资产段落按 `asset_lines` 原样逐行写出。路径按 UTF-8 解释；失败（路径为空 / 打不开）返回假。
 	*/
 	bool level_text_write(const Level_Data& level, const std::string& path);
+
+	/*
+	构造关卡对象的变换矩阵（第四百三十一轮；列主序 4×4）
+	按「缩放 → 旋转 → 平移」合成（M = T·R·S）；旋转为欧拉角（**度**），顺序 X → Y → Z（R = Rz·Ry·Rx）。
+	结果可直接传给 `mesh_draw` / `mesh_draw_sections` / `mesh_draw_range`；
+	旋转全零时等价于「缩放 ＋ 平移」对角矩阵（与既有手工构造一致）。
+	*/
+	void level_transform_build(const float position[3], const float rotation_deg[3],
+		const float scale[3], float out[16]);
 }

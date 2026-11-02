@@ -7166,11 +7166,12 @@ namespace engine
 						}
 					}
 				}
-				//位置与缩放
+				//位置 / 缩放 / 旋转
 				for (std::size_t index = 0; index < 3; ++index)
 				{
 					object.position[index] = place.position[index];
 					object.scale[index] = place.scale[index];
+					object.rotation_deg[index] = place.rotation_deg[index];
 				}
 				scene_out.objects.push_back(object);
 			}

@@ -374,6 +374,12 @@ namespace engine
 		float position[3] = { 0.0f, 0.0f, 0.0f };
 		//缩放（三轴）
 		float scale[3] = { 1.0f, 1.0f, 1.0f };
+		/*
+		欧拉角旋转（度；第四百三十一轮）
+		顺序 X → Y → Z（R = Rz·Ry·Rx）；缺省全零 = 不旋转。
+		变换矩阵由 `level_transform_build` 构造后交给 `mesh_draw` 系列。
+		*/
+		float rotation_deg[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
 	/*
