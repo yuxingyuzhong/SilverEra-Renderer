@@ -1785,6 +1785,37 @@ namespace engine
 					shutdown();
 					return false;
 				}
+			/*
+			③ 聚光灯阴影目标（第四百八十三轮；方案 B 基础设施）
+			与方向光阴影目标同参数的第二张图；写入各帧槽场景采样集 binding 9。
+			本轮着色器尚未采样 binding 9，故创建与绑定不改变画面。
+			*/
+			if (!impl->render_target.target_create(impl->spot_shadow_target, impl->shadow_size, impl->shadow_size,
+				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			{
+				logger.error("渲染器:: 聚光灯阴影目标创建失败");
+				shutdown();
+				return false;
+			}
+			VkImage spot_shadow_image = VK_NULL_HANDLE;
+			VkImageView spot_shadow_view = VK_NULL_HANDLE;
+			VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
+			VkExtent2D spot_shadow_extent{};
+			if (!impl->render_target.target_get(impl->spot_shadow_target, spot_shadow_image, spot_shadow_view,
+				spot_shadow_depth_view, spot_shadow_extent))
+			{
+				logger.error("渲染器:: 聚光灯阴影目标查询失败");
+				shutdown();
+				return false;
+			}
+			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+				//把聚光灯阴影图写入该帧槽场景采样集的 binding 9
+				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, spot_shadow_view))
+				{
+					logger.error("渲染器:: 聚光灯阴影图绑定失败（帧槽 {}）", slot);
+					shutdown();
+					return false;
+				}
 		}
 		logger.info("渲染器:: 初始化完成（校验层 {}）", impl->device.validation_get() ? "开" : "关");
 		return true;
@@ -1824,6 +1855,12 @@ namespace engine
 			{
 				render_target_destroy(impl->shadow_target);
 				impl->shadow_target = 0;
+			}
+			//归还聚光灯阴影目标（第四百八十三轮）
+			if (impl->spot_shadow_target != 0)
+			{
+				render_target_destroy(impl->spot_shadow_target);
+				impl->spot_shadow_target = 0;
 			}
 			//阴影图已失效（第五十五轮）
 			impl->shadow_pass_ready = false;
@@ -2798,6 +2835,12 @@ namespace engine
 		scene_block[302] = impl->spot_shadow_strength;
 		scene_block[303] = static_cast<float>(impl->spot_shadow_index);
 		/*
+		聚光灯阴影矩阵（第四百八十三轮；304..319，方案 B 基础设施）
+		所选聚光灯的透视视图投影；本轮尚未写入（保持零矩阵），着色器亦未采样，画面不变。
+		*/
+		for (std::size_t index = 0; index < 16; ++index)
+			scene_block[304 + index] = impl->spot_view_proj[index];
+		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
 		连续变化单元合并为一段，仅对变化区间调用 buffer_write；
@@ -3181,6 +3224,16 @@ namespace engine
 				impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
 					shadow_depth_view, shadow_extent);
 			}
+			//聚光灯阴影图视图（第四百八十三轮；未建立时以默认白纹理占位）
+			VkImageView spot_shadow_view = default_view;
+			if (impl->spot_shadow_target != 0)
+			{
+				VkImage spot_shadow_image = VK_NULL_HANDLE;
+				VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
+				VkExtent2D spot_shadow_extent{};
+				impl->render_target.target_get(impl->spot_shadow_target, spot_shadow_image, spot_shadow_view,
+					spot_shadow_depth_view, spot_shadow_extent);
+			}
 			//天空盒立方体视图（未设置时用内置纯白立方体）
 			VkImageView sky_view = VK_NULL_HANDLE;
 			VkSampler sky_sampler = VK_NULL_HANDLE;
@@ -3219,6 +3272,8 @@ namespace engine
 					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
 					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
 					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
+					//聚光灯阴影图（第四百八十三轮；binding 9）
+					views.spot_shadow = spot_shadow_view != VK_NULL_HANDLE ? spot_shadow_view : default_view;
 					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
 					views.depth = item.draw_depth;
 					views.depth_sampler = item.draw_depth_sampler;

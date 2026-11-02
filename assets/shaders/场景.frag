@@ -126,6 +126,11 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	与方向光 shadow_params / shadow_strength 独立；仅聚光阴影开启时（cascade_params.x = 0）参与着色。
 	*/
 	vec4 spot_shadow_params;
+	/*
+	聚光灯阴影矩阵（第四百八十三轮；方案 B 基础设施）
+	所选聚光灯的透视视图投影；本轮着色器尚未采样，保留字段以与 UBO 1280 字节布局一致。
+	*/
+	mat4 spot_view_proj;
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）

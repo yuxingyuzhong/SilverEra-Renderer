@@ -615,6 +615,14 @@ namespace engine
 		std::array<float, 4> outline_push = { 0.0f, 0.0f, 0.0f, 0.0f };
 		//阴影目标句柄（第五十二轮；0 = 未创建）
 		uint64_t shadow_target = 0;
+		/*
+		聚光灯阴影目标（第四百八十三轮；方案 B 基础设施）
+		与 shadow_target 同参数的独立第二张图，采样绑定 set 1 binding 9；
+		本轮仅创建与绑定，着色器尚未采样，故画面与引入前逐字节一致。
+		*/
+		uint64_t spot_shadow_target = 0;
+		//聚光灯阴影矩阵（第四百八十三轮；所选聚光灯的透视视图投影，关闭时零矩阵）
+		float spot_view_proj[16] = {};
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
 		bool shadow_enabled = false;
 		/*
@@ -955,8 +963,8 @@ namespace engine
 		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		//场景 UBO 浮点数（300 个 32 位浮点 = 1200 字节；第四百七十六轮追加聚光阴影参数后为 304 = 1216 字节）
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 304;
+		//场景 UBO 浮点数（320 个 32 位浮点 = 1280 字节；第四百八十三轮追加 spot_view_proj 矩阵）
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 320;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*
