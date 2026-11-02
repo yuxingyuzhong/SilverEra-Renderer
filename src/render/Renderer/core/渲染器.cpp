@@ -12135,6 +12135,18 @@ namespace engine
 			logger.error("渲染器:: 阴影分辨率切换失败：旧阴影图查询失败");
 			return;
 		}
+		//旧聚光灯阴影图视图（第四百八十七轮；失败回绑用）
+		VkImage old_spot_image = VK_NULL_HANDLE;
+		VkImageView old_spot_view = VK_NULL_HANDLE;
+		VkImageView old_spot_depth_view = VK_NULL_HANDLE;
+		VkExtent2D old_spot_extent{};
+		if (impl->spot_shadow_target != 0
+			&& !impl->render_target.target_get(impl->spot_shadow_target, old_spot_image, old_spot_view,
+				old_spot_depth_view, old_spot_extent))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：旧聚光灯阴影图查询失败");
+			return;
+		}
 		//先建新目标（失败则旧目标原样保留）；颜色格式固定 UNORM，理由见 init ⑳ ①
 		uint64_t candidate = 0;
 		//阴影目标固定单采样（第九十六轮）
@@ -12142,6 +12154,16 @@ namespace engine
 			VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影目标创建失败（保持 {}）", impl->shadow_size);
+			return;
+		}
+		//聚光灯阴影目标同分辨率重建（第四百八十七轮；与方向光共用 shadow_size）
+		uint64_t candidate_spot = 0;
+		if (impl->spot_shadow_target != 0
+			&& !impl->render_target.target_create(candidate_spot, resolution, resolution,
+				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影目标创建失败（保持 {}）", impl->shadow_size);
+			impl->render_target.target_destroy(candidate);
 			return;
 		}
 		//取新目标颜色视图与默认采样器
@@ -12156,6 +12178,22 @@ namespace engine
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
 			impl->render_target.target_destroy(candidate);
+			if (candidate_spot != 0)
+				impl->render_target.target_destroy(candidate_spot);
+			return;
+		}
+		//新聚光灯阴影图颜色视图（第四百八十七轮）
+		VkImage new_spot_image = VK_NULL_HANDLE;
+		VkImageView new_spot_view = VK_NULL_HANDLE;
+		VkImageView new_spot_depth_view = VK_NULL_HANDLE;
+		VkExtent2D new_spot_extent{};
+		if (candidate_spot != 0
+			&& !impl->render_target.target_get(candidate_spot, new_spot_image, new_spot_view,
+				new_spot_depth_view, new_spot_extent))
+		{
+			logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影图查询失败");
+			impl->render_target.target_destroy(candidate);
+			impl->render_target.target_destroy(candidate_spot);
 			return;
 		}
 		//逐帧槽改绑新阴影图
@@ -12168,12 +12206,40 @@ namespace engine
 				for (std::size_t revert = 0; revert <= slot; ++revert)
 					impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
 				impl->render_target.target_destroy(candidate);
+				if (candidate_spot != 0)
+					impl->render_target.target_destroy(candidate_spot);
 				return;
+			}
+		}
+		//逐帧槽改绑新聚光灯阴影图（第四百八十七轮）
+		if (candidate_spot != 0)
+		{
+			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+			{
+				//任一槽失败：方向光与聚光两处绑定全部回绑旧图
+				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, new_spot_view))
+				{
+					logger.error("渲染器:: 阴影分辨率切换失败：帧槽 {} 聚光灯阴影绑定失败，回绑旧图", slot);
+					for (std::size_t revert = 0; revert < impl->config.frame_overlap; ++revert)
+					{
+						impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
+						impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(revert), sampler,
+							old_spot_view != VK_NULL_HANDLE ? old_spot_view : new_spot_view);
+					}
+					impl->render_target.target_destroy(candidate);
+					impl->render_target.target_destroy(candidate_spot);
+					return;
+				}
 			}
 		}
 		//全部改绑成功后销毁旧目标并更新状态
 		impl->render_target.target_destroy(impl->shadow_target);
 		impl->shadow_target = candidate;
+		if (candidate_spot != 0)
+		{
+			impl->render_target.target_destroy(impl->spot_shadow_target);
+			impl->spot_shadow_target = candidate_spot;
+		}
 		impl->shadow_size = resolution;
 		//新目标尚无有效内容，下一帧必须重绘阴影图
 		impl->shadow_pass_ready = false;
