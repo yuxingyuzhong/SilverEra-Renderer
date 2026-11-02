@@ -221,6 +221,9 @@ namespace engine
 				|| !finite_one(light.spot_shadow_strength) || light.spot_shadow_strength < 0.0f
 				|| light.spot_shadow_strength > 1.0f)
 				return false;
+			//聚光灯阴影序号（第四百八十一轮；0..7）
+			if (light.spot_shadow_index < 0 || light.spot_shadow_index > 7)
+				return false;
 
 			//有效点光槽位
 			for (uint32_t index = 0; index < light.point_count && index < MAX_POINT_LIGHTS; ++index)
@@ -660,6 +663,18 @@ namespace engine
 						out.light.spot_shadow_softness = values[1];
 						out.light.spot_shadow_strength = values[2];
 					}
+				}
+				//聚光灯阴影序号（第四百八十一轮；0..7，指向已登记光源槽位）
+				else if (key == "spot_shadow_index")
+				{
+					uint32_t index = 0;
+					//越界与多余字段由 uint_field_read 判定
+					if (!uint_field_read(stream, index) || index > 7)
+					{
+						logger.warn("关卡:: light spot_shadow_index 字段非法");
+						return false;
+					}
+					out.light.spot_shadow_index = static_cast<int>(index);
 				}
 				else if (key == "pbr")
 				{
@@ -1117,6 +1132,8 @@ namespace engine
 				<< ' ' << number_text(level.light.spot_shadow_softness)
 				<< ' ' << number_text(level.light.spot_shadow_strength) << '\n';
 		}
+		//聚光灯阴影序号（第四百八十一轮）
+		integer_write(file, "light spot_shadow_index", static_cast<long long>(level.light.spot_shadow_index));
 		{
 			//PBR-lite 三项
 			file << "light pbr " << (level.light.pbr_enabled != 0 ? 1 : 0)
