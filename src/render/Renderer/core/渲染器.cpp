@@ -5993,7 +5993,7 @@ namespace engine
 
 	//多材质分段绘制（第四百一十轮；一个物体一次请求内使用多个材质）
 	bool Renderer::mesh_draw_sections(Mesh_Handle handle, const float* transform,
-		const Material_Handle* materials, uint32_t count)
+		const Material_Handle* materials, uint32_t count, const Material_Instance_Data* instances)
 	{
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
@@ -6007,6 +6007,26 @@ namespace engine
 			logger.warn("渲染器:: 多材质绘制参数非法（材质数组为空或段数 0），已忽略");
 			return false;
 		}
+		/*
+		套用材质实例覆盖（第四百六十九轮；阶段 C）
+		在 material_bind_set 之后写入吸附状态：tint **乘到**当前绑定色（默认 1 即等价模板）；
+		自发光直接覆盖模板值。模板句柄无效时整条实例忽略（装配阶段已校验，此处只做防御）。
+		*/
+		auto apply_instance = [this](const Material_Instance_Data& data)
+		{
+			if (data.模板 == 0 || data.模板 > impl->materials.size() || !impl->materials[data.模板 - 1].valid)
+				return;
+			//覆盖底色（乘性叠加到模板色调）
+			if (data.use_tint)
+			{
+				impl->material_tint_active = true;
+				for (std::size_t index = 0; index < 4; ++index)
+					impl->material_tint[index] *= data.tint[index];
+			}
+			//覆盖自发光（直接覆盖模板值）
+			if (data.use_emissive)
+				impl->material_emissive = data.emissive;
+		};
 		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
 		uint32_t total_indices = 0;
@@ -6029,6 +6049,9 @@ namespace engine
 				//材质槽越界回落首个材质
 				uint32_t slot = section.material < count ? section.material : 0u;
 				material_bind_set(materials[slot]);
+				//套用该段实例覆盖（第四百六十九轮）
+				if (instances != nullptr)
+					apply_instance(instances[slot]);
 				if (!mesh_draw_range(handle, transform, nullptr, section.first_index, section.index_count))
 					success = false;
 			}
@@ -6056,6 +6079,9 @@ namespace engine
 				continue;
 			//绑定该段的材质（0 或无效句柄由绑定入口回落默认）
 			material_bind_set(materials[index]);
+			//套用该段实例覆盖（第四百六十九轮）
+			if (instances != nullptr)
+				apply_instance(instances[index]);
 			if (!mesh_draw_range(handle, transform, nullptr, first, length))
 				success = false;
 			first += length;
@@ -7405,8 +7431,15 @@ namespace engine
 			//按位置 / 旋转（度）/ 缩放构造变换
 			float transform[16] = {};
 			level_transform_build(object.position, object.rotation_deg, object.scale, transform);
+			/*
+			材质实例覆盖（第四百六十九轮；阶段 C）
+			实例数组与材质数组按段对齐时才套用；否则按旧路径绘制（逐字节不变）。
+			*/
+			const Material_Instance_Data* 实例指针 = nullptr;
+			if (!object.material_instances.empty() && object.material_instances.size() == object.materials.size())
+				实例指针 = object.material_instances.data();
 			if (mesh_draw_sections(object.mesh, transform, object.materials.data(),
-				static_cast<uint32_t>(object.materials.size())))
+				static_cast<uint32_t>(object.materials.size()), 实例指针))
 				登记数 += 1;
 		}
 		return 登记数;

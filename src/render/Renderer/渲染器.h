@@ -369,11 +369,11 @@ namespace engine
 	{
 		//模板材质句柄（须为已登记材质）
 		Material_Handle 模板 = 0;
-		//覆盖底色（RGBA，0..1；仅 use_tint 为真时生效）
+		//覆盖底色（RGBA，0..1；仅 use_tint 为真时生效，乘性叠加到模板色调）
 		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		//是否覆盖底色
 		bool use_tint = false;
-		//覆盖自发光强度（0..1；仅 use_emissive 为真时生效，乘性）
+		//覆盖自发光强度（0..1；仅 use_emissive 为真时生效，直接覆盖模板值）
 		float emissive = 0.0f;
 		//是否覆盖自发光
 		bool use_emissive = false;
@@ -906,9 +906,12 @@ namespace engine
 		逐段先 material_bind_set(materials[i]) 再按区间登记绘制，结束后恢复 material_bind_set(0)；
 		materials 为空 / count 为 0 / 句柄无效 / 段数多于三角形数返回假且不登记任何绘制项；
 		任一段登记失败时返回假（已登记的段不回滚，与 mesh_draw 的既有语义一致）。
+		`instances`（第四百六十九轮；方向七阶段 C）非空时按段套用材质实例覆盖（tint / 自发光），
+		长度须与 materials 相同（由调用方保证；句柄无效时不套用）。
 		*/
 		bool mesh_draw_sections(Mesh_Handle handle, const float* transform,
-			const Material_Handle* materials, uint32_t count);
+			const Material_Handle* materials, uint32_t count,
+			const Material_Instance_Data* instances = nullptr);
 
 		/*
 		实例化绘制网格（同一网格 × N 个模型矩阵，一次绘制调用提交）
