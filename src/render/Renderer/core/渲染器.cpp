@@ -12,6 +12,9 @@
 //管线缓存文件读写（第一百零六轮）
 #include <fstream>
 #include <filesystem>
+//异步资产加载（第四百二十六轮；std::async 与轮询）
+#include <future>
+#include <chrono>
 //glm 数学库（第五十二轮：光源空间视图投影矩阵）
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -240,6 +243,26 @@ namespace engine
 			}
 			return key;
 		}
+
+		/*
+		异步网格任务状态（第四百二十六轮）
+		future 完成后才读取 data；handle / built 只在主线程轮询里写，故无需加锁。
+		*/
+		struct Async_Mesh_State
+		{
+			//后台解析任务（结果为「是否解析成功」）
+			std::future<bool> future;
+			//解析结果（顶点 / 索引 / 分段 / 材质名）
+			Mesh_File_Data data;
+			//是否已取过 future 结果
+			bool settled = false;
+			//解析是否成功
+			bool parse_ok = false;
+			//是否已在主线程建好网格
+			bool built = false;
+			//建好的网格句柄
+			Mesh_Handle handle = 0;
+		};
 	}
 
 	//渲染层版本查询
@@ -7241,6 +7264,67 @@ namespace engine
 		}
 		//未登记：按非共享资源处理（兼容混用）
 		mesh_unload(handle);
+	}
+
+	/*
+	异步 OBJ 加载（第四百二十六轮）
+	提交时用 std::async 在后台解析；轮询在主线程，解析完成后才在该调用里建 GPU 资源。
+	*/
+	bool Renderer::mesh_load_obj_async(Asset_Async_Task& task, const std::string& path)
+	{
+		//未初始化 / 路径为空 / 已有在途任务
+		if (impl == nullptr || !impl->initialized || path.empty() || task.state != nullptr)
+			return false;
+		//任务状态
+		auto state = std::make_shared<Async_Mesh_State>();
+		//后台解析（结果直接写进 state->data；future 的同步语义保证轮询时可见）
+		state->future = std::async(std::launch::async, [state, path]() -> bool
+		{
+			return obj_mesh_load(path, state->data);
+		});
+		task.state = state;
+		return true;
+	}
+
+	//轮询异步 OBJ 任务（未完成返回假；完成后建资源一次）
+	bool Renderer::mesh_load_obj_async_poll(Asset_Async_Task& task, Mesh_Handle& handle_out)
+	{
+		//默认无句柄
+		handle_out = 0;
+		//未初始化 / 无任务
+		if (impl == nullptr || !impl->initialized || task.state == nullptr)
+			return false;
+		auto state = std::static_pointer_cast<Async_Mesh_State>(task.state);
+		//已建好：幂等返回
+		if (state->built)
+		{
+			handle_out = state->handle;
+			return true;
+		}
+		//解析失败已定案
+		if (state->settled && !state->parse_ok)
+			return false;
+		//尚未完成
+		if (!state->settled)
+		{
+			//非阻塞查询
+			if (state->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+				return false;
+			//取结果（此后 data 才可安全读取）
+			state->parse_ok = state->future.get();
+			state->settled = true;
+			//解析失败
+			if (!state->parse_ok)
+				return false;
+		}
+		//成功：主线程建网格（分段随数据一并提交）
+		Mesh_Handle 句柄 = 0;
+		if (!impl->mesh.mesh_create(句柄, state->data.data, state->data.sections))
+			return false;
+		state->handle = 句柄;
+		state->built = true;
+		handle_out = 句柄;
+		return true;
 	}
 
 	//共享加载纹理文件（第四百二十五轮）

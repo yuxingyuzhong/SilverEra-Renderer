@@ -389,6 +389,17 @@ namespace engine
 	};
 
 	/*
+	异步资产任务（第四百二十六轮；资产加载方向第五阶段）
+	公共头只持有不透明状态（`shared_ptr<void>`），不引 Vulkan 类型；
+	任务由 `mesh_load_obj_async` 建立，由 `mesh_load_obj_async_poll` 在主线程轮询。
+	*/
+	struct Asset_Async_Task
+	{
+		//内部状态（解析结果 ＋ 完成标记 ＋ 已建句柄）
+		std::shared_ptr<void> state;
+	};
+
+	/*
 	渲染器（门面）
 	生命周期：init → frame_render × N → shutdown
 	状态机：未初始化 → 已初始化 → 已销毁（shutdown 幂等，可重复调用）
@@ -1032,6 +1043,19 @@ namespace engine
 		未登记的句柄按非共享资源直接卸载（兼容混用）。
 		*/
 		void mesh_release(Mesh_Handle handle);
+		/*
+		提交异步 OBJ 加载（第四百二十六轮；方向五 E 阶段）
+		解析在后台线程执行，本调用立即返回；任务状态写入 task。
+		`mesh_load_obj_async_poll` 在主线程轮询：未完成返回假，完成时建资源并写出句柄。
+		路径为空 / 未初始化 / 任务已存在时返回假（task.state 保持为空或原值）。
+		*/
+		bool mesh_load_obj_async(Asset_Async_Task& task, const std::string& path);
+		/*
+		轮询异步 OBJ 任务（第四百二十六轮）
+		未完成 → 返回假且 handle_out = 0；解析失败 → 返回假（后续轮询仍假）；
+		成功 → 首次轮询建网格资源并缓存句柄，后续轮询返回同一句柄（幂等）。
+		*/
+		bool mesh_load_obj_async_poll(Asset_Async_Task& task, Mesh_Handle& handle_out);
 		/*
 		共享加载纹理文件（第四百二十五轮）
 		语义同 `mesh_load_obj_shared`；释放须走 `texture_release`。
