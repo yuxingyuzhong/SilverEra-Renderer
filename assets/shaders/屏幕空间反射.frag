@@ -140,29 +140,84 @@ void main()
 	//命中颜色与命中标记
 	vec3 reflection = color.rgb;
 	bool hit = false;
-	//沿反射方向世界空间步进
+	/*
+	分层步进（第四百零五轮；方向三候选 C）
+	粗步进沿反射方向推进，首次出现「表面在射线点之前」（穿越）时，
+	在上一采样点与本采样点之间做二分细化（6 次），再按厚度口径判定命中；
+	粗搜索跨过长距离漏检、细化补足命中精度，等效步数不变。
+	*/
+	float previous_t = 0.0;
 	for (int step = 1; step <= step_count; ++step)
 	{
-		vec3 probe = world + reflect_dir * (step_size * float(step));
+		float current_t = step_size * float(step);
+		vec3 probe = world + reflect_dir * current_t;
 		vec3 screen = world_to_screen(probe);
 		//越出屏幕即终止（屏幕空间无该处信息）
 		if (screen.z < 0.0 || screen.x < 0.0 || screen.x > 1.0 || screen.y < 0.0 || screen.y > 1.0)
 			break;
 		ivec2 probe_coord = clamp(ivec2(screen.xy * vec2(depth_size)), ivec2(0), depth_size - ivec2(1));
 		float probe_raw = texelFetch(depth_image, probe_coord, 0).r;
-		//探针处为天空则继续步进
+		//探针处为天空则继续步进（并推进粗搜索下界）
 		if (probe_raw >= 0.9999)
+		{
+			previous_t = current_t;
 			continue;
+		}
 		//探针处表面视深 / 射线点视深（同以相机为原点的距离量纲比较）
 		float surface_distance = linear_depth(probe_raw);
 		float ray_distance = linear_depth(screen.z);
-		//表面在射线点之前且差值不超过厚度 → 命中
-		if (surface_distance <= ray_distance && ray_distance - surface_distance <= thickness)
+		//尚未穿越表面：继续粗步进
+		if (surface_distance > ray_distance)
 		{
-			reflection = texelFetch(source_image, clamp(probe_coord, ivec2(0), source_size - ivec2(1)), 0).rgb;
+			previous_t = current_t;
+			continue;
+		}
+		//二分细化：在 [previous_t, current_t] 内逼近穿越点
+		float low_t = previous_t;
+		float high_t = current_t;
+		float refined_surface = surface_distance;
+		float refined_ray = ray_distance;
+		for (int refine = 0; refine < 6; ++refine)
+		{
+			float mid_t = 0.5f * (low_t + high_t);
+			vec3 mid_probe = world + reflect_dir * mid_t;
+			vec3 mid_screen = world_to_screen(mid_probe);
+			//细化点越屏：直接以当前高界作为命中点
+			if (mid_screen.z < 0.0 || mid_screen.x < 0.0 || mid_screen.x > 1.0
+				|| mid_screen.y < 0.0 || mid_screen.y > 1.0)
+				break;
+			ivec2 mid_coord = clamp(ivec2(mid_screen.xy * vec2(depth_size)), ivec2(0), depth_size - ivec2(1));
+			float mid_raw = texelFetch(depth_image, mid_coord, 0).r;
+			//细化点落在天空：穿越点在更远处
+			if (mid_raw >= 0.9999)
+			{
+				low_t = mid_t;
+				continue;
+			}
+			float mid_surface = linear_depth(mid_raw);
+			float mid_ray = linear_depth(mid_screen.z);
+			//仍未穿越：抬高下界；已穿越：压低上界
+			if (mid_surface > mid_ray)
+				low_t = mid_t;
+			else
+			{
+				high_t = mid_t;
+				refined_surface = mid_surface;
+				refined_ray = mid_ray;
+			}
+		}
+		//细化后按厚度口径判定（表面在射线点之前且差值不超过厚度）
+		if (refined_surface <= refined_ray && refined_ray - refined_surface <= thickness)
+		{
+			vec3 hit_probe = world + reflect_dir * high_t;
+			vec3 hit_screen = world_to_screen(hit_probe);
+			ivec2 hit_coord = clamp(ivec2(hit_screen.xy * vec2(depth_size)), ivec2(0), depth_size - ivec2(1));
+			reflection = texelFetch(source_image, clamp(hit_coord, ivec2(0), source_size - ivec2(1)), 0).rgb;
 			hit = true;
 			break;
 		}
+		//厚度不符：把本点作为新的粗搜索下界继续
+		previous_t = current_t;
 	}
 	//未命中则不改变源画面
 	if (!hit)
