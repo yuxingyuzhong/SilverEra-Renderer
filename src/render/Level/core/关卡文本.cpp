@@ -604,6 +604,17 @@ namespace engine
 					out.light.shadow_strength = values[2];
 					out.light.shadow_resolution = resolution;
 				}
+				//聚光灯阴影开关（第四百七十五轮；只接受 0 / 1）
+				else if (key == "spot_shadow")
+				{
+					uint32_t enabled = 0;
+					if (!uint_field_read(stream, enabled) || enabled > 1)
+					{
+						logger.warn("关卡:: light spot_shadow 字段非法");
+						return false;
+					}
+					out.light.spot_shadow_enabled = (enabled != 0) ? 1 : 0;
+				}
 				else if (key == "pbr")
 				{
 					uint32_t enabled = 0;
@@ -1053,6 +1064,8 @@ namespace engine
 				<< ' ' << number_text(level.light.shadow_strength)
 				<< ' ' << level.light.shadow_resolution << '\n';
 		}
+		//聚光灯阴影开关（第四百七十五轮）
+		integer_write(file, "light spot_shadow", level.light.spot_shadow_enabled != 0 ? 1 : 0);
 		{
 			//PBR-lite 三项
 			file << "light pbr " << (level.light.pbr_enabled != 0 ? 1 : 0)
