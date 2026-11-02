@@ -3,6 +3,8 @@
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
+//OBJ 网格文件解析（第四百二十二轮；资产加载模块）
+#include "src/render/Asset/资产加载.h"
 //std::nothrow
 #include <new>
 //std::isfinite（第一百七十一轮：材质 UV 变换的有限性校验）
@@ -5595,6 +5597,29 @@ namespace engine
 		//转交网格模块（分段校验在网格模块完成）
 		std::vector<Mesh_Section> 段(sections, sections + count);
 		return impl->mesh.mesh_create(handle_out, data, 段);
+	}
+
+	/*
+	从 OBJ 文件加载网格（第四百二十二轮）
+	解析在资产加载模块完成；本函数只做「初始化检查 ＋ 转交网格模块建缓冲」。
+	已解析出的分段随网格记录保存，供 mesh_draw_sections 逐段绘制。
+	*/
+	bool Renderer::mesh_load_obj(Mesh_Handle& handle_out, const std::string& path)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+		{
+			logger.error("渲染器:: OBJ 网格加载失败：尚未初始化");
+			return false;
+		}
+		//解析文件（失败时日志已由资产加载模块写出）
+		Mesh_File_Data file;
+		if (!obj_mesh_load(path, file))
+			return false;
+		//按 usemtl 分段建立网格
+		return impl->mesh.mesh_create(handle_out, file.data, file.sections);
 	}
 
 	//卸载网格

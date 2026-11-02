@@ -692,6 +692,14 @@ namespace engine
 		bool mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
 			const Mesh_Section* sections, uint32_t count);
 		/*
+		从 OBJ 文件加载网格（第四百二十二轮；资产加载方向第一阶段）
+		解析 v / vt / vn / f（多边形按扇形三角化、支持负数索引）与 usemtl 分组；
+		缺纹理坐标填 (0,0)，缺法线按相邻三角形面积加权自动生成；
+		成功时按 usemtl 分组建立子网格段（段序号即材质槽），可配合 mesh_draw_sections 逐段绑材质绘制。
+		路径按 UTF-8 解释；失败返回假且句柄为 0（文件不存在 / 超限 / 语法非法 / 无有效三角面）。
+		*/
+		bool mesh_load_obj(Mesh_Handle& handle_out, const std::string& path);
+		/*
 		加载程序化三角形（第一百四十二轮新增）
 		单个正面朝 +Z 的等腰三角形（3 顶点 / 3 索引）；仅需已初始化，无参数校验。
 		*/
