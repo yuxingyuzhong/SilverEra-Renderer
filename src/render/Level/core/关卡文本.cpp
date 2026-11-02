@@ -255,6 +255,16 @@ namespace engine
 				if (material.use_emissive)
 					if (!finite_one(material.emissive) || material.emissive < 0.0f || material.emissive > 1.0f)
 						return false;
+				//逐实例卡通：色阶 0..8、边缘光 / 高光阈值 0..1
+				if (material.use_toon)
+				{
+					if (!finite_one(material.toon_steps) || material.toon_steps < 0.0f || material.toon_steps > 8.0f)
+						return false;
+					if (!finite_one(material.toon_rim) || material.toon_rim < 0.0f || material.toon_rim > 1.0f)
+						return false;
+					if (!finite_one(material.toon_specular) || material.toon_specular < 0.0f || material.toon_specular > 1.0f)
+						return false;
+				}
 			}
 			return true;
 		}
@@ -824,8 +834,8 @@ namespace engine
 					//覆盖底色
 					if (key == "tint")
 					{
-						//重复或顺序错误
-						if (material.use_tint || material.use_emissive)
+						//重复或顺序错误（toon 之后不得再出现 tint / emissive）
+						if (material.use_tint || material.use_emissive || material.use_toon)
 						{
 							logger.warn("关卡:: material 覆盖项顺序非法（{}）", key);
 							return false;
@@ -853,8 +863,8 @@ namespace engine
 					//覆盖自发光
 					if (key == "emissive")
 					{
-						//重复覆盖
-						if (material.use_emissive)
+						//重复覆盖或顺序错误（toon 之后不得再出现 emissive）
+						if (material.use_emissive || material.use_toon)
 						{
 							logger.warn("关卡:: material 覆盖项重复（{}）", key);
 							return false;
@@ -874,6 +884,36 @@ namespace engine
 						}
 						material.emissive = value;
 						material.use_emissive = true;
+						continue;
+					}
+					//逐实例卡通（第四百七十一轮；三值：色阶 / 边缘光 / 高光阈值）
+					if (key == "toon")
+					{
+						//重复覆盖
+						if (material.use_toon)
+						{
+							logger.warn("关卡:: material 覆盖项重复（{}）", key);
+							return false;
+						}
+						float values[3] = {};
+						//缺字段
+						if (!floats_read_n(stream, values, 3))
+						{
+							logger.warn("关卡:: material toon 字段非法");
+							return false;
+						}
+						//非有限或越界（色阶 0..8、边缘光与高光 0..1）
+						if (!std::isfinite(values[0]) || values[0] < 0.0f || values[0] > 8.0f
+							|| !std::isfinite(values[1]) || values[1] < 0.0f || values[1] > 1.0f
+							|| !std::isfinite(values[2]) || values[2] < 0.0f || values[2] > 1.0f)
+						{
+							logger.warn("关卡:: material toon 数值越界");
+							return false;
+						}
+						material.toon_steps = values[0];
+						material.toon_rim = values[1];
+						material.toon_specular = values[2];
+						material.use_toon = true;
 						continue;
 					}
 					//未知覆盖项
@@ -1096,6 +1136,10 @@ namespace engine
 			//覆盖自发光
 			if (material.use_emissive)
 				file << " emissive " << number_text(material.emissive);
+			//逐实例卡通（第四百七十一轮）
+			if (material.use_toon)
+				file << " toon " << number_text(material.toon_steps) << ' ' << number_text(material.toon_rim)
+					<< ' ' << number_text(material.toon_specular);
 			file << '\n';
 		}
 

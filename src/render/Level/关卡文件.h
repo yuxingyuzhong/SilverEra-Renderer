@@ -26,6 +26,17 @@ namespace engine
 		bool use_emissive = false;
 		//覆盖自发光强度（use_emissive 为假时无意义）
 		float emissive = 0.0f;
+		/*
+		逐实例卡通覆盖（第四百七十一轮；方向七延伸）
+		仅 use_toon 为真时生效：色阶数 0..8（0 = 关闭）、边缘光 0..1、卡通高光阈值 0..1。
+		*/
+		bool use_toon = false;
+		//色阶数（0..8）
+		float toon_steps = 0.0f;
+		//边缘光强度（0..1）
+		float toon_rim = 0.0f;
+		//卡通高光阈值（0..1）
+		float toon_specular = 0.0f;
 	};
 
 	/*
@@ -62,7 +73,7 @@ namespace engine
 	         specular_scale|shadow|pbr|toon|outline <值…>；point / spot 逐盏一行
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
-	  material <实例名> <模板材质名> [tint r g b a] [emissive v]（第四百六十六轮；结构化保存）
+	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular]（第四百六十六 / 471 轮）
 	浮点按 `%.9g` 写出（二进制 32 位浮点可唯一还原），故读写往返逐位一致。
 	失败（路径不可读 / 超限 / 未知段或键 / 字段数不符 / 非有限值 / 光源超过 8 盏）时返回假并清空输出。
 	本函数只做文本层校验，不校验资产文件是否存在、不建 GPU 资源。

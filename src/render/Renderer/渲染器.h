@@ -377,6 +377,18 @@ namespace engine
 		float emissive = 0.0f;
 		//是否覆盖自发光
 		bool use_emissive = false;
+		/*
+		逐实例卡通覆盖（第四百七十一轮；方向七延伸）
+		仅 use_toon 为真时生效：色阶数 0..8（0 = 关闭）、边缘光 0..1、卡通高光阈值 0..1。
+		与模板材质的 toon_override 互不依赖：实例值优先。
+		*/
+		bool use_toon = false;
+		//色阶数（0..8）
+		float toon_steps = 0.0f;
+		//边缘光强度（0..1）
+		float toon_rim = 0.0f;
+		//卡通高光阈值（0..1）
+		float toon_specular = 0.0f;
 	};
 
 	/*

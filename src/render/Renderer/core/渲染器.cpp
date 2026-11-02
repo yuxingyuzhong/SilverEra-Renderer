@@ -7230,6 +7230,11 @@ namespace engine
 				数据.use_tint = 声明.use_tint;
 				数据.emissive = 声明.emissive;
 				数据.use_emissive = 声明.use_emissive;
+				//逐实例卡通（第四百七十一轮）
+				数据.use_toon = 声明.use_toon;
+				数据.toon_steps = 声明.toon_steps;
+				数据.toon_rim = 声明.toon_rim;
+				数据.toon_specular = 声明.toon_specular;
 				//实例数据校验（模板已登记 ＋ 覆盖值合法）
 				if (!renderer.material_instance_validate(数据))
 				{
@@ -7468,6 +7473,16 @@ namespace engine
 		if (data.use_emissive)
 		{
 			if (!std::isfinite(data.emissive) || data.emissive < 0.0f || data.emissive > 1.0f)
+				return false;
+		}
+		//逐实例卡通（第四百七十一轮）：色阶 0..8、边缘光 / 高光阈值 0..1
+		if (data.use_toon)
+		{
+			if (!std::isfinite(data.toon_steps) || data.toon_steps < 0.0f || data.toon_steps > 8.0f)
+				return false;
+			if (!std::isfinite(data.toon_rim) || data.toon_rim < 0.0f || data.toon_rim > 1.0f)
+				return false;
+			if (!std::isfinite(data.toon_specular) || data.toon_specular < 0.0f || data.toon_specular > 1.0f)
 				return false;
 		}
 		return true;
