@@ -139,6 +139,12 @@ namespace engine
 		float shadow_strength = 1.0f;
 		//阴影图分辨率（第五十四轮；仅 512 / 1024 / 2048，默认 1024）
 		int shadow_resolution = 1024;
+		/*
+		聚光灯阴影开关（第四百七十四轮）
+		非 0 时复用方向光阴影图渲染「第 1 盏聚光灯」的透视阴影（单级）；
+		开启期间方向光阴影让位（着色器按 cascade_params.x = 0 判聚光模式），属 v1 互斥限制。
+		*/
+		int spot_shadow_enabled = 0;
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;

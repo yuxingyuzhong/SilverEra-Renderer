@@ -2303,6 +2303,41 @@ namespace engine
 			}
 		}
 		/*
+		聚光灯阴影矩阵覆盖（第四百七十四轮；方案 A：复用方向光阴影图）
+		仅第 1 盏聚光灯：透视视图投影（半锥角 = 外锥角、近 0.1、远 = 衰减半径），单级；
+		开启时方向光矩阵被覆盖，着色器据 cascade_params.x = 0 走聚光采样路径。
+		*/
+		if (impl->spot_shadow_enabled && impl->point_light_count > 0 && impl->point_lights[0].is_spot)
+		{
+			const Impl::Point_Light& spot = impl->point_lights[0];
+			glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
+			//方向退化时取默认传播方向
+			if (glm::dot(spot_direction, spot_direction) < 1e-12f)
+				spot_direction = glm::vec3(0.0f, 0.0f, -1.0f);
+			spot_direction = glm::normalize(spot_direction);
+			//上向量与光向平行时改用 X 轴（避免 lookAt 退化）
+			glm::vec3 spot_up = glm::abs(spot_direction.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+			glm::vec3 spot_position(spot.position[0], spot.position[1], spot.position[2]);
+			//外锥余弦反解半锥角（钳到 (0.02, 1.5) 弧度）
+			float outer_cos = spot.spot_outer_cos;
+			outer_cos = outer_cos < -0.999f ? -0.999f : (outer_cos > 0.999f ? 0.999f : outer_cos);
+			float half_angle = std::acos(outer_cos);
+			half_angle = half_angle < 0.02f ? 0.02f : (half_angle > 1.5f ? 1.5f : half_angle);
+			//衰减半径即远平面（钳到 ≥ 0.2）
+			float far_plane = spot.radius > 0.2f ? spot.radius : 0.2f;
+			glm::mat4 spot_view = glm::lookAt(spot_position, spot_position + spot_direction, spot_up);
+			glm::mat4 spot_proj = glm::perspective(2.0f * half_angle, 1.0f, 0.1f, far_plane);
+			spot_proj[1][1] *= -1.0f;
+			glm::mat4 spot_vp = spot_proj * spot_view;
+			std::memcpy(impl->light_view_proj, glm::value_ptr(spot_vp), sizeof(float) * 16);
+			//单级：远区矩阵清零，深度跨度记录为半径
+			std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
+			std::memset(impl->light_view_proj_far2, 0, sizeof(impl->light_view_proj_far2));
+			impl->cascade_depth_span[0] = far_plane - 0.1f;
+			impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
+			impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
+		}
+		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
 		以光源视角把「参与投影的几何」渲染进阴影目标（RGBA8 打包深度）；
 		该 pass 走独立的离屏提交（推进帧槽），故必须在取主 pass 帧槽之前完成；
@@ -2662,13 +2697,19 @@ namespace engine
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			scene_block[184 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		/*
+		聚光灯阴影模式（第四百七十四轮）
+		级联数写 0 以告知着色器走「聚光单级」采样路径（方向光阴影让位）。
+		*/
+		const bool spot_shadow_mode = impl->spot_shadow_enabled && impl->point_light_count > 0
+			&& impl->point_lights[0].is_spot;
+		/*
 		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
 		写入 UBO 供场景片元解包比较；阴影关闭时字段保留但不参与计算。
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[216 + index] = impl->light_view_proj[index];
 		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长；第五十三轮 w = 软度）
-		scene_block[232] = impl->shadow_enabled ? 1.0f : 0.0f;
+		scene_block[232] = (impl->shadow_enabled || spot_shadow_mode) ? 1.0f : 0.0f;
 		scene_block[233] = impl->shadow_bias;
 		scene_block[234] = static_cast<float>(impl->shadow_size);
 		scene_block[235] = impl->shadow_softness;
@@ -2690,7 +2731,7 @@ namespace engine
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[244 + index] = impl->light_view_proj_far[index];
-		scene_block[260] = static_cast<float>(impl->cascade_count);
+		scene_block[260] = spot_shadow_mode ? 0.0f : static_cast<float>(impl->cascade_count);
 		scene_block[261] = impl->cascade_split_distance;
 		scene_block[262] = impl->cascade_depth_span[0];
 		scene_block[263] = impl->cascade_depth_span[1];
@@ -9521,6 +9562,10 @@ namespace engine
 		shadow_strength_set(light.shadow_strength);
 		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
+		//聚光灯阴影开关（第四百七十四轮；开启时懒登记阴影管线并复用方向光阴影图）
+		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
+		if (impl->spot_shadow_enabled)
+			shadow_enable_set(true);
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);

@@ -420,10 +420,26 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 	return sum / float(samples);
 }
 
+/*
+聚光灯阴影系数（第四百七十四轮；方案 A：复用方向光阴影图与参数）
+聚光模式以 cascade_params.x = 0 标识；shadow_sample 用 light_view_proj 直接投影（单级、无分片）；
+锥外 / 阴影图外由 shadow_sample 返回 1；最终按 shadow_strength 插值。
+*/
+float spot_shadow_factor(vec3 world_pos, vec3 normal)
+{
+	//未启用阴影或非聚光模式
+	if (scene.shadow_params.x < 0.5 || scene.cascade_params.x > 0.5)
+		return 1.0;
+	return mix(1.0, shadow_sample(0, 1, world_pos, normal), clamp(scene.shadow_strength, 0.0, 1.0));
+}
+
 float shadow_factor(vec3 world_pos, vec3 normal)
 {
 	//未启用阴影
 	if (scene.shadow_params.x < 0.5)
+		return 1.0;
+	//聚光模式：方向光阴影让位（第四百七十四轮）
+	if (scene.cascade_params.x < 0.5)
 		return 1.0;
 	/*
 	级联选择（第一百二十一轮；第一百四十六轮扩为三级）
@@ -722,6 +738,13 @@ void main()
 				accumulate_point_light(normal, to_view, albedo_color.rgb, material_roughness_cached,
 					material_metallic_cached, toon_levels, light.pos_radius, light.color_intensity,
 					light.direction, light.cone, light.shininess, light.type == 2u, radiance, specular);
+				//聚光灯阴影（第四百七十四轮）
+				if (light.type == 2u)
+				{
+					float spot_shadow = spot_shadow_factor(in_world, normal);
+					radiance *= spot_shadow;
+					specular *= spot_shadow;
+				}
 			}
 		}
 		else
@@ -740,6 +763,13 @@ void main()
 					scene.point_color_intensity[index], scene.point_spot_dir[index],
 					scene.point_spot_cone[index], scene.point_shininess[index],
 					scene.point_spot_dir[index].w > 0.5, radiance, specular);
+				//聚光灯阴影（第四百七十四轮）
+				if (scene.point_spot_dir[index].w > 0.5)
+				{
+					float spot_shadow = spot_shadow_factor(in_world, normal);
+					radiance *= spot_shadow;
+					specular *= spot_shadow;
+				}
 			}
 		}
 	}
