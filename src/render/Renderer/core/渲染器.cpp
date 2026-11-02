@@ -6026,6 +6026,14 @@ namespace engine
 			//覆盖自发光（直接覆盖模板值）
 			if (data.use_emissive)
 				impl->material_emissive = data.emissive;
+			//逐实例卡通（第四百七十一轮；三项直接覆盖模板卡通参数）
+			if (data.use_toon)
+			{
+				impl->material_toon_active = true;
+				impl->material_toon_steps = data.toon_steps;
+				impl->material_toon_rim = data.toon_rim;
+				impl->material_toon_specular = data.toon_specular;
+			}
 		};
 		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
