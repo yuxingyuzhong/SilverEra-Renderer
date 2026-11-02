@@ -71,6 +71,7 @@ namespace engine
 	  light  direction|color|intensity|ambient|specular|attenuation_mode|ambient_color|
 	         ambient_ground|ambient_hemisphere|fill_direction|fill_color|fill_intensity|
 	         specular_scale|shadow|spot_shadow|pbr|toon|outline <值…>；point / spot 逐盏一行
+	         spot_shadow 形如 <0|1> [<bias 0..0.05> <softness 0..1> <strength 0..1>]（第四百七十八轮）
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
 	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular]（第四百六十六 / 471 轮）

@@ -211,6 +211,17 @@ namespace engine
 				|| !finite_many(&light.outline_width, 1) || !finite_many(light.outline_color, 3))
 				return false;
 
+			/*
+			聚光灯阴影质量参数（第四百七十八轮）
+			偏置 0..0.05、软度 0..1、强度 0..1；越界 / 非数拒绝写出（读取侧同口径）。
+			*/
+			if (!finite_one(light.spot_shadow_bias) || light.spot_shadow_bias < 0.0f || light.spot_shadow_bias > 0.05f
+				|| !finite_one(light.spot_shadow_softness) || light.spot_shadow_softness < 0.0f
+				|| light.spot_shadow_softness > 1.0f
+				|| !finite_one(light.spot_shadow_strength) || light.spot_shadow_strength < 0.0f
+				|| light.spot_shadow_strength > 1.0f)
+				return false;
+
 			//有效点光槽位
 			for (uint32_t index = 0; index < light.point_count && index < MAX_POINT_LIGHTS; ++index)
 			{
@@ -604,16 +615,51 @@ namespace engine
 					out.light.shadow_strength = values[2];
 					out.light.shadow_resolution = resolution;
 				}
-				//聚光灯阴影开关（第四百七十五轮；只接受 0 / 1）
+				/*
+				聚光灯阴影开关与质量参数（第四百七十五 / 476 轮）
+				语法：`light spot_shadow <0|1> [<bias> <softness> <strength>]`
+				三项可选：不写则沿用 Light_Data 默认（0.010 / 0 / 1），写了必须正好三项且全部在范围内。
+				*/
 				else if (key == "spot_shadow")
 				{
 					uint32_t enabled = 0;
-					if (!uint_field_read(stream, enabled) || enabled > 1)
+					std::string token;
+					//开关（缺值 / 非数字 / 越界即失败）
+					if (!(stream >> token) || !uint_parse(token, enabled) || enabled > 1)
 					{
 						logger.warn("关卡:: light spot_shadow 字段非法");
 						return false;
 					}
 					out.light.spot_shadow_enabled = (enabled != 0) ? 1 : 0;
+					//质量三项：要么没有，要么正好三项
+					if (stream >> token)
+					{
+						float values[3] = {};
+						//首项来自已读出的 token，其余两项顺序读取
+						if (!float_parse(token, values[0]) || !floats_read_n(stream, values + 1, 2))
+						{
+							logger.warn("关卡:: light spot_shadow 质量参数缺值");
+							return false;
+						}
+						//多余字段
+						std::string extra;
+						if (stream >> extra)
+						{
+							logger.warn("关卡:: light spot_shadow 质量参数多余字段");
+							return false;
+						}
+						//范围：偏置 0..0.05、软度 0..1、强度 0..1
+						if (!(values[0] >= 0.0f && values[0] <= 0.05f)
+							|| !(values[1] >= 0.0f && values[1] <= 1.0f)
+							|| !(values[2] >= 0.0f && values[2] <= 1.0f))
+						{
+							logger.warn("关卡:: light spot_shadow 质量参数越界");
+							return false;
+						}
+						out.light.spot_shadow_bias = values[0];
+						out.light.spot_shadow_softness = values[1];
+						out.light.spot_shadow_strength = values[2];
+					}
 				}
 				else if (key == "pbr")
 				{
@@ -1064,8 +1110,13 @@ namespace engine
 				<< ' ' << number_text(level.light.shadow_strength)
 				<< ' ' << level.light.shadow_resolution << '\n';
 		}
-		//聚光灯阴影开关（第四百七十五轮）
-		integer_write(file, "light spot_shadow", level.light.spot_shadow_enabled != 0 ? 1 : 0);
+		//聚光灯阴影开关与质量参数（第四百七十五 / 478 轮；恒写三项，旧版读取方可忽略尾部）
+		{
+			file << "light spot_shadow " << (level.light.spot_shadow_enabled != 0 ? 1 : 0)
+				<< ' ' << number_text(level.light.spot_shadow_bias)
+				<< ' ' << number_text(level.light.spot_shadow_softness)
+				<< ' ' << number_text(level.light.spot_shadow_strength) << '\n';
+		}
 		{
 			//PBR-lite 三项
 			file << "light pbr " << (level.light.pbr_enabled != 0 ? 1 : 0)
