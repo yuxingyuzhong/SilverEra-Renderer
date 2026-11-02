@@ -9,6 +9,8 @@ post_param.y = 高度衰减系数（0..4；> 0 时按 exp(−系数 × max(世�
 post_param.z = 最大步进距离（世界单位，1..50）
 post_param.w = 步数缩放（0.25..2，对应 8..48 步）
 post_color.rgb = 雾颜色（后处理第三组推送常量，offset 112）`r`npost_extra.x = 雾基准高度（世界 Y；第四百零四轮；默认 0 = 与引入前一致）
+post_extra.y = 时域抖动种子（第四百二十轮；0 = 关闭抖动，采样点固定在中点，与引入前逐字节一致）
+post_extra.z = 空间降噪强度（第四百二十轮；0..1；> 0 时按互补相位二次采样平均，仅抖动开启时生效）
 天空（深度 = 1）按远平面距离计步，故远景整体被雾覆盖，近景薄。
 注意：MSAA 开启时主 pass 的多重采样深度由场景 pass 结束时按样本 0 解析到单采样深度图（第一百九十轮），故本段可直接使用。
 */
@@ -80,6 +82,40 @@ float fog_noise(vec3 position, float strength)
 	return max(value, 0.0);
 }
 
+/*
+光学厚度累积（第四百二十轮；自 main 抽出以便互补相位二次采样）
+沿视线以「phase」为步内相对偏移等距步进；phase = 0.5 即原中点采样。
+*/
+float fog_optical(vec3 camera, vec3 ray_dir, float travel, int step_count,
+	float density, float falloff, float base_height, float noise_strength, float phase)
+{
+	float step_length = travel / float(step_count);
+	float optical = 0.0;
+	for (int step = 0; step < step_count; ++step)
+	{
+		vec3 position = camera + ray_dir * (step_length * (float(step) + phase));
+		//高度衰减：相对基准高度，越高密度越低（基准以下不再衰减）
+		float height_density = falloff > 0.0 ? exp(-falloff * max(position.y - base_height, 0.0)) : 1.0;
+		//噪声调制（絮状浓淡）
+		float noise_density = fog_noise(position, noise_strength);
+		optical += density * height_density * noise_density * step_length;
+	}
+	return optical;
+}
+
+/*
+逐像素抖动相位（第四百二十轮；交错梯度噪声）
+由像素坐标与帧种子共同决定，取值 (0, 1)；同帧内空间上均匀铺开、跨帧不重复，
+使「步进间距过大造成的层状伪影」转为低幅噪声。
+*/
+float jitter_phase(vec2 frag_coord, float seed)
+{
+	float ign = fract(52.9829189 * fract(dot(frag_coord + vec2(5.588238) * seed,
+		vec2(0.06711056, 0.00583715))));
+	//收进开区间，避开恰好落在步边界（与中点采样重合）
+	return 0.02 + 0.96 * ign;
+}
+
 void main()
 {
 	//宿像素 → 源像素映射比例
@@ -134,16 +170,28 @@ void main()
 	   基准 0 时与引入前逐字节一致（max(y-0,0) == max(y,0)）。 */
 	float base_height = push.post_extra.x;
 
-	//沿视线累积光学厚度（中点采样）
+	//抖动种子与空间降噪强度（第四百二十轮；种子 0 = 关闭抖动）
+	float jitter_seed = max(push.post_extra.y, 0.0);
+	float denoise_strength = clamp(push.post_extra.z, 0.0, 1.0);
+	//沿视线累积光学厚度
 	float optical = 0.0;
-	for (int step = 0; step < step_count; ++step)
+	//抖动关闭：固定中点采样（与引入抖动前逐字节一致）
+	if (jitter_seed <= 0.0)
+		optical = fog_optical(camera, ray_dir, travel, step_count, density, falloff,
+			base_height, noise_strength, 0.5);
+	else
 	{
-		vec3 position = camera + ray_dir * (step_length * (float(step) + 0.5));
-		//高度衰减：相对基准高度，越高密度越低（基准以下不再衰减）
-		float height_density = falloff > 0.0 ? exp(-falloff * max(position.y - base_height, 0.0)) : 1.0;
-		//噪声调制（絮状浓淡）
-		float noise_density = fog_noise(position, noise_strength);
-		optical += density * height_density * noise_density * step_length;
+		//本像素抖动相位
+		float phase = jitter_phase(gl_FragCoord.xy, jitter_seed);
+		optical = fog_optical(camera, ray_dir, travel, step_count, density, falloff,
+			base_height, noise_strength, phase);
+		//空间降噪：互补相位二次采样后按强度插值（把抖动噪声摊平）
+		if (denoise_strength > 0.0)
+		{
+			float paired = fog_optical(camera, ray_dir, travel, step_count, density, falloff,
+				base_height, noise_strength, 1.0 - phase);
+			optical = mix(optical, 0.5 * (optical + paired), denoise_strength);
+		}
 	}
 	//光学厚度 → 透明度（Beer–Lambert 近似）
 	float alpha = 1.0 - exp(-optical);
