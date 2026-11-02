@@ -141,6 +141,32 @@ namespace engine
 					record.bounds_max[axis] = vertex.position[axis];
 			}
 		}
+		/*
+		分段描述（第四百一十四轮）
+		非空时逐段校验：索引数为 3 的倍数、区间不越过索引区；任一不合法则整次拒绝（不留半成品记录）。
+		注意：此处缓冲已创建，失败路径必须先销毁它（否则 VMA 会报未释放的专用分配）。
+		*/
+		for (const Mesh_Section& section : data.sections)
+		{
+			//段索引数须为完整三角形
+			if (section.index_count % 3u != 0u)
+			{
+				logger.error("网格缓冲:: 分段索引数 {} 不是 3 的倍数，创建被拒", section.index_count);
+				memory->buffer_destroy(record.buffer, record.allocation);
+				return false;
+			}
+			//段区间不得越出索引区
+			if (static_cast<std::size_t>(section.first_index) + section.index_count
+				> static_cast<std::size_t>(data.indices.size()))
+			{
+				logger.error("网格缓冲:: 分段区间越界（首 {} ＋ 长 {}，索引数 {}），创建被拒",
+					section.first_index, section.index_count, static_cast<uint32_t>(data.indices.size()));
+				memory->buffer_destroy(record.buffer, record.allocation);
+				return false;
+			}
+		}
+		//保存分段描述
+		record.sections = data.sections;
 		record.valid = true;
 		records.push_back(record);
 
@@ -244,6 +270,24 @@ namespace engine
 		buffer_out = record.buffer;
 		index_offset_out = record.index_offset;
 		index_count_out = record.index_count;
+		return true;
+	}
+
+	//取网格分段描述（第四百一十四轮；句柄无效返回假并清空出参）
+	bool Mesh_Context::mesh_sections_get(Mesh_Handle handle, std::vector<Mesh_Section>& sections_out) const
+	{
+		//出参先清空
+		sections_out.clear();
+		//若句柄为零或越界
+		if (handle == 0 || handle > records.size())
+			return false;
+		//获取目标记录
+		const Mesh_Record& record = records[handle - 1];
+		//若记录无效
+		if (!record.valid)
+			return false;
+		//写出分段描述（无分段时保持空）
+		sections_out = record.sections;
 		return true;
 	}
 

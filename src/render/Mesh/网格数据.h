@@ -20,6 +20,23 @@ namespace engine
 		float normal[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
+	/*
+	网格分段（第四百一十四轮；物体多材质的子网格级描述）
+	first_index 为段在网格索引区内的起始索引（相对索引区起点，uint32 元素计）；
+	index_count 为该段索引数（须为 3 的倍数，即完整三角形）；
+	material 为材质槽（由调用方解释；0 = 首个材质，越界时绘制入口回落 0）。
+	段与段之间允许重叠或留空（不做强制分区校验），由调用方保证语义合理。
+	*/
+	struct Mesh_Section
+	{
+		//段起始索引（相对网格索引区起点）
+		uint32_t first_index = 0;
+		//段索引数（3 的倍数）
+		uint32_t index_count = 0;
+		//材质槽
+		uint32_t material = 0;
+	};
+
 	//网格数据（创建入参）
 	struct Mesh_Data
 	{
@@ -27,6 +44,8 @@ namespace engine
 		std::vector<Vertex> vertices;
 		//索引集合
 		std::vector<uint32_t> indices;
+		//分段描述（可为空：空表示整段，多材质绘制入口回落到「按材质数均分」）
+		std::vector<Mesh_Section> sections;
 	};
 
 	//网格句柄（0 表示无效）

@@ -40,6 +40,8 @@ namespace engine
 		*/
 		float bounds_min[3] = { 0.0f, 0.0f, 0.0f };
 		float bounds_max[3] = { 0.0f, 0.0f, 0.0f };
+		//分段描述（第四百一十四轮；空表示整段）
+		std::vector<Mesh_Section> sections;
 		//记录是否有效
 		bool valid = false;
 	};
@@ -84,6 +86,8 @@ namespace engine
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
 		//取网格顶点 / 索引数量（第九十三轮新增；句柄无效返回假且出参归零）
 		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;
+		//取网格分段描述（第四百一十四轮；句柄无效返回假并清空出参；无分段时返回真且出参为空）
+		bool mesh_sections_get(Mesh_Handle handle, std::vector<Mesh_Section>& sections_out) const;
 		//取网格局部包围盒（句柄无效返回假；第二十二轮新增）
 		bool mesh_bounds_get(Mesh_Handle handle, float min_out[3], float max_out[3]) const;
 		/*

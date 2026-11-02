@@ -5911,13 +5911,34 @@ namespace engine
 			logger.warn("渲染器:: 多材质绘制参数非法（材质数组为空或段数 0），已忽略");
 			return false;
 		}
-		//取网格索引总数
+		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
 		uint32_t total_indices = 0;
 		if (!impl->mesh.mesh_counts_get(handle, vertex_count, total_indices))
 		{
 			logger.error("渲染器:: 多材质绘制失败：网格句柄 {} 无效", handle);
 			return false;
+		}
+		/*
+		子网格级分段（第四百一十四轮）
+		网格自带分段描述时按段绘制：每段按其 material 槽取材质（越界回落首个），区间即段区间；
+		无分段时回落到「按材质数均分」的旧口径。
+		*/
+		std::vector<Mesh_Section> sections;
+		if (impl->mesh.mesh_sections_get(handle, sections) && !sections.empty())
+		{
+			bool success = true;
+			for (const Mesh_Section& section : sections)
+			{
+				//材质槽越界回落首个材质
+				uint32_t slot = section.material < count ? section.material : 0u;
+				material_bind_set(materials[slot]);
+				if (!mesh_draw_range(handle, transform, nullptr, section.first_index, section.index_count))
+					success = false;
+			}
+			//恢复默认绑定
+			material_bind_set(0);
+			return success;
 		}
 		//每段索引数按 3 对齐（避免切断三角形），余数归最后一段
 		uint32_t segment = ((total_indices / count) / 3u) * 3u;
