@@ -129,7 +129,7 @@ namespace engine
 		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
 		*/
 		uint64_t shadow_signature_build(const float light_view_proj[16], const float light_view_proj_far[16],
-			const float light_view_proj_far2[16],
+			const float light_view_proj_far2[16], const float spot_view_proj[16],
 			const float* instances, std::size_t instance_count, std::size_t shadow_item_count,
 			uint32_t shadow_size, uint32_t cascade_count)
 		{
@@ -152,6 +152,9 @@ namespace engine
 			//第三级级联矩阵（第一百四十六轮；非三级时为零矩阵）
 			for (std::size_t index = 0; index < 16; ++index)
 				mix_float(light_view_proj_far2[index]);
+			//聚光灯阴影矩阵（第四百八十四轮；未开启时为零矩阵，不影响既有签名分布）
+			for (std::size_t index = 0; index < 16; ++index)
+				mix_float(spot_view_proj[index]);
 			//实例矩阵（每项 16 个 float）
 			for (std::size_t index = 0; index < instance_count; ++index)
 				mix_float(instances[index]);
@@ -2340,11 +2343,13 @@ namespace engine
 			}
 		}
 		/*
-		聚光灯阴影矩阵覆盖（第四百七十四轮；第四百七十九轮改为按序号选择）
+		聚光灯阴影矩阵（第四百八十四轮；方案 B）
 		仅所选槽位（spot_shadow_index）：透视视图投影（半锥角 = 外锥角、近 0.1、远 = 衰减半径），单级；
-		开启时方向光矩阵被覆盖，着色器据 cascade_params.x = 0 走聚光采样路径。
-		序号越界或该槽不是聚光灯时视为无聚光阴影（保持方向光矩阵）。
+		写入独立的 spot_view_proj（方向光矩阵保持原样，两图互不覆盖）；
+		序号越界或该槽不是聚光灯时视为无聚光阴影（spot_view_proj 为零矩阵）。
 		*/
+		impl->spot_shadow_span = 0.0f;
+		std::memset(impl->spot_view_proj, 0, sizeof(impl->spot_view_proj));
 		const bool spot_shadow_light_valid = impl->spot_shadow_enabled
 			&& impl->spot_shadow_index >= 0
 			&& impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
@@ -2371,13 +2376,9 @@ namespace engine
 			glm::mat4 spot_proj = glm::perspective(2.0f * half_angle, 1.0f, 0.1f, far_plane);
 			spot_proj[1][1] *= -1.0f;
 			glm::mat4 spot_vp = spot_proj * spot_view;
-			std::memcpy(impl->light_view_proj, glm::value_ptr(spot_vp), sizeof(float) * 16);
-			//单级：远区矩阵清零，深度跨度记录为半径
-			std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
-			std::memset(impl->light_view_proj_far2, 0, sizeof(impl->light_view_proj_far2));
-			impl->cascade_depth_span[0] = far_plane - 0.1f;
-			impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
-			impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
+			std::memcpy(impl->spot_view_proj, glm::value_ptr(spot_vp), sizeof(float) * 16);
+			//本片深度跨度（着色器法线偏移换算用）
+			impl->spot_shadow_span = far_plane - 0.1f;
 		}
 		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
@@ -2386,8 +2387,8 @@ namespace engine
 		随后等尽在途帧，保证主 pass 采样时阴影图已写完。
 		若本帧输入签名与上一帧完全一致则跳过整个 pass（阴影图原样复用），静态场景省一次离屏提交与等待。
 		*/
-		if (impl->shadow_enabled && impl->shadow_pipeline != 0 && impl->shadow_target != 0
-			&& !impl->pending_items.empty())
+		if ((impl->shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
+			&& impl->shadow_target != 0 && !impl->pending_items.empty())
 		{
 			//本帧参与投影的项数
 			std::size_t shadow_item_count = 0;
@@ -2401,7 +2402,7 @@ namespace engine
 			const float* instance_floats = impl->pending_instances.empty()
 				? nullptr : impl->pending_instances.front().data();
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				impl->light_view_proj_far, impl->light_view_proj_far2, instance_floats,
+				impl->light_view_proj_far, impl->light_view_proj_far2, impl->spot_view_proj, instance_floats,
 				impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
 				shadow_item_count, impl->shadow_size, impl->cascade_count);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
@@ -2504,7 +2505,9 @@ namespace engine
 				*/
 				if (impl->static_batching)
 					impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
-				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
+				//方向光阴影关闭（仅聚光阴影）时跳过级联 pass，保留方向光图原样（第四百八十四轮）
+				const uint32_t directional_cascade_total = impl->shadow_enabled ? cascade_total : 0u;
+				for (uint32_t cascade = 0; cascade < directional_cascade_total; ++cascade)
 				{
 					//本片目标（多级时收缩视口到对应方形小格；X 按片序偏移、Y 恒为顶格）
 					Frame_Render_Target cascade_target = shadow_target;
@@ -2525,6 +2528,32 @@ namespace engine
 						static_cast<uint32_t>(shadow_items.size()), cascade_clear, nullptr, nullptr, true))
 					{
 						logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
+						return false;
+					}
+				}
+				/*
+				聚光灯阴影 pass（第四百八十四轮；方案 B）
+				方向光级联之外追加一遍：写入独立的 spot_shadow_target，单级整幅（无分片）；
+				复用同一阴影管线与实例缓冲，推送常量换成 spot_view_proj；清屏后整幅绘制。
+				*/
+				if (spot_shadow_light_valid && impl->spot_shadow_target != 0)
+				{
+					for (auto& shadow_item : shadow_items)
+						shadow_item.push_constants = impl->spot_view_proj;
+					Frame_Render_Target spot_target{};
+					if (!impl->render_target.target_get(impl->spot_shadow_target, spot_target.color_image,
+						spot_target.color_view, spot_target.depth_view, spot_target.extent))
+					{
+						logger.error("渲染器:: 聚光灯阴影目标附件查询失败");
+						return false;
+					}
+					spot_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
+					spot_target.depth_format = impl->swapchain.depth_format_get();
+					spot_target.sample_count = 1;
+					if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
+						static_cast<uint32_t>(shadow_items.size()), shadow_clear, nullptr, nullptr, true))
+					{
+						logger.error("渲染器:: 聚光灯阴影 pass 提交失败");
 						return false;
 					}
 				}
@@ -2739,19 +2768,18 @@ namespace engine
 		for (uint32_t light = 0; light < Impl::POINT_LIGHT_UBO_MAX; ++light)
 			scene_block[184 + static_cast<std::size_t>(light) * 4] = impl->point_lights[light].shininess;
 		/*
-		聚光灯阴影模式（第四百七十四 / 479 轮）
-		级联数写 0 以告知着色器走「聚光单级」采样路径（方向光阴影让位）；
-		所选序号写入 spot_shadow_params.w，着色器据此只遮蔽该盏聚光灯。
-		*/
-		const bool spot_shadow_mode = spot_shadow_light_valid;
-		/*
-		光源空间矩阵沿用 ⑤a 结果（第五十二轮）
+		光源空间矩阵沿用 ⑤a 结果（第五十二轮；第四百八十四轮起不再被聚光灯覆盖）
 		写入 UBO 供场景片元解包比较；阴影关闭时字段保留但不参与计算。
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[216 + index] = impl->light_view_proj[index];
 		//阴影参数（第五十二轮：x = 启用、y = 偏置、z = 阴影图边长；第五十三轮 w = 软度）
-		scene_block[232] = (impl->shadow_enabled || spot_shadow_mode) ? 1.0f : 0.0f;
+		/*
+		阴影总开关（第四百七十四 / 484 轮）
+		方向光阴影与聚光阴影各自独立：任一开启即 shadow_params.x = 1；
+		cascade_params.x 仅表示方向光阴影是否启用（0 = 方向光阴影关闭，着色器让位）。
+		*/
+		scene_block[232] = (impl->shadow_enabled || spot_shadow_light_valid) ? 1.0f : 0.0f;
 		scene_block[233] = impl->shadow_bias;
 		scene_block[234] = static_cast<float>(impl->shadow_size);
 		scene_block[235] = impl->shadow_softness;
@@ -2773,7 +2801,12 @@ namespace engine
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[244 + index] = impl->light_view_proj_far[index];
-		scene_block[260] = spot_shadow_mode ? 0.0f : static_cast<float>(impl->cascade_count);
+		/*
+		级联参数 x（第四百七十四 / 484 轮）
+		仅表示方向光阴影是否启用：方向光关闭时写 0（着色器 shadow_factor 让位）；
+		聚光阴影的开关与序号由 spot_shadow_params.w 表达，两图互不依赖。
+		*/
+		scene_block[260] = impl->shadow_enabled ? static_cast<float>(impl->cascade_count) : 0.0f;
 		scene_block[261] = impl->cascade_split_distance;
 		scene_block[262] = impl->cascade_depth_span[0];
 		scene_block[263] = impl->cascade_depth_span[1];
@@ -2833,13 +2866,18 @@ namespace engine
 		scene_block[300] = impl->spot_shadow_bias;
 		scene_block[301] = impl->spot_shadow_softness;
 		scene_block[302] = impl->spot_shadow_strength;
-		scene_block[303] = static_cast<float>(impl->spot_shadow_index);
 		/*
-		聚光灯阴影矩阵（第四百八十三轮；304..319，方案 B 基础设施）
-		所选聚光灯的透视视图投影；本轮尚未写入（保持零矩阵），着色器亦未采样，画面不变。
+		w = 序号 + 1（0 = 无有效聚光阴影；第四百八十四轮改为编码「开关 + 序号」，
+		使聚光阴影与方向光阴影互不依赖）。
+		*/
+		scene_block[303] = spot_shadow_light_valid ? static_cast<float>(impl->spot_shadow_index + 1) : 0.0f;
+		/*
+		聚光灯阴影矩阵与跨度（第四百八十四轮；304..319 矩阵、320..323 附加项）
+		x = 本帧聚光灯深度跨度（法线偏移换算；0 = 无有效聚光灯），yzw 保留。
 		*/
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[304 + index] = impl->spot_view_proj[index];
+		scene_block[320] = impl->spot_shadow_span;
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -9631,10 +9669,15 @@ namespace engine
 		shadow_strength_set(light.shadow_strength);
 		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
-		//聚光灯阴影开关（第四百七十四轮；开启时懒登记阴影管线并复用方向光阴影图）
+		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
+		{
+			//借用 shadow_enable_set 的管线懒登记，登记后恢复方向光阴影开关原值
+			const bool directional_enabled = impl->shadow_enabled;
 			shadow_enable_set(true);
+			impl->shadow_enabled = directional_enabled;
+		}
 		//聚光灯阴影独立质量参数（第四百七十六轮；非法值由 setter 整次忽略）
 		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
 		//聚光灯阴影序号（第四百七十九轮；非法值由 setter 整次忽略）

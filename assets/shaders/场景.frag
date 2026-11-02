@@ -58,6 +58,8 @@ layout(set = 1, binding = 6) uniform sampler2D emissive_map;
 layout(set = 1, binding = 7) uniform sampler2D ao_map;
 //金属度贴图（第一百六十九轮；set 1 binding 8；取红通道乘到金属度；默认白 → ×1）
 layout(set = 1, binding = 8) uniform sampler2D metallic_map;
+//聚光灯阴影图（第四百八十四轮；set 1 binding 9；与方向光阴影图独立）
+layout(set = 1, binding = 9) uniform sampler2D spot_shadow_map;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -121,16 +123,14 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	x 为 0（默认）时下方点光循环走原前向路径，画面逐字节不变。
 	*/
 	vec4 cluster_params;
-	/*
-	聚光灯阴影参数（第四百七十六轮；x = 偏置 0..0.05、y = 软度 0..1、z = 强度 0..1、w 保留）
-	与方向光 shadow_params / shadow_strength 独立；仅聚光阴影开启时（cascade_params.x = 0）参与着色。
-	*/
 	vec4 spot_shadow_params;
 	/*
-	聚光灯阴影矩阵（第四百八十三轮；方案 B 基础设施）
-	所选聚光灯的透视视图投影；本轮着色器尚未采样，保留字段以与 UBO 1280 字节布局一致。
+	聚光灯阴影矩阵（第四百八十三 / 484 轮）
+	所选聚光灯的透视视图投影；未开启聚光阴影时为零矩阵（着色器不采样）。
 	*/
 	mat4 spot_view_proj;
+	//聚光灯阴影附加项（第四百八十四轮；x = 深度跨度（法线偏移换算）、yzw 保留）
+	vec4 spot_shadow_extra;
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
@@ -334,14 +334,14 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 }
 
 /*
-阴影深度比较（第五十三轮）
+阴影深度比较（第五十三轮；第四百八十四轮改为显式收阴影图）
 在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
 */
-float shadow_compare(ivec2 texel, float current, int size)
+float shadow_compare(sampler2D shadow_tex, ivec2 texel, float current, int size)
 {
 	//越界钳边
 	ivec2 clamped = clamp(texel, ivec2(0), ivec2(size - 1));
-	vec4 packed = texelFetch(shadow_map, clamped, 0);
+	vec4 packed = texelFetch(shadow_tex, clamped, 0);
 	//解包 32 位深度
 	float stored = dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
 	//片元比阴影图记录更近则受光，否则遮蔽
@@ -375,22 +375,24 @@ float cascade_span_of(int index)
 }
 
 /*
-单级阴影因子（未乘阴影强度；index 为级序、count 为级数）
-bias / softness 显式传入（第四百七十六轮）：方向光取 shadow_params，聚光取独立的 spot_shadow_params。
+单级阴影因子（未乘阴影强度；count 为级数、index 为级序）
+矩阵、深度跨度与阴影图显式传入（第四百八十四轮）：方向光取级联矩阵 / 跨度 / binding 1，
+聚光取 spot_view_proj / spot_shadow_extra.x / binding 9。
 */
-float shadow_sample_ex(int index, int count, vec3 world_pos, vec3 normal, float bias, float softness)
+float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_tex, int count, int index,
+	vec3 world_pos, vec3 normal, float bias, float softness)
 {
 	/*
 	法线偏移（第五十九轮）
 	沿片元法线推出一小段后再取阴影深度，抵消深度量化与掠射角造成的自阴影（shadow acne）；
-	偏移量 = 深度偏置 × 光源正交深度跨度（单级恒为 59；多级取本片跨度），使世界量级与 NDC 偏置量一致；
-	法线为零向量（未提供法线）时不偏移，保持既有网格行为。
+	偏移量 = 深度偏置 × 光源深度跨度（单级恒为 59；多级取本片跨度；聚光取锥远平面），
+	使世界量级与 NDC 偏置量一致；法线为零向量（未提供法线）时不偏移。
 	*/
 	vec3 sample_pos = world_pos;
 	if (length(normal) > 0.000001)
-		sample_pos += normalize(normal) * (bias * cascade_span_of(index));
+		sample_pos += normalize(normal) * (bias * depth_span);
 	//光源空间裁剪坐标
-	vec4 light_clip = cascade_matrix_of(index) * vec4(sample_pos, 1.0);
+	vec4 light_clip = light_matrix * vec4(sample_pos, 1.0);
 	//位于光源背后
 	if (light_clip.w <= 0.000001)
 		return 1.0;
@@ -418,7 +420,7 @@ float shadow_sample_ex(int index, int count, vec3 world_pos, vec3 normal, float 
 	float current = ndc.z - bias;
 	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
 	if (softness <= 0.0)
-		return shadow_compare(texel, current, size);
+		return shadow_compare(shadow_tex, texel, current, size);
 	//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
 	float soft = clamp(softness, 0.0, 1.0);
 	int radius = soft <= 0.25 ? 1 : (soft <= 0.75 ? 2 : 3);
@@ -427,7 +429,7 @@ float shadow_sample_ex(int index, int count, vec3 world_pos, vec3 normal, float 
 	for (int offset_y = -radius; offset_y <= radius; ++offset_y)
 		for (int offset_x = -radius; offset_x <= radius; ++offset_x)
 		{
-			sum += shadow_compare(texel + ivec2(offset_x, offset_y), current, size);
+			sum += shadow_compare(shadow_tex, texel + ivec2(offset_x, offset_y), current, size);
 			++samples;
 		}
 	return sum / float(samples);
@@ -436,25 +438,26 @@ float shadow_sample_ex(int index, int count, vec3 world_pos, vec3 normal, float 
 //单级阴影因子（方向光口径：偏置 / 软度取 shadow_params）
 float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 {
-	return shadow_sample_ex(index, count, world_pos, normal, scene.shadow_params.y, scene.shadow_params.w);
+	return shadow_sample_core(cascade_matrix_of(index), cascade_span_of(index), shadow_map, count, index,
+		world_pos, normal, scene.shadow_params.y, scene.shadow_params.w);
 }
 
 /*
-聚光灯阴影系数（第四百七十四轮；第四百七十六轮独立参数；第四百七十九轮按序号选择）
-聚光模式以 cascade_params.x = 0 标识；shadow_sample_ex 用 light_view_proj 直接投影（单级、无分片）；
-偏置 / 软度取 spot_shadow_params.xy，强度取 spot_shadow_params.z，阴影序号取 .w；
-只有 light_index 与序号一致的那盏聚光灯被遮蔽（其余聚光不受本阴影图影响）。
+聚光灯阴影系数（第四百七十四 / 476 / 479 / 484 轮）
+与方向光阴影完全独立：开关 + 序号由 spot_shadow_params.w（序号 + 1；0 = 关闭）表达，
+矩阵 / 跨度 / 阴影图分别取 spot_view_proj / spot_shadow_extra.x / binding 9；
+只有 light_index 与序号一致的那盏聚光灯被遮蔽。
 */
 float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 {
-	//未启用阴影或非聚光模式
-	if (scene.shadow_params.x < 0.5 || scene.cascade_params.x > 0.5)
+	//阴影总开关关闭，或聚光阴影未开启（w = 0）
+	if (scene.shadow_params.x < 0.5 || scene.spot_shadow_params.w < 0.5)
 		return 1.0;
-	//非所选聚光灯（第四百七十九轮）
-	if (light_index != int(scene.spot_shadow_params.w + 0.5))
+	//非所选聚光灯（第四百七十九轮；w 编码为序号 + 1）
+	if (light_index != int(scene.spot_shadow_params.w + 0.5) - 1)
 		return 1.0;
-	float sample_factor = shadow_sample_ex(0, 1, world_pos, normal,
-		scene.spot_shadow_params.x, scene.spot_shadow_params.y);
+	float sample_factor = shadow_sample_core(scene.spot_view_proj, scene.spot_shadow_extra.x,
+		spot_shadow_map, 1, 0, world_pos, normal, scene.spot_shadow_params.x, scene.spot_shadow_params.y);
 	return mix(1.0, sample_factor, clamp(scene.spot_shadow_params.z, 0.0, 1.0));
 }
 
@@ -463,7 +466,7 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 	//未启用阴影
 	if (scene.shadow_params.x < 0.5)
 		return 1.0;
-	//聚光模式：方向光阴影让位（第四百七十四轮）
+	//方向光阴影未启用：方向光不受阴影影响（第四百八十四轮：与聚光阴影独立）
 	if (scene.cascade_params.x < 0.5)
 		return 1.0;
 	/*

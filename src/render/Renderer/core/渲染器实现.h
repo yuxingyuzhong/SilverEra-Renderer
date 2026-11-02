@@ -623,6 +623,8 @@ namespace engine
 		uint64_t spot_shadow_target = 0;
 		//聚光灯阴影矩阵（第四百八十三轮；所选聚光灯的透视视图投影，关闭时零矩阵）
 		float spot_view_proj[16] = {};
+		//聚光灯阴影深度跨度（第四百八十四轮；法线偏移换算用，0 = 无有效聚光灯）
+		float spot_shadow_span = 0.0f;
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
 		bool shadow_enabled = false;
 		/*
@@ -963,8 +965,8 @@ namespace engine
 		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		//场景 UBO 浮点数（320 个 32 位浮点 = 1280 字节；第四百八十三轮追加 spot_view_proj 矩阵）
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 320;
+		//场景 UBO 浮点数（324 个 32 位浮点 = 1296 字节；第四百八十四轮追加 spot_shadow_extra）
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 324;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*
