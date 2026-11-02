@@ -7295,6 +7295,28 @@ namespace engine
 		scene_unload(scene);
 	}
 
+	//绘制整套资产场景（逐对象构造矩阵 ＋ 逐段绑材质；返回成功登记的对象数）
+	uint32_t Renderer::scene_draw(const Asset_Scene& scene)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		uint32_t 登记数 = 0;
+		for (const Asset_Object& object : scene.objects)
+		{
+			//对象未持有网格
+			if (object.mesh == 0)
+				continue;
+			//按位置 / 旋转（度）/ 缩放构造变换
+			float transform[16] = {};
+			level_transform_build(object.position, object.rotation_deg, object.scale, transform);
+			if (mesh_draw_sections(object.mesh, transform, object.materials.data(),
+				static_cast<uint32_t>(object.materials.size())))
+				登记数 += 1;
+		}
+		return 登记数;
+	}
+
 	//释放场景清单创建的全部资源（幂等）
 	void Renderer::scene_unload(Asset_Scene& scene)
 	{

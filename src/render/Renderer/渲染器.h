@@ -1058,6 +1058,12 @@ namespace engine
 		*/
 		void level_unload(Asset_Scene& scene);
 		/*
+		绘制整套资产场景（第四百三十七轮）
+		逐对象用 `level_transform_build`（位置 / 旋转 / 缩放）＋ `mesh_draw_sections`（逐段绑材质）登记绘制；
+		返回成功登记的对象数（任一对象失败即跳过该项并继续）。仅登记，不提交帧。
+		*/
+		uint32_t scene_draw(const Asset_Scene& scene);
+		/*
 		共享加载 OBJ 网格（第四百二十五轮；资源缓存 ＋ 引用计数）
 		同一路径只创建一次资源：首次创建（refs = 1）、后续命中仅引用计数 +1 并返回同一句柄；
 		释放须走 `mesh_release`（不可与 `mesh_unload` 混用同一句柄）。
