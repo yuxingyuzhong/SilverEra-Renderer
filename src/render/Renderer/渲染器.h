@@ -1,10 +1,10 @@
 #pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 //光源数据记录（Vulkan-free；第二百六十五轮）
-#include "Application/Renderer/src/render/Scene/光源数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/光源数据.h"
 //分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
-#include "Application/Renderer/src/render/Cluster/簇划分.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Cluster/簇划分.h"
 //粒子数据（Vulkan-free；第三百零七轮；已下沉到 EngineCore，模拟与绘制两侧共享同一份布局）
 #include "Engine/EngineCore/src/core/effect/粒子数据.h"
 /*
@@ -12,19 +12,19 @@
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
 其定义置于 Mesh 模块的共用头，层外看不到任何 Vulkan / VMA / SDL3 / glm 类型。
 */
-#include "Application/Renderer/src/render/Mesh/网格数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格数据.h"
 //管线公共语义类型（Vulkan-free）：混合档
-#include "Application/Renderer/src/render/Pipeline/管线数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/管线数据.h"
 //纹理公共语义类型（Vulkan-free）：采样器状态
-#include "Application/Renderer/src/render/Texture/纹理数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Texture/纹理数据.h"
 //材质公共语义类型（Vulkan-free）：材质描述与句柄
-#include "Application/Renderer/src/render/Pipeline/材质数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/材质数据.h"
 //场景公共语义类型（Vulkan-free）：场景描述
-#include "Application/Renderer/src/render/Scene/场景数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/场景数据.h"
 //文字布局公共语义类型（Vulkan-free）：对齐方式与换行宽度
-#include "Application/Renderer/src/render/Text/文字布局数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Text/文字布局数据.h"
 //计算公共语义类型（Vulkan-free）：句柄与字节上限（第二百四十三轮）
-#include "Application/Renderer/src/render/Compute/计算数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Compute/计算数据.h"
 
 //游戏引擎命名空间
 namespace engine

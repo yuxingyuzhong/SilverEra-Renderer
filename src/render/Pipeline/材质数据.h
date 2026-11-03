@@ -1,8 +1,8 @@
 #pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 //混合档（Vulkan-free；与管线数据.h 同构）
-#include "Application/Renderer/src/render/Pipeline/管线数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/管线数据.h"
 
 /*
 材质公共语义类型（Vulkan-free）

@@ -1,6 +1,6 @@
 #pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 /*
 Vulkan 头
 本头属渲染层「公共扩展头」：含 Vulkan / SDL3 类型，供上层（Test 层）接入
@@ -11,7 +11,7 @@ ImGui Vulkan 后端使用；不并入 渲染器.h（公共主头仍保持零 Vul
 //SDL3 窗口类型（平台后端绑定输入事件需要）
 #include <SDL3/SDL.h>
 //帧绘制回调（帧链路在场景 pass 结束后调用）
-#include "Application/Renderer/src/render/Frame/帧上下文.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Frame/帧上下文.h"
 
 //游戏引擎命名空间
 namespace engine

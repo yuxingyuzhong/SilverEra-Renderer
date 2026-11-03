@@ -66,9 +66,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 本层根目录；项目根 = Application/Renderer 上溯两级（项目内部包含路径的基准）
+# 本层根目录；项目根 = Engine/EngineSystem/src/core/Renderer 上溯五级（项目内部包含路径的基准）
 get_filename_component(PROJECT_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
-get_filename_component(BYJY_PROJECT_ROOT "${PROJECT_ROOT_DIR}/../.." ABSOLUTE)
+get_filename_component(BYJY_PROJECT_ROOT "${PROJECT_ROOT_DIR}/../../../../.." ABSOLUTE)
 
 # =============================================================================
 # 0. 构建类型（Debug / Release 双构建树）
@@ -262,7 +262,7 @@ byjy_source_list_sync(
     RendererCore
     RENDERER_SOURCES
     RENDERER_HEADERS
-    "Application/Renderer"
+    "Engine/EngineSystem/src/core/Renderer"
 )
 
 message(STATUS "Renderer 本层源文件: ${RENDERER_SOURCES}")
@@ -341,9 +341,14 @@ target_compile_definitions(RendererCore PRIVATE
     GLM_FORCE_RADIANS
 )
 
-# 静态库输出到构建目录 lib/（与下层一致）
+# 静态库输出到构建目录 lib/（与下层一致；显式给每配置指定，避免 VS 生成器再追加 Debug/Release 子目录，
+# 使上层 byjy_jieru_xiaceng() 的 out/build/x64-<树>/lib/<库名>.lib 探测口径保持有效）
 set_target_properties(RendererCore PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_BINARY_DIR}/lib"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
 )
 
@@ -362,7 +367,7 @@ add_custom_target(RendererIncludeSnapshot ALL
     COMMAND "${CMAKE_COMMAND}"
         "-DSRC_ROOT=${BYJY_PROJECT_ROOT}"
         "-DDST_ROOT=${BYJY_RENDERER_INCLUDE_SNAPSHOT_DIR}"
-        "-DMIRROR_DIRS=Application/Renderer/common;Application/Renderer/src"
+        "-DMIRROR_DIRS=Engine/EngineSystem/src/core/Renderer/common;Engine/EngineSystem/src/core/Renderer/src"
         -P "${BYJY_PROJECT_ROOT}/Engine/EngineCore/cmake/导出头快照.cmake"
     COMMENT "导出 Renderer 对外头快照 → ${BYJY_RENDERER_INCLUDE_SNAPSHOT_DIR}"
     VERBATIM

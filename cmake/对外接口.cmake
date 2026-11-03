@@ -57,7 +57,7 @@
 #       - ole32/oleaut32/advapi32/uuid  SDL3 的 COM / 注册表 / GUID 依赖
 # =============================================================================
 
-include("${CMAKE_CURRENT_LIST_DIR}/../../../Engine/EngineCore/cmake/对外接口.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../../Engine/EngineCore/cmake/对外接口.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/VulkanSDK探测.cmake")
 
 get_filename_component(BYJY_RENDERER_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)

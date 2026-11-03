@@ -1,8 +1,8 @@
 #pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 //网格数据类型（Vertex / Mesh_Data / Mesh_Section）
-#include "Application/Renderer/src/render/Mesh/网格数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格数据.h"
 
 //游戏引擎命名空间
 namespace engine

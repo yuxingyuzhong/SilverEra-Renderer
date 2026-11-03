@@ -1,6 +1,6 @@
 #pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 /*
 Vulkan 头
 本头属本层「实现细节」：只被本层 .cpp 与层内模块头包含，不进公共头，
@@ -8,9 +8,9 @@ Vulkan 头
 */
 #include <vulkan/vulkan.h>
 //交换链模块对外头（帧需取其图像、范围与图像可用信号量）
-#include "Application/Renderer/src/render/Swapchain/交换链.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Swapchain/交换链.h"
 //线程池（第一百九十七轮：场景 pass 的次级命令缓冲并行录制）
-#include "Application/Renderer/src/render/Thread/线程池.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Thread/线程池.h"
 
 //游戏引擎命名空间
 namespace engine

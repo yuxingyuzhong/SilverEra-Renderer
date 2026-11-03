@@ -2,10 +2,10 @@
 //============================================================================
 // 前置头文件包含（Renderer 预编译头）
 //============================================================================
-// 位置：Application/Renderer/common/前置头文件包含.h
+// 位置：Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h
 //
 // 为什么 Renderer 需要自己这一份
-//     本层源码统一写 #include "Application/Renderer/common/前置头文件包含.h"。
+//     本层源码统一写 #include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"。
 //     项目内部一律用「项目根相对全路径」，路径归属明确、不会与其它层的同名头互撞。
 //
 //     做法：先整体吃下 EngineCore 那份（保持单一真源，避免两份清单各自漂移）。

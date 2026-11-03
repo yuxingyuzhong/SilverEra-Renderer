@@ -1,6 +1,6 @@
-﻿#pragma once
+#pragma once
 //预编译头
-#include "Application/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
 /*
 Vulkan 与 VMA 头
 本头属本层「实现细节」：只被本层 .cpp 与层内模块头包含，不进公共头，
@@ -9,7 +9,7 @@ Vulkan 与 VMA 头
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
 //纹理公共语义类型（Vulkan-free）：采样器状态与寻址模式
-#include "Application/Renderer/src/render/Texture/纹理数据.h"
+#include "Engine/EngineSystem/src/core/Renderer/src/render/Texture/纹理数据.h"
 
 //游戏引擎命名空间
 namespace engine
