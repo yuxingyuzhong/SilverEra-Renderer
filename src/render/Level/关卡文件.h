@@ -93,6 +93,13 @@ namespace engine
 	bool level_text_write(const Level_Data& level, const std::string& path);
 
 	/*
+	查找关卡内材质实例声明（第五百六十三轮）
+	按实例名在 `Level_Data.materials` 中查找首个匹配项并复制到 out；
+	名称为空或未找到返回假（out 保持入参原值）。纯查表，不建资源、不修改关卡。
+	*/
+	bool level_material_find(const Level_Data& level, const std::string& name, Level_Material& out);
+
+	/*
 	构造关卡对象的变换矩阵（第四百三十一轮；列主序 4×4）
 	按「缩放 → 旋转 → 平移」合成（M = T·R·S）；旋转为欧拉角（**度**），顺序 X → Y → Z（R = Rz·Ry·Rx）。
 	结果可直接传给 `mesh_draw` / `mesh_draw_sections` / `mesh_draw_range`；

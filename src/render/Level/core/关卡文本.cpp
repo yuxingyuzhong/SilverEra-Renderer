@@ -1271,4 +1271,23 @@ namespace engine
 		}
 		return true;
 	}
+
+	//查找关卡内材质实例声明（第五百六十三轮；按实例名取首个匹配）
+	bool level_material_find(const Level_Data& level, const string& name, Level_Material& out)
+	{
+		//若名称为空
+		if (name.empty())
+			return false;
+		//逐个比对实例名
+		for (const Level_Material& material : level.materials)
+		{
+			//若实例名一致
+			if (material.实例名 == name)
+			{
+				out = material;
+				return true;
+			}
+		}
+		return false;
+	}
 }
