@@ -2365,12 +2365,11 @@ namespace engine
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
 		//是否存在至少一盏有效聚光阴影
 		bool spot_shadow_light_valid = false;
+		//可投影的光源槽位（最多 8 盏，按声明顺序）与数量
+		int candidates[Impl::SPOT_SHADOW_TILES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+		std::size_t candidate_count = 0;
 		if (impl->spot_shadow_enabled)
 		{
-			//可投影的光源槽位（最多 8 盏，按声明顺序）
-			int candidates[Impl::SPOT_SHADOW_TILES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
-			//候选数量
-			std::size_t candidate_count = 0;
 			if (impl->spot_shadow_all)
 			{
 				//多盏：收集前 8 盏聚光灯
@@ -2416,6 +2415,8 @@ namespace engine
 				spot_shadow_light_valid = true;
 			}
 		}
+		//本帧参与投影的聚光灯阴影瓦片数（第五百二十轮）
+		impl->spot_shadow_tiles = static_cast<uint32_t>(candidate_count);
 		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
 		以光源视角把「参与投影的几何」渲染进阴影目标（RGBA8 打包深度）；
@@ -4003,6 +4004,7 @@ namespace engine
 		stats.shadow_reuses = impl->shadow_reuses;
 		stats.last_shadow_items = impl->last_shadow_items;
 		stats.shadow_last_redrawn = impl->shadow_last_redrawn;
+		stats.spot_shadow_tiles = impl->spot_shadow_tiles;
 		//最近一次阴影 pass 的并行段数（第二百一十二轮）
 		stats.shadow_parallel_segments = impl->last_shadow_parallel_segments;
 		//累计按需上传字节（第七十二轮）

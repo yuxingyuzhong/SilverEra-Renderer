@@ -599,6 +599,8 @@ namespace engine
 		uint32_t last_shadow_items = 0;
 		//最近一帧是否重绘了阴影图（1 = 重绘、0 = 复用或未执行；第一百四十五轮）
 		uint32_t shadow_last_redrawn = 0;
+		//最近一帧参与投影的聚光灯阴影瓦片数（第五百二十轮；0..8）
+		uint32_t spot_shadow_tiles = 0;
 		//最近一次阴影 pass 的并行段数（第二百一十二轮；0 = 单线程录制）
 		uint32_t last_shadow_parallel_segments = 0;
 		//阴影管线句柄（第五十二轮；0 = 未登记）
