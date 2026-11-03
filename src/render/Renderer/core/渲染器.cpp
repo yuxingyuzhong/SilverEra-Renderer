@@ -129,7 +129,7 @@ namespace engine
 		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
 		*/
 		uint64_t shadow_signature_build(const float light_view_proj[16], const float light_view_proj_far[16],
-			const float light_view_proj_far2[16], const float spot_view_proj_tiles[64],
+			const float light_view_proj_far2[16], const float spot_view_proj_tiles[128],
 			const float* instances, std::size_t instance_count, std::size_t shadow_item_count,
 			uint32_t shadow_size, uint32_t cascade_count)
 		{
@@ -152,8 +152,8 @@ namespace engine
 			//第三级级联矩阵（第一百四十六轮；非三级时为零矩阵）
 			for (std::size_t index = 0; index < 16; ++index)
 				mix_float(light_view_proj_far2[index]);
-			//聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为 4 瓦片 64 浮点；未开启时为零矩阵，不影响既有签名分布）
-			for (std::size_t index = 0; index < 64; ++index)
+			//聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为 4 瓦片 64 浮点；第五百一十三轮扩为 8 瓦片 128 浮点）
+			for (std::size_t index = 0; index < 128; ++index)
 				mix_float(spot_view_proj_tiles[index]);
 			//实例矩阵（每项 16 个 float）
 			for (std::size_t index = 0; index < instance_count; ++index)
@@ -1864,7 +1864,7 @@ namespace engine
 				impl->shadow_target = 0;
 			}
 			//归还聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张）
-			for (std::size_t tile = 0; tile < 4; ++tile)
+			for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			{
 				if (impl->spot_shadow_targets[tile] != 0)
 				{
@@ -2356,7 +2356,7 @@ namespace engine
 		② 关闭：仅 spot_shadow_index 所选槽位写入瓦片 0（与旧单盏行为逐字节一致）。
 		同时把「前向槽位 → 瓦片号」写入槽位映射，着色器按灯查找对应阴影图。
 		*/
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			std::memset(impl->spot_view_proj_tiles[tile], 0, sizeof(impl->spot_view_proj_tiles[tile]));
 			impl->spot_shadow_spans[tile] = 0.0f;
@@ -2367,14 +2367,14 @@ namespace engine
 		bool spot_shadow_light_valid = false;
 		if (impl->spot_shadow_enabled)
 		{
-			//可投影的光源槽位（最多 4 盏，按声明顺序）
-			int candidates[4] = { -1, -1, -1, -1 };
+			//可投影的光源槽位（最多 8 盏，按声明顺序）
+			int candidates[Impl::SPOT_SHADOW_TILES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 			//候选数量
 			std::size_t candidate_count = 0;
 			if (impl->spot_shadow_all)
 			{
-				//多盏：收集前 4 盏聚光灯
-				for (std::size_t index = 0; index < impl->point_light_count && candidate_count < 4; ++index)
+				//多盏：收集前 8 盏聚光灯
+				for (std::size_t index = 0; index < impl->point_light_count && candidate_count < Impl::SPOT_SHADOW_TILES; ++index)
 					if (impl->point_lights[index].is_spot)
 						candidates[candidate_count++] = static_cast<int>(index);
 			}
@@ -2574,7 +2574,7 @@ namespace engine
 				*/
 				if (spot_shadow_light_valid)
 				{
-					for (std::size_t tile = 0; tile < 4; ++tile)
+					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 					{
 						//该瓦片无有效聚光灯则跳过
 						if (impl->spot_shadow_spans[tile] <= 0.0f || impl->spot_shadow_targets[tile] == 0)
@@ -2910,16 +2910,16 @@ namespace engine
 		//w = 开关（第五百零七轮起不再编码序号，序号改由槽位映射表达）
 		scene_block[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
 		/*
-		聚光灯阴影矩阵 / 跨度 / 槽位映射（第五百零七轮）
-		304..367 = 4 份透视矩阵；368..371 = 4 份深度跨度；372..379 = 8 个前向槽位的瓦片号（-1 = 不投影）。
+		聚光灯阴影矩阵 / 跨度 / 槽位映射（第五百零七轮；第五百一十三轮扩为 8 瓦片）
+		304..431 = 8 份透视矩阵；432..439 = 8 份深度跨度；440..447 = 8 个前向槽位的瓦片号（-1 = 不投影）。
 		*/
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			for (std::size_t index = 0; index < 16; ++index)
 				scene_block[304 + tile * 16 + index] = impl->spot_view_proj_tiles[tile][index];
-		for (std::size_t tile = 0; tile < 4; ++tile)
-			scene_block[368 + tile] = impl->spot_shadow_spans[tile];
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+			scene_block[432 + tile] = impl->spot_shadow_spans[tile];
 		for (std::size_t slot = 0; slot < 8; ++slot)
-			scene_block[372 + slot] = impl->spot_shadow_slot_tiles[slot];
+			scene_block[440 + slot] = impl->spot_shadow_slot_tiles[slot];
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -3305,8 +3305,9 @@ namespace engine
 					shadow_depth_view, shadow_extent);
 			}
 			//聚光灯阴影图视图（第四百八十三轮；第五百零七轮扩为 4 张；未建立时以默认白纹理占位）
-			VkImageView spot_shadow_views[4] = { default_view, default_view, default_view, default_view };
-			for (std::size_t tile = 0; tile < 4; ++tile)
+			VkImageView spot_shadow_views[Impl::SPOT_SHADOW_TILES] = { default_view, default_view,
+				default_view, default_view, default_view, default_view, default_view, default_view };
+			for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			{
 				//该瓦片未建立则保持默认白纹理
 				if (impl->spot_shadow_targets[tile] == 0)
@@ -3355,11 +3356,9 @@ namespace engine
 					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
 					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
 					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
-					//聚光灯阴影图（第四百八十三轮；binding 9）
-						views.spot_shadow[0] = spot_shadow_views[0];
-						views.spot_shadow[1] = spot_shadow_views[1];
-						views.spot_shadow[2] = spot_shadow_views[2];
-						views.spot_shadow[3] = spot_shadow_views[3];
+					//聚光灯阴影图（第四百八十三轮；binding 9；第五百一十三轮写入全部 8 个数组元素）
+					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+						views.spot_shadow[tile] = spot_shadow_views[tile];
 					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
 					views.depth = item.draw_depth;
 					views.depth_sampler = item.draw_depth_sampler;
@@ -12159,8 +12158,8 @@ namespace engine
 	}
 
 	/*
-	按需创建并绑定多盏聚光灯阴影瓦片（第五百一十一轮）
-	瓦片 0 常驻（与单盏行为一致）；瓦片 1..3 首次需要时创建，失败仅告警并保持「无阴影」占位。
+	按需创建并绑定多盏聚光灯阴影瓦片（第五百一十一轮；第五百一十三轮扩为 8 瓦片）
+	瓦片 0 常驻（与单盏行为一致）；瓦片 1..7 首次需要时创建，失败仅告警并保持「无阴影」占位。
 	*/
 	void Renderer::spot_shadow_tiles_ensure()
 	{
@@ -12168,7 +12167,7 @@ namespace engine
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
 		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
-		for (std::size_t tile = 1; tile < 4; ++tile)
+		for (std::size_t tile = 1; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//已建立则跳过
 			if (impl->spot_shadow_targets[tile] != 0)
@@ -12263,8 +12262,9 @@ namespace engine
 			return;
 		}
 		//旧聚光灯阴影图视图（第四百八十七轮；第五百零七轮扩为 4 张；失败回绑用）
-		VkImageView old_spot_views[4] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		VkImageView old_spot_views[Impl::SPOT_SHADOW_TILES] = { VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE,
+			VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE };
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//该瓦片未建立则跳过
 			if (impl->spot_shadow_targets[tile] == 0)
@@ -12289,8 +12289,8 @@ namespace engine
 			return;
 		}
 		//聚光灯阴影目标同分辨率重建（第四百八十七轮；第五百零七轮扩为 4 张）
-		uint64_t candidate_spot_tiles[4] = {};
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		uint64_t candidate_spot_tiles[Impl::SPOT_SHADOW_TILES] = {};
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//该瓦片未建立则跳过
 			if (impl->spot_shadow_targets[tile] == 0)
@@ -12318,14 +12318,15 @@ namespace engine
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
 			impl->render_target.target_destroy(candidate);
-			for (std::size_t tile = 0; tile < 4; ++tile)
+			for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 				if (candidate_spot_tiles[tile] != 0)
 					impl->render_target.target_destroy(candidate_spot_tiles[tile]);
 			return;
 		}
 		//新聚光灯阴影图颜色视图（第四百八十七轮；第五百零七轮扩为 4 张）
-		VkImageView new_spot_views[4] = { default_view, default_view, default_view, default_view };
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		VkImageView new_spot_views[Impl::SPOT_SHADOW_TILES] = { default_view, default_view, default_view,
+			default_view, default_view, default_view, default_view, default_view };
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//该瓦片未重建则沿用默认白纹理占位
 			if (candidate_spot_tiles[tile] == 0)
@@ -12338,7 +12339,7 @@ namespace engine
 			{
 				logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影图查询失败（瓦片 {}）", tile);
 				impl->render_target.target_destroy(candidate);
-				for (std::size_t created = 0; created < 4; ++created)
+				for (std::size_t created = 0; created < Impl::SPOT_SHADOW_TILES; ++created)
 					if (candidate_spot_tiles[created] != 0)
 						impl->render_target.target_destroy(candidate_spot_tiles[created]);
 				return;
@@ -12354,14 +12355,14 @@ namespace engine
 				for (std::size_t revert = 0; revert <= slot; ++revert)
 					impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
 				impl->render_target.target_destroy(candidate);
-				for (std::size_t tile = 0; tile < 4; ++tile)
+				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 					if (candidate_spot_tiles[tile] != 0)
 						impl->render_target.target_destroy(candidate_spot_tiles[tile]);
 				return;
 			}
 		}
 		//逐帧槽改绑新聚光灯阴影图（第四百八十七轮；第五百零七轮四瓦片）
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//该瓦片未重建则无需改绑
 			if (candidate_spot_tiles[tile] == 0)
@@ -12376,7 +12377,7 @@ namespace engine
 					for (std::size_t revert = 0; revert < impl->config.frame_overlap; ++revert)
 					{
 						impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
-						for (std::size_t target_tile = 0; target_tile < 4; ++target_tile)
+						for (std::size_t target_tile = 0; target_tile < Impl::SPOT_SHADOW_TILES; ++target_tile)
 						{
 							//优先回绑旧视图；旧瓦片不存在时保持新视图
 							if (candidate_spot_tiles[target_tile] == 0)
@@ -12388,7 +12389,7 @@ namespace engine
 						}
 					}
 					impl->render_target.target_destroy(candidate);
-					for (std::size_t created = 0; created < 4; ++created)
+					for (std::size_t created = 0; created < Impl::SPOT_SHADOW_TILES; ++created)
 						if (candidate_spot_tiles[created] != 0)
 							impl->render_target.target_destroy(candidate_spot_tiles[created]);
 					return;
@@ -12398,7 +12399,7 @@ namespace engine
 		//全部改绑成功后销毁旧目标并更新状态
 		impl->render_target.target_destroy(impl->shadow_target);
 		impl->shadow_target = candidate;
-		for (std::size_t tile = 0; tile < 4; ++tile)
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//未重建的瓦片保持原目标
 			if (candidate_spot_tiles[tile] == 0)

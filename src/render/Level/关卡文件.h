@@ -73,7 +73,7 @@ namespace engine
 	         specular_scale|shadow|spot_shadow|spot_shadow_index|spot_shadow_all|pbr|toon|outline <值…>；point / spot 逐盏一行
 	         spot_shadow 形如 <0|1> [<bias 0..0.05> <softness 0..1> <strength 0..1>]（第四百七十八轮）
 	         spot_shadow_index 为 0..7 的已登记光源槽位（第四百八十一轮）
-	         spot_shadow_all 为 <0|1>，非 0 时前 4 盏聚光灯各自投影（第五百零七轮）
+	         spot_shadow_all 为 <0|1>，非 0 时前 8 盏聚光灯各自投影（第五百零七轮起 4 盏，第五百一十三轮扩为 8 盏）
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
 	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular]（第四百六十六 / 471 轮）

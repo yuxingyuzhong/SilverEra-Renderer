@@ -82,13 +82,13 @@ namespace engine
 		sampler_bindings[8].descriptorCount = 1;
 		sampler_bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 		/*
-		聚光灯阴影图数组（第四百八十三轮；第五百零七轮由单张扩为 4 张）
-		同一 binding 9 的 4 个数组元素，对应最多 4 盏聚光灯各自的阴影图；
+		聚光灯阴影图数组（第四百八十三轮；第五百零七轮由单张扩为 4 张；第五百一十三轮扩为 8 张）
+		同一 binding 9 的 8 个数组元素，对应最多 8 盏聚光灯各自的阴影图；
 		着色器按 UBO 的槽位映射选择瓦片，单盏时只用元素 0。
 		*/
 		sampler_bindings[9].binding = 9;
 		sampler_bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		sampler_bindings[9].descriptorCount = 4;
+		sampler_bindings[9].descriptorCount = 8;
 		sampler_bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
 		//set 1 布局创建信息

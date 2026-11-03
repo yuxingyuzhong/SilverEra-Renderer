@@ -1920,7 +1920,7 @@ namespace engine
 		int spot_shadow_index(void) const;
 		/*
 		多盏聚光灯阴影开关（第五百一十一轮新增）
-		true：前 4 盏聚光灯按声明顺序各占瓦片 0..3 独立投影（瓦片 1..3 首次开启时按需创建）；
+		true：前 8 盏聚光灯按声明顺序各占瓦片 0..7 独立投影（瓦片 1..7 首次开启时按需创建）；
 		false：沿用 spot_shadow_index 的单盏语义。
 		供运行期切换使用；关卡装载路径仍由 Light_Data.spot_shadow_all 驱动，二者语义一致。
 		*/

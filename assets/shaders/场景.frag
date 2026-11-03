@@ -58,8 +58,8 @@ layout(set = 1, binding = 6) uniform sampler2D emissive_map;
 layout(set = 1, binding = 7) uniform sampler2D ao_map;
 //金属度贴图（第一百六十九轮；set 1 binding 8；取红通道乘到金属度；默认白 → ×1）
 layout(set = 1, binding = 8) uniform sampler2D metallic_map;
-//聚光灯阴影图（第四百八十四轮；set 1 binding 9；与方向光阴影图独立）
-layout(set = 1, binding = 9) uniform sampler2D spot_shadow_map[4];
+//聚光灯阴影图（第四百八十四轮；set 1 binding 9；与方向光阴影图独立；第五百一十三轮扩为 8 瓦片）
+layout(set = 1, binding = 9) uniform sampler2D spot_shadow_map[8];
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -125,13 +125,13 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 cluster_params;
 	vec4 spot_shadow_params;
 	/*
-	聚光灯阴影矩阵 / 跨度 / 槽位映射（第四百八十三 / 484 轮；第五百零七轮扩为 4 瓦片）
-	spot_view_proj_tiles = 4 盏聚光灯各自的透视视图投影（未使用瓦片为零矩阵）；
-	spot_shadow_spans = 4 份深度跨度（法线偏移换算）；
+	聚光灯阴影矩阵 / 跨度 / 槽位映射（第四百八十三 / 484 轮；第五百零七轮扩为 4 瓦片；第五百一十三轮扩为 8 瓦片）
+	spot_view_proj_tiles = 8 盏聚光灯各自的透视视图投影（未使用瓦片为零矩阵）；
+	spot_shadow_spans = 8 份深度跨度（法线偏移换算）；
 	spot_shadow_slots = 8 个前向槽位的瓦片号（-1 = 该灯不投影），每 4 个一组。
 	*/
-	mat4 spot_view_proj_tiles[4];
-	vec4 spot_shadow_spans;
+	mat4 spot_view_proj_tiles[8];
+	vec4 spot_shadow_spans[2];
 	vec4 spot_shadow_slots[2];
 } scene;
 
@@ -480,19 +480,34 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	float strength = clamp(scene.spot_shadow_params.z, 0.0, 1.0);
 	/*
 	按瓦片取矩阵 / 跨度 / 阴影图
-	显式四分支：采样器数组不做动态索引，避免驱动对「动态一致索引」的限制。
+	显式八分支：采样器数组不做动态索引，避免驱动对「动态一致索引」的限制。
 	*/
 	if (tile == 0)
-		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[0], scene.spot_shadow_spans.x,
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[0], scene.spot_shadow_spans[0].x,
 			spot_shadow_map[0], 1, 0, world_pos, normal, bias, softness), strength);
 	if (tile == 1)
-		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[1], scene.spot_shadow_spans.y,
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[1], scene.spot_shadow_spans[0].y,
 			spot_shadow_map[1], 1, 0, world_pos, normal, bias, softness), strength);
 	if (tile == 2)
-		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[2], scene.spot_shadow_spans.z,
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[2], scene.spot_shadow_spans[0].z,
 			spot_shadow_map[2], 1, 0, world_pos, normal, bias, softness), strength);
-	return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[3], scene.spot_shadow_spans.w,
-		spot_shadow_map[3], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 3)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[3], scene.spot_shadow_spans[0].w,
+			spot_shadow_map[3], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 4)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[4], scene.spot_shadow_spans[1].x,
+			spot_shadow_map[4], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 5)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[5], scene.spot_shadow_spans[1].y,
+			spot_shadow_map[5], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 6)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[6], scene.spot_shadow_spans[1].z,
+			spot_shadow_map[6], 1, 0, world_pos, normal, bias, softness), strength);
+	if (tile == 7)
+		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[7], scene.spot_shadow_spans[1].w,
+			spot_shadow_map[7], 1, 0, world_pos, normal, bias, softness), strength);
+	//越界瓦片按无阴影处理
+	return 1.0;
 }
 
 float shadow_factor(vec3 world_pos, vec3 normal)
