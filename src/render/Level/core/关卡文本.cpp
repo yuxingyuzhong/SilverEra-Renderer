@@ -293,6 +293,14 @@ namespace engine
 					if (!finite_one(material.pbr_metallic) || material.pbr_metallic < 0.0f || material.pbr_metallic > 1.0f)
 						return false;
 				}
+				//逐实例清漆（第五百九十四轮）：强度 (0, 1]、粗糙度 [0.03, 1]
+				if (material.use_clearcoat)
+				{
+					if (!finite_one(material.clear_coat) || material.clear_coat <= 0.0f || material.clear_coat > 1.0f)
+						return false;
+					if (!finite_one(material.clear_coat_roughness) || material.clear_coat_roughness < 0.03f || material.clear_coat_roughness > 1.0f)
+						return false;
+				}
 			}
 			return true;
 		}
@@ -945,7 +953,7 @@ namespace engine
 					if (key == "tint")
 					{
 						//重复或顺序错误（后置覆盖项之后不得再出现 tint）
-						if (material.use_tint || material.use_emissive || material.use_toon || material.use_pbr)
+						if (material.use_tint || material.use_emissive || material.use_toon || material.use_pbr || material.use_clearcoat)
 						{
 							logger.warn("关卡:: material 覆盖项顺序非法（{}）", key);
 							return false;
@@ -974,7 +982,7 @@ namespace engine
 					if (key == "emissive")
 					{
 						//重复覆盖或顺序错误（toon / pbr 之后不得再出现 emissive）
-						if (material.use_emissive || material.use_toon || material.use_pbr)
+						if (material.use_emissive || material.use_toon || material.use_pbr || material.use_clearcoat)
 						{
 							logger.warn("关卡:: material 覆盖项重复（{}）", key);
 							return false;
@@ -999,8 +1007,8 @@ namespace engine
 					//逐实例卡通（第四百七十一轮；三值：色阶 / 边缘光 / 高光阈值）
 					if (key == "toon")
 					{
-						//重复覆盖
-						if (material.use_toon)
+						//重复或顺序错误（清漆之后不得再出现 toon）
+						if (material.use_toon || material.use_clearcoat)
 						{
 							logger.warn("关卡:: material 覆盖项重复（{}）", key);
 							return false;
@@ -1029,8 +1037,8 @@ namespace engine
 					//逐实例 PBR（第五百六十四轮；两值：粗糙度 / 金属度）
 					if (key == "pbr")
 					{
-						//重复覆盖
-						if (material.use_pbr)
+						//重复或顺序错误（清漆之后不得再出现 pbr）
+						if (material.use_pbr || material.use_clearcoat)
 						{
 							logger.warn("关卡:: material 覆盖项重复（{}）", key);
 							return false;
@@ -1052,6 +1060,34 @@ namespace engine
 						material.pbr_roughness = values[0];
 						material.pbr_metallic = values[1];
 						material.use_pbr = true;
+						continue;
+					}
+					//逐实例清漆（第五百九十四轮；两值：强度 / 粗糙度）
+					if (key == "clearcoat")
+					{
+						//重复覆盖
+						if (material.use_clearcoat)
+						{
+							logger.warn("关卡:: material 覆盖项重复（{}）", key);
+							return false;
+						}
+						float values[2] = {};
+						//缺字段
+						if (!floats_read_n(stream, values, 2))
+						{
+							logger.warn("关卡:: material clearcoat 字段非法");
+							return false;
+						}
+						//非有限或越界（强度 (0, 1]、粗糙度 0.03..1）
+						if (!std::isfinite(values[0]) || values[0] <= 0.0f || values[0] > 1.0f
+							|| !std::isfinite(values[1]) || values[1] < 0.03f || values[1] > 1.0f)
+						{
+							logger.warn("关卡:: material clearcoat 数值越界");
+							return false;
+						}
+						material.clear_coat = values[0];
+						material.clear_coat_roughness = values[1];
+						material.use_clearcoat = true;
 						continue;
 					}
 					//未知覆盖项
@@ -1294,6 +1330,9 @@ namespace engine
 			//逐实例 PBR（第五百六十四轮）
 			if (material.use_pbr)
 				file << " pbr " << number_text(material.pbr_roughness) << ' ' << number_text(material.pbr_metallic);
+			//逐实例清漆（第五百九十四轮）
+			if (material.use_clearcoat)
+				file << " clearcoat " << number_text(material.clear_coat) << ' ' << number_text(material.clear_coat_roughness);
 			file << '\n';
 		}
 

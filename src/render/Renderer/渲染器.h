@@ -404,6 +404,16 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//金属度（0..1）
 		float pbr_metallic = 0.0f;
+		/*
+		逐实例清漆覆盖（第五百九十四轮）
+		仅 use_clearcoat 为真时生效：覆盖即启用清漆层（等价于模板材质执行清漆设置）；
+		强度 (0, 1]、粗糙度 [0.03, 1]。
+		*/
+		bool use_clearcoat = false;
+		//清漆强度（0 < 值 ≤ 1）
+		float clear_coat = 0.0f;
+		//清漆粗糙度（0.03..1）
+		float clear_coat_roughness = 0.15f;
 	};
 
 	/*

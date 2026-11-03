@@ -6251,6 +6251,12 @@ namespace engine
 				impl->material_pbr_roughness = data.pbr_roughness;
 				impl->material_pbr_metallic = data.pbr_metallic;
 			}
+			//逐实例清漆（第五百九十四轮；覆盖即启用）
+			if (data.use_clearcoat)
+			{
+				impl->material_clear_coat = data.clear_coat;
+				impl->material_clear_coat_roughness = data.clear_coat_roughness;
+			}
 		};
 		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
@@ -7464,6 +7470,10 @@ namespace engine
 				数据.use_pbr = 声明.use_pbr;
 				数据.pbr_roughness = 声明.pbr_roughness;
 				数据.pbr_metallic = 声明.pbr_metallic;
+				//逐实例清漆（第五百九十四轮）
+				数据.use_clearcoat = 声明.use_clearcoat;
+				数据.clear_coat = 声明.clear_coat;
+				数据.clear_coat_roughness = 声明.clear_coat_roughness;
 				//实例数据校验（模板已登记 ＋ 覆盖值合法）
 				if (!renderer.material_instance_validate(数据))
 				{
@@ -7720,6 +7730,14 @@ namespace engine
 			if (!std::isfinite(data.pbr_roughness) || data.pbr_roughness <= 0.05f || data.pbr_roughness > 4.0f)
 				return false;
 			if (!std::isfinite(data.pbr_metallic) || data.pbr_metallic < 0.0f || data.pbr_metallic > 1.0f)
+				return false;
+		}
+		//逐实例清漆（第五百九十四轮）：强度 (0, 1]、粗糙度 [0.03, 1]
+		if (data.use_clearcoat)
+		{
+			if (!std::isfinite(data.clear_coat) || data.clear_coat <= 0.0f || data.clear_coat > 1.0f)
+				return false;
+			if (!std::isfinite(data.clear_coat_roughness) || data.clear_coat_roughness < 0.03f || data.clear_coat_roughness > 1.0f)
 				return false;
 		}
 		return true;

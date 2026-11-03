@@ -46,6 +46,16 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//金属度（0..1）
 		float pbr_metallic = 0.0f;
+		/*
+		逐实例清漆覆盖（第五百九十四轮）
+		仅 use_clearcoat 为真时生效：覆盖即启用清漆层（等价于模板材质执行清漆设置）；
+		强度 (0, 1]、粗糙度 [0.03, 1]。
+		*/
+		bool use_clearcoat = false;
+		//清漆强度（0 < 值 ≤ 1）
+		float clear_coat = 0.0f;
+		//清漆粗糙度（0.03..1）
+		float clear_coat_roughness = 0.15f;
 	};
 
 	/*
@@ -86,7 +96,7 @@ namespace engine
 	         spot_shadow_bias_auto 为 <0|1>，非 0 时逐瓦片偏置按跨度归一化（第五百二十九轮）
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
-	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular] [pbr roughness metallic]（第四百六十六 / 471 / 564 轮）
+	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular] [pbr roughness metallic] [clearcoat strength roughness]（第四百六十六 / 471 / 564 / 594 轮）
 	浮点按 `%.9g` 写出（二进制 32 位浮点可唯一还原），故读写往返逐位一致。
 	失败（路径不可读 / 超限 / 未知段或键 / 字段数不符 / 非有限值 / 光源超过 8 盏）时返回假并清空输出。
 	本函数只做文本层校验，不校验资产文件是否存在、不建 GPU 资源。
