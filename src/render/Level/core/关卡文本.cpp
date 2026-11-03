@@ -1329,4 +1329,26 @@ namespace engine
 		}
 		return false;
 	}
+
+	//更新关卡内材质实例声明（第五百六十七轮；整体替换首个匹配项）
+	bool level_material_update(Level_Data& level, const string& name, const Level_Material& data)
+	{
+		//若名称为空
+		if (name.empty())
+			return false;
+		//逐个比对实例名
+		for (Level_Material& material : level.materials)
+		{
+			//若实例名一致
+			if (material.实例名 == name)
+			{
+				//整体替换（名称以关卡内为准）
+				Level_Material 替换 = data;
+				替换.实例名 = material.实例名;
+				material = 替换;
+				return true;
+			}
+		}
+		return false;
+	}
 }
