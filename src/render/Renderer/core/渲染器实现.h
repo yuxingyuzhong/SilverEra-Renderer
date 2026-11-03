@@ -619,6 +619,8 @@ namespace engine
 		uint64_t shadow_target = 0;
 		//聚光灯阴影瓦片数（第五百一十三轮由 4 扩为 8）
 		static constexpr std::size_t SPOT_SHADOW_TILES = 8;
+		//自校准偏置的参考锥远平面（第五百二十一轮；radius 9 时与手动偏差等价）
+		static constexpr float SPOT_BIAS_REFERENCE_SPAN = 9.0f;
 		/*
 		聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张；第五百一十三轮扩为 8 张）
 		与 shadow_target 同参数的独立阴影图，采样绑定 set 1 binding 9 的数组元素 0..7；
@@ -629,6 +631,14 @@ namespace engine
 		float spot_view_proj_tiles[SPOT_SHADOW_TILES][16] = {};
 		//聚光灯阴影深度跨度（第四百八十四轮；第五百零七轮扩为 4 份；第五百一十三轮扩为 8 份，0 = 该瓦片无有效聚光灯）
 		float spot_shadow_spans[SPOT_SHADOW_TILES] = {};
+		/*
+		逐瓦片有效阴影偏置（第五百二十一轮）
+		默认等于 spot_shadow_bias；开启自校准后按「参考跨度 9 / 该瓦片跨度」缩放，
+		使不同半径的聚光灯在相同参数下得到接近一致的世界法线偏移。
+		*/
+		float spot_shadow_bias_tiles[SPOT_SHADOW_TILES] = {};
+		//聚光灯阴影偏置自校准开关（第五百二十一轮；默认关闭，画面与引入前逐字节一致）
+		bool spot_shadow_bias_auto = false;
 		//聚光灯阴影槽位映射（第五百零七轮；8 个前向槽位各自对应的瓦片号，-1 = 不投影）
 		float spot_shadow_slot_tiles[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
@@ -977,8 +987,8 @@ namespace engine
 		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
-		//场景 UBO 浮点数（448 个 32 位浮点 = 1792 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份）
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 448;
+		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 456;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*

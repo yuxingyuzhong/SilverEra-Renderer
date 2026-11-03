@@ -2360,6 +2360,8 @@ namespace engine
 		{
 			std::memset(impl->spot_view_proj_tiles[tile], 0, sizeof(impl->spot_view_proj_tiles[tile]));
 			impl->spot_shadow_spans[tile] = 0.0f;
+			//逐瓦片偏置默认取全局值（第五百二十一轮；无自校准时与引入前一致）
+			impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias;
 		}
 		for (std::size_t slot = 0; slot < 8; ++slot)
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
@@ -2409,6 +2411,14 @@ namespace engine
 				std::memcpy(impl->spot_view_proj_tiles[tile], glm::value_ptr(spot_vp), sizeof(float) * 16);
 				//该瓦片深度跨度（着色器法线偏移换算用）
 				impl->spot_shadow_spans[tile] = far_plane - 0.1f;
+				/*
+				逐瓦片有效偏置（第五百二十一轮）
+				自校准开启时按「参考跨度 9 / 本瓦片跨度」缩放，保持世界法线偏移近似恒定；
+				关闭时恒为全局值（与引入前逐字节一致）。
+				*/
+				impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias_auto
+					? impl->spot_shadow_bias * (Impl::SPOT_BIAS_REFERENCE_SPAN / impl->spot_shadow_spans[tile])
+					: impl->spot_shadow_bias;
 				//前向槽位 → 瓦片号（未登记到映射表的槽位恒为 -1）
 				if (candidates[tile] >= 0 && candidates[tile] < 8)
 					impl->spot_shadow_slot_tiles[candidates[tile]] = static_cast<float>(tile);
@@ -2911,8 +2921,8 @@ namespace engine
 		//w = 开关（第五百零七轮起不再编码序号，序号改由槽位映射表达）
 		scene_block[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
 		/*
-		聚光灯阴影矩阵 / 跨度 / 槽位映射（第五百零七轮；第五百一十三轮扩为 8 瓦片）
-		304..431 = 8 份透视矩阵；432..439 = 8 份深度跨度；440..447 = 8 个前向槽位的瓦片号（-1 = 不投影）。
+		聚光灯阴影矩阵 / 跨度 / 槽位映射（第五百零七轮；第五百一十三轮扩为 8 瓦片；第五百二十一轮追加逐瓦片偏置）
+		304..431 = 8 份透视矩阵；432..439 = 8 份深度跨度；440..447 = 8 个前向槽位的瓦片号（-1 = 不投影）；448..455 = 8 份有效偏置。
 		*/
 		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			for (std::size_t index = 0; index < 16; ++index)
@@ -2921,6 +2931,9 @@ namespace engine
 			scene_block[432 + tile] = impl->spot_shadow_spans[tile];
 		for (std::size_t slot = 0; slot < 8; ++slot)
 			scene_block[440 + slot] = impl->spot_shadow_slot_tiles[slot];
+		//逐瓦片有效偏置（第五百二十一轮；448..455）
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+			scene_block[448 + tile] = impl->spot_shadow_bias_tiles[tile];
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -12243,6 +12256,45 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->spot_shadow_all : false;
+	}
+
+	/*
+	设置聚光灯阴影偏置自校准（第五百二十一轮）
+	开启后逐瓦片偏置按「参考跨度 9 / 该瓦片跨度」缩放；关闭恢复全局偏置。
+	*/
+	void Renderer::spot_shadow_bias_auto_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->spot_shadow_bias_auto = enabled;
+		//逐瓦片偏置随下一帧重算，旧阴影图不再可信
+		impl->shadow_pass_ready = false;
+		logger.info("渲染器:: 聚光灯阴影偏置自校准已{}", enabled ? "开启" : "关闭");
+	}
+
+	//当前是否开启偏置自校准（第五百二十一轮）
+	bool Renderer::spot_shadow_bias_auto(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->spot_shadow_bias_auto : false;
+	}
+
+	//最近一帧逐瓦片有效偏置（第五百二十一轮）
+	void Renderer::spot_shadow_bias_tiles_get(float out[8]) const
+	{
+		//输出数组必须有效
+		if (out == nullptr)
+			return;
+		//未初始化写默认偏置
+		if (impl == nullptr || !impl->initialized)
+		{
+			for (std::size_t index = 0; index < 8; ++index)
+				out[index] = 0.010f;
+			return;
+		}
+		for (std::size_t index = 0; index < 8; ++index)
+			out[index] = impl->spot_shadow_bias_tiles[index];
 	}
 
 	/*

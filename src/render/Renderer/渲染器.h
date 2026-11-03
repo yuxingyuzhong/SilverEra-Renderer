@@ -1933,6 +1933,16 @@ namespace engine
 		//当前是否多盏聚光灯阴影（未初始化时为默认假）
 		bool spot_shadow_all(void) const;
 		/*
+		聚光灯阴影偏置自校准（第五百二十一轮新增）
+		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
+		false（默认）：逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。
+		*/
+		void spot_shadow_bias_auto_set(bool enabled);
+		//当前是否开启偏置自校准（未初始化时为默认假）
+		bool spot_shadow_bias_auto(void) const;
+		//最近一帧逐瓦片有效偏置（8 项；诊断用；未初始化时写 0.010）
+		void spot_shadow_bias_tiles_get(float out[8]) const;
+		/*
 		阴影图分辨率（第五十四轮新增）
 		仅支持 512 / 1024 / 2048（默认 1024）；切换会等尽在途帧、重建阴影目标并重新绑定各帧槽，
 		非法值整次忽略；降低分辨率可减少阴影 pass 的填充开销。

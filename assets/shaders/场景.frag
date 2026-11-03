@@ -125,14 +125,16 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 cluster_params;
 	vec4 spot_shadow_params;
 	/*
-	聚光灯阴影矩阵 / 跨度 / 槽位映射（第四百八十三 / 484 轮；第五百零七轮扩为 4 瓦片；第五百一十三轮扩为 8 瓦片）
+	聚光灯阴影矩阵 / 跨度 / 槽位映射 / 有效偏置（第四百八十三 / 484 轮；第五百零七轮扩为 4 瓦片；第五百一十三轮扩为 8 瓦片；第五百二十一轮追加逐瓦片偏置）
 	spot_view_proj_tiles = 8 盏聚光灯各自的透视视图投影（未使用瓦片为零矩阵）；
 	spot_shadow_spans = 8 份深度跨度（法线偏移换算）；
-	spot_shadow_slots = 8 个前向槽位的瓦片号（-1 = 该灯不投影），每 4 个一组。
+	spot_shadow_slots = 8 个前向槽位的瓦片号（-1 = 该灯不投影），每 4 个一组；
+	spot_shadow_biases = 8 份有效偏置（默认等于全局偏置；开启自校准后按锥远平面归一化）。
 	*/
 	mat4 spot_view_proj_tiles[8];
 	vec4 spot_shadow_spans[2];
 	vec4 spot_shadow_slots[2];
+	vec4 spot_shadow_biases[2];
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
@@ -473,9 +475,8 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	//未映射到任何瓦片：该灯不受聚光阴影影响
 	if (tile_value < -0.5)
 		return 1.0;
-	//瓦片号与质量参数
+	//瓦片号与质量参数（偏置改为逐瓦片有效值，第五百二十一轮）
 	int tile = int(tile_value + 0.5);
-	float bias = scene.spot_shadow_params.x;
 	float softness = scene.spot_shadow_params.y;
 	float strength = clamp(scene.spot_shadow_params.z, 0.0, 1.0);
 	/*
@@ -484,28 +485,28 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	*/
 	if (tile == 0)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[0], scene.spot_shadow_spans[0].x,
-			spot_shadow_map[0], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[0], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].x, softness), strength);
 	if (tile == 1)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[1], scene.spot_shadow_spans[0].y,
-			spot_shadow_map[1], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[1], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].y, softness), strength);
 	if (tile == 2)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[2], scene.spot_shadow_spans[0].z,
-			spot_shadow_map[2], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[2], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].z, softness), strength);
 	if (tile == 3)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[3], scene.spot_shadow_spans[0].w,
-			spot_shadow_map[3], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[3], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].w, softness), strength);
 	if (tile == 4)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[4], scene.spot_shadow_spans[1].x,
-			spot_shadow_map[4], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[4], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].x, softness), strength);
 	if (tile == 5)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[5], scene.spot_shadow_spans[1].y,
-			spot_shadow_map[5], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[5], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].y, softness), strength);
 	if (tile == 6)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[6], scene.spot_shadow_spans[1].z,
-			spot_shadow_map[6], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[6], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].z, softness), strength);
 	if (tile == 7)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[7], scene.spot_shadow_spans[1].w,
-			spot_shadow_map[7], 1, 0, world_pos, normal, bias, softness), strength);
+			spot_shadow_map[7], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].w, softness), strength);
 	//越界瓦片按无阴影处理
 	return 1.0;
 }
