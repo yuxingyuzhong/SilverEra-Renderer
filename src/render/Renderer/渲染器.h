@@ -2077,7 +2077,7 @@ namespace engine
 		//实现体（把 SDL3 / Vulkan / VMA 全部关在 .cpp 里）
 		class Impl;
 		std::unique_ptr<Impl> impl;
-		//按需创建并绑定多盏聚光灯阴影瓦片 1..3（scene_apply 与运行期开关共用）
-		void spot_shadow_tiles_ensure();
+		//按需创建并绑定聚光灯阴影瓦片 1..max_tiles-1（scene_apply 与运行期开关共用）
+		void spot_shadow_tiles_ensure(std::size_t max_tiles);
 	};
 }

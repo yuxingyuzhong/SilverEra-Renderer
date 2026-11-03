@@ -9732,12 +9732,18 @@ namespace engine
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
 		impl->spot_shadow_all = light.spot_shadow_all != 0;
 		/*
-		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法）
-		首次开启时创建瓦片 1..3 并绑定到各帧槽 binding 9 的对应元素；
+		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法；第五百一十三轮扩为 8 瓦片）
+		只创建到实际需要的瓦片数（聚光灯数量），避免 4 盏场景无谓多建 4 张阴影图；
 		创建失败仅告警，该瓦片按「无聚光阴影」处理，不影响其余瓦片。
 		*/
 		if (impl->spot_shadow_all)
-			spot_shadow_tiles_ensure();
+		{
+			//所需瓦片数 = 聚光灯数量（至少 1、最多 8）
+			std::size_t tile_limit = light.spot_count > 0 ? static_cast<std::size_t>(light.spot_count) : 1u;
+			if (tile_limit > Impl::SPOT_SHADOW_TILES)
+				tile_limit = Impl::SPOT_SHADOW_TILES;
+			spot_shadow_tiles_ensure(tile_limit);
+		}
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
@@ -12159,15 +12165,20 @@ namespace engine
 
 	/*
 	按需创建并绑定多盏聚光灯阴影瓦片（第五百一十一轮；第五百一十三轮扩为 8 瓦片）
-	瓦片 0 常驻（与单盏行为一致）；瓦片 1..7 首次需要时创建，失败仅告警并保持「无阴影」占位。
+	瓦片 0 常驻（与单盏行为一致）；瓦片 1..max_tiles-1 首次需要时创建，失败仅告警并保持「无阴影」占位。
 	*/
-	void Renderer::spot_shadow_tiles_ensure()
+	void Renderer::spot_shadow_tiles_ensure(std::size_t max_tiles)
 	{
+		//瓦片数钳到 [1, SPOT_SHADOW_TILES]
+		if (max_tiles == 0)
+			max_tiles = 1;
+		if (max_tiles > Impl::SPOT_SHADOW_TILES)
+			max_tiles = Impl::SPOT_SHADOW_TILES;
 		//默认采样器（与瓦片 0 共用）
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
 		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
-		for (std::size_t tile = 1; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+		for (std::size_t tile = 1; tile < max_tiles; ++tile)
 		{
 			//已建立则跳过
 			if (impl->spot_shadow_targets[tile] != 0)
@@ -12210,9 +12221,16 @@ namespace engine
 		if (impl->spot_shadow_all == enabled)
 			return;
 		impl->spot_shadow_all = enabled;
-		//开启：补齐瓦片 1..3（已建立则跳过）
+		//开启：按已登记的聚光灯数量补齐瓦片（无聚光时至少建瓦片 1 占位）
 		if (enabled)
-			spot_shadow_tiles_ensure();
+		{
+			//已登记聚光灯数
+			std::size_t spot_count = 0;
+			for (std::size_t index = 0; index < impl->point_light_count; ++index)
+				if (impl->point_lights[index].is_spot)
+					++spot_count;
+			spot_shadow_tiles_ensure(spot_count > 0 ? spot_count : 1u);
+		}
 		//矩阵与槽位映射随下一帧重算，旧阴影图不再可信
 		impl->shadow_pass_ready = false;
 		logger.info("渲染器:: 多盏聚光灯阴影已{}", enabled ? "开启" : "关闭");
