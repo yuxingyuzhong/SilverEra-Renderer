@@ -956,12 +956,12 @@ namespace engine
 		return true;
 	}
 
-	//向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9 的数组元素 index；第五百零七轮扩为 4 元素）
+	//向第 slot 帧槽的场景采样器集写聚光灯阴影图（set 1 binding 9 的数组元素 index；第五百一十三轮扩为 8 元素）
 	bool Pipeline_Context::spot_shadow_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index)
 	{
-		//前置：设备、目标集、采样器与视图齐备，索引在数组范围内
+		//前置：设备、目标集、采样器与视图齐备，索引在数组范围内（第五百一十三轮扩为 8 个元素）
 		if (device == VK_NULL_HANDLE || slot >= sampler_sets.size() || sampler_sets[slot] == VK_NULL_HANDLE
-			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE || index >= 4)
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE || index >= 8)
 		{
 			logger.error("管线:: 聚光灯阴影图绑定参数不完整");
 			return false;
