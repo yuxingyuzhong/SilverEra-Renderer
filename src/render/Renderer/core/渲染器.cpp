@@ -224,48 +224,6 @@ namespace engine
 		//白色（RGBA；第六十九轮：未设置逐物体色调时的默认推送值，乘到反照率上画面不变）
 		const float WHITE_COLOR_RGBA[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-		/*
-		资产缓存键（第四百二十五轮）
-		形如「前缀:归一化路径」：分隔符统一为 '/'、ASCII 字母转小写（Windows 路径不区分大小写）。
-		*/
-		std::string asset_key_build(const char* prefix, const std::string& path)
-		{
-			std::string key(prefix);
-			key.push_back(':');
-			key.reserve(key.size() + path.size());
-			for (char ch : path)
-			{
-				char value = ch;
-				//路径分隔符统一
-				if (value == '\\')
-					value = '/';
-				//ASCII 大写转小写（非 ASCII 字节原样保留）
-				if (value >= 'A' && value <= 'Z')
-					value = static_cast<char>(value - 'A' + 'a');
-				key.push_back(value);
-			}
-			return key;
-		}
-
-		/*
-		异步网格任务状态（第四百二十六轮）
-		future 完成后才读取 data；handle / built 只在主线程轮询里写，故无需加锁。
-		*/
-		struct Async_Mesh_State
-		{
-			//后台解析任务（结果为「是否解析成功」）
-			std::future<bool> future;
-			//解析结果（顶点 / 索引 / 分段 / 材质名）
-			Mesh_File_Data data;
-			//是否已取过 future 结果
-			bool settled = false;
-			//解析是否成功
-			bool parse_ok = false;
-			//是否已在主线程建好网格
-			bool built = false;
-			//建好的网格句柄
-			Mesh_Handle handle = 0;
-		};
 	}
 
 	//渲染层版本查询
@@ -1841,9 +1799,6 @@ namespace engine
 		*/
 		impl->thread_pool.threads_stop();
 		impl->render_threads = 0;
-		//清空资产缓存表（第四百二十五轮；资源本身随各模块销毁释放，表只保留路径键）
-		impl->mesh_cache.clear();
-		impl->texture_cache.clear();
 		//严格逆序销毁（各模块 destroy 幂等，可安全处理半初始化状态；§5.4 / §9）
 		/*
 		阴影资源（第五十二轮）
@@ -4033,9 +3988,17 @@ namespace engine
 		//最近一帧并行录制段数（第一百九十八轮）
 		stats.parallel_segments = impl->frame.last_parallel_segments_get();
 		//粒子模拟统计（第三百二十二轮；关闭时活跃与累计均为 0）
-		//常驻模式取 GPU 活跃计数（第三百四十轮：与 particle_active_count 同口径）
+		//常驻模式取 GPU 活跃计数（第三百四十轮）；否则按绑定的活跃标记统计（模拟归应用层）
+		uint32_t 活跃数 = 0;
+		if (impl->particle_enabled && !impl->particle_resident
+			&& impl->particle_alive != nullptr && impl->particle_source_capacity > 0)
+		{
+			for (uint32_t index = 0; index < impl->particle_source_capacity; ++index)
+				if (impl->particle_alive[index] != 0u)
+					活跃数 += 1;
+		}
 		stats.particle_active = impl->particle_enabled
-			? (impl->particle_resident ? impl->particle_resident_active : impl->particle_system.active_count_get()) : 0u;
+			? (impl->particle_resident ? impl->particle_resident_active : 活跃数) : 0u;
 		stats.particle_born_total = impl->particle_born_total;
 		stats.particle_died_total = impl->particle_died_total;
 		stats.particle_sim_ms = impl->particle_sim_ms_last;
@@ -7351,343 +7314,6 @@ namespace engine
 		return true;
 	}
 
-	/*
-	按清单装配资产（第四百三十轮抽出；scene_load 与 level_load 共用）
-	调用方已完成清单解析与目录计算；本函数负责资源创建、对象装配与失败整体回退。
-	同一网格 / 材质库只加载一次，place 按顺序复用句柄。
-	*/
-	namespace
-	{
-		//材质库项（第四百六十七轮：增材质名，供实例按模板名解析）
-		struct 材质库项
-		{
-			//材质库 ID
-			std::string id;
-			//材质名（与句柄按下标对齐）
-			std::vector<std::string> names;
-			//句柄组
-			std::vector<Material_Handle> handles;
-		};
-
-		bool asset_scene_build(Renderer& renderer, const Scene_Manifest& 清单, const std::string& 目录,
-			const std::vector<Level_Material>& 实例声明, Asset_Scene& scene_out)
-		{
-			scene_out.objects.clear();
-			scene_out.meshes.clear();
-			scene_out.materials.clear();
-
-			//网格（ID → 句柄）
-			std::vector<std::pair<std::string, Mesh_Handle>> 网格表;
-			网格表.reserve(清单.meshes.size());
-			for (const Scene_Mesh_Ref& ref : 清单.meshes)
-			{
-				Mesh_Handle 句柄 = 0;
-				if (!renderer.mesh_load_obj(句柄, 目录 + ref.path))
-				{
-					logger.warn("渲染器:: 场景清单网格加载失败（{}），整体回退", ref.path);
-					//回退已建网格
-					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-						renderer.mesh_unload(item.second);
-					scene_out.meshes.clear();
-					return false;
-				}
-				网格表.emplace_back(ref.id, 句柄);
-				scene_out.meshes.push_back(句柄);
-			}
-
-			//材质库（ID → 名称 ＋ 句柄组）
-			std::vector<材质库项> 材质表;
-			材质表.reserve(清单.materials.size());
-			for (const Scene_Mtl_Ref& ref : 清单.materials)
-			{
-				材质库项 项;
-				项.id = ref.id;
-				if (!renderer.material_load_mtl(项.handles, 目录 + ref.path, &项.names))
-				{
-					logger.warn("渲染器:: 场景清单材质库加载失败（{}），整体回退", ref.path);
-					//回退已建材质与网格
-					for (const 材质库项& item : 材质表)
-						for (Material_Handle 句柄 : item.handles)
-							renderer.material_unload(句柄);
-					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-						renderer.mesh_unload(item.second);
-					scene_out.meshes.clear();
-					scene_out.materials.clear();
-					return false;
-				}
-				for (Material_Handle 句柄 : 项.handles)
-					scene_out.materials.push_back(句柄);
-				材质表.push_back(std::move(项));
-			}
-
-			//材质实例表（实例名 → 覆盖数据；第四百六十七轮）
-			std::vector<std::pair<std::string, Material_Instance_Data>> 实例表;
-			实例表.reserve(实例声明.size());
-			for (const Level_Material& 声明 : 实例声明)
-			{
-				//按模板材质名在全库中找句柄
-				Material_Handle 模板 = 0;
-				for (const 材质库项& 库 : 材质表)
-				{
-					for (std::size_t index = 0; index < 库.names.size() && index < 库.handles.size(); ++index)
-					{
-						if (库.names[index] == 声明.模板)
-						{
-							模板 = 库.handles[index];
-							break;
-						}
-					}
-					if (模板 != 0)
-						break;
-				}
-				//模板未命中
-				if (模板 == 0)
-				{
-					logger.warn("渲染器:: 材质实例 {} 的模板 {} 未命中，整体回退", 声明.实例名, 声明.模板);
-					//回退材质与网格
-					for (const 材质库项& 库 : 材质表)
-						for (Material_Handle 句柄 : 库.handles)
-							renderer.material_unload(句柄);
-					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-						renderer.mesh_unload(item.second);
-					scene_out.meshes.clear();
-					scene_out.materials.clear();
-					return false;
-				}
-				Material_Instance_Data 数据;
-				数据.模板 = 模板;
-				for (std::size_t index = 0; index < 4; ++index)
-					数据.tint[index] = 声明.tint[index];
-				数据.use_tint = 声明.use_tint;
-				数据.emissive = 声明.emissive;
-				数据.use_emissive = 声明.use_emissive;
-				//逐实例卡通（第四百七十一轮）
-				数据.use_toon = 声明.use_toon;
-				数据.toon_steps = 声明.toon_steps;
-				数据.toon_rim = 声明.toon_rim;
-				数据.toon_specular = 声明.toon_specular;
-				//逐实例 PBR（第五百六十四轮）
-				数据.use_pbr = 声明.use_pbr;
-				数据.pbr_roughness = 声明.pbr_roughness;
-				数据.pbr_metallic = 声明.pbr_metallic;
-				//逐实例清漆（第五百九十四轮）
-				数据.use_clearcoat = 声明.use_clearcoat;
-				数据.clear_coat = 声明.clear_coat;
-				数据.clear_coat_roughness = 声明.clear_coat_roughness;
-				//实例数据校验（模板已登记 ＋ 覆盖值合法）
-				if (!renderer.material_instance_validate(数据))
-				{
-					logger.warn("渲染器:: 材质实例 {} 数据非法，整体回退", 声明.实例名);
-					for (const 材质库项& 库 : 材质表)
-						for (Material_Handle 句柄 : 库.handles)
-							renderer.material_unload(句柄);
-					for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-						renderer.mesh_unload(item.second);
-					scene_out.meshes.clear();
-					scene_out.materials.clear();
-					return false;
-				}
-				实例表.emplace_back(声明.实例名, 数据);
-			}
-
-			//按 place 顺序装配对象
-			for (const Scene_Place& place : 清单.places)
-			{
-				Asset_Object object;
-				//网格句柄（解析阶段已保证 ID 存在）
-				for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-				{
-					if (item.first == place.mesh_id)
-					{
-						object.mesh = item.second;
-						break;
-					}
-				}
-				//材质列（可选）：先查实例表，未命中再查材质库（第四百六十七轮）
-				if (!place.material_id.empty())
-				{
-					for (const std::pair<std::string, Material_Instance_Data>& item : 实例表)
-					{
-						if (item.first == place.material_id)
-						{
-							object.materials.push_back(item.second.模板);
-							object.material_instances.push_back(item.second);
-							break;
-						}
-					}
-					//实例未命中：按材质库 ID 取整组句柄
-					if (object.materials.empty())
-						for (const 材质库项& 库 : 材质表)
-						{
-							if (库.id == place.material_id)
-							{
-								object.materials = 库.handles;
-								break;
-							}
-						}
-				}
-				//位置 / 缩放 / 旋转
-				for (std::size_t index = 0; index < 3; ++index)
-				{
-					object.position[index] = place.position[index];
-					object.scale[index] = place.scale[index];
-					object.rotation_deg[index] = place.rotation_deg[index];
-				}
-				scene_out.objects.push_back(object);
-			}
-			return true;
-		}
-	}
-
-	/*
-	从场景清单装载整套资产（第四百二十四轮）
-	清单解析在资产加载模块；这里只做「路径解析 ＋ 资源创建 ＋ 对象装配 ＋ 失败回退」。
-	同一网格 / 材质库只加载一次，place 按顺序复用句柄。
-	*/
-	bool Renderer::scene_load(Asset_Scene& scene_out, const std::string& path)
-	{
-		//默认无结果
-		scene_out.objects.clear();
-		scene_out.meshes.clear();
-		scene_out.materials.clear();
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 场景清单加载失败：尚未初始化");
-			return false;
-		}
-		//解析清单
-		Scene_Manifest 清单;
-		if (!scene_manifest_parse(path, 清单))
-			return false;
-		//清单所在目录（保留 UTF-8 编码；相对路径直接前缀拼接）
-		const std::size_t cut = path.find_last_of("/\\");
-		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
-		//按清单装配（清单文件没有材质实例声明）
-		return asset_scene_build(*this, 清单, 目录, {}, scene_out);
-	}
-
-	/*
-	保存关卡到文本文件（第四百三十轮）
-	门面入口与 `level_text_write` 等价；纯文件层，要求渲染器已初始化（与其它门面一致）。
-	*/
-	bool Renderer::level_save(const Level_Data& level, const std::string& path)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 关卡保存失败：尚未初始化");
-			return false;
-		}
-		return level_text_write(level, path);
-	}
-
-	/*
-	装载关卡（第四百三十轮）
-	顺序：读文本 → 校验相机 → 装配资产（失败整体回退）→ 应用相机 / 光照 / 雾。
-	先装配后应用，保证「装载失败时既有场景状态不被改动」。
-	*/
-	bool Renderer::level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path,
-		bool apply_scene)
-	{
-		//默认无结果
-		level_out = Level_Data();
-		scene_out = Asset_Scene();
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 关卡装载失败：尚未初始化");
-			return false;
-		}
-		//读取关卡文本
-		if (!level_text_read(path, level_out))
-			return false;
-
-		/*
-		相机参数校验（与 `scene_apply` 三入参版同口径）
-		`scene_apply` 为 void，非法时静默拒绝；关卡装载要求显式失败，故在此先判一次。
-		*/
-		const Camera_Data& camera = level_out.camera;
-		bool camera_valid = (camera.fov > 0.0f) && (camera.fov < 3.14159265f)
-			&& (camera.near_plane > 0.0f) && (camera.far_plane > camera.near_plane)
-			&& (!camera.ortho || camera.ortho_height > 0.0f);
-		//若相机参数非法
-		if (!camera_valid)
-		{
-			logger.warn("渲染器:: 关卡相机非法（视场角 {}、近平面 {}、远平面 {}），装载拒绝",
-				camera.fov, camera.near_plane, camera.far_plane);
-			level_out = Level_Data();
-			return false;
-		}
-
-		//关卡所在目录（资产路径相对它解析）
-		const std::size_t cut = path.find_last_of("/\\");
-		const std::string 目录 = (cut == std::string::npos) ? std::string() : path.substr(0, cut + 1);
-
-		//资产段落（为空表示空场景）
-		Asset_Scene 场景;
-		if (!level_out.asset_lines.empty())
-		{
-			Scene_Manifest 清单;
-			//材质实例名表（第四百六十七轮；place 材质列可引用实例）
-			std::vector<std::string> 实例名表;
-			实例名表.reserve(level_out.materials.size());
-			for (const Level_Material& material : level_out.materials)
-				实例名表.push_back(material.实例名);
-			if (!scene_manifest_parse_lines(level_out.asset_lines, 清单, 实例名表))
-			{
-				level_out = Level_Data();
-				return false;
-			}
-			//装配资产（失败整体回退）
-			if (!asset_scene_build(*this, 清单, 目录, level_out.materials, 场景))
-			{
-				level_out = Level_Data();
-				return false;
-			}
-		}
-
-		//应用相机 / 光照 / 雾（相机已校验，三组必然生效；仅当调用方要求时）
-		if (apply_scene)
-			scene_apply(level_out.camera, level_out.light, level_out.fog);
-		scene_out = 场景;
-		return true;
-	}
-
-	//释放关卡装配的全部资产资源（等价于 scene_unload；幂等）
-	void Renderer::level_unload(Asset_Scene& scene)
-	{
-		scene_unload(scene);
-	}
-
-	//绘制整套资产场景（逐对象构造矩阵 ＋ 逐段绑材质；返回成功登记的对象数）
-	uint32_t Renderer::scene_draw(const Asset_Scene& scene)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-			return 0;
-		uint32_t 登记数 = 0;
-		for (const Asset_Object& object : scene.objects)
-		{
-			//对象未持有网格
-			if (object.mesh == 0)
-				continue;
-			//按位置 / 旋转（度）/ 缩放构造变换
-			float transform[16] = {};
-			level_transform_build(object.position, object.rotation_deg, object.scale, transform);
-			/*
-			材质实例覆盖（第四百六十九轮；阶段 C）
-			实例数组与材质数组按段对齐时才套用；否则按旧路径绘制（逐字节不变）。
-			*/
-			const Material_Instance_Data* 实例指针 = nullptr;
-			if (!object.material_instances.empty() && object.material_instances.size() == object.materials.size())
-				实例指针 = object.material_instances.data();
-			if (mesh_draw_sections(object.mesh, transform, object.materials.data(),
-				static_cast<uint32_t>(object.materials.size()), 实例指针))
-				登记数 += 1;
-		}
-		return 登记数;
-	}
 
 	//校验材质实例数据（第四百四十八轮；方向七阶段 A）
 	bool Renderer::material_instance_validate(const Material_Instance_Data& data) const
@@ -7743,212 +7369,6 @@ namespace engine
 		return true;
 	}
 
-	//释放场景清单创建的全部资源（幂等）
-	void Renderer::scene_unload(Asset_Scene& scene)
-	{
-		//网格
-		for (Mesh_Handle 句柄 : scene.meshes)
-			mesh_unload(句柄);
-		//材质
-		for (Material_Handle 句柄 : scene.materials)
-			material_unload(句柄);
-		scene.meshes.clear();
-		scene.materials.clear();
-		scene.objects.clear();
-	}
-
-	/*
-	共享加载 OBJ 网格（第四百二十五轮）
-	命中缓存只加引用计数；首次走既有 mesh_load_obj 并在成功后登记。
-	*/
-	bool Renderer::mesh_load_obj_shared(Mesh_Handle& handle_out, const std::string& path)
-	{
-		//默认无有效句柄
-		handle_out = 0;
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 共享网格加载失败：尚未初始化");
-			return false;
-		}
-		//归一化键
-		const std::string key = asset_key_build("mesh", path);
-		auto found = impl->mesh_cache.find(key);
-		//命中：仅引用计数加一
-		if (found != impl->mesh_cache.end())
-		{
-			found->second.refs += 1;
-			handle_out = found->second.handle;
-			return true;
-		}
-		//首次：正常加载后登记（失败不入缓存）
-		Mesh_Handle 句柄 = 0;
-		if (!mesh_load_obj(句柄, path))
-			return false;
-		Impl::Asset_Cache_Entry entry{};
-		entry.handle = 句柄;
-		entry.refs = 1;
-		impl->mesh_cache.emplace(key, entry);
-		handle_out = 句柄;
-		return true;
-	}
-
-	//释放共享网格（引用计数 -1；归零才真正卸载）
-	void Renderer::mesh_release(Mesh_Handle handle)
-	{
-		//未初始化或无效句柄
-		if (impl == nullptr || !impl->initialized || handle == 0)
-			return;
-		//按句柄查找登记项（条目数很少，线性查找足够）
-		for (auto it = impl->mesh_cache.begin(); it != impl->mesh_cache.end(); ++it)
-		{
-			//跳过非目标项
-			if (it->second.handle != handle)
-				continue;
-			//仍有其它引用：只减计数
-			if (it->second.refs > 1)
-			{
-				it->second.refs -= 1;
-				return;
-			}
-			//归零：删条目后真正卸载
-			impl->mesh_cache.erase(it);
-			mesh_unload(handle);
-			return;
-		}
-		//未登记：按非共享资源处理（兼容混用）
-		mesh_unload(handle);
-	}
-
-	/*
-	异步 OBJ 加载（第四百二十六轮）
-	提交时用 std::async 在后台解析；轮询在主线程，解析完成后才在该调用里建 GPU 资源。
-	*/
-	bool Renderer::mesh_load_obj_async(Asset_Async_Task& task, const std::string& path)
-	{
-		//未初始化 / 路径为空 / 已有在途任务
-		if (impl == nullptr || !impl->initialized || path.empty() || task.state != nullptr)
-			return false;
-		//任务状态
-		auto state = std::make_shared<Async_Mesh_State>();
-		//后台解析（结果直接写进 state->data；future 的同步语义保证轮询时可见）
-		state->future = std::async(std::launch::async, [state, path]() -> bool
-		{
-			return obj_mesh_load(path, state->data);
-		});
-		task.state = state;
-		return true;
-	}
-
-	//轮询异步 OBJ 任务（未完成返回假；完成后建资源一次）
-	bool Renderer::mesh_load_obj_async_poll(Asset_Async_Task& task, Mesh_Handle& handle_out)
-	{
-		//默认无句柄
-		handle_out = 0;
-		//未初始化 / 无任务
-		if (impl == nullptr || !impl->initialized || task.state == nullptr)
-			return false;
-		auto state = std::static_pointer_cast<Async_Mesh_State>(task.state);
-		//已建好：幂等返回
-		if (state->built)
-		{
-			handle_out = state->handle;
-			return true;
-		}
-		//解析失败已定案
-		if (state->settled && !state->parse_ok)
-			return false;
-		//尚未完成
-		if (!state->settled)
-		{
-			//非阻塞查询
-			if (state->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-				return false;
-			//取结果（此后 data 才可安全读取）
-			state->parse_ok = state->future.get();
-			state->settled = true;
-			//解析失败
-			if (!state->parse_ok)
-				return false;
-		}
-		//成功：主线程建网格（分段随数据一并提交）
-		Mesh_Handle 句柄 = 0;
-		if (!impl->mesh.mesh_create(句柄, state->data.data, state->data.sections))
-			return false;
-		state->handle = 句柄;
-		state->built = true;
-		handle_out = 句柄;
-		return true;
-	}
-
-	//共享加载纹理文件（第四百二十五轮）
-	bool Renderer::texture_load_file_shared(uint64_t& handle_out, const std::string& path)
-	{
-		//默认无有效句柄
-		handle_out = 0;
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 共享纹理加载失败：尚未初始化");
-			return false;
-		}
-		//归一化键
-		const std::string key = asset_key_build("texture", path);
-		auto found = impl->texture_cache.find(key);
-		//命中：仅引用计数加一
-		if (found != impl->texture_cache.end())
-		{
-			found->second.refs += 1;
-			handle_out = found->second.handle;
-			return true;
-		}
-		//首次：正常加载后登记
-		uint64_t 句柄 = 0;
-		if (!texture_load_file(句柄, path))
-			return false;
-		Impl::Asset_Cache_Entry entry{};
-		entry.handle = 句柄;
-		entry.refs = 1;
-		impl->texture_cache.emplace(key, entry);
-		handle_out = 句柄;
-		return true;
-	}
-
-	//释放共享纹理（引用计数 -1；归零才真正卸载）
-	void Renderer::texture_release(uint64_t handle)
-	{
-		//未初始化或无效句柄
-		if (impl == nullptr || !impl->initialized || handle == 0)
-			return;
-		//按句柄查找登记项
-		for (auto it = impl->texture_cache.begin(); it != impl->texture_cache.end(); ++it)
-		{
-			//跳过非目标项
-			if (it->second.handle != handle)
-				continue;
-			//仍有其它引用：只减计数
-			if (it->second.refs > 1)
-			{
-				it->second.refs -= 1;
-				return;
-			}
-			//归零：删条目后真正卸载
-			impl->texture_cache.erase(it);
-			texture_unload(handle);
-			return;
-		}
-		//未登记：按非共享资源处理
-		texture_unload(handle);
-	}
-
-	//当前资产缓存条目数（诊断）
-	uint32_t Renderer::asset_cache_count(void) const
-	{
-		//未初始化：无缓存
-		if (impl == nullptr)
-			return 0;
-		return static_cast<uint32_t>(impl->mesh_cache.size() + impl->texture_cache.size());
-	}
 
 	//登记材质（图形管线 ＋ 纹理 ＋ 混合档）
 	bool Renderer::material_load(Material_Handle& handle_out, const Material_Data& data)
@@ -10332,9 +9752,9 @@ namespace engine
 	}
 
 	/*
-	粒子系统门面（第三百一十轮；默认关闭）
-	CPU 参考路径与 GPU 推进共用同一 `Particle_System` 状态；
-	关闭时发射 / 步进返回 0，且不改变渲染画面。
+	粒子绘制门面（第三百一十轮；默认关闭）
+	模拟语义（发射 / 力场 / 碰撞 / 生命周期）已迁出渲染层：状态数组由应用层绑定，
+	本层只做 GPU 上传与 billboard 绘制登记。关闭时不登记任何绘制项。
 	*/
 	//粒子路径是否可用（第三百一十一轮：改由计算路径可用性决定）
 	bool Renderer::particle_supported(void) const
@@ -10364,7 +9784,7 @@ namespace engine
 		return impl->particle_enabled;
 	}
 
-	//粒子容量（钳制 [1, PARTICLE_CAPACITY_MAX]；重建池并清空）
+	//粒子容量（钳制 [1, PARTICLE_CAPACITY_MAX]；容量变化重建 GPU 缓冲）
 	bool Renderer::particle_capacity_set(uint32_t capacity)
 	{
 		//未初始化拒绝
@@ -10373,10 +9793,16 @@ namespace engine
 			logger.error("渲染器:: 粒子容量设置失败（未初始化）");
 			return false;
 		}
-		uint32_t old_capacity = impl->particle_system.capacity_get();
-		impl->particle_system.capacity_set(capacity);
-		//容量实际变化时才等尽在途帧并释放旧尺寸 GPU 资源（同值重复设置为空操作；第三百二十轮）
-		if (old_capacity != impl->particle_system.capacity_get())
+		//钳制下界
+		if (capacity == 0)
+			capacity = 1;
+		//钳制上界
+		if (capacity > PARTICLE_CAPACITY_MAX)
+			capacity = PARTICLE_CAPACITY_MAX;
+		const uint32_t old_capacity = impl->particle_capacity;
+		impl->particle_capacity = capacity;
+		//容量实际变化时才等尽在途帧并释放旧尺寸 GPU 资源（同值重复设置为空操作）
+		if (old_capacity != impl->particle_capacity)
 		{
 			impl->frame.frames_wait();
 			particle_gpu_destroy();
@@ -10391,7 +9817,30 @@ namespace engine
 	{
 		if (impl == nullptr || !impl->initialized)
 			return 0;
-		return impl->particle_system.capacity_get();
+		return impl->particle_capacity;
+	}
+
+	/*
+	粒子数据源（应用层持有模拟状态）
+	渲染层只保存指向状态数组与活跃标记的指针，不分配、不推进、不回收。
+	*/
+	void Renderer::particle_source_bind(Particle_State* states, uint8_t* alive, uint32_t capacity)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->particle_states = states;
+		impl->particle_alive = alive;
+		impl->particle_source_capacity = (states == nullptr || alive == nullptr) ? 0u : capacity;
+	}
+
+	//当前绑定容量（未绑定返回 0）
+	uint32_t Renderer::particle_source_capacity(void) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return 0;
+		return impl->particle_source_capacity;
 	}
 
 	//发射器（须先开启；参数非法整次拒绝）
@@ -10412,6 +9861,25 @@ namespace engine
 		impl->particle_emitter = emitter;
 		impl->particle_emitter_configured = true;
 		return true;
+	}
+
+	//当前发射器快照（未初始化返回默认构造值）
+	Particle_Emitter Renderer::particle_emitter_get(void) const
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return Particle_Emitter{};
+		return impl->particle_emitter;
+	}
+
+	//模拟统计回报（只累加帧统计）
+	void Renderer::particle_stats_add(uint32_t born, uint32_t died)
+	{
+		//未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->particle_born_total += born;
+		impl->particle_died_total += died;
 	}
 
 	//模拟参数（须先开启；参数非法整次拒绝）
@@ -10442,53 +9910,14 @@ namespace engine
 		return impl->particle_params;
 	}
 
-	//发射粒子（返回实际发射数；未开启 / 未配置返回 0）
-	uint32_t Renderer::particle_emit(uint32_t count)
-	{
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled
-			|| !impl->particle_emitter_configured || count == 0)
-			return 0;
-		uint32_t spawned = impl->particle_system.emit(impl->particle_emitter, count);
-		//出生累计（第三百二十二轮）
-		impl->particle_born_total += spawned;
-		return spawned;
-	}
-
-	//推进一步（返回本步死亡数；未开启 / 步长非法返回 0）
-	uint32_t Renderer::particle_step(float dt)
-	{
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-			return 0;
-		if (!std::isfinite(dt) || dt <= 0.0f)
-			return 0;
-		//主机侧模拟计时（第三百二十二轮）
-		const auto begin = std::chrono::high_resolution_clock::now();
-		uint32_t died = impl->particle_system.step(impl->particle_params, dt);
-		const auto end = std::chrono::high_resolution_clock::now();
-		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(end - begin).count();
-		impl->particle_died_total += died;
-		return died;
-	}
-
-	//当前活跃粒子数（未开启 / 未初始化返回 0）
-	uint32_t Renderer::particle_active_count(void) const
-	{
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-			return 0;
-		//常驻模式返回最近一次回读的 GPU 活跃数（第三百二十七轮）
-		if (impl->particle_resident)
-			return impl->particle_resident_active;
-		return impl->particle_system.active_count_get();
-	}
-
 	//确保粒子 GPU 推进资源就绪（第三百一十一轮；容量变化时重建）
 	bool Renderer::particle_gpu_ensure(void)
 	{
 		//未初始化或计算路径不可用
 		if (impl == nullptr || !impl->initialized || !compute_supported())
 			return false;
-		//按当前池容量分配（容量为 0 视为不可用）
-		uint32_t capacity = impl->particle_system.capacity_get();
+		//按 GPU 缓冲容量分配（容量为 0 视为不可用）
+		uint32_t capacity = impl->particle_capacity;
 		if (capacity == 0 || capacity > PARTICLE_CAPACITY_MAX)
 			return false;
 		//已按当前容量就绪
@@ -10617,31 +10046,20 @@ namespace engine
 		return particle_gpu_ensure();
 	}
 
-	//读取指定池索引的粒子状态（第三百一十二轮；非活跃返回假）
-	bool Renderer::particle_state_get(uint32_t index, Particle_State& state) const
-	{
-		//未开启粒子或未初始化
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-			return false;
-		//索引越界
-		if (index >= impl->particle_system.capacity_get())
-			return false;
-		//非活跃槽位不对外暴露
-		if (impl->particle_system.alive_get()[index] == 0u)
-			return false;
-		state = impl->particle_system.data_get()[index];
-		return true;
-	}
-
 	/*
 	GPU 单步推进（第三百一十二轮）
-	上传 CPU 镜像 → 推进着色器 → 回读覆盖 CPU 镜像；
+	上传应用层绑定的粒子镜像 → 推进着色器 → 回读覆盖镜像；
 	参数走推送常量：gravity_dt = {g.x, g.y, g.z, dt}、params = {damping, capacity, 0, 0}。
+	回读只更新状态数组与活跃标记；索引回收（空闲栈记账）由应用层负责。
 	*/
 	bool Renderer::particle_gpu_step(float dt)
 	{
 		//资源未就绪
 		if (!particle_gpu_available())
+			return false;
+		//未绑定数据源
+		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
+			|| impl->particle_source_capacity == 0)
 			return false;
 		//常驻模式下禁止同步链推进（会污染常驻状态；第三百二十八轮）
 		if (impl->particle_resident)
@@ -10654,9 +10072,12 @@ namespace engine
 		//GPU 同步链主机侧计时（第三百二十二轮）
 		const auto sim_begin = std::chrono::high_resolution_clock::now();
 		uint32_t capacity = impl->particle_buffer_capacity;
+		//镜像容量须不小于推进容量
+		if (impl->particle_source_capacity < capacity)
+			return false;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-		//上传当前 CPU 镜像到前缓冲
-		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
+		//上传当前镜像到前缓冲
+		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
 			return false;
 		//上传力场数组（仅上传前 force_count 项；第三百一十八轮）
 		if (impl->particle_params.force_count > 0)
@@ -10684,17 +10105,17 @@ namespace engine
 		};
 		if (!compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
-		//回读覆盖 CPU 镜像（GPU 结果作为下一步的上传源）
-		if (!compute_buffer_read(impl->particle_buffer_back, impl->particle_system.data_get(), bytes))
+		//回读覆盖镜像（GPU 结果作为下一步的上传源）
+		if (!compute_buffer_read(impl->particle_buffer_back, impl->particle_states, bytes))
 			return false;
 		/*
 		生命周期同步（第三百一十三轮）
-		GPU 以 lifetime ≤ 0 标记死亡；镜像侧逐索引回收并清零寿命，
+		GPU 以 lifetime ≤ 0 标记死亡；镜像侧逐索引置非活跃并清零寿命，
 		使下次上传的非活跃槽位保持「lifetime = 0」不变式（着色器据此原样写回）。
 		*/
 		uint32_t died = 0;
-		Particle_State* states = impl->particle_system.data_get();
-		const uint8_t* alive = impl->particle_system.alive_get();
+		Particle_State* states = impl->particle_states;
+		uint8_t* alive = impl->particle_alive;
 		for (uint32_t index = 0; index < capacity; ++index)
 		{
 			//非活跃槽位保持零寿命不变式
@@ -10703,10 +10124,11 @@ namespace engine
 				states[index].lifetime = 0.0f;
 				continue;
 			}
-			//GPU 标记死亡即回收（LIFO 复用索引）
+			//GPU 标记死亡即置非活跃（索引记账由应用层负责）
 			if (!(states[index].lifetime > 0.0f))
 			{
-				impl->particle_system.recycle(index);
+				alive[index] = 0u;
+				states[index].lifetime = 0.0f;
 				++died;
 			}
 		}
@@ -10728,6 +10150,15 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
 			return 0;
 		return impl->particle_gpu_died_last;
+	}
+
+	//常驻 GPU 推进的活跃粒子数（只读观测）
+	uint32_t Renderer::particle_gpu_active_count(void) const
+	{
+		//未初始化 / 未开启常驻
+		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+			return 0;
+		return impl->particle_resident_active;
 	}
 
 	//确保粒子 billboard 绘制资源就绪（第三百一十四轮）
@@ -11170,9 +10601,13 @@ namespace engine
 		//尺寸非法
 		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
 			return false;
-		uint32_t capacity = impl->particle_system.capacity_get();
-		const Particle_State* states = impl->particle_system.data_get();
-		const uint8_t* alive = impl->particle_system.alive_get();
+		//未绑定数据源
+		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
+			|| impl->particle_source_capacity == 0)
+			return false;
+		uint32_t capacity = impl->particle_source_capacity;
+		const Particle_State* states = impl->particle_states;
+		const uint8_t* alive = impl->particle_alive;
 		/*
 		常驻模式绘制（第三百三十轮）
 		回读活跃位图与状态缓冲后按位图展开活跃标记；容量上限 65536（百万级整缓冲回读不可接受，
@@ -11806,10 +11241,17 @@ namespace engine
 		//常驻模式下自检会覆盖常驻状态，直接拒绝（第三百二十八轮）
 		if (impl->particle_resident)
 			return false;
+		//未绑定数据源
+		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
+			|| impl->particle_source_capacity == 0)
+			return false;
 		uint32_t capacity = impl->particle_buffer_capacity;
+		//镜像容量须不小于推进容量
+		if (impl->particle_source_capacity < capacity)
+			return false;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-		//上传 CPU 侧状态到前缓冲
-		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_system.data_get(), bytes))
+		//上传应用层状态到前缓冲
+		if (!compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
 			return false;
 		//绑定前缓冲只读、后缓冲只写、力场数组只读（零力场）
 		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
@@ -11828,8 +11270,8 @@ namespace engine
 		if (!compute_buffer_read(impl->particle_buffer_back, output.data(), bytes))
 			return false;
 		//按活跃标记逐索引比对
-		const Particle_State* source = impl->particle_system.data_get();
-		const uint8_t* alive = impl->particle_system.alive_get();
+		const Particle_State* source = impl->particle_states;
+		const uint8_t* alive = impl->particle_alive;
 		for (uint32_t index = 0; index < capacity; ++index)
 		{
 			//跳过非活跃槽位

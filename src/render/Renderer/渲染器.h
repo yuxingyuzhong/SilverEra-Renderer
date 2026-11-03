@@ -5,9 +5,8 @@
 #include "Application/Renderer/src/render/Scene/光源数据.h"
 //分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
 #include "Application/Renderer/src/render/Cluster/簇划分.h"
-//粒子数据与粒子池（Vulkan-free；第三百零七 / 三百零八轮）
-#include "Application/Renderer/src/render/Particle/粒子数据.h"
-#include "Application/Renderer/src/render/Particle/粒子系统.h"
+//粒子数据（Vulkan-free；第三百零七轮；已下沉到 EngineCore，模拟与绘制两侧共享同一份布局）
+#include "Engine/EngineCore/src/core/effect/粒子数据.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
@@ -26,8 +25,6 @@
 #include "Application/Renderer/src/render/Text/文字布局数据.h"
 //计算公共语义类型（Vulkan-free）：句柄与字节上限（第二百四十三轮）
 #include "Application/Renderer/src/render/Compute/计算数据.h"
-//关卡数据与文本读写（Vulkan-free；第四百二十九轮）
-#include "Application/Renderer/src/render/Level/关卡文件.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -439,34 +436,24 @@ namespace engine
 		/*
 		欧拉角旋转（度；第四百三十一轮）
 		顺序 X → Y → Z（R = Rz·Ry·Rx）；缺省全零 = 不旋转。
-		变换矩阵由 `level_transform_build` 构造后交给 `mesh_draw` 系列。
+		变换矩阵由应用层构造后经 `mesh_draw_sections` 传入（渲染层不做 T·R·S 组装）。
 		*/
 		float rotation_deg[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
 	/*
-	场景清单加载结果（第四百二十四轮）
-	objects 按清单 place 顺序输出；meshes / materials 为本次创建的全部资源（scene_unload 用）。
+	场景绘制清单（第四百二十四轮）
+	由应用层装配后交给渲染层：`objects` 按装配顺序给出待绘制对象，
+	渲染层只按清单逐项登记绘制，不解析资产、不管理资源生命周期。
 	*/
 	struct Asset_Scene
 	{
 		//摆放对象
 		std::vector<Asset_Object> objects;
-		//本次创建的网格
+		//本次创建的网格（由应用层持有并在其桥接层释放）
 		std::vector<Mesh_Handle> meshes;
-		//本次创建的材质
+		//本次创建的材质（同上）
 		std::vector<Material_Handle> materials;
-	};
-
-	/*
-	异步资产任务（第四百二十六轮；资产加载方向第五阶段）
-	公共头只持有不透明状态（`shared_ptr<void>`），不引 Vulkan 类型；
-	任务由 `mesh_load_obj_async` 建立，由 `mesh_load_obj_async_poll` 在主线程轮询。
-	*/
-	struct Asset_Async_Task
-	{
-		//内部状态（解析结果 ＋ 完成标记 ＋ 已建句柄）
-		std::shared_ptr<void> state;
 	};
 
 	/*
@@ -1101,87 +1088,11 @@ namespace engine
 		bool material_load_mtl(std::vector<Material_Handle>& handles_out, const std::string& path,
 			std::vector<std::string>* names_out = nullptr);
 		/*
-		从场景清单装载整套资产（第四百二十四轮；资产加载方向第三阶段）
-		清单格式见 `资产加载.h` 的 Scene_Manifest 注释：mesh / mtl 声明 ＋ place 摆放。
-		路径按清单文件所在目录解析；同一网格 / 材质库只加载一次。
-		任一网格或材质库创建失败即整体回退（已建资源全部释放）并返回假；成功时按 place 顺序写出对象。
-		*/
-		bool scene_load(Asset_Scene& scene_out, const std::string& path);
-		/*
-		保存关卡到文本文件（第四百三十轮；方向六阶段 B）
-		与 `level_text_write` 等价的门面入口；失败（路径为空 / 打不开 / 名称含换行）返回假。
-		*/
-		bool level_save(const Level_Data& level, const std::string& path);
-		/*
-		装载关卡（第四百三十轮；方向六阶段 B）
-		读取关卡文本 → 应用相机 / 光照 / 雾（三组入参）→ 按 `asset_lines` 装配资产（同一文件只加载一次）。
-		资产路径相对关卡文件所在目录；相机参数非法 / 文本非法 / 任一资产创建失败 → 整体回退并返回假。
-		成功时 `level_out` 与 `scene_out` 均有效；资产须由 `scene_unload`（或 `level_unload`）释放。
-		`apply_scene = false` 时只装配资产、不应用相机 / 光照 / 雾（第四百三十二轮：供展示场景只借资产）。
-		*/
-		bool level_load(Level_Data& level_out, Asset_Scene& scene_out, const std::string& path,
-			bool apply_scene = true);
-		/*
-		释放关卡装配的全部资产资源（第四百三十轮；等价于 `scene_unload`，幂等）
-		*/
-		void level_unload(Asset_Scene& scene);
-		/*
-		绘制整套资产场景（第四百三十七轮）
-		逐对象用 `level_transform_build`（位置 / 旋转 / 缩放）＋ `mesh_draw_sections`（逐段绑材质）登记绘制；
-		返回成功登记的对象数（任一对象失败即跳过该项并继续）。仅登记，不提交帧。
-		*/
-		uint32_t scene_draw(const Asset_Scene& scene);
-		/*
 		校验材质实例数据（第四百四十八轮；方向七阶段 A）
 		规则：模板句柄须为已登记材质；`use_tint` 为真时 tint 四分量须有限且落在 [0,1]；
 		`use_emissive` 为真时 emissive 须有限且落在 [0,1]。不建资源、不改变任何状态。
 		*/
 		bool material_instance_validate(const Material_Instance_Data& data) const;
-		/*
-		共享加载 OBJ 网格（第四百二十五轮；资源缓存 ＋ 引用计数）
-		同一路径只创建一次资源：首次创建（refs = 1）、后续命中仅引用计数 +1 并返回同一句柄；
-		释放须走 `mesh_release`（不可与 `mesh_unload` 混用同一句柄）。
-		路径按 UTF-8 解释；键做「分隔符统一 ＋ ASCII 小写」归一化。
-		*/
-		bool mesh_load_obj_shared(Mesh_Handle& handle_out, const std::string& path);
-		/*
-		释放共享网格（引用计数 -1；归零才真正卸载并删缓存条目）
-		未登记的句柄按非共享资源直接卸载（兼容混用）。
-		*/
-		void mesh_release(Mesh_Handle handle);
-		/*
-		提交异步 OBJ 加载（第四百二十六轮；方向五 E 阶段）
-		解析在后台线程执行，本调用立即返回；任务状态写入 task。
-		`mesh_load_obj_async_poll` 在主线程轮询：未完成返回假，完成时建资源并写出句柄。
-		路径为空 / 未初始化 / 任务已存在时返回假（task.state 保持为空或原值）。
-		*/
-		bool mesh_load_obj_async(Asset_Async_Task& task, const std::string& path);
-		/*
-		轮询异步 OBJ 任务（第四百二十六轮）
-		未完成 → 返回假且 handle_out = 0；解析失败 → 返回假（后续轮询仍假）；
-		成功 → 首次轮询建网格资源并缓存句柄，后续轮询返回同一句柄（幂等）。
-		*/
-		bool mesh_load_obj_async_poll(Asset_Async_Task& task, Mesh_Handle& handle_out);
-		/*
-		共享加载纹理文件（第四百二十五轮）
-		语义同 `mesh_load_obj_shared`；释放须走 `texture_release`。
-		*/
-		bool texture_load_file_shared(uint64_t& handle_out, const std::string& path);
-		/*
-		释放共享纹理（引用计数 -1；归零才真正卸载）
-		未登记的句柄按非共享资源直接卸载。
-		*/
-		void texture_release(uint64_t handle);
-		/*
-		当前资产缓存条目数（第四百二十五轮；只读诊断）
-		网格缓存与纹理缓存条目之和。
-		*/
-		uint32_t asset_cache_count(void) const;
-		/*
-		释放场景清单创建的全部资源（网格 ＋ 材质；幂等）
-		不负责卸载调用方另行创建的其它资源。
-		*/
-		void scene_unload(Asset_Scene& scene);
 		/*
 		卸载材质（句柄无效则忽略）
 		若材质自行登记了具名管线，则随卸载一并释放；卸载后其句柄失效。
@@ -1730,22 +1641,39 @@ namespace engine
 		//读取当前距离衰减模式（第三十六轮新增；未初始化返回 0）
 		uint32_t light_attenuation_get(void) const;
 		/*
-		粒子系统（第三百一十轮；深研方向二 阶段 A）
-		默认关闭：`particle_enable_set(true)` 前不占用任何粒子状态；关闭时发射 / 步进返回 0。
-		当前为 CPU 参考路径（GPU 推进已由 particle_gpu_* 接入，同一 `Particle_System` 作为参考实现）。
+		粒子绘制数据源（第三百零七轮迁入引擎核心层后的职责分离）
+		渲染层**不持有也不推进**粒子模拟状态：模拟（发射 / 力场 / 碰撞 / 生命周期）在系统层与
+		应用层完成，本层只负责把状态数组上传 GPU 并登记 billboard 绘制。
+		绑定后才可绘制；未绑定 / 空指针 / 容量为 0 时各绘制入口返回假且不登记绘制项。
 		*/
+		/*
+		绑定粒子绘制数据源
+		states / alive / capacity 由应用层持有（长度须一致）；states 与 alive 均可写
+		（GPU 推进回读会覆盖它们，活跃标记置 0 表示该索引已在 GPU 侧死亡，索引回收由调用方负责）。
+		传入 nullptr 或 capacity 为 0 表示解绑（此后绘制入口不可用）。
+		*/
+		void particle_source_bind(Particle_State* states, uint8_t* alive, uint32_t capacity);
+		//当前绑定容量（未绑定返回 0）
+		uint32_t particle_source_capacity(void) const;
 		//粒子路径是否可用（已初始化且计算路径可用即为真；第三百一十一轮）
 		bool particle_supported(void) const;
-		//开关（仅初始化后允许；关闭不释放容量，重新开启沿用池内容）
+		//开关（仅初始化后允许；关闭不释放容量，重新开启沿用绑定数据）
 		bool particle_enable_set(bool enabled);
 		//开关状态
 		bool particle_enable_get(void) const;
-		//容量（钳制 [1, 1 048 576]；重建池并清空全部粒子）
+		//GPU 缓冲容量（钳制 [1, 1 048 576]；容量变化重建 GPU 缓冲，不触碰绑定数据）
 		bool particle_capacity_set(uint32_t capacity);
 		uint32_t particle_capacity_get(void) const;
-		//发射器（参数非法整次拒绝，保持既有配置；须先开启）
+		//发射器（GPU 推进输入；参数非法整次拒绝，保持既有配置；须先开启）
 		bool particle_emitter_set(const Particle_Emitter& emitter);
-		//模拟参数（参数非法整次拒绝；须先开启）
+		//当前发射器快照（观测 / 应用层模拟用；未初始化返回默认构造值）
+		Particle_Emitter particle_emitter_get(void) const;
+		/*
+		模拟统计回报（应用层模拟计数；只累加帧统计，不参与绘制）
+		出生 / 死亡计数由模拟方（应用层 CPU 路径或 GPU 推进）上报，供帧统计观测。
+		*/
+		void particle_stats_add(uint32_t born, uint32_t died);
+		//模拟参数（GPU 推进与外观输入；参数非法整次拒绝；须先开启）
 		bool particle_params_set(const Particle_Params& params);
 		/*
 		当前模拟参数快照（第三百七十轮；观测用）
@@ -1753,17 +1681,6 @@ namespace engine
 		未初始化返回默认构造值（各字段为 0）。
 		*/
 		Particle_Params particle_params_get(void) const;
-		//发射 count 个粒子（返回实际发射数；未开启 / 池满时小于 count）
-		uint32_t particle_emit(uint32_t count);
-		//推进一步（返回本步死亡数；未开启返回 0）
-		uint32_t particle_step(float dt);
-		//当前活跃粒子数（未开启 / 未初始化返回 0）
-		uint32_t particle_active_count(void) const;
-		/*
-		读取指定池索引的粒子状态（第三百一十二轮；对照与观测用）
-		未开启 / 未初始化 / 索引越界 / 该索引非活跃时返回假（state 不变）。
-		*/
-		bool particle_state_get(uint32_t index, Particle_State& state) const;
 		//GPU 推进是否就绪（需计算路径可用且粒子已开启；首次调用惰性创建缓冲与管线）
 		bool particle_gpu_available(void);
 		/*
@@ -1775,6 +1692,8 @@ namespace engine
 		bool particle_gpu_step(float dt);
 		//最近一次 GPU 单步判定的死亡数（第三百一十三轮；未开启 / 未推进为 0）
 		uint32_t particle_gpu_died_last(void) const;
+		//常驻 GPU 推进的活跃粒子数（只读观测；未开启常驻返回 0）
+		uint32_t particle_gpu_active_count(void) const;
 		/*
 		粒子 billboard 绘制（第三百一十四轮）
 		把当前活跃粒子按相机朝向四边形一次性实例化登记为**一个绘制项**（实际绘制在下一帧 frame_render）；
