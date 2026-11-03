@@ -9733,45 +9733,12 @@ namespace engine
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
 		impl->spot_shadow_all = light.spot_shadow_all != 0;
 		/*
-		多盏瓦片按需建立（第五百零七轮）
+		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法）
 		首次开启时创建瓦片 1..3 并绑定到各帧槽 binding 9 的对应元素；
 		创建失败仅告警，该瓦片按「无聚光阴影」处理，不影响其余瓦片。
 		*/
 		if (impl->spot_shadow_all)
-		{
-			//默认采样器（与瓦片 0 共用）
-			VkImageView default_view = VK_NULL_HANDLE;
-			VkSampler sampler = VK_NULL_HANDLE;
-			impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
-			for (std::size_t tile = 1; tile < 4; ++tile)
-			{
-				//已建立则跳过
-				if (impl->spot_shadow_targets[tile] != 0)
-					continue;
-				if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
-					impl->shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
-				{
-					impl->spot_shadow_targets[tile] = 0;
-					logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 创建失败，按无阴影处理", tile);
-					continue;
-				}
-				VkImage image = VK_NULL_HANDLE;
-				VkImageView view = VK_NULL_HANDLE;
-				VkImageView depth_view = VK_NULL_HANDLE;
-				VkExtent2D extent{};
-				if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], image, view, depth_view, extent))
-				{
-					impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
-					impl->spot_shadow_targets[tile] = 0;
-					logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 查询失败，按无阴影处理", tile);
-					continue;
-				}
-				for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-					if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, view,
-						static_cast<uint32_t>(tile)))
-						logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 绑定失败（帧槽 {}）", tile, slot);
-			}
-		}
+			spot_shadow_tiles_ensure();
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
 		pbr_roughness_set(light.pbr_roughness);
@@ -12189,6 +12156,74 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized ? impl->spot_shadow_index : 0;
+	}
+
+	/*
+	按需创建并绑定多盏聚光灯阴影瓦片（第五百一十一轮）
+	瓦片 0 常驻（与单盏行为一致）；瓦片 1..3 首次需要时创建，失败仅告警并保持「无阴影」占位。
+	*/
+	void Renderer::spot_shadow_tiles_ensure()
+	{
+		//默认采样器（与瓦片 0 共用）
+		VkImageView default_view = VK_NULL_HANDLE;
+		VkSampler sampler = VK_NULL_HANDLE;
+		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
+		for (std::size_t tile = 1; tile < 4; ++tile)
+		{
+			//已建立则跳过
+			if (impl->spot_shadow_targets[tile] != 0)
+				continue;
+			if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
+				impl->shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			{
+				impl->spot_shadow_targets[tile] = 0;
+				logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 创建失败，按无阴影处理", tile);
+				continue;
+			}
+			VkImage image = VK_NULL_HANDLE;
+			VkImageView view = VK_NULL_HANDLE;
+			VkImageView depth_view = VK_NULL_HANDLE;
+			VkExtent2D extent{};
+			if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], image, view, depth_view, extent))
+			{
+				impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+				impl->spot_shadow_targets[tile] = 0;
+				logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 查询失败，按无阴影处理", tile);
+				continue;
+			}
+			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
+				if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, view,
+					static_cast<uint32_t>(tile)))
+					logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 绑定失败（帧槽 {}）", tile, slot);
+		}
+	}
+
+	/*
+	设置多盏聚光灯阴影开关（第五百一十一轮）
+	开启时立即补齐瓦片并置阴影图待重绘；关闭时沿用 spot_shadow_index 的单盏语义。
+	*/
+	void Renderer::spot_shadow_all_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//与原值一致则无需处理
+		if (impl->spot_shadow_all == enabled)
+			return;
+		impl->spot_shadow_all = enabled;
+		//开启：补齐瓦片 1..3（已建立则跳过）
+		if (enabled)
+			spot_shadow_tiles_ensure();
+		//矩阵与槽位映射随下一帧重算，旧阴影图不再可信
+		impl->shadow_pass_ready = false;
+		logger.info("渲染器:: 多盏聚光灯阴影已{}", enabled ? "开启" : "关闭");
+	}
+
+	//当前是否多盏聚光灯阴影（第五百一十一轮）
+	bool Renderer::spot_shadow_all(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->spot_shadow_all : false;
 	}
 
 	/*

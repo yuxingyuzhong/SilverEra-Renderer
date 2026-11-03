@@ -1919,6 +1919,15 @@ namespace engine
 		//当前聚光灯阴影序号（未初始化时为默认 0）
 		int spot_shadow_index(void) const;
 		/*
+		多盏聚光灯阴影开关（第五百一十一轮新增）
+		true：前 4 盏聚光灯按声明顺序各占瓦片 0..3 独立投影（瓦片 1..3 首次开启时按需创建）；
+		false：沿用 spot_shadow_index 的单盏语义。
+		供运行期切换使用；关卡装载路径仍由 Light_Data.spot_shadow_all 驱动，二者语义一致。
+		*/
+		void spot_shadow_all_set(bool enabled);
+		//当前是否多盏聚光灯阴影（未初始化时为默认假）
+		bool spot_shadow_all(void) const;
+		/*
 		阴影图分辨率（第五十四轮新增）
 		仅支持 512 / 1024 / 2048（默认 1024）；切换会等尽在途帧、重建阴影目标并重新绑定各帧槽，
 		非法值整次忽略；降低分辨率可减少阴影 pass 的填充开销。
@@ -2068,5 +2077,7 @@ namespace engine
 		//实现体（把 SDL3 / Vulkan / VMA 全部关在 .cpp 里）
 		class Impl;
 		std::unique_ptr<Impl> impl;
+		//按需创建并绑定多盏聚光灯阴影瓦片 1..3（scene_apply 与运行期开关共用）
+		void spot_shadow_tiles_ensure();
 	};
 }
