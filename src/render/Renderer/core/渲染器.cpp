@@ -10348,129 +10348,7 @@ namespace engine
 		return impl->particle_resident;
 	}
 
-	/*
-	GPU 发射（常驻模式；第三百二十七轮）
-	回读活跃计数 → 计算本次可发射数 → 绑定状态 / 控制 / 力场 / 占位 → 调度发射管线 → 再回读计数。
-	*/
-	uint32_t Renderer::particle_gpu_emit(uint32_t count)
-	{
-		//前置条件
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident
-			|| !impl->particle_emitter_configured || count == 0)
-			return 0;
-		if (!particle_gpu_available())
-			return 0;
-		uint32_t capacity = impl->particle_buffer_capacity;
-		//当前活跃计数（GPU 侧 [1]）
-		uint32_t active = 0;
-		if (!compute_buffer_read(impl->particle_control_buffer, &active, 4u, 4u))
-			return 0;
-		impl->particle_resident_active = active;
-		//池满
-		if (active >= capacity)
-			return 0;
-		//本次发射数（不超过剩余容量）
-		uint32_t budget = count;
-		if (active + budget > capacity)
-			budget = capacity - active;
-		//绑定：状态（只写新槽）/ 控制 / 力场（占位）/ 状态（占位）
-		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
-			return 0;
-		if (!compute_buffer_bind(impl->particle_control_buffer, 1))
-			return 0;
-		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
-			return 0;
-		if (!compute_buffer_bind(impl->particle_buffer_front, 3))
-			return 0;
-		const Particle_Emitter& emitter = impl->particle_emitter;
-		//推送常量：位置与形状 / 速度与寿命 / 容量数量种子半径 / 主方向
-		const float push[16] = {
-			emitter.position[0], emitter.position[1], emitter.position[2], static_cast<float>(emitter.shape),
-			emitter.speed_min, emitter.speed_max, emitter.lifetime_min, emitter.lifetime_max,
-			static_cast<float>(capacity), static_cast<float>(budget),
-			static_cast<float>(impl->particle_born_total + 1u), emitter.extents[0],
-			emitter.direction[0], emitter.direction[1], emitter.direction[2], 0.0f
-		};
-		if (!compute_dispatch(impl->particle_emit_pipeline, budget, 64u, push, sizeof(push)))
-			return 0;
-		//回读新计数并结算实际发射数
-		uint32_t after = 0;
-		if (!compute_buffer_read(impl->particle_control_buffer, &after, 4u, 4u))
-			return 0;
-		impl->particle_resident_active = after;
-		uint32_t spawned = after > active ? after - active : 0u;
-		impl->particle_born_total += spawned;
-		return spawned;
-	}
 
-	/*
-	常驻推进（第三百二十八轮）
-	读 front / 写 back → 交换前后缓冲 → 回读活跃计数；死亡数 = 前计数 − 后计数。
-	*/
-	bool Renderer::particle_gpu_step_resident(float dt)
-	{
-		//前置条件
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
-			return false;
-		if (!std::isfinite(dt) || dt <= 0.0f)
-			return false;
-		if (!particle_gpu_available())
-			return false;
-		//主机侧计时（第三百二十八轮）
-		const auto sim_begin = std::chrono::high_resolution_clock::now();
-		uint32_t capacity = impl->particle_buffer_capacity;
-		//推进前活跃计数
-		uint32_t before = 0;
-		if (!compute_buffer_read(impl->particle_control_buffer, &before, 4u, 4u))
-			return false;
-		impl->particle_resident_active = before;
-		//上传力场（仅前 force_count 项）
-		if (impl->particle_params.force_count > 0)
-		{
-			uint32_t force_bytes = impl->particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
-			if (!compute_buffer_write(impl->particle_force_buffer, impl->particle_params.forces, force_bytes))
-				return false;
-		}
-		//绑定：front 状态 / back 状态 / 力场 / 控制缓冲
-		if (!compute_buffer_bind(impl->particle_buffer_front, 0))
-			return false;
-		if (!compute_buffer_bind(impl->particle_buffer_back, 1))
-			return false;
-		if (!compute_buffer_bind(impl->particle_force_buffer, 2))
-			return false;
-		if (!compute_buffer_bind(impl->particle_control_buffer, 3))
-			return false;
-		//推送常量（与同步链推进同布局）
-		const float push[16] = {
-			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
-			impl->particle_params.damping, static_cast<float>(capacity),
-			static_cast<float>(impl->particle_params.force_count), 0.0f,
-			impl->particle_params.sphere_center[0], impl->particle_params.sphere_center[1],
-			impl->particle_params.sphere_center[2], impl->particle_params.sphere_radius,
-			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction,
-			static_cast<float>(impl->particle_params.ground_enabled)
-		};
-		if (!compute_dispatch(impl->particle_resident_step_pipeline, capacity, 64u, push, sizeof(push)))
-			return false;
-		//交换前后缓冲（下一步读取新结果）
-		uint64_t swapped = impl->particle_buffer_front;
-		impl->particle_buffer_front = impl->particle_buffer_back;
-		impl->particle_buffer_back = swapped;
-		//推进后活跃计数与死亡数
-		uint32_t after = 0;
-		if (!compute_buffer_read(impl->particle_control_buffer, &after, 4u, 4u))
-			return false;
-		impl->particle_resident_active = after;
-		uint32_t died = before > after ? before - after : 0u;
-		impl->particle_gpu_died_last = died;
-		impl->particle_died_total += died;
-		//设备耗时（不支持时间戳为 −1）与主机侧耗时
-		impl->particle_gpu_ms_last = impl->compute.timestamp_supported()
-			? impl->compute.stats_get().elapsed_ms : -1.0;
-		const auto sim_end = std::chrono::high_resolution_clock::now();
-		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
-		return true;
-	}
 
 	/*
 	常驻紧凑索引（第三百三十三轮；阶段 D）
@@ -10540,7 +10418,6 @@ namespace engine
 			return 0;
 		return count;
 	}
-
 	/*
 	粒子软粒子深度源（第三百六十六轮）
 	仅当参数档位 > 0 且 HiZ 已启用、资源有效、该槽历史就绪时输出历史视图与最近邻采样器句柄；

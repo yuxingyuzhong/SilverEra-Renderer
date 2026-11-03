@@ -32,6 +32,21 @@ namespace engine
 	//UI 通道（扩展公共头 渲染器_UI通道.h 定义；此处仅前置声明，保持本公共头零 Vulkan / SDL 类型）
 	class Ui_Channel_Context;
 
+	//渲染器前置声明（供下方层内 GPU 粒子推进入口引用）
+	class Renderer;
+
+	/*
+	层内 GPU 粒子推进（模拟语义归 EngineSystem；渲染层只提供计算原语与缓冲）
+	实现位于 EngineSystem/src/effect/Particle/粒子GPU推进.cpp，经 friend 访问渲染器私有实现。
+	*/
+	namespace particle_gpu
+	{
+		//GPU 发射（常驻模式）：返回实际写入的粒子数
+		uint32_t emit(Renderer& renderer, uint32_t count);
+		//常驻推进：仅调度（读 front / 写 back 并交换）
+		bool step_resident(Renderer& renderer, float dt);
+	}
+
 	//渲染层版本查询（d34da1c 已存在，保留）
 	std::string renderer_version(void);
 
@@ -1729,19 +1744,7 @@ namespace engine
 		bool particle_resident_set(bool enabled);
 		bool particle_resident_get(void) const;
 		/*
-		GPU 发射（常驻模式；第三百二十七轮）
-		返回实际写入的粒子数（池满时小于 count；未开启常驻 / 计算不可用 / 发射器未配置返回 0）。
-		每粒子经环形指针取槽，状态写入 GPU 缓冲并置位图、活跃计数加一。
-		*/
-		uint32_t particle_gpu_emit(uint32_t count);
-		/*
-		常驻推进（第三百二十八轮）
-		仅调度（读 front / 写 back，随后交换），不读回状态；死亡由着色器清位图并减计数；
-		返回假表示未开启常驻 / 计算不可用 / 步长非法。同步链推进与自检在常驻模式下返回假（避免污染常驻状态）。
-		*/
-		bool particle_gpu_step_resident(float dt);
-		/*
-		常驻紧凑索引（第三百三十三轮；阶段 D）
+		常驻紧凑索引（第三百三十三轮；阶段 D；绘制机制的一部分，保留在渲染层）
 		把活跃位图压缩为连续索引数组（供 GPU 侧绘制按 gl_InstanceIndex 取粒子），
 		紧凑计数由原子自增产出；返回假表示未开启常驻 / 计算不可用。
 		*/
@@ -2033,5 +2036,8 @@ namespace engine
 		std::unique_ptr<Impl> impl;
 		//按需创建并绑定聚光灯阴影瓦片 1..max_tiles-1（scene_apply 与运行期开关共用）
 		void spot_shadow_tiles_ensure(std::size_t max_tiles);
+		//层内 GPU 粒子推进（实现位于 EngineSystem/src/effect/Particle/粒子GPU推进.cpp）
+		friend uint32_t particle_gpu::emit(Renderer&, uint32_t);
+		friend bool particle_gpu::step_resident(Renderer&, float);
 	};
 }
