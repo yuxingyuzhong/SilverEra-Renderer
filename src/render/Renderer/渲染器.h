@@ -394,6 +394,16 @@ namespace engine
 		float toon_rim = 0.0f;
 		//卡通高光阈值（0..1）
 		float toon_specular = 0.0f;
+		/*
+		逐实例 PBR 覆盖（第五百六十四轮）
+		仅 use_pbr 为真时生效：覆盖即启用 PBR（等价于模板材质执行 material_pbr_set）；
+		粗糙度 (0.05, 4]、金属度 [0, 1]。
+		*/
+		bool use_pbr = false;
+		//粗糙度（0.05 < 值 ≤ 4）
+		float pbr_roughness = 1.0f;
+		//金属度（0..1）
+		float pbr_metallic = 0.0f;
 	};
 
 	/*

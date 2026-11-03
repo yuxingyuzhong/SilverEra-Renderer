@@ -6244,6 +6244,13 @@ namespace engine
 				impl->material_toon_rim = data.toon_rim;
 				impl->material_toon_specular = data.toon_specular;
 			}
+			//逐实例 PBR（第五百六十四轮；覆盖即启用）
+			if (data.use_pbr)
+			{
+				impl->material_pbr_active = true;
+				impl->material_pbr_roughness = data.pbr_roughness;
+				impl->material_pbr_metallic = data.pbr_metallic;
+			}
 		};
 		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
@@ -7453,6 +7460,10 @@ namespace engine
 				数据.toon_steps = 声明.toon_steps;
 				数据.toon_rim = 声明.toon_rim;
 				数据.toon_specular = 声明.toon_specular;
+				//逐实例 PBR（第五百六十四轮）
+				数据.use_pbr = 声明.use_pbr;
+				数据.pbr_roughness = 声明.pbr_roughness;
+				数据.pbr_metallic = 声明.pbr_metallic;
 				//实例数据校验（模板已登记 ＋ 覆盖值合法）
 				if (!renderer.material_instance_validate(数据))
 				{
@@ -7701,6 +7712,14 @@ namespace engine
 			if (!std::isfinite(data.toon_rim) || data.toon_rim < 0.0f || data.toon_rim > 1.0f)
 				return false;
 			if (!std::isfinite(data.toon_specular) || data.toon_specular < 0.0f || data.toon_specular > 1.0f)
+				return false;
+		}
+		//逐实例 PBR（第五百六十四轮）：粗糙度 (0.05, 4]、金属度 [0, 1]
+		if (data.use_pbr)
+		{
+			if (!std::isfinite(data.pbr_roughness) || data.pbr_roughness <= 0.05f || data.pbr_roughness > 4.0f)
+				return false;
+			if (!std::isfinite(data.pbr_metallic) || data.pbr_metallic < 0.0f || data.pbr_metallic > 1.0f)
 				return false;
 		}
 		return true;

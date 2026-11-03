@@ -9,7 +9,7 @@ namespace engine
 {
 	/*
 	材质实例声明（第四百六十六轮；方向七阶段 B）
-	关卡文本的 `material` 行：实例名 ＋ 模板材质名 ＋ 可选 tint / emissive 覆盖。
+	关卡文本的 `material` 行：实例名 ＋ 模板材质名 ＋ 可选 tint / emissive / toon / pbr 覆盖。
 	只保存声明（Vulkan-free），不持有句柄；装配阶段由场景侧按实例名查表。
 	*/
 	struct Level_Material
@@ -37,6 +37,15 @@ namespace engine
 		float toon_rim = 0.0f;
 		//卡通高光阈值（0..1）
 		float toon_specular = 0.0f;
+		/*
+		逐实例 PBR 覆盖（第五百六十四轮）
+		仅 use_pbr 为真时生效：覆盖即启用 PBR；粗糙度 (0.05, 4]、金属度 [0, 1]。
+		*/
+		bool use_pbr = false;
+		//粗糙度（0.05 < 值 ≤ 4）
+		float pbr_roughness = 1.0f;
+		//金属度（0..1）
+		float pbr_metallic = 0.0f;
 	};
 
 	/*
@@ -77,7 +86,7 @@ namespace engine
 	         spot_shadow_bias_auto 为 <0|1>，非 0 时逐瓦片偏置按跨度归一化（第五百二十九轮）
 	  fog    color|density|range|mode|height_falloff <值…>
 	  mesh / mtl / place <清单原文>（语法同场景清单，装载阶段解析）
-	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular]（第四百六十六 / 471 轮）
+	  material <实例名> <模板材质名> [tint r g b a] [emissive v] [toon steps rim specular] [pbr roughness metallic]（第四百六十六 / 471 / 564 轮）
 	浮点按 `%.9g` 写出（二进制 32 位浮点可唯一还原），故读写往返逐位一致。
 	失败（路径不可读 / 超限 / 未知段或键 / 字段数不符 / 非有限值 / 光源超过 8 盏）时返回假并清空输出。
 	本函数只做文本层校验，不校验资产文件是否存在、不建 GPU 资源。

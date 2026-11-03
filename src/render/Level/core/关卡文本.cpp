@@ -285,6 +285,14 @@ namespace engine
 					if (!finite_one(material.toon_specular) || material.toon_specular < 0.0f || material.toon_specular > 1.0f)
 						return false;
 				}
+				//逐实例 PBR（第五百六十四轮）：粗糙度 (0.05, 4]、金属度 [0, 1]
+				if (material.use_pbr)
+				{
+					if (!finite_one(material.pbr_roughness) || material.pbr_roughness <= 0.05f || material.pbr_roughness > 4.0f)
+						return false;
+					if (!finite_one(material.pbr_metallic) || material.pbr_metallic < 0.0f || material.pbr_metallic > 1.0f)
+						return false;
+				}
 			}
 			return true;
 		}
@@ -936,8 +944,8 @@ namespace engine
 					//覆盖底色
 					if (key == "tint")
 					{
-						//重复或顺序错误（toon 之后不得再出现 tint / emissive）
-						if (material.use_tint || material.use_emissive || material.use_toon)
+						//重复或顺序错误（后置覆盖项之后不得再出现 tint）
+						if (material.use_tint || material.use_emissive || material.use_toon || material.use_pbr)
 						{
 							logger.warn("关卡:: material 覆盖项顺序非法（{}）", key);
 							return false;
@@ -965,8 +973,8 @@ namespace engine
 					//覆盖自发光
 					if (key == "emissive")
 					{
-						//重复覆盖或顺序错误（toon 之后不得再出现 emissive）
-						if (material.use_emissive || material.use_toon)
+						//重复覆盖或顺序错误（toon / pbr 之后不得再出现 emissive）
+						if (material.use_emissive || material.use_toon || material.use_pbr)
 						{
 							logger.warn("关卡:: material 覆盖项重复（{}）", key);
 							return false;
@@ -1016,6 +1024,34 @@ namespace engine
 						material.toon_rim = values[1];
 						material.toon_specular = values[2];
 						material.use_toon = true;
+						continue;
+					}
+					//逐实例 PBR（第五百六十四轮；两值：粗糙度 / 金属度）
+					if (key == "pbr")
+					{
+						//重复覆盖
+						if (material.use_pbr)
+						{
+							logger.warn("关卡:: material 覆盖项重复（{}）", key);
+							return false;
+						}
+						float values[2] = {};
+						//缺字段
+						if (!floats_read_n(stream, values, 2))
+						{
+							logger.warn("关卡:: material pbr 字段非法");
+							return false;
+						}
+						//非有限或越界（粗糙度 (0.05, 4]、金属度 0..1）
+						if (!std::isfinite(values[0]) || values[0] <= 0.05f || values[0] > 4.0f
+							|| !std::isfinite(values[1]) || values[1] < 0.0f || values[1] > 1.0f)
+						{
+							logger.warn("关卡:: material pbr 数值越界");
+							return false;
+						}
+						material.pbr_roughness = values[0];
+						material.pbr_metallic = values[1];
+						material.use_pbr = true;
 						continue;
 					}
 					//未知覆盖项
@@ -1255,6 +1291,9 @@ namespace engine
 			if (material.use_toon)
 				file << " toon " << number_text(material.toon_steps) << ' ' << number_text(material.toon_rim)
 					<< ' ' << number_text(material.toon_specular);
+			//逐实例 PBR（第五百六十四轮）
+			if (material.use_pbr)
+				file << " pbr " << number_text(material.pbr_roughness) << ' ' << number_text(material.pbr_metallic);
 			file << '\n';
 		}
 
