@@ -116,6 +116,20 @@ namespace engine
 	bool level_material_update(Level_Data& level, const std::string& name, const Level_Material& data);
 
 	/*
+	新增关卡内材质实例声明（第五百九十三轮）
+	把 data 追加到 `Level_Data.materials` 末尾（保留其中的实例名）；实例名为空、已存在同名（按首个匹配）、
+	或已达声明上限（256 条）时返回假且不改关卡。本函数不做数值校验，写出前由 `level_text_write` 统一校验。
+	*/
+	bool level_material_add(Level_Data& level, const Level_Material& data);
+
+	/*
+	删除关卡内材质实例声明（第五百九十三轮）
+	按实例名删除首个匹配项并保持其余声明原有顺序；空名 / 未找到返回假且不改关卡。
+	本函数只改声明表，不回溯清理 `place` 行对已删实例的引用。
+	*/
+	bool level_material_remove(Level_Data& level, const std::string& name);
+
+	/*
 	构造关卡对象的变换矩阵（第四百三十一轮；列主序 4×4）
 	按「缩放 → 旋转 → 平移」合成（M = T·R·S）；旋转为欧拉角（**度**），顺序 X → Y → Z（R = Rz·Ry·Rx）。
 	结果可直接传给 `mesh_draw` / `mesh_draw_sections` / `mesh_draw_range`；

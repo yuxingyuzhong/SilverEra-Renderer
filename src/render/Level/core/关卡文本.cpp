@@ -1351,4 +1351,44 @@ namespace engine
 		}
 		return false;
 	}
+
+	//新增关卡内材质实例声明（第五百九十三轮；追加到声明表末尾）
+	bool level_material_add(Level_Data& level, const Level_Material& data)
+	{
+		//若实例名为空
+		if (data.实例名.empty())
+			return false;
+		//若已达声明上限
+		if (level.materials.size() >= MAX_LEVEL_MATERIALS)
+			return false;
+		//逐个比对实例名（同名拒绝）
+		for (const Level_Material& material : level.materials)
+		{
+			//若实例名一致
+			if (material.实例名 == data.实例名)
+				return false;
+		}
+		level.materials.push_back(data);
+		return true;
+	}
+
+	//删除关卡内材质实例声明（第五百九十三轮；只删首个匹配项）
+	bool level_material_remove(Level_Data& level, const string& name)
+	{
+		//若名称为空
+		if (name.empty())
+			return false;
+		//按顺序定位首个匹配项
+		for (auto it = level.materials.begin(); it != level.materials.end(); ++it)
+		{
+			//若实例名一致
+			if (it->实例名 == name)
+			{
+				//删除该声明（其余顺序不变）
+				level.materials.erase(it);
+				return true;
+			}
+		}
+		return false;
+	}
 }
