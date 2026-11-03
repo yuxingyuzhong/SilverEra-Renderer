@@ -1007,7 +1007,8 @@ namespace engine
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item* post_items,
 		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool,
 		VkImage swapchain_msaa_image, VkImageView swapchain_msaa_color_view,
-		VkImageView swapchain_msaa_depth_view, uint32_t swapchain_sample_count)
+		VkImageView swapchain_msaa_depth_view, uint32_t swapchain_sample_count,
+		const Frame_Ui_Callback* ui_callback)
 	{
 		//场景目标（目标组首项）
 		const Frame_Render_Target& scene_target = targets[0];
@@ -1393,6 +1394,29 @@ namespace engine
 			frame_recorded.instances += stage_counts.instances;
 			//本级 · 结束动态渲染
 			vkCmdEndRendering(command_buffer);
+
+			/*
+			末级后处理结束后绘制 UI（UI 不吃后处理）
+			交换链图像此刻已由末级写入（直写或 MSAA 解析），布局为 COLOR_ATTACHMENT_OPTIMAL；
+			以「加载后保留」的 UI 通道叠加，故 UI 不再进入任何后处理级；
+			未给回调时整段跳过，画面与引入前逐字节一致。
+			*/
+			if (last_stage && ui_callback != nullptr && ui_callback->fn != nullptr)
+			{
+				//UI 视口 / 裁剪按交换链范围
+				VkViewport ui_viewport{};
+				ui_viewport.x = 0.0f;
+				ui_viewport.y = 0.0f;
+				ui_viewport.width = static_cast<float>(swapchain_extent.width);
+				ui_viewport.height = static_cast<float>(swapchain_extent.height);
+				ui_viewport.minDepth = 0.0f;
+				ui_viewport.maxDepth = 1.0f;
+				VkRect2D ui_scissor{};
+				ui_scissor.offset = { 0, 0 };
+				ui_scissor.extent = swapchain_extent;
+				ui_pass_record(command_buffer, swapchain_image, swapchain_view, swapchain_extent,
+					ui_viewport, ui_scissor, ui_callback);
+			}
 
 			//末级（交换链）：按是否回读收尾为 TRANSFER_SRC → PRESENT_SRC 或直接 COLOR_ATTACHMENT → PRESENT_SRC
 			if (last_stage)

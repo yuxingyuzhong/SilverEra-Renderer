@@ -433,11 +433,12 @@ namespace engine
 	*/
 	bool Frame_Context::render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
-		const float clear_color[4], bool& rebuild_needed_out, Frame_Readback_Request* readback)
+		const float clear_color[4], bool& rebuild_needed_out, Frame_Readback_Request* readback,
+		const Frame_Ui_Callback* ui_callback)
 	{
 		//单级后处理（源 = 场景目标、宿 = 交换链，目标组仅一项）
 		return render_chain_present(swapchain, &target, 1, items, item_count,
-			&post_item, 1, clear_color, rebuild_needed_out, readback);
+			&post_item, 1, clear_color, rebuild_needed_out, readback, ui_callback);
 	}
 
 	/*
@@ -447,7 +448,7 @@ namespace engine
 	bool Frame_Context::render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target* targets,
 		uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 		const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
-		bool& rebuild_needed_out, Frame_Readback_Request* readback)
+		bool& rebuild_needed_out, Frame_Readback_Request* readback, const Frame_Ui_Callback* ui_callback)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -598,7 +599,7 @@ namespace engine
 			targets, target_count, items, item_count, post_items, post_count, clear_color,
 			readback_target, slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
-			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get());
+			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get(), ui_callback);
 		//并行上下文只对本帧录制有效（清空后下一帧重新判定）
 		active_secondary = nullptr;
 		active_secondary_count = 0;

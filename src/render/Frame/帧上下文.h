@@ -399,7 +399,7 @@ namespace engine
 		bool render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
 			const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
 			const float clear_color[4], bool& rebuild_needed_out,
-			Frame_Readback_Request* readback = nullptr);
+			Frame_Readback_Request* readback = nullptr, const Frame_Ui_Callback* ui_callback = nullptr);
 		/*
 		渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内顺序执行 N 级后处理并呈现到交换链
 		targets / target_count 为中间目标组：targets[0] 为场景目标，其余为额外中间目标（2..4 个）；
@@ -414,7 +414,8 @@ namespace engine
 		bool render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target* targets,
 			uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 			const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
-			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr);
+			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr,
+			const Frame_Ui_Callback* ui_callback = nullptr);
 		/*
 		实际绘制量（第十一轮新增）
 		区分「登记量」（上层登记的渲染项数）与「实际绘制量」（真正下达绘制命令的量）：
@@ -588,10 +589,11 @@ namespace engine
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false,
 			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
-		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
+		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ UI ＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
 		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；
 		后处理各级：源（targets[i % target_count]）恒 SHADER_READ_ONLY → 以 post_items[i] 全屏绘制到宿
 		（末级为交换链，否则 targets[(i + 1) % target_count]，写完后转回 SHADER_READ_ONLY）；
+		末级结束后若给定 UI 回调，则在交换链图像上再开一次「保留内容」的 UI 通道（UI 不经后处理）；
 		交换链图像收尾按是否回读转入 TRANSFER_SRC + PRESENT_SRC 或直接转 PRESENT_SRC（与既有路径同口径）。
 		*/
 		void command_record_chain_present(VkCommandBuffer command_buffer, VkImage swapchain_image,
@@ -601,7 +603,8 @@ namespace engine
 			uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
 			VkImage swapchain_msaa_image = VK_NULL_HANDLE, VkImageView swapchain_msaa_color_view = VK_NULL_HANDLE,
-			VkImageView swapchain_msaa_depth_view = VK_NULL_HANDLE, uint32_t swapchain_sample_count = 1);
+			VkImageView swapchain_msaa_depth_view = VK_NULL_HANDLE, uint32_t swapchain_sample_count = 1,
+			const Frame_Ui_Callback* ui_callback = nullptr);
 		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。
@@ -611,7 +614,7 @@ namespace engine
 		UI 阶段录制（实现见 core/命令录制.cpp；第二百一十四轮从两处内联代码抽取）
 		MSAA 解析完成后以「加载后保留」的单采样通道绘制 UI：先做同布局依赖屏障，
 		再开仅含颜色附件的动态渲染，恢复视口 / 裁剪后调用上层回调。
-		链路径不绘制 UI（UI 由上层在帧外处理），故仅交换链直通与离屏目标两处调用。
+		交换链直通 / 离屏目标在后处理前调用；链路径在**末级后处理之后**调用（UI 不吃后处理）。
 		*/
 		void ui_pass_record(VkCommandBuffer command_buffer, VkImage color_image, VkImageView color_view,
 			VkExtent2D extent, VkViewport viewport, VkRect2D scissor, const Frame_Ui_Callback* ui_callback);

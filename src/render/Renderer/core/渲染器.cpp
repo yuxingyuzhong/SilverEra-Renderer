@@ -3550,11 +3550,11 @@ namespace engine
 				if (items_ready)
 				{
 					offscreen = true;
-					//场景 pass ＋ 降采样 ＋ 默认后处理 ＋ 呈现
+					//场景 pass ＋ 降采样 ＋ 默认后处理 ＋ UI ＋ 呈现
 					if (!impl->frame.render_chain_present(impl->swapchain, targets.data(), 2,
 						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
 						post_items.data(), static_cast<uint32_t>(post_items.size()),
-						clear_color, rebuild_needed, readback_ptr))
+						clear_color, rebuild_needed, readback_ptr, impl->ui_channel.draw_callback_get()))
 					{
 						logger.error("渲染器:: SSAA 帧渲染失败");
 						return false;
@@ -3742,12 +3742,12 @@ namespace engine
 				if (items_ready)
 				{
 					offscreen = true;
-					//场景 pass ＋ N 级后处理 pass（目标轮转）＋ 呈现（单级路径即本函数 N = 1 的特例）
+					//场景 pass ＋ N 级后处理 pass（目标轮转）＋ UI ＋ 呈现（单级路径即本函数 N = 1 的特例）
 					if (!impl->frame.render_chain_present(impl->swapchain, targets.data(),
 						static_cast<uint32_t>(targets.size()),
 						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
 						post_items.data(), static_cast<uint32_t>(post_items.size()),
-						clear_color, rebuild_needed, readback_ptr))
+						clear_color, rebuild_needed, readback_ptr, impl->ui_channel.draw_callback_get()))
 					{
 						logger.error("渲染器:: 同帧后处理链渲染失败");
 						return false;
