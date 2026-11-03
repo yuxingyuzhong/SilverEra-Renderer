@@ -167,6 +167,12 @@ namespace engine
 		第五百一十三轮起开启时前 8 盏聚光灯各自投影（瓦片 0..7）。
 		*/
 		int spot_shadow_all = 0;
+		/*
+		聚光灯阴影偏置自校准（第五百二十九轮）
+		非 0 时逐瓦片有效偏置按「参考跨度 9 / 该瓦片跨度」缩放，使不同半径的阴影偏移接近一致；
+		为 0（默认）时逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。
+		*/
+		int spot_shadow_bias_auto = 0;
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;

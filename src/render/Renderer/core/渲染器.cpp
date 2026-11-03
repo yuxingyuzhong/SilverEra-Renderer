@@ -9744,6 +9744,13 @@ namespace engine
 		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
 		//聚光灯阴影序号（第四百七十九轮；非法值由 setter 整次忽略）
 		spot_shadow_index_set(light.spot_shadow_index);
+		/*
+		聚光灯阴影偏置自校准（第五百二十九轮）
+		仅在开关值变化时调用 setter：该 setter 会把阴影图标记为待重绘，
+		默认（0 与初始 false 相同）不触发，保持既有重绘时序与画面逐字节不变。
+		*/
+		if (impl->spot_shadow_bias_auto != (light.spot_shadow_bias_auto != 0))
+			spot_shadow_bias_auto_set(light.spot_shadow_bias_auto != 0);
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
 		impl->spot_shadow_all = light.spot_shadow_all != 0;
 		/*
