@@ -122,45 +122,75 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/VulkanSDK探测.cmake")
 #
 # 但「② 固定优先 Debug」对双构建树是不合适的：本层的 Release 树若拿到 Debug 版下层库，
 # 就会出现 /MD 的库配 /MDd 的下层库（运行库不一致 → LNK4098，严重时堆损坏）。
-# 因此这里**不由下层函数猜**，而是在本层按 CMAKE_BUILD_TYPE 显式映射（不改共享的
+# 因此这里**不由下层函数猜**，而是在本层按「当前构建配置」显式映射（不改共享的
 # byjy_jieru_xiaceng()，映射逻辑只属于本层）：
-#     Debug                                  → Engine/EngineCore/out/build/x64-Debug/lib/EngineCore.lib
-#     Release（含 RelWithDebInfo/MinSizeRel） → 同名 x64-Release 目录
+#     Debug                                  → 冻结快照 下层依赖/EngineCore/x64-Debug
+#     Release（含 RelWithDebInfo/MinSizeRel） → 冻结快照 下层依赖/EngineCore/x64-Release
+# 快照缺失时回退到 Engine/EngineCore/out/build/x64-<Debug|Release>。
 # 仍可用 -DBYJY_ENGINE_CORE_LIB_PATH=... 手工覆盖（例如临时接另一棵树的库）。
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/接入下层.cmake")
 
 set(BYJY_ENGINE_CORE_LIB_PATH "" CACHE FILEPATH
-    "EngineCore 静态库路径；留空则按本层构建类型映射到 out/build/x64-<构建类型>/lib/EngineCore.lib")
+    "EngineCore 静态库路径；留空则按构建配置自动取冻结快照（x64-Debug / x64-Release）")
+
+# 双配置快照根与库：Debug / Release 各算一份，随后由「导入目标的分配置属性」与
+# $<CONFIG> 表达式按当前配置选取。
+#
+# 为什么不能只看 CMAKE_BUILD_TYPE：
+#   Visual Studio 是多配置生成器，配置期 CMAKE_BUILD_TYPE 为空，且同一棵构建树里
+#   Debug / Release 共用一份生成的工程；旧口径把空值当 Release，导致 Debug 构建
+#   实际编译 / 链接 Release 版 EngineCore（/MD 库混入 /MDd 目标，运行库不一致）。
+set(BYJY_ENGINE_CORE_AUTO TRUE)
+set(BYJY_ENGINE_CORE_LIB_DEBUG "")
+set(BYJY_ENGINE_CORE_LIB_RELEASE "")
+set(BYJY_ENGINE_CORE_SNAPSHOT_DEBUG "")
+set(BYJY_ENGINE_CORE_SNAPSHOT_RELEASE "")
 
 if("${BYJY_ENGINE_CORE_LIB_PATH}" STREQUAL "")
-    # 本层构建类型 → 下层构建树目录名（RelWithDebInfo / MinSizeRel 用 /MD，故并入 Release）
+    foreach(_byjy_cfg IN ITEMS DEBUG RELEASE)
+        # 配置名 → 下层构建树目录名
+        if("${_byjy_cfg}" STREQUAL "DEBUG")
+            set(_byjy_tree "x64-Debug")
+        else()
+            set(_byjy_tree "x64-Release")
+        endif()
+
+        # 优先使用本层内部的「冻结快照」（第八十六轮）
+        # 快照由工作站 刷新渲染层下层快照.ps1 生成：下层依赖/EngineCore/x64-<tree>/{include,lib}；
+        # 存在即锁定使用，使引擎核心的并行开发（源码 / 构建树变动）不影响渲染层构建。
+        set(_byjy_snap_tree "${CMAKE_CURRENT_SOURCE_DIR}/下层依赖/EngineCore/${_byjy_tree}")
+        set(_byjy_snap_lib "${_byjy_snap_tree}/lib/EngineCore.lib")
+        set(_byjy_snap_inc "${_byjy_snap_tree}/include")
+
+        if(EXISTS "${_byjy_snap_lib}" AND IS_DIRECTORY "${_byjy_snap_inc}")
+            set(BYJY_ENGINE_CORE_LIB_${_byjy_cfg} "${_byjy_snap_lib}")
+            set(BYJY_ENGINE_CORE_SNAPSHOT_${_byjy_cfg} "${_byjy_snap_inc}")
+            message(STATUS "Renderer：${_byjy_cfg} 使用冻结下层快照 → ${_byjy_snap_tree}")
+        else()
+            # 快照缺失 → 回退该配置的下层构建树（库与头仍同配置），并提示先刷新快照
+            set(_byjy_build_tree "${BYJY_PROJECT_ROOT}/Engine/EngineCore/out/build/${_byjy_tree}")
+            set(BYJY_ENGINE_CORE_LIB_${_byjy_cfg} "${_byjy_build_tree}/lib/EngineCore.lib")
+            set(BYJY_ENGINE_CORE_SNAPSHOT_${_byjy_cfg} "${_byjy_build_tree}/include")
+            message(WARNING
+                "Renderer：未找到 ${_byjy_cfg} 冻结快照 ${_byjy_snap_lib}，回退到下层构建树 ${_byjy_tree}。\n"
+                "          如需冻结依赖，请先运行工作站 刷新渲染层下层快照.ps1 后重新配置。")
+        endif()
+    endforeach()
+
+    # 单配置生成器（Ninja）只认 IMPORTED_LOCATION：按其构建类型挑一份；
+    # 未指定 CMAKE_BUILD_TYPE 时沿用旧口径按 Release 处理。
     if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-        set(BYJY_XIA_CENG_TREE "x64-Debug")
+        set(BYJY_ENGINE_CORE_LIB_PATH "${BYJY_ENGINE_CORE_LIB_DEBUG}")
     else()
-        set(BYJY_XIA_CENG_TREE "x64-Release")
+        set(BYJY_ENGINE_CORE_LIB_PATH "${BYJY_ENGINE_CORE_LIB_RELEASE}")
     endif()
-
-    # 优先使用本层内部的「冻结快照」（第八十六轮）
-    # 快照由工作站 刷新渲染层下层快照.ps1 生成：下层依赖/EngineCore/x64-<tree>/{include,lib}；
-    # 存在即锁定使用，使引擎核心的并行开发（源码 / 构建树变动）不影响渲染层构建。
-    # 快照缺失时回退到 EngineCore 构建树，并给出告警提示先运行刷新脚本。
-    set(BYJY_ENGINE_CORE_SNAPSHOT_TREE
-        "${CMAKE_CURRENT_SOURCE_DIR}/下层依赖/EngineCore/${BYJY_XIA_CENG_TREE}")
-    set(BYJY_ENGINE_CORE_SNAPSHOT_LIB
-        "${BYJY_ENGINE_CORE_SNAPSHOT_TREE}/lib/EngineCore.lib")
-
-    if(EXISTS "${BYJY_ENGINE_CORE_SNAPSHOT_LIB}")
-        set(BYJY_ENGINE_CORE_LIB_PATH "${BYJY_ENGINE_CORE_SNAPSHOT_LIB}")
-        message(STATUS "Renderer：使用冻结下限层库 → ${BYJY_ENGINE_CORE_LIB_PATH}")
-    else()
-        set(BYJY_ENGINE_CORE_LIB_PATH
-            "${BYJY_PROJECT_ROOT}/Engine/EngineCore/out/build/${BYJY_XIA_CENG_TREE}/lib/EngineCore.lib"
-        )
-        message(WARNING
-            "Renderer：未找到冻结快照 ${BYJY_ENGINE_CORE_SNAPSHOT_LIB}，回退到下层构建树。\n"
-            "          如需冻结依赖，请先运行工作站 刷新渲染层下层快照.ps1 后重新配置。")
-        message(STATUS "Renderer：按本层构建类型 ${CMAKE_BUILD_TYPE} 映射下层库 → ${BYJY_XIA_CENG_TREE}")
-    endif()
+else()
+    # 手工覆盖：两配置共用同一份库，快照根由该库所在构建树反推
+    set(BYJY_ENGINE_CORE_AUTO FALSE)
+    get_filename_component(_byjy_override_build "${BYJY_ENGINE_CORE_LIB_PATH}/../.." ABSOLUTE)
+    set(BYJY_ENGINE_CORE_SNAPSHOT_DEBUG "${_byjy_override_build}/include")
+    set(BYJY_ENGINE_CORE_SNAPSHOT_RELEASE "${_byjy_override_build}/include")
+    message(WARNING "Renderer：使用手工覆盖的 EngineCore 库 → ${BYJY_ENGINE_CORE_LIB_PATH}")
 endif()
 
 byjy_jieru_xiaceng(
@@ -169,20 +199,40 @@ byjy_jieru_xiaceng(
     "BYJY_ENGINE_CORE_LIB_PATH"
 )
 
+# 多配置生成器按 $<CONFIG> 取库：Debug → x64-Debug，其余（Release / RelWithDebInfo /
+# MinSizeRel，均为 /MD）→ x64-Release。单配置生成器继续用上面的 IMPORTED_LOCATION。
+if(BYJY_ENGINE_CORE_AUTO)
+    set_target_properties(EngineCore PROPERTIES
+        IMPORTED_LOCATION_DEBUG "${BYJY_ENGINE_CORE_LIB_DEBUG}"
+        IMPORTED_LOCATION_RELEASE "${BYJY_ENGINE_CORE_LIB_RELEASE}"
+        IMPORTED_LOCATION_RELWITHDEBINFO "${BYJY_ENGINE_CORE_LIB_RELEASE}"
+        IMPORTED_LOCATION_MINSIZEREL "${BYJY_ENGINE_CORE_LIB_RELEASE}"
+    )
+endif()
+
 # =============================================================================
 # 1.5 下层头快照接入
 # =============================================================================
 # 本层按「与下层静态库同版次」的头文件编译：把 EngineCore 的头快照根作为「本层自身的
 # 包含目录」列出，并排在项目根之前 —— 目标自身的 -I 恒在导入目标传递来的 /external:I
 # 之前，因此 Engine/... 必然先命中快照，不会落到源码树上的同名头。
-# 快照根由该库的 IMPORTED_LOCATION 反推，缺失即硬失败（不静默退回源码树）。
+# 头快照与库必须同配置：快照根用 $<CONFIG> 选取（Debug → x64-Debug，其余 → x64-Release）。
+# 目录缺失即硬失败（不静默退回源码树）。
 # =============================================================================
-byjy_tou_kuaizhao_gen(BYJY_ENGINE_CORE_SNAPSHOT EngineCore)
+foreach(_byjy_inc IN ITEMS
+        "${BYJY_ENGINE_CORE_SNAPSHOT_DEBUG}" "${BYJY_ENGINE_CORE_SNAPSHOT_RELEASE}")
+    if(NOT IS_DIRECTORY "${_byjy_inc}")
+        message(FATAL_ERROR
+            "Renderer：EngineCore 头快照目录不存在：${_byjy_inc}\n"
+            "  该目录由下层构建时导出。请先构建 EngineCore 对应配置树：\n"
+            "      cmake --build \"${BYJY_PROJECT_ROOT}/Engine/EngineCore/out/build/x64-<Debug|Release>\" --config <Debug|Release>\n"
+            "  或运行工作站 刷新渲染层下层快照.ps1 后重新配置。")
+    endif()
+endforeach()
 
 # 本层各目标的包含根：下层快照在前、项目根在后（供 Application/Renderer/... 全路径）。
-# 快照根里带着 x64-<构建类型> 的路径，因此「头与库同版次」在双构建树下一并成立。
 set(BYJY_RENDERER_INC
-    "${BYJY_ENGINE_CORE_SNAPSHOT}"
+    "$<IF:$<CONFIG:Debug>,${BYJY_ENGINE_CORE_SNAPSHOT_DEBUG},${BYJY_ENGINE_CORE_SNAPSHOT_RELEASE}>"
     "${BYJY_PROJECT_ROOT}"
 )
 
