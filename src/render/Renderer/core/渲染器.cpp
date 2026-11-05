@@ -12490,13 +12490,13 @@ namespace engine
 		}
 		//上限 64 世界单位 / 纹素（避免配置笔误）
 		const float effective = texel > 64.0f ? 64.0f : texel;
-		//数值变化才使旧阴影图失效（避免逐帧重建）
+		//数值变化才使旧阴影图失效（避免逐帧重建）；日志同样只在变化时输出（避免 scene_apply 逐帧刷屏）
 		if (effective != impl->shadow_texel_max)
 		{
 			impl->shadow_texel_max = effective;
 			impl->shadow_pass_ready = false;
+			logger.info("渲染器:: 阴影纹素上限已设为 {}", effective);
 		}
-		logger.info("渲染器:: 阴影纹素上限已设为 {}", effective);
 	}
 
 	//当前阴影纹素尺寸上限（第六百六十一轮）
