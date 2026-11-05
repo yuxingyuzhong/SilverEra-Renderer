@@ -214,6 +214,11 @@ namespace engine
 		*/
 		int light_select_mode = 0;
 		uint32_t light_budget = 0;
+		/*
+		逐盏聚光灯阴影开关（第六百四十八轮；按前向槽位 0..7）
+		1（默认）= 该盏聚光灯参与阴影；0 = 该盏不投影（不影响其余盏与方向光阴影）。
+		*/
+		int spot_shadow_on[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 	};
 
 	/*
@@ -434,5 +439,7 @@ namespace engine
 		//光源选择模式与预算（第六百四十五轮；语义见 Light_Data::light_select_mode / light_budget）
 		int light_select_mode = 0;
 		uint32_t light_budget = 0;
+		//逐盏聚光灯阴影开关（第六百四十八轮；语义见 Light_Data::spot_shadow_on）
+		int spot_shadow_on[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 	};
 }

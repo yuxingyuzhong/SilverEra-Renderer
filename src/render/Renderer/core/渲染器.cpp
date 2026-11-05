@@ -2379,6 +2379,9 @@ namespace engine
 					//非聚光灯跳过
 					if (!impl->point_lights[index].is_spot)
 						continue;
+					//该槽位的聚光阴影被关闭则跳过（第六百四十八轮；槽位 ≥ 8 不适用）
+					if (index < 8 && !impl->spot_shadow_light_enabled[index])
+						continue;
 					if (slot_mapping)
 						candidates[index] = static_cast<int>(index);
 					else if (spot_ordinal < Impl::SPOT_SHADOW_TILES)
@@ -2391,7 +2394,9 @@ namespace engine
 			}
 			//单盏：仅所选槽位且必须是聚光灯（瓦片固定为 0）
 			else if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
-				&& impl->point_lights[impl->spot_shadow_index].is_spot)
+				&& impl->point_lights[impl->spot_shadow_index].is_spot
+				//该槽位的聚光阴影被关闭则不投影（第六百四十八轮）
+				&& (impl->spot_shadow_index >= 8 || impl->spot_shadow_light_enabled[impl->spot_shadow_index]))
 			{
 				candidates[0] = impl->spot_shadow_index;
 				candidate_count = 1;
@@ -9390,6 +9395,9 @@ namespace engine
 			spot_shadow_bias_auto_set(light.spot_shadow_bias_auto != 0);
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
 		impl->spot_shadow_all = light.spot_shadow_all != 0;
+		//逐盏聚光灯阴影开关（第六百四十八轮；按前向槽位 0..7，默认全开）
+		for (std::size_t index = 0; index < Impl::SPOT_SHADOW_TILES; ++index)
+			impl->spot_shadow_light_enabled[index] = light.spot_shadow_on[index] != 0;
 		/*
 		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法；第五百一十三轮扩为 8 瓦片；
 		第六百四十四轮改为按「聚光灯所在槽位的最大下标」建立，超出 8 槽时回落按数量建立）
@@ -9536,6 +9544,9 @@ namespace engine
 		//光源选择模式与预算（第六百四十五轮）
 		light.light_select_mode = scene.light_select_mode;
 		light.light_budget = scene.light_budget;
+		//逐盏聚光灯阴影开关（第六百四十八轮）
+		for (std::size_t index = 0; index < Impl::SPOT_SHADOW_TILES; ++index)
+			light.spot_shadow_on[index] = scene.spot_shadow_on[index];
 		//雾组
 		Fog_Data fog{};
 		for (std::size_t index = 0; index < 3; ++index)
@@ -11839,6 +11850,25 @@ namespace engine
 		//矩阵与槽位映射随下一帧重算，旧阴影图不再可信
 		impl->shadow_pass_ready = false;
 		logger.info("渲染器:: 多盏聚光灯阴影已{}", enabled ? "开启" : "关闭");
+	}
+
+	/*
+	逐盏聚光灯阴影开关（第六百四十八轮；A2 数据化）
+	按前向槽位设置该盏聚光灯是否参与阴影；越界返回假（配置不变）。
+	与原值一致时为空操作；变化后置阴影图待重绘（槽位映射随下一帧重算）。
+	*/
+	bool Renderer::spot_shadow_light_set(uint32_t index, bool enabled)
+	{
+		//若尚未初始化或槽位越界
+		if (impl == nullptr || !impl->initialized || index >= Impl::SPOT_SHADOW_TILES)
+			return false;
+		//与原值一致则无需重绘
+		if (impl->spot_shadow_light_enabled[index] == enabled)
+			return true;
+		impl->spot_shadow_light_enabled[index] = enabled;
+		//旧阴影图不再可信（该槽位可能不再投影或重新投影）
+		impl->shadow_pass_ready = false;
+		return true;
 	}
 
 	//当前是否多盏聚光灯阴影（第五百一十一轮）

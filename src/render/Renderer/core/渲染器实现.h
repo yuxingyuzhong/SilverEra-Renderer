@@ -668,6 +668,12 @@ namespace engine
 		*/
 		bool spot_shadow_all = false;
 		/*
+		逐盏聚光阴影开关（第六百四十八轮；A2 数据化）
+		按前向槽位（0..7）控制该盏聚光灯是否参与阴影；默认全开（与引入前逐字节一致）。
+		槽位超出 8（簇路径压缩口径）时该数组不适用，对应光源按旧口径参与投影。
+		*/
+		bool spot_shadow_light_enabled[8] = { true, true, true, true, true, true, true, true };
+		/*
 		阴影光源正交视锥（第一百零七轮）
 		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
 		*/

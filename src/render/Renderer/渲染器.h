@@ -1905,6 +1905,12 @@ namespace engine
 		//当前是否多盏聚光灯阴影（未初始化时为默认假）
 		bool spot_shadow_all(void) const;
 		/*
+		逐盏聚光灯阴影开关（第六百四十八轮；A2 数据化）
+		index 为前向槽位（0..7）：true = 该盏参与阴影、false = 该盏不投影（其余盏与方向光阴影不受影响）；
+		越界返回假（配置不变）。默认全开，与引入前逐字节一致。
+		*/
+		bool spot_shadow_light_set(uint32_t index, bool enabled);
+		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
 		false（默认）：逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。
