@@ -124,14 +124,16 @@ namespace engine
 		}
 
 		/*
-		阴影输入签名（第五十五轮；第一百二十一轮加级联信息）
-		把光源空间矩阵（含远区级联矩阵）、本帧实例矩阵（全部 float 位模式）、投影项数、阴影图边长
-		与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
+		阴影输入签名（第五十五轮；第一百二十一轮加级联信息；第六百四十四轮只混参与投影的实例）
+		把光源空间矩阵（含远区级联矩阵与聚光瓦片）、**仅参与投影的绘制项实例矩阵**、投影项数、
+		阴影图边长与级联数混入 64 位 FNV-1a；用于判定阴影图能否跨帧复用（完全一致才跳过重绘）。
+		非投影项（文字 / 粒子等）的实例变化不再使签名变化，避免无谓的整张阴影重绘。
 		*/
 		uint64_t shadow_signature_build(const float light_view_proj[16], const float light_view_proj_far[16],
 			const float light_view_proj_far2[16], const float spot_view_proj_tiles[128],
-			const float* instances, std::size_t instance_count, std::size_t shadow_item_count,
-			uint32_t shadow_size, uint32_t cascade_count)
+			const std::vector<Frame_Render_Item>& items,
+			const std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& instances,
+			std::size_t shadow_item_count, uint32_t shadow_size, uint32_t cascade_count)
 		{
 			//FNV-1a 偏移基
 			uint64_t hash = 1469598103934665603ull;
@@ -155,9 +157,30 @@ namespace engine
 			//聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为 4 瓦片 64 浮点；第五百一十三轮扩为 8 瓦片 128 浮点）
 			for (std::size_t index = 0; index < 128; ++index)
 				mix_float(spot_view_proj_tiles[index]);
-			//实例矩阵（每项 16 个 float）
-			for (std::size_t index = 0; index < instance_count; ++index)
-				mix_float(instances[index]);
+			/*
+			实例矩阵（每实例 INSTANCE_FLOAT_COUNT 个 float）
+			只遍历参与投影的绘制项，并按 instance_offset 定位其连续实例区间；
+			越界（防御性）即停止该区间的混入，不影响已混内容。
+			*/
+			for (const Frame_Render_Item& item : items)
+			{
+				//非投影项跳过
+				if (!item.cast_shadow)
+					continue;
+				//该项首个实例下标与其实例数
+				const std::size_t first = static_cast<std::size_t>(item.instance_offset / INSTANCE_STRIDE_BYTES);
+				const std::size_t count = static_cast<std::size_t>(item.instance_count);
+				for (std::size_t instance = 0; instance < count; ++instance)
+				{
+					//实例下标越界则停止
+					const std::size_t base = first + instance;
+					if (base >= instances.size())
+						break;
+					//逐分量混入该实例矩阵
+					for (std::size_t index = 0; index < INSTANCE_FLOAT_COUNT; ++index)
+						mix_float(instances[base][index]);
+				}
+			}
 			//投影项数与阴影图边长
 			hash ^= static_cast<uint64_t>(shadow_item_count);
 			hash *= 1099511628211ull;
@@ -2277,6 +2300,16 @@ namespace engine
 					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
 					proj[1][1] *= -1.0f;
 					glm::mat4 vp = proj * light_view;
+					/*
+					级联纹素对齐（第六百四十四轮）
+					阴影视锥以相机为球心，相机移动会使整张阴影图逐帧平移（CSM 游泳 / 边缘闪烁）。
+					故把光源空间裁剪坐标的平移量（X / Y）吸附到本片纹素网格：NDC 步长 = 2 / 分片边长；
+					Z（深度）不吸附，避免改变深度精度分布。
+					*/
+					const float tile_pixels = static_cast<float>(impl->shadow_size) / static_cast<float>(cascade_total);
+					const float texel_ndc = 2.0f / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
+					vp[3][0] = std::floor(vp[3][0] / texel_ndc) * texel_ndc;
+					vp[3][1] = std::floor(vp[3][1] / texel_ndc) * texel_ndc;
 					//按片序写入对应矩阵（第四片不存在，级联数上限为 3）
 					float* target_matrix = cascade == 0 ? impl->light_view_proj
 						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
@@ -2322,27 +2355,52 @@ namespace engine
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
 		//是否存在至少一盏有效聚光阴影
 		bool spot_shadow_light_valid = false;
-		//可投影的光源槽位（最多 8 盏，按声明顺序）与数量
+		//可投影的光源槽位（最多 8 盏）与数量
 		int candidates[Impl::SPOT_SHADOW_TILES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+		//本帧有效瓦片数
 		std::size_t candidate_count = 0;
 		if (impl->spot_shadow_enabled)
 		{
 			if (impl->spot_shadow_all)
 			{
-				//多盏：收集前 8 盏聚光灯
-				for (std::size_t index = 0; index < impl->point_light_count && candidate_count < Impl::SPOT_SHADOW_TILES; ++index)
-					if (impl->point_lights[index].is_spot)
-						candidates[candidate_count++] = static_cast<int>(index);
+				/*
+				多盏：优先「瓦片号 = 光源槽位」（第六百四十四轮）
+				光源槽位都能落进 8 瓦片时按槽位固定，光源增减 / 重排不再使其它灯的瓦片整体前移；
+				总光源超过 8 槽（如 8 聚光 ＋ 3 点光 = 11 盏）时槽位无法一一对应，回落旧的「按声明顺序压缩」口径，
+				与既有 8 瓦片用例一致。
+				*/
+				bool slot_mapping = true;
+				for (std::size_t index = 0; index < impl->point_light_count; ++index)
+					if (impl->point_lights[index].is_spot && index >= Impl::SPOT_SHADOW_TILES)
+						slot_mapping = false;
+				std::size_t spot_ordinal = 0;
+				for (std::size_t index = 0; index < impl->point_light_count; ++index)
+				{
+					//非聚光灯跳过
+					if (!impl->point_lights[index].is_spot)
+						continue;
+					if (slot_mapping)
+						candidates[index] = static_cast<int>(index);
+					else if (spot_ordinal < Impl::SPOT_SHADOW_TILES)
+						candidates[spot_ordinal++] = static_cast<int>(index);
+				}
+				//统计本帧有效瓦片数
+				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+					if (candidates[tile] >= 0)
+						++candidate_count;
 			}
-			//单盏：仅所选槽位且必须是聚光灯
+			//单盏：仅所选槽位且必须是聚光灯（瓦片固定为 0）
 			else if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
 				&& impl->point_lights[impl->spot_shadow_index].is_spot)
 			{
 				candidates[0] = impl->spot_shadow_index;
 				candidate_count = 1;
 			}
-			for (std::size_t tile = 0; tile < candidate_count; ++tile)
+			for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			{
+				//该瓦片无对应光源则跳过
+				if (candidates[tile] < 0)
+					continue;
 				const Impl::Point_Light& spot = impl->point_lights[static_cast<std::size_t>(candidates[tile])];
 				glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
 				//方向退化时取默认传播方向
@@ -2400,12 +2458,10 @@ namespace engine
 				if (item.cast_shadow)
 					++shadow_item_count;
 			}
-			//本帧阴影输入签名（实例矩阵按 float 个数计；实例存储为连续 20 浮点数组）
-			const float* instance_floats = impl->pending_instances.empty()
-				? nullptr : impl->pending_instances.front().data();
+			//本帧阴影输入签名（只混参与投影的实例矩阵；第六百四十四轮）
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				impl->light_view_proj_far, impl->light_view_proj_far2, &impl->spot_view_proj_tiles[0][0], instance_floats,
-				impl->pending_instances.size() * INSTANCE_FLOAT_COUNT,
+				impl->light_view_proj_far, impl->light_view_proj_far2, &impl->spot_view_proj_tiles[0][0],
+				impl->pending_items, impl->pending_instances,
 				shadow_item_count, impl->shadow_size, impl->cascade_count);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
 			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
@@ -9211,17 +9267,36 @@ namespace engine
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
 		impl->spot_shadow_all = light.spot_shadow_all != 0;
 		/*
-		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法；第五百一十三轮扩为 8 瓦片）
-		只创建到实际需要的瓦片数（聚光灯数量），避免 4 盏场景无谓多建 4 张阴影图；
+		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法；第五百一十三轮扩为 8 瓦片；
+		第六百四十四轮改为按「聚光灯所在槽位的最大下标」建立，超出 8 槽时回落按数量建立）
+		槽位可一一对应时瓦片号 = 光源槽位，故需建到最靠后的聚光灯槽位；否则按聚光灯数量建立（与旧口径一致）。
 		创建失败仅告警，该瓦片按「无聚光阴影」处理，不影响其余瓦片。
 		*/
 		if (impl->spot_shadow_all)
 		{
-			//所需瓦片数 = 聚光灯数量（至少 1、最多 8）
-			std::size_t tile_limit = light.spot_count > 0 ? static_cast<std::size_t>(light.spot_count) : 1u;
-			if (tile_limit > Impl::SPOT_SHADOW_TILES)
-				tile_limit = Impl::SPOT_SHADOW_TILES;
-			spot_shadow_tiles_ensure(tile_limit);
+			/*
+			所需瓦片数（第六百四十四轮）
+			槽位可一一对应时建到「最靠后的聚光灯槽位 + 1」；总光源超过 8 槽而回落压缩口径时建到「聚光灯数量」；
+			两者都至少建 1 张占位。
+			*/
+			std::size_t tile_limit = 0;
+			bool slot_mapping = true;
+			std::size_t spot_total = 0;
+			for (std::size_t slot = 0; slot < impl->point_light_count; ++slot)
+			{
+				//非聚光灯跳过
+				if (!impl->point_lights[slot].is_spot)
+					continue;
+				++spot_total;
+				if (slot >= Impl::SPOT_SHADOW_TILES)
+					slot_mapping = false;
+				else
+					tile_limit = slot + 1;
+			}
+			//回落压缩口径：瓦片数 = 聚光灯数量（上限 8）
+			if (!slot_mapping)
+				tile_limit = spot_total < Impl::SPOT_SHADOW_TILES ? spot_total : Impl::SPOT_SHADOW_TILES;
+			spot_shadow_tiles_ensure(tile_limit > 0 ? tile_limit : 1u);
 		}
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
@@ -11599,15 +11674,26 @@ namespace engine
 		if (impl->spot_shadow_all == enabled)
 			return;
 		impl->spot_shadow_all = enabled;
-		//开启：按已登记的聚光灯数量补齐瓦片（无聚光时至少建瓦片 1 占位）
+		//开启：按槽位 / 压缩口径补齐瓦片（第六百四十四轮；无聚光时至少建瓦片 1 占位）
 		if (enabled)
 		{
-			//已登记聚光灯数
-			std::size_t spot_count = 0;
-			for (std::size_t index = 0; index < impl->point_light_count; ++index)
-				if (impl->point_lights[index].is_spot)
-					++spot_count;
-			spot_shadow_tiles_ensure(spot_count > 0 ? spot_count : 1u);
+			//所需瓦片数（与帧内口径一致）
+			std::size_t tile_limit = 0;
+			bool slot_mapping = true;
+			std::size_t spot_total = 0;
+			for (std::size_t slot = 0; slot < impl->point_light_count; ++slot)
+			{
+				if (!impl->point_lights[slot].is_spot)
+					continue;
+				++spot_total;
+				if (slot >= Impl::SPOT_SHADOW_TILES)
+					slot_mapping = false;
+				else
+					tile_limit = slot + 1;
+			}
+			if (!slot_mapping)
+				tile_limit = spot_total < Impl::SPOT_SHADOW_TILES ? spot_total : Impl::SPOT_SHADOW_TILES;
+			spot_shadow_tiles_ensure(tile_limit > 0 ? tile_limit : 1u);
 		}
 		//矩阵与槽位映射随下一帧重算，旧阴影图不再可信
 		impl->shadow_pass_ready = false;
