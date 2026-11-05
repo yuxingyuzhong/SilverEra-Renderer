@@ -258,6 +258,18 @@ namespace engine
 		最终颜色按 2^EV 缩放；EV = 0 时乘性恒等（画面逐字节不变）；钳到 [-4, 4]。
 		*/
 		float exposure = 0.0f;
+		/*
+		阴影纹素尺寸上限（第六百六十一轮；世界单位 / 纹素，0 = 关闭（默认））
+		>0 时每片级联半径按「上限 × 分片边长 / 2」收紧：近处纹素不再过粗，
+		代价是覆盖面缩小（半径外的片元按现有口径视为受光）；关闭时矩阵与引入前逐字节一致。
+		*/
+		float shadow_texel_max = 0.0f;
+		/*
+		级联切换带自动淡化（第六百六十一轮；0 = 关闭（默认））
+		开启且显式淡化比例为 0、级联数 ≥ 2 时，按「4 / 分片边长」（切换带半宽 ≥ 2 纹素）
+		自动给出建议比例；显式比例 > 0 时以显式值为准；关闭时行为与引入前逐字节一致。
+		*/
+		int shadow_cascade_blend_auto = 0;
 	};
 
 	/*
@@ -496,5 +508,8 @@ namespace engine
 		uint32_t shadow_budget_bytes = 0;
 		//曝光补偿（第六百六十轮；语义见 Light_Data::exposure）
 		float exposure = 0.0f;
+		//阴影纹素尺寸上限与级联自动淡化（第六百六十一轮；语义见 Light_Data 同名成员）
+		float shadow_texel_max = 0.0f;
+		int shadow_cascade_blend_auto = 0;
 	};
 }

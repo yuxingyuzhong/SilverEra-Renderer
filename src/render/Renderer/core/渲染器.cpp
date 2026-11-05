@@ -2275,6 +2275,8 @@ namespace engine
 				      片元按与相机的距离选择，故与着色器的选择口径严格一致（不依赖视场角与宽高比）。
 				三级（第一百四十六轮）：再追加一片，半径为 split × far_scale²，选择阈值再加 split × far_scale。
 			*/
+			//本帧生效纹素世界尺寸（多级取各片最大；第六百六十一轮）
+			impl->shadow_texel_world = 0.0f;
 			if (impl->cascade_count >= 2 && impl->cascade_far_scale > 1.0f)
 			{
 				//相机世界位置（各片包围球的共同中心）
@@ -2292,6 +2294,17 @@ namespace engine
 					float radius = impl->cascade_split_distance;
 					for (uint32_t level = 0; level < cascade; ++level)
 						radius *= impl->cascade_far_scale;
+					/*
+					纹素尺寸钳制（第六百六十一轮）
+					半径上限 = 纹素上限 × 分片边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
+					*/
+					const float tile_pixels = static_cast<float>(impl->shadow_size) / static_cast<float>(cascade_total);
+					if (impl->shadow_texel_max > 0.0f)
+					{
+						const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+						if (radius > radius_cap)
+							radius = radius_cap;
+					}
 					//光源机位：沿逆光向退到「球半径 + 近平面」处，使整球都落在近平面之后
 					glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
 					glm::mat4 light_view = glm::lookAt(eye, center, up);
@@ -2306,7 +2319,6 @@ namespace engine
 					故把光源空间裁剪坐标的平移量（X / Y）吸附到本片纹素网格：NDC 步长 = 2 / 分片边长；
 					Z（深度）不吸附，避免改变深度精度分布。
 					*/
-					const float tile_pixels = static_cast<float>(impl->shadow_size) / static_cast<float>(cascade_total);
 					const float texel_ndc = 2.0f / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
 					vp[3][0] = std::floor(vp[3][0] / texel_ndc) * texel_ndc;
 					vp[3][1] = std::floor(vp[3][1] / texel_ndc) * texel_ndc;
@@ -2316,6 +2328,13 @@ namespace engine
 					std::memcpy(target_matrix, glm::value_ptr(vp), sizeof(float) * 16);
 					//记录本片深度跨度（着色器法线偏移换算用）
 					impl->cascade_depth_span[cascade] = depth_far - impl->shadow_near;
+					/*
+					记录本片纹素世界尺寸（第六百六十一轮）
+					多级取各片最大值供诊断；钳制开启时该值不超过 shadow_texel_max。
+					*/
+					const float texel_world = 2.0f * radius / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
+					if (texel_world > impl->shadow_texel_world)
+						impl->shadow_texel_world = texel_world;
 				}
 			}
 			else
@@ -2329,7 +2348,18 @@ namespace engine
 				float camera_position[3] = {};
 				impl->camera.position_get(camera_position);
 				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
-				const float radius = impl->shadow_half_extent;
+				float radius = impl->shadow_half_extent;
+				/*
+				纹素尺寸钳制（第六百六十一轮）
+				半径上限 = 纹素上限 × 阴影图边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
+				*/
+				const float tile_pixels = impl->shadow_size > 1 ? static_cast<float>(impl->shadow_size) : 1.0f;
+				if (impl->shadow_texel_max > 0.0f)
+				{
+					const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+					if (radius > radius_cap)
+						radius = radius_cap;
+				}
 				glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
 				glm::mat4 light_view = glm::lookAt(eye, center, up);
 				float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
@@ -2340,7 +2370,7 @@ namespace engine
 				纹素对齐（与多级同口径）
 				NDC 步长 = 2 / 阴影图边长；Z（深度）不吸附。
 				*/
-				const float texel_ndc = 2.0f / (impl->shadow_size > 1 ? static_cast<float>(impl->shadow_size) : 1.0f);
+				const float texel_ndc = 2.0f / tile_pixels;
 				light_vp[3][0] = std::floor(light_vp[3][0] / texel_ndc) * texel_ndc;
 				light_vp[3][1] = std::floor(light_vp[3][1] / texel_ndc) * texel_ndc;
 				std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
@@ -2350,6 +2380,22 @@ namespace engine
 				impl->cascade_depth_span[0] = depth_far - impl->shadow_near;
 				impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
 				impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
+				//单级纹素世界尺寸（第六百六十一轮；钳制开启时不超过 shadow_texel_max）
+				impl->shadow_texel_world = 2.0f * radius / tile_pixels;
+			}
+			/*
+			级联切换带自动淡化（第六百六十一轮）
+			显式比例为 0、级联数 ≥ 2 且开关开启时，按「切换带半宽 ≥ 2 纹素」给出建议比例 4 / 分片边长，
+			钳到 [0.005, 0.1]；显式比例 > 0 或开关关闭（默认）时保持显式值，画面逐字节不变。
+			*/
+			impl->cascade_blend_effective = impl->cascade_blend;
+			if (impl->cascade_blend_auto && impl->cascade_blend <= 0.0f && impl->cascade_count >= 2)
+			{
+				const float cascade_total_f = static_cast<float>(impl->cascade_count == 3 ? 3u : 2u);
+				const float tile_pixels_f = impl->shadow_size > 1
+					? static_cast<float>(impl->shadow_size) / cascade_total_f : 1.0f;
+				float recommended = 4.0f / tile_pixels_f;
+				impl->cascade_blend_effective = recommended < 0.005f ? 0.005f : (recommended > 0.1f ? 0.1f : recommended);
 			}
 		}
 		/*
@@ -2916,8 +2962,8 @@ namespace engine
 			scene_block[272 + index] = impl->light_view_proj_far2[index];
 		scene_block[288] = impl->cascade_split_distance * impl->cascade_far_scale;
 		scene_block[289] = impl->cascade_depth_span[2];
-		//级联接缝淡化带宽比例（第一百四十八轮；z 槽）
-		scene_block[290] = impl->cascade_blend;
+		//级联接缝淡化带宽比例（第一百四十八轮；z 槽；第六百六十一轮改用「生效比例」）
+		scene_block[290] = impl->cascade_blend_effective;
 		/*
 		相机近远平面（第一百二十三轮）
 		264 = 近平面、265 = 远平面（世界单位）；供景深片元把深度缓冲换算成以相机为原点的距离。
@@ -4072,6 +4118,9 @@ namespace engine
 		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
 		//PCSS 软阴影状态（第六百五十七轮）
 		stats.shadow_pcss = impl->shadow_pcss_enabled ? 1u : 0u;
+		//级联纹素与淡化观测（第六百六十一轮）
+		stats.shadow_texel_world = impl->shadow_texel_world;
+		stats.cascade_blend_applied = impl->cascade_blend_effective;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -9437,6 +9486,12 @@ namespace engine
 		shadow_budget_set(light.shadow_budget_bytes);
 		//曝光补偿（第六百六十轮；EV，0 = 关闭，非有限值由 setter 忽略）
 		exposure_set(light.exposure);
+			/*
+			级联纹素钳制与自动淡化（第六百六十一轮）
+			纹素上限 0 与自动淡化关闭均为默认，行为与引入前逐字节一致；非法值由 setter 整次忽略。
+			*/
+			shadow_texel_max_set(light.shadow_texel_max);
+			shadow_cascade_blend_auto_set(light.shadow_cascade_blend_auto != 0);
 		if (light.shadow_budget_bytes > 0)
 		{
 			//参与预算的阴影图单位数（方向光级联 ＋ 聚光瓦片，至少 1）
@@ -9613,6 +9668,9 @@ namespace engine
 		light.shadow_budget_bytes = scene.shadow_budget_bytes;
 		//曝光补偿（第六百六十轮）
 		light.exposure = scene.exposure;
+		//级联纹素钳制与自动淡化（第六百六十一轮）
+		light.shadow_texel_max = scene.shadow_texel_max;
+		light.shadow_cascade_blend_auto = scene.shadow_cascade_blend_auto;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
@@ -12408,6 +12466,52 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return 0.0f;
 		return impl->cascade_blend;
+	}
+
+	//设置阴影纹素尺寸上限（第六百六十一轮）
+	void Renderer::shadow_texel_max_set(float texel)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//非有限值或负数非法（取反比较使 NaN 判非法）
+		if (!(texel >= 0.0f) || !std::isfinite(texel))
+		{
+			logger.warn("渲染器:: 阴影纹素上限非法（{}），本次忽略", texel);
+			return;
+		}
+		//上限 64 世界单位 / 纹素（避免配置笔误）
+		const float effective = texel > 64.0f ? 64.0f : texel;
+		//数值变化才使旧阴影图失效（避免逐帧重建）
+		if (effective != impl->shadow_texel_max)
+		{
+			impl->shadow_texel_max = effective;
+			impl->shadow_pass_ready = false;
+		}
+		logger.info("渲染器:: 阴影纹素上限已设为 {}", effective);
+	}
+
+	//当前阴影纹素尺寸上限（第六百六十一轮）
+	float Renderer::shadow_texel_max(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized ? impl->shadow_texel_max : 0.0f;
+	}
+
+	//设置级联切换带自动淡化（第六百六十一轮）
+	void Renderer::shadow_cascade_blend_auto_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->cascade_blend_auto = enabled;
+	}
+
+	//当前是否开启级联切换带自动淡化（第六百六十一轮）
+	bool Renderer::shadow_cascade_blend_auto(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized && impl->cascade_blend_auto;
 	}
 
 	//累计实际执行的阴影 pass 次数（第五十五轮）

@@ -257,6 +257,15 @@ namespace engine
 		uint64_t shadow_budget_bytes = 0;
 		//曝光补偿 EV（第六百六十轮；0 = 关闭；写场景 UBO 237）
 		float exposure = 0.0f;
+		/*
+		级联纹素钳制与自动淡化（第六百六十一轮）
+		shadow_texel_max = 纹素世界尺寸上限（0 = 关闭）；cascade_blend_auto = 自动淡化建议开关（默认关）；
+		cascade_blend_effective = 本帧实际写入 UBO 290 的淡化比例；shadow_texel_world = 本帧生效纹素（多级取最大）。
+		*/
+		float shadow_texel_max = 0.0f;
+		bool cascade_blend_auto = false;
+		float cascade_blend_effective = 0.0f;
+		float shadow_texel_world = 0.0f;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

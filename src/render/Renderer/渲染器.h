@@ -298,6 +298,13 @@ namespace engine
 		uint32_t shadow_resolution = 0;
 		//PCSS 软阴影是否生效（第六百五十七轮；0 = 关闭（默认）、1 = 开启）
 		uint32_t shadow_pcss = 0;
+		/*
+		级联纹素与淡化观测（第六百六十一轮）
+		shadow_texel_world = 最近一帧生效的纹素世界尺寸（多级取各片最大值；未建立阴影图为 0）；
+		cascade_blend_applied = 最近一帧实际写入 UBO 的级联淡化比例（0 = 硬切换）。
+		*/
+		float shadow_texel_world = 0.0f;
+		float cascade_blend_applied = 0.0f;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
@@ -1938,6 +1945,22 @@ namespace engine
 		bool exposure_set(float ev);
 		//当前曝光补偿（EV）
 		float exposure_get(void) const;
+		/*
+		阴影纹素尺寸上限（第六百六十一轮；世界单位 / 纹素，0 = 关闭（默认））
+		>0 时每片级联半径按「上限 × 分片边长 / 2」收紧；非有限值或负数忽略，上限 64。
+		关闭（0）时矩阵与引入前逐字节一致。
+		*/
+		void shadow_texel_max_set(float texel);
+		//当前阴影纹素尺寸上限（未初始化为 0）
+		float shadow_texel_max(void) const;
+		/*
+		级联切换带自动淡化（第六百六十一轮）
+		开启且显式淡化比例为 0、级联数 ≥ 2 时，按「4 / 分片边长」给出建议比例（钳到 [0.005, 0.1]）；
+		关闭（默认）时完全沿用显式比例，画面逐字节不变。
+		*/
+		void shadow_cascade_blend_auto_set(bool enabled);
+		//当前是否开启级联切换带自动淡化（未初始化为假）
+		bool shadow_cascade_blend_auto(void) const;
 		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
