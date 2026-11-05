@@ -101,6 +101,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 shadow_params;
 	//阴影强度（0 = 阴影无效、1 = 全遮蔽；第五十三轮）
 	float shadow_strength;
+	//曝光补偿（第六百六十轮；EV 值，0 = 关闭；std140 下占 237，其后 pbr_params 仍对齐 240）
+	float exposure;
 	//PBR-lite 参数（第六十四轮；x = 启用 > 0.5、y = 粗糙度缩放（默认 1）、z = 金属度（第六十五轮，0..1）、w 保留）
 	vec4 pbr_params;
 	//远区级联光源空间矩阵（第一百二十一轮；级联数 ≥ 2 时有效，单级时为零矩阵）
@@ -993,5 +995,10 @@ void main()
 		fog_factor *= exp(-scene.fog_range.w * max(in_world.y, 0.0));
 		final_rgb = mix(lit, scene.fog_color_density.rgb, fog_factor);
 	}
+	/*
+	曝光补偿（第六百六十轮）
+	按 EV 乘以 2 的幂；EV = 0 时 exp2(0) = 1，乘性恒等，画面逐字节不变。
+	*/
+	final_rgb *= exp2(scene.exposure);
 	out_color = vec4(clamp(final_rgb, 0.0, 1.0), albedo_color.a);
 }

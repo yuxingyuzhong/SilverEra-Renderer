@@ -1926,6 +1926,19 @@ namespace engine
 		*/
 		bool spot_shadow_bias_scale_set(uint32_t index, float scale);
 		/*
+		阴影分辨率预算（第六百五十九轮；0 = 关闭）
+		按 RGBA8 折算总阴影光栅内存：边长 = floor(√(字节 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
+		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。
+		*/
+		void shadow_budget_set(uint64_t bytes);
+		/*
+		曝光补偿（第六百六十轮；EV，钳到 [-4, 4]，非有限值忽略）
+		最终颜色按 2^EV 缩放；0（默认）为乘性恒等，画面逐字节不变。
+		*/
+		bool exposure_set(float ev);
+		//当前曝光补偿（EV）
+		float exposure_get(void) const;
+		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
 		false（默认）：逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。

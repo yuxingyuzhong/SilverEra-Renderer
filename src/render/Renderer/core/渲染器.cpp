@@ -2885,6 +2885,8 @@ namespace engine
 		scene_block[235] = impl->shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
 		scene_block[236] = impl->shadow_strength;
+		//曝光补偿（第六百六十轮；EV，0 = 关闭）
+		scene_block[237] = impl->exposure;
 		//PBR-lite 参数（第六十四轮：x = 启用、y = 粗糙度缩放；第六十五轮 z = 金属度）
 		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
 		scene_block[241] = impl->pbr_roughness;
@@ -9427,6 +9429,52 @@ namespace engine
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
 		for (std::size_t index = 0; index < 8; ++index)
 			spot_shadow_bias_scale_set(static_cast<uint32_t>(index), light.spot_shadow_bias_scale[index]);
+		/*
+		阴影分辨率预算（第六百五十九轮）
+		预算 > 0 时按 RGBA8 折算可用边长（向下取 256 倍数、钳 256..4096），与请求分辨率取较小值；
+		预算 0（默认）不干预，与既有逐字节一致。
+		*/
+		shadow_budget_set(light.shadow_budget_bytes);
+		//曝光补偿（第六百六十轮；EV，0 = 关闭，非有限值由 setter 忽略）
+		exposure_set(light.exposure);
+		if (light.shadow_budget_bytes > 0)
+		{
+			//参与预算的阴影图单位数（方向光级联 ＋ 聚光瓦片，至少 1）
+			uint32_t units = 0;
+			if (light.shadow_enabled != 0)
+				units += light.shadow_cascade_count > 0
+					? (light.shadow_cascade_count < 3 ? static_cast<uint32_t>(light.shadow_cascade_count) : 3u) : 1u;
+			if (light.spot_shadow_enabled != 0)
+				units += light.spot_shadow_all != 0
+					? (light.spot_count == 0 ? 1u : (light.spot_count > 8 ? 8u : light.spot_count)) : 1u;
+			if (units == 0)
+				units = 1;
+			//每单位可用像素数（RGBA8 = 4 字节/像素）
+			uint64_t pixels_per_unit = static_cast<uint64_t>(light.shadow_budget_bytes) / (static_cast<uint64_t>(units) * 4u);
+			//整数平方根（逐位逼近）
+			uint32_t side = 0;
+			for (uint32_t bit = 4096u; bit > 0; bit >>= 1)
+			{
+				uint64_t trial = static_cast<uint64_t>(side) + bit;
+				if (trial * trial <= pixels_per_unit)
+					side += bit;
+			}
+			//向下取 256 倍数并钳到 [256, 4096]
+			side = side / 256u * 256u;
+			if (side < 256u)
+				side = 256u;
+			if (side > 4096u)
+				side = 4096u;
+			//门面仅接受 512 / 1024 / 2048：取不超过计算值的最大档（不足 512 时取最低档）
+			uint32_t budget_side = 512u;
+			if (side >= 2048u)
+				budget_side = 2048u;
+			else if (side >= 1024u)
+				budget_side = 1024u;
+			//与请求分辨率取较小值
+			if (budget_side < light.shadow_resolution)
+				shadow_resolution_set(budget_side);
+		}
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
@@ -9561,6 +9609,10 @@ namespace engine
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮）
 		for (std::size_t index = 0; index < 8; ++index)
 			light.spot_shadow_bias_scale[index] = scene.spot_shadow_bias_scale[index];
+		//阴影分辨率预算（第六百五十九轮）
+		light.shadow_budget_bytes = scene.shadow_budget_bytes;
+		//曝光补偿（第六百六十轮）
+		light.exposure = scene.exposure;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
@@ -11971,6 +12023,38 @@ namespace engine
 			return false;
 		impl->spot_shadow_bias_scale[index] = scale < 0.1f ? 0.1f : (scale > 10.0f ? 10.0f : scale);
 		return true;
+	}
+
+	/*
+	阴影分辨率预算（第六百五十九轮）
+	仅作为 scene_apply 的配置来源；实际边长换算在 scene_apply 内完成（依赖级联 / 聚光单位数）。
+	*/
+	void Renderer::shadow_budget_set(uint64_t bytes)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//存到配置副本（scene_apply 直接读 Light_Data，此处只为门面等价入口）
+		impl->shadow_budget_bytes = bytes > 1073741824ull ? 1073741824ull : bytes;
+	}
+
+	/*
+	曝光补偿（第六百六十轮）
+	EV 钳到 [-4, 4]，非有限值忽略；0（默认）为乘性恒等。
+	*/
+	bool Renderer::exposure_set(float ev)
+	{
+		//若尚未初始化或值非有限
+		if (impl == nullptr || !impl->initialized || !std::isfinite(ev))
+			return false;
+		impl->exposure = ev < -4.0f ? -4.0f : (ev > 4.0f ? 4.0f : ev);
+		return true;
+	}
+
+	//当前曝光补偿（EV）
+	float Renderer::exposure_get(void) const
+	{
+		return impl != nullptr && impl->initialized ? impl->exposure : 0.0f;
 	}
 
 	//当前是否多盏聚光灯阴影（第五百一十一轮）

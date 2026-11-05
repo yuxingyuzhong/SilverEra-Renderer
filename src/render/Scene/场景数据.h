@@ -246,6 +246,18 @@ namespace engine
 		有效偏置 = 既有逐瓦片偏置 × 该缩放（钳到 [0.1, 10]）。
 		*/
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		/*
+		阴影分辨率预算（第六百五十九轮；0 = 关闭（默认，不干预既有分辨率））
+		总字节按 RGBA8（4 字节/像素）折算：边长 = floor(√(预算 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
+		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。
+		单位数 = 方向光级联数 ＋ 聚光瓦片数。
+		*/
+		uint32_t shadow_budget_bytes = 0;
+		/*
+		曝光补偿（第六百六十轮；EV 值，默认 0 = 关闭）
+		最终颜色按 2^EV 缩放；EV = 0 时乘性恒等（画面逐字节不变）；钳到 [-4, 4]。
+		*/
+		float exposure = 0.0f;
 	};
 
 	/*
@@ -480,5 +492,9 @@ namespace engine
 		float shadow_pcss_max = 8.0f;
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；语义见 Light_Data::spot_shadow_bias_scale）
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		//阴影分辨率预算（第六百五十九轮；语义见 Light_Data::shadow_budget_bytes）
+		uint32_t shadow_budget_bytes = 0;
+		//曝光补偿（第六百六十轮；语义见 Light_Data::exposure）
+		float exposure = 0.0f;
 	};
 }

@@ -253,6 +253,10 @@ namespace engine
 		float shadow_pcss_max = 8.0f;
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		//阴影分辨率预算（第六百五十九轮；0 = 关闭；门面 shadow_budget_set 的存值副本）
+		uint64_t shadow_budget_bytes = 0;
+		//曝光补偿 EV（第六百六十轮；0 = 关闭；写场景 UBO 237）
+		float exposure = 0.0f;
 		//平台模块
 		Platform_Context platform;
 		//设备模块
