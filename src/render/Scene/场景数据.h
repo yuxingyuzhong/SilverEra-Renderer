@@ -224,6 +224,13 @@ namespace engine
 		0（默认）= 硬切换，与引入前逐字节一致；>0 时在切换带内与上一级混合。
 		*/
 		float shadow_cascade_blend = 0.0f;
+		/*
+		级联阴影配置（第六百五十四轮；与门面 shadow_cascade_set 同义）
+		默认（1 级 / 远区倍数 3 / 切换距离 12）与引入该字段前一致；仅在数值变化时才重设（避免逐帧重建阴影图）。
+		*/
+		int shadow_cascade_count = 1;
+		float shadow_cascade_far_scale = 3.0f;
+		float shadow_cascade_split = 12.0f;
 	};
 
 	/*
@@ -448,5 +455,9 @@ namespace engine
 		int spot_shadow_on[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 		//级联接缝淡化比例（第六百五十一轮；语义见 Light_Data::shadow_cascade_blend）
 		float shadow_cascade_blend = 0.0f;
+		//级联阴影配置（第六百五十四轮；语义见 Light_Data::shadow_cascade_count / far_scale / split）
+		int shadow_cascade_count = 1;
+		float shadow_cascade_far_scale = 3.0f;
+		float shadow_cascade_split = 12.0f;
 	};
 }

@@ -2320,21 +2320,36 @@ namespace engine
 			}
 			else
 			{
-				//光源机位位于场景中心的「逆光向」一侧
-				glm::vec3 eye = -light_dir * 20.0f;
-				glm::mat4 light_view = glm::lookAt(eye, glm::vec3(0.0f), up);
-				//正交范围可配（第一百零七轮；默认 12 / 1 / 60 与旧版一致）
-				glm::mat4 light_proj = glm::ortho(-impl->shadow_half_extent, impl->shadow_half_extent,
-					-impl->shadow_half_extent, impl->shadow_half_extent, impl->shadow_near, impl->shadow_far);
+				/*
+				单级：以相机为中心的包围球（第六百五十五轮；修复单级固定原点）
+				旧实现把光源机位固定在世界原点的逆光侧，相机离开原点后阴影整片丢失 / 复现；
+				现改为「与多级同一拟合口径」：球心 = 相机位置、半径 = shadow_half_extent，
+				深度跨度 = 球直径 ＋ 两端近平面余量，并同样做纹素对齐（相机平移不再重采样）。
+				*/
+				float camera_position[3] = {};
+				impl->camera.position_get(camera_position);
+				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
+				const float radius = impl->shadow_half_extent;
+				glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+				glm::mat4 light_view = glm::lookAt(eye, center, up);
+				float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
+				glm::mat4 light_proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
 				light_proj[1][1] *= -1.0f;
 				glm::mat4 light_vp = light_proj * light_view;
+				/*
+				纹素对齐（与多级同口径）
+				NDC 步长 = 2 / 阴影图边长；Z（深度）不吸附。
+				*/
+				const float texel_ndc = 2.0f / (impl->shadow_size > 1 ? static_cast<float>(impl->shadow_size) : 1.0f);
+				light_vp[3][0] = std::floor(light_vp[3][0] / texel_ndc) * texel_ndc;
+				light_vp[3][1] = std::floor(light_vp[3][1] / texel_ndc) * texel_ndc;
 				std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
-				//单级：远区矩阵为零，深度跨度固定 59（与引入级联前一致）
+				//单级：远区矩阵为零，三处深度跨度均取本片跨度（着色器按级联数取用）
 				std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
 				std::memset(impl->light_view_proj_far2, 0, sizeof(impl->light_view_proj_far2));
-				impl->cascade_depth_span[0] = 59.0f;
-				impl->cascade_depth_span[1] = 59.0f;
-				impl->cascade_depth_span[2] = 59.0f;
+				impl->cascade_depth_span[0] = depth_far - impl->shadow_near;
+				impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
+				impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
 			}
 		}
 		/*
@@ -9375,6 +9390,19 @@ namespace engine
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
 		//级联接缝淡化比例（第六百五十一轮；非法值由 setter 整次忽略）
 		shadow_cascade_blend_set(light.shadow_cascade_blend);
+		/*
+		级联阴影配置（第六百五十四轮）
+		仅在数值变化时才调用 setter：该 setter 会把阴影图标记为待重绘，
+		默认值与初始值相同 → 不触发，保持既有「静止场景复用」时序与画面逐字节不变。
+		*/
+		if (light.shadow_cascade_count != static_cast<int>(impl->cascade_count)
+			|| light.shadow_cascade_far_scale != impl->cascade_far_scale
+			|| light.shadow_cascade_split != impl->cascade_split_distance)
+		{
+			//级联数以无符号位传入门面（非法值由 setter 整次忽略）
+			shadow_cascade_set(light.shadow_cascade_count < 0 ? 0u : static_cast<uint32_t>(light.shadow_cascade_count),
+				light.shadow_cascade_far_scale, light.shadow_cascade_split);
+		}
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
@@ -9498,6 +9526,10 @@ namespace engine
 		light.shadow_resolution = scene.shadow_resolution;
 		//级联接缝淡化比例（第六百五十一轮）
 		light.shadow_cascade_blend = scene.shadow_cascade_blend;
+		//级联阴影配置（第六百五十四轮）
+		light.shadow_cascade_count = scene.shadow_cascade_count;
+		light.shadow_cascade_far_scale = scene.shadow_cascade_far_scale;
+		light.shadow_cascade_split = scene.shadow_cascade_split;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
