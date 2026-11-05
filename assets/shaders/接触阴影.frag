@@ -58,6 +58,52 @@ layout(push_constant) uniform Push_Post
 //步数上限（固定，保证各硬件行为一致）
 const int MAX_STEPS = 32;
 
+/*
+接触遮挡采样（第六百七十五轮；相位可调）
+phase 为步内相对偏移：0.5 = 固定中点（与 673 逐字节一致）；
+返回遮挡样本数（0..step_count）。
+*/
+float contact_occlusion(vec3 world_pos, vec3 to_light, int step_count, float step_length,
+	float bias, ivec2 depth_size, float phase, mat4 view_proj)
+{
+	float occluded = 0.0;
+	for (int step = 1; step <= step_count; ++step)
+	{
+		vec3 sample_pos = world_pos + to_light * (step_length * (float(step) - 0.5 + phase));
+		vec4 clip = view_proj * vec4(sample_pos, 1.0);
+		//样本位于相机背后则跳过
+		if (clip.w <= 0.000001)
+			continue;
+		vec3 sample_ndc = clip.xyz / clip.w;
+		//屏幕外样本跳过
+		if (abs(sample_ndc.x) > 1.0 || abs(sample_ndc.y) > 1.0
+			|| sample_ndc.z < 0.0 || sample_ndc.z > 1.0)
+			continue;
+		//投影回深度图像素
+		ivec2 sample_coord = clamp(ivec2((sample_ndc.xy * 0.5 + 0.5) * vec2(depth_size)),
+			ivec2(0), depth_size - ivec2(1));
+		float stored = texelFetch(depth_image, sample_coord, 0).r;
+		//深度图为天空则不算遮挡
+		if (stored >= 0.9999)
+			continue;
+		//深度图表面比采样点更近 → 该样本被遮挡
+		if (stored < sample_ndc.z - bias)
+			occluded += 1.0;
+	}
+	return occluded;
+}
+
+/*
+逐像素抖动相位（第六百七十五轮；交错梯度噪声）
+由像素坐标与种子共同决定，取值 (0, 1)；同帧内空间均匀铺开、跨帧随种子变化。
+*/
+float jitter_phase(vec2 frag_coord, float seed)
+{
+	float ign = fract(52.9829189 * fract(dot(frag_coord + vec2(5.588238) * seed,
+		vec2(0.06711056, 0.00583715))));
+	return ign;
+}
+
 void main()
 {
 	//宿像素 → 源像素映射比例
@@ -96,30 +142,24 @@ void main()
 	int step_count = clamp(int(16.0 * clamp(push.post_param.z, 0.25, 2.0)), 4, MAX_STEPS);
 	float bias = clamp(push.post_param.w, 0.0005, 0.05);
 	float step_length = max_distance / float(step_count);
+	/*
+	抖动相位（第六百七十五轮）
+	post_color.a 为种子：0（默认）= 固定中点采样，与 673 逐字节一致；
+	> 0 时按像素与种子抖动，并以互补相位二次采样平均，摊平层状伪影。
+	*/
+	float jitter_seed = max(push.post_color.a, 0.0);
+	float phase = 0.5;
+	if (jitter_seed > 0.0)
+		phase = jitter_phase(gl_FragCoord.xy, jitter_seed);
 	//遮挡计数
-	float occluded = 0.0;
-	for (int step = 1; step <= step_count; ++step)
+	float occluded = contact_occlusion(world_pos, to_light, step_count, step_length,
+		bias, depth_size, phase, scene.view_proj);
+	//互补相位平均（仅抖动开启时）
+	if (jitter_seed > 0.0)
 	{
-		vec3 sample_pos = world_pos + to_light * (step_length * float(step));
-		vec4 clip = scene.view_proj * vec4(sample_pos, 1.0);
-		//样本位于相机背后则跳过
-		if (clip.w <= 0.000001)
-			continue;
-		vec3 sample_ndc = clip.xyz / clip.w;
-		//屏幕外样本跳过
-		if (abs(sample_ndc.x) > 1.0 || abs(sample_ndc.y) > 1.0
-			|| sample_ndc.z < 0.0 || sample_ndc.z > 1.0)
-			continue;
-		//投影回深度图像素
-		ivec2 sample_coord = clamp(ivec2((sample_ndc.xy * 0.5 + 0.5) * vec2(depth_size)),
-			ivec2(0), depth_size - ivec2(1));
-		float stored = texelFetch(depth_image, sample_coord, 0).r;
-		//深度图为天空则不算遮挡
-		if (stored >= 0.9999)
-			continue;
-		//深度图表面比采样点更近 → 该样本被遮挡
-		if (stored < sample_ndc.z - bias)
-			occluded += 1.0;
+		float paired = contact_occlusion(world_pos, to_light, step_count, step_length,
+			bias, depth_size, 1.0 - phase, scene.view_proj);
+		occluded = 0.5 * (occluded + paired);
 	}
 	//遮挡比例 → 阴影强度
 	float occlusion = occluded / float(step_count);
