@@ -4246,6 +4246,8 @@ namespace engine
 		stats.shadow_passes = impl->last_shadow_passes;
 		stats.spot_shadow_passes = impl->last_spot_shadow_passes;
 		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
+		//聚光阴影图集实际生效标志（第六百八十轮）
+		stats.shadow_atlas = impl->spot_shadow_atlas ? 1u : 0u;
 		//PCSS 软阴影状态（第六百五十七轮）
 		stats.shadow_pcss = impl->shadow_pcss_enabled ? 1u : 0u;
 		//级联纹素与淡化观测（第六百六十一轮）
