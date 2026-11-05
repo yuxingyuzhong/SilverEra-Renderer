@@ -219,6 +219,11 @@ namespace engine
 		1（默认）= 该盏聚光灯参与阴影；0 = 该盏不投影（不影响其余盏与方向光阴影）。
 		*/
 		int spot_shadow_on[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+		/*
+		级联接缝淡化比例（第六百五十一轮；0..0.5）
+		0（默认）= 硬切换，与引入前逐字节一致；>0 时在切换带内与上一级混合。
+		*/
+		float shadow_cascade_blend = 0.0f;
 	};
 
 	/*
@@ -441,5 +446,7 @@ namespace engine
 		uint32_t light_budget = 0;
 		//逐盏聚光灯阴影开关（第六百四十八轮；语义见 Light_Data::spot_shadow_on）
 		int spot_shadow_on[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+		//级联接缝淡化比例（第六百五十一轮；语义见 Light_Data::shadow_cascade_blend）
+		float shadow_cascade_blend = 0.0f;
 	};
 }

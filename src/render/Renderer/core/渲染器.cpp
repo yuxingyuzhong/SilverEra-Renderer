@@ -9373,6 +9373,8 @@ namespace engine
 		shadow_strength_set(light.shadow_strength);
 		//阴影图分辨率（第五十四轮；非法值由 setter 整次忽略）
 		shadow_resolution_set(static_cast<uint32_t>(light.shadow_resolution));
+		//级联接缝淡化比例（第六百五十一轮；非法值由 setter 整次忽略）
+		shadow_cascade_blend_set(light.shadow_cascade_blend);
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
@@ -9494,6 +9496,8 @@ namespace engine
 		light.shadow_softness = scene.shadow_softness;
 		light.shadow_strength = scene.shadow_strength;
 		light.shadow_resolution = scene.shadow_resolution;
+		//级联接缝淡化比例（第六百五十一轮）
+		light.shadow_cascade_blend = scene.shadow_cascade_blend;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
