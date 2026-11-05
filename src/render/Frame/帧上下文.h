@@ -41,6 +41,12 @@ namespace engine
 		与 secondary_buffers 一一对应、同增同减；每帧随主池一起重置。
 		*/
 		std::vector<VkCommandPool> secondary_pools;
+		/*
+		批量阴影命令缓冲（第六百七十一轮；C2 收尾）
+		编号对应批量路径的第 1..N-1 段（第 0 段复用 command_buffer）；
+		首次需要时按缺额从本槽命令池分配，池重置后仍可重复录制，故逐帧复用、不再每次分配。
+		*/
+		std::vector<VkCommandBuffer> batch_buffers;
 		//完成栅栏（主机侧等待该槽前一次提交完成）
 		VkFence in_flight_fence = VK_NULL_HANDLE;
 		//GPU 时间戳查询池（每槽四个查询：帧始 / 场景结束 / 后处理结束 / 帧末；设备不支持时为空）
@@ -752,6 +758,13 @@ namespace engine
 		uint32_t active_sample_count = 1;
 		//并行段统计（按段索引收集，录制结束后汇总到 frame_recorded）
 		std::vector<Recorded_Counts> parallel_counts;
+		/*
+		批量阴影主机缓冲（第六百七十一轮；C2 收尾）
+		batch_commands = 本段使用的主命令缓冲表（主缓冲 ＋ 帧槽预分配缓冲）；
+		batch_submit_infos = 逐段 VkCommandBufferSubmitInfo；两者按段数 resize 后覆盖写入，避免逐帧堆分配。
+		*/
+		std::vector<VkCommandBuffer> batch_commands;
+		std::vector<VkCommandBufferSubmitInfo> batch_submit_infos;
 		//并行录制的最小绘制项数（第二百零二轮；默认 32）
 		uint32_t parallel_min_items = 32;
 		//并行录制的最大段数（第二百零三轮；默认 8）

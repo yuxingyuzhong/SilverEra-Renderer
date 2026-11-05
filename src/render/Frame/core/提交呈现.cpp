@@ -465,26 +465,35 @@ namespace engine
 			return false;
 
 		/*
-		命令缓冲集合
-		首段复用帧槽主缓冲；其余段从同一命令池追加分配（池已重置，分配开销仅主机侧）。
+		命令缓冲集合（第六百七十一轮改为帧槽预分配复用）
+		首段复用帧槽主缓冲；其余段使用本槽 batch_buffers（首次需要时按缺额分配，之后逐帧复用）；
+		命令池重置不影响缓冲句柄有效性，故无需每帧重新分配。
 		*/
-		std::vector<VkCommandBuffer> commands(pass_count, VK_NULL_HANDLE);
-		commands[0] = slot.command_buffer;
-		for (uint32_t pass = 1; pass < pass_count; ++pass)
+		const uint32_t extra_segments = pass_count > 1 ? pass_count - 1 : 0;
+		//若预分配缓冲不足则按缺额一次性追加分配
+		if (slot.batch_buffers.size() < extra_segments)
 		{
+			const uint32_t grow = extra_segments - static_cast<uint32_t>(slot.batch_buffers.size());
+			std::vector<VkCommandBuffer> allocated(grow, VK_NULL_HANDLE);
 			VkCommandBufferAllocateInfo allocate_info{};
 			allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			allocate_info.commandPool = slot.command_pool;
 			allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			allocate_info.commandBufferCount = 1;
+			allocate_info.commandBufferCount = grow;
 			//若分配失败
-			if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, &commands[pass]),
-				"vkAllocateCommandBuffers(批量阴影)"))
+			if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, allocated.data()),
+				"vkAllocateCommandBuffers(批量阴影预分配)"))
 			{
-				logger.error("提交呈现:: 批量阴影命令缓冲分配失败（段 {}）", pass);
+				logger.error("提交呈现:: 批量阴影命令缓冲预分配失败（新增 {} 个）", grow);
 				return false;
 			}
+			slot.batch_buffers.insert(slot.batch_buffers.end(), allocated.begin(), allocated.end());
 		}
+		//装填本帧命令表（复用常驻 vector）
+		batch_commands.resize(pass_count);
+		batch_commands[0] = slot.command_buffer;
+		for (uint32_t pass = 1; pass < pass_count; ++pass)
+			batch_commands[pass] = slot.batch_buffers[pass - 1];
 
 		//本帧计时起点（主机侧录制 ＋ 提交）
 		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
@@ -503,7 +512,7 @@ namespace engine
 			for (uint32_t index = 0; index < item_count; ++index)
 				items[index].push_constants = pass_matrices[pass];
 			//本段录制（后续段加前导屏障；清屏标志逐段决定）
-			command_record_target(commands[pass], target, items, item_count,
+			command_record_target(batch_commands[pass], target, items, item_count,
 				clear_flags[pass] ? clear_color : nullptr, nullptr, VK_NULL_HANDLE,
 				slot.shadow_timestamp_pool, true, nullptr,
 				pass == 0, pass == 0, pass + 1 == pass_count, pass != 0);
@@ -516,17 +525,18 @@ namespace engine
 		/*
 		单次提交全部命令缓冲
 		同一提交内的命令缓冲按顺序开始执行；各段目标独立、时间戳仅首末段写入，故无跨段同步需求。
+		提交信息表复用常驻 vector，避免逐帧堆分配。
 		*/
-		std::vector<VkCommandBufferSubmitInfo> command_infos(pass_count);
+		batch_submit_infos.resize(pass_count);
 		for (uint32_t pass = 0; pass < pass_count; ++pass)
 		{
-			command_infos[pass].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-			command_infos[pass].commandBuffer = commands[pass];
+			batch_submit_infos[pass].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+			batch_submit_infos[pass].commandBuffer = batch_commands[pass];
 		}
 		VkSubmitInfo2 submit_info{};
 		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
 		submit_info.commandBufferInfoCount = pass_count;
-		submit_info.pCommandBufferInfos = command_infos.data();
+		submit_info.pCommandBufferInfos = batch_submit_infos.data();
 
 		//提交到图形队列（帧栅栏作为完成信号）
 		std::chrono::steady_clock::time_point submit_time_begin = std::chrono::steady_clock::now();
