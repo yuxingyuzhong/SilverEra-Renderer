@@ -298,6 +298,8 @@ namespace engine
 		uint32_t shadow_resolution = 0;
 		//聚光阴影图集是否实际生效（第六百八十轮；0 = 独立瓦片、1 = 4×2 图集）
 		uint32_t shadow_atlas = 0;
+		//聚光阴影图集颜色附件字节数（第六百八十四轮；0 = 未启用图集；4S×2S×4 字节）
+		uint64_t shadow_atlas_bytes = 0;
 		//PCSS 软阴影是否生效（第六百五十七轮；0 = 关闭（默认）、1 = 开启）
 		uint32_t shadow_pcss = 0;
 		/*
