@@ -386,6 +386,17 @@ namespace engine
 			Frame_Readback_Request* readback = nullptr, bool shadow_pass = false,
 			const Frame_Post_Scene_Callback* post_scene = nullptr);
 		/*
+		批量渲染到多个离屏目标（第六百六十九轮；C2 单次提交）
+		一次帧槽准备（栅栏等待 / 时间戳读回 / 栅栏重置 / 命令池重置）后，为每个 pass 录制一条主命令缓冲
+		（同一帧槽命令池；首段复用槽主缓冲，其余按需分配），最后用一次 vkQueueSubmit2 提交全部命令缓冲。
+		pass_count 段逐段目标 / 矩阵 / 清屏标志；后续段开头插入颜色 / 深度内存屏障；时间戳仅首段重置 ＋ 写起点、末段写终点。
+		仅服务于阴影路径（shadow_pass = true）：不支持回读、UI 与后处理回调；items 逐段写入 push_constants，
+		录制结束后保持最后一段的矩阵。任一段录制失败返回假，调用方应回落逐 pass 旧路径。
+		*/
+		bool render_to_targets_batch(const Frame_Render_Target* targets, const float* const* pass_matrices,
+			uint32_t pass_count, Frame_Render_Item* items, uint32_t item_count,
+			const float clear_color[4], const bool* clear_flags, bool shadow_pass);
+		/*
 		渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
 		（同帧多 pass；与 render_to_target 的跨帧闭环不同，本路径在同一帧内完成「目标 → 后处理 → 呈现」）。
 		★ 第十轮收口：本函数是 render_chain_present 的**单级特例薄封装**（后处理级数 = 1、无第二目标），
@@ -587,7 +598,9 @@ namespace engine
 			const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 			const Frame_Ui_Callback* ui_callback = nullptr, VkBuffer readback_buffer = VK_NULL_HANDLE,
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false,
-			const Frame_Post_Scene_Callback* post_scene = nullptr);
+			const Frame_Post_Scene_Callback* post_scene = nullptr,
+			bool reset_query = true, bool write_begin_timestamp = true, bool write_end_timestamp = true,
+			bool leading_barrier = false);
 		/*
 		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ UI ＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
 		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；

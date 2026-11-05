@@ -1968,6 +1968,14 @@ namespace engine
 		//当前是否开启级联切换带自动淡化（未初始化为假）
 		bool shadow_cascade_blend_auto(void) const;
 		/*
+		阴影批量提交（第六百六十九轮；C2）
+		开启且本帧阴影段数 > 1 时，级联片与聚光瓦片在同一命令提交内完成；
+		关闭（默认）时逐段提交，画面逐字节一致。
+		*/
+		void shadow_batch_submit_set(bool enabled);
+		//当前是否开启阴影批量提交（未初始化为假）
+		bool shadow_batch_submit(void) const;
+		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
 		false（默认）：逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。

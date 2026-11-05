@@ -740,7 +740,8 @@ namespace engine
 	void Frame_Context::command_record_target(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool, bool shadow_pass,
-		const Frame_Post_Scene_Callback* post_scene)
+		const Frame_Post_Scene_Callback* post_scene,
+		bool reset_query, bool write_begin_timestamp, bool write_end_timestamp, bool leading_barrier)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -751,12 +752,28 @@ namespace engine
 		/*
 		GPU 时间戳起点（可选；查询池为空即跳过）
 		先重置该查询池（须在渲染通道之外，故紧随录制开始处）再于管线顶部记录起点。
+		批量路径只在首段重置 / 写起点、末段写终点，中间段两者都不做（第六百六十九轮）。
 		*/
-		if (timestamp_pool != VK_NULL_HANDLE)
-		{
-			//阴影 pass 为独立提交，仅记录始 / 末两个查询；普通离屏路径记录四段
+		if (timestamp_pool != VK_NULL_HANDLE && reset_query)
 			vkCmdResetQueryPool(command_buffer, timestamp_pool, 0, shadow_pass ? 2 : 4);
+		if (timestamp_pool != VK_NULL_HANDLE && write_begin_timestamp)
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestamp_pool, 0);
+
+		/*
+		前导内存屏障（第六百六十九轮；批量切片共用同一颜色 / 深度图像时，跨命令缓冲的写后写依赖）
+		仅批量入口的后续段传入 true；单 pass 路径保持引入前逐字节一致的命令序列。
+		*/
+		if (leading_barrier)
+		{
+			VkMemoryBarrier memory_barrier{};
+			memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+			memory_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+			memory_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+				| VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+				0, 1, &memory_barrier, 0, nullptr, 0, nullptr);
 		}
 
 		//GPU 侧间接命令的可见性屏障（第三百四十二轮；批内无此类项时不插入）
@@ -983,8 +1000,8 @@ namespace engine
 				0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
 
-		//GPU 时间戳终点（可选；阴影 pass 为末点 1，普通离屏为末点 3）
-		if (timestamp_pool != VK_NULL_HANDLE)
+		//GPU 时间戳终点（可选；阴影 pass 为末点 1，普通离屏为末点 3；批量路径仅末段写入）
+		if (timestamp_pool != VK_NULL_HANDLE && write_end_timestamp)
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool,
 				shadow_pass ? 1 : 3);
 

@@ -2642,6 +2642,25 @@ namespace engine
 					impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
 				//方向光阴影关闭（仅聚光阴影）时跳过级联 pass，保留方向光图原样（第四百八十四轮）
 				const uint32_t directional_cascade_total = impl->shadow_enabled ? cascade_total : 0u;
+				/*
+				批量提交规划（第六百六十九轮；C2）
+				先统计本帧阴影段数（级联 ＋ 有效聚光瓦片）；开启且段数 > 1 时收集目标 / 矩阵 / 清屏标志，
+				循环内只填表不提交，循环后一次批量提交；否则走逐 pass 旧路径。
+				*/
+				uint32_t spot_tile_total = 0;
+				if (spot_shadow_light_valid)
+				{
+					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+						if (impl->spot_shadow_spans[tile] > 0.0f && impl->spot_shadow_targets[tile] != 0)
+							++spot_tile_total;
+				}
+				const bool batch_path = impl->shadow_batch_submit
+					&& (directional_cascade_total + spot_tile_total) > 1;
+				//批量段表（级联上限 3 ＋ 聚光瓦片 8）
+				Frame_Render_Target batch_targets[3 + Impl::SPOT_SHADOW_TILES] = {};
+				const float* batch_matrices[3 + Impl::SPOT_SHADOW_TILES] = {};
+				bool batch_clear[3 + Impl::SPOT_SHADOW_TILES] = {};
+				uint32_t batch_count = 0;
 				for (uint32_t cascade = 0; cascade < directional_cascade_total; ++cascade)
 				{
 					//本片目标（多级时收缩视口到对应方形小格；X 按片序偏移、Y 恒为顶格）
@@ -2655,18 +2674,28 @@ namespace engine
 					//本片使用的光源空间矩阵
 					const float* cascade_matrix = cascade == 0 ? impl->light_view_proj
 						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
-					for (auto& shadow_item : shadow_items)
-						shadow_item.push_constants = cascade_matrix;
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
-					if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
-						static_cast<uint32_t>(shadow_items.size()), cascade_clear, nullptr, nullptr, true))
+					if (batch_path)
 					{
-						logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
-						return false;
+						batch_targets[batch_count] = cascade_target;
+						batch_matrices[batch_count] = cascade_matrix;
+						batch_clear[batch_count] = cascade == 0;
+						++batch_count;
 					}
-					//累计本帧阴影提交次数（第六百六十五轮；现口径一片一次）
-					++impl->last_shadow_submits;
+					else
+					{
+						for (auto& shadow_item : shadow_items)
+							shadow_item.push_constants = cascade_matrix;
+						if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
+							static_cast<uint32_t>(shadow_items.size()), cascade_clear, nullptr, nullptr, true))
+						{
+							logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
+							return false;
+						}
+						//累计本帧阴影提交次数（第六百六十五轮；现口径一片一次）
+						++impl->last_shadow_submits;
+					}
 				}
 				/*
 				聚光灯阴影 pass（第四百八十四轮；第五百零七轮扩为多瓦片）
@@ -2682,8 +2711,6 @@ namespace engine
 						//该瓦片无有效聚光灯则跳过
 						if (impl->spot_shadow_spans[tile] <= 0.0f || impl->spot_shadow_targets[tile] == 0)
 							continue;
-						for (auto& shadow_item : shadow_items)
-							shadow_item.push_constants = impl->spot_view_proj_tiles[tile];
 						Frame_Render_Target spot_target{};
 						if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
 							spot_target.color_view, spot_target.depth_view, spot_target.extent))
@@ -2694,17 +2721,43 @@ namespace engine
 						spot_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
 						spot_target.depth_format = impl->swapchain.depth_format_get();
 						spot_target.sample_count = 1;
-						if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
-							static_cast<uint32_t>(shadow_items.size()), shadow_clear, nullptr, nullptr, true))
+						if (batch_path)
 						{
-							logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
-							return false;
+							batch_targets[batch_count] = spot_target;
+							batch_matrices[batch_count] = impl->spot_view_proj_tiles[tile];
+							batch_clear[batch_count] = true;
+							++batch_count;
 						}
-						//累计本帧阴影提交次数（第六百六十五轮；现口径一瓦片一次）
-						++impl->last_shadow_submits;
+						else
+						{
+							for (auto& shadow_item : shadow_items)
+								shadow_item.push_constants = impl->spot_view_proj_tiles[tile];
+							if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
+								static_cast<uint32_t>(shadow_items.size()), shadow_clear, nullptr, nullptr, true))
+							{
+								logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
+								return false;
+							}
+							//累计本帧阴影提交次数（第六百六十五轮；现口径一瓦片一次）
+							++impl->last_shadow_submits;
+						}
 						//累计本帧聚光瓦片 pass 数（第六百四十七轮）
 						++spot_passes;
 					}
+				}
+				/*
+				批量提交（第六百六十九轮；C2）
+				全部段已填表后一次提交；成功即记为 1 次提交，失败按硬错误返回（调用方回落旧路径由上帧开关决定）。
+				*/
+				if (batch_path)
+				{
+					if (!impl->frame.render_to_targets_batch(batch_targets, batch_matrices, batch_count,
+						shadow_items.data(), static_cast<uint32_t>(shadow_items.size()), shadow_clear, batch_clear, true))
+					{
+						logger.error("渲染器:: 阴影批量提交失败（{} 段）", batch_count);
+						return false;
+					}
+					impl->last_shadow_submits = 1;
 				}
 				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
 				if (!impl->frame.frames_wait())
@@ -9500,6 +9553,8 @@ namespace engine
 			*/
 			shadow_texel_max_set(light.shadow_texel_max);
 			shadow_cascade_blend_auto_set(light.shadow_cascade_blend_auto != 0);
+			//阴影批量提交（第六百六十九轮；默认关，开启后一次提交全部阴影段）
+			shadow_batch_submit_set(light.shadow_batch_submit != 0);
 		if (light.shadow_budget_bytes > 0)
 		{
 			//参与预算的阴影图单位数（方向光级联 ＋ 聚光瓦片，至少 1）
@@ -9679,6 +9734,8 @@ namespace engine
 		//级联纹素钳制与自动淡化（第六百六十一轮）
 		light.shadow_texel_max = scene.shadow_texel_max;
 		light.shadow_cascade_blend_auto = scene.shadow_cascade_blend_auto;
+		//阴影批量提交（第六百六十九轮）
+		light.shadow_batch_submit = scene.shadow_batch_submit;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
@@ -12520,6 +12577,22 @@ namespace engine
 	{
 		//未初始化返回默认值
 		return impl != nullptr && impl->initialized && impl->cascade_blend_auto;
+	}
+
+	//设置阴影批量提交（第六百六十九轮）
+	void Renderer::shadow_batch_submit_set(bool enabled)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		impl->shadow_batch_submit = enabled;
+	}
+
+	//当前是否开启阴影批量提交（第六百六十九轮）
+	bool Renderer::shadow_batch_submit(void) const
+	{
+		//未初始化返回默认值
+		return impl != nullptr && impl->initialized && impl->shadow_batch_submit;
 	}
 
 	//累计实际执行的阴影 pass 次数（第五十五轮）

@@ -270,6 +270,12 @@ namespace engine
 		自动给出建议比例；显式比例 > 0 时以显式值为准；关闭时行为与引入前逐字节一致。
 		*/
 		int shadow_cascade_blend_auto = 0;
+		/*
+		阴影批量提交（第六百六十九轮；0 = 关闭（默认））
+		开启且本帧阴影段数 > 1（级联片 ＋ 聚光瓦片）时，全部段在**一次队列提交**内完成；
+		关闭时逐段提交，行为与引入前逐字节一致。
+		*/
+		int shadow_batch_submit = 0;
 	};
 
 	/*
@@ -511,5 +517,7 @@ namespace engine
 		//阴影纹素尺寸上限与级联自动淡化（第六百六十一轮；语义见 Light_Data 同名成员）
 		float shadow_texel_max = 0.0f;
 		int shadow_cascade_blend_auto = 0;
+		//阴影批量提交（第六百六十九轮；语义见 Light_Data::shadow_batch_submit）
+		int shadow_batch_submit = 0;
 	};
 }

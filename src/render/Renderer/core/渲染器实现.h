@@ -268,6 +268,8 @@ namespace engine
 		float shadow_texel_world = 0.0f;
 		//最近一次阴影重绘的命令缓冲提交次数（第六百六十五轮；C2 基线，现口径等于片数）
 		uint32_t last_shadow_submits = 0;
+		//阴影批量提交开关（第六百六十九轮；默认关，开启且段数 > 1 时一次提交）
+		bool shadow_batch_submit = false;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

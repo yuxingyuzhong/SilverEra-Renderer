@@ -426,11 +426,136 @@ namespace engine
 	}
 
 	/*
-	渲染一帧：先把场景渲染进离屏目标，再在同一命令缓冲内以该目标为纹理做一次全屏后处理 pass 呈现到交换链
-	（同帧多 pass）。
-	★ 第十轮收口：本函数为 render_chain_present 的**单级特例薄封装**（后处理级数 = 1、无第二目标），
-	  两条路径不再各自维护一套录制 / 提交 / 统计实现（消除双实现漂移风险）。
+	批量渲染到多个离屏目标（第六百六十九轮；C2 单次提交）
+	一次帧槽准备后逐 pass 录制独立主命令缓冲（同池），最后一次 vkQueueSubmit2 提交全部；
+	每段逐段写入 push_constants 矩阵、逐段清屏标志；后续段加前导内存屏障。
+	仅服务阴影路径：不支持回读 / UI / 后处理回调。
 	*/
+	bool Frame_Context::render_to_targets_batch(const Frame_Render_Target* targets, const float* const* pass_matrices,
+		uint32_t pass_count, Frame_Render_Item* items, uint32_t item_count,
+		const float clear_color[4], const bool* clear_flags, bool shadow_pass)
+	{
+		//前置：段数、目标 / 矩阵 / 清屏标志与渲染项必须齐备；本入口仅服务阴影 pass
+		if (!valid() || targets == nullptr || pass_matrices == nullptr || clear_flags == nullptr
+			|| pass_count == 0 || (item_count != 0 && items == nullptr) || !shadow_pass)
+		{
+			logger.error("提交呈现:: 批量阴影入口参数非法（段数 {}，项数 {}，阴影 {}）", pass_count, item_count, shadow_pass);
+			return false;
+		}
+
+		//清零本帧间接命令计数（批量路径恒逐项绘制）
+		frame_indirect_commands = 0;
+
+		//取当前帧槽（与交换链路径共用同一轮转）
+		const uint32_t slot_index = frame_count % frame_overlap;
+		Frame_Slot& slot = slots[slot_index];
+		//批量路径恒逐项绘制，不载入间接录制上下文
+		indirect_buffer = VK_NULL_HANDLE;
+		indirect_mapped = nullptr;
+		indirect_capacity = 0;
+
+		//等待该帧槽前一次提交完成 ＋ 读回上一轮 GPU 时间戳
+		if (!slot_fence_wait(slot))
+			return false;
+		gpu_timestamp_read(slot);
+		//重置完成栅栏与全部命令池（后续分配的主缓冲随之可录制）
+		if (!vk_result_check(vkResetFences(device, 1, &slot.in_flight_fence), "vkResetFences"))
+			return false;
+		if (!frame_slot_pools_reset(device, slot))
+			return false;
+
+		/*
+		命令缓冲集合
+		首段复用帧槽主缓冲；其余段从同一命令池追加分配（池已重置，分配开销仅主机侧）。
+		*/
+		std::vector<VkCommandBuffer> commands(pass_count, VK_NULL_HANDLE);
+		commands[0] = slot.command_buffer;
+		for (uint32_t pass = 1; pass < pass_count; ++pass)
+		{
+			VkCommandBufferAllocateInfo allocate_info{};
+			allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			allocate_info.commandPool = slot.command_pool;
+			allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			allocate_info.commandBufferCount = 1;
+			//若分配失败
+			if (!vk_result_check(vkAllocateCommandBuffers(device, &allocate_info, &commands[pass]),
+				"vkAllocateCommandBuffers(批量阴影)"))
+			{
+				logger.error("提交呈现:: 批量阴影命令缓冲分配失败（段 {}）", pass);
+				return false;
+			}
+		}
+
+		//本帧计时起点（主机侧录制 ＋ 提交）
+		std::chrono::steady_clock::time_point frame_time_begin = std::chrono::steady_clock::now();
+		//逐段录制（首段重置查询池并写起点时间戳、末段写终点时间戳，中间段两者都不写）
+		for (uint32_t pass = 0; pass < pass_count; ++pass)
+		{
+			const Frame_Render_Target& target = targets[pass];
+			//目标附件必须齐备
+			if (target.color_image == VK_NULL_HANDLE || target.color_view == VK_NULL_HANDLE
+				|| target.depth_view == VK_NULL_HANDLE || target.extent.width == 0 || target.extent.height == 0)
+			{
+				logger.error("提交呈现:: 批量阴影目标附件不完整（段 {}）", pass);
+				return false;
+			}
+			//本段矩阵写入全部绘制项的推送常量
+			for (uint32_t index = 0; index < item_count; ++index)
+				items[index].push_constants = pass_matrices[pass];
+			//本段录制（后续段加前导屏障；清屏标志逐段决定）
+			command_record_target(commands[pass], target, items, item_count,
+				clear_flags[pass] ? clear_color : nullptr, nullptr, VK_NULL_HANDLE,
+				slot.shadow_timestamp_pool, true, nullptr,
+				pass == 0, pass == 0, pass + 1 == pass_count, pass != 0);
+			//本段绘制统计（与逐 pass 旧路径同口径：每段累计一次）
+			frame_stats_accumulate(items, item_count);
+		}
+		//录制阶段耗时（第一百三十三轮）
+		last_host_record_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+
+		/*
+		单次提交全部命令缓冲
+		同一提交内的命令缓冲按顺序开始执行；各段目标独立、时间戳仅首末段写入，故无跨段同步需求。
+		*/
+		std::vector<VkCommandBufferSubmitInfo> command_infos(pass_count);
+		for (uint32_t pass = 0; pass < pass_count; ++pass)
+		{
+			command_infos[pass].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+			command_infos[pass].commandBuffer = commands[pass];
+		}
+		VkSubmitInfo2 submit_info{};
+		submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+		submit_info.commandBufferInfoCount = pass_count;
+		submit_info.pCommandBufferInfos = command_infos.data();
+
+		//提交到图形队列（帧栅栏作为完成信号）
+		std::chrono::steady_clock::time_point submit_time_begin = std::chrono::steady_clock::now();
+		if (!vk_result_check(vkQueueSubmit2(graphics_queue, 1, &submit_info, slot.in_flight_fence),
+			"vkQueueSubmit2（批量阴影）"))
+			return false;
+		last_host_submit_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - submit_time_begin).count();
+		//离屏路径不呈现
+		last_host_present_ms = 0.0;
+		last_frame_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_time_begin).count();
+		//累计主机侧耗时
+		total_frame_ms += last_frame_ms;
+		total_host_record_ms += last_host_record_ms;
+		total_host_submit_ms += last_host_submit_ms;
+		total_host_present_ms += last_host_present_ms;
+		//无后处理级；记录目标采样数
+		last_post_stages = 0;
+		last_sample_count = targets[0].sample_count;
+
+		//标记该帧槽已写入阴影时间戳并推进帧计数
+		slot.shadow_timestamp_written = true;
+		last_shadow_slot = slot_index;
+		++frame_count;
+		//释放到期的延迟销毁条目
+		deferred_flush();
+		return true;
+	}
+
+	//渲染一帧：场景渲染进离屏目标后，在同一命令缓冲内以该目标为纹理做一次全屏后处理并呈现到交换链（单级特例薄封装）
 	bool Frame_Context::render_to_target_present(Swapchain_Context& swapchain, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, const Frame_Render_Item& post_item,
 		const float clear_color[4], bool& rebuild_needed_out, Frame_Readback_Request* readback,
