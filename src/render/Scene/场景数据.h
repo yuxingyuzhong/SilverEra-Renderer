@@ -173,6 +173,13 @@ namespace engine
 		为 0（默认）时逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。
 		*/
 		int spot_shadow_bias_auto = 0;
+		/*
+		聚光阴影图集（第六百七十轮；C1）
+		非 0 时 8 张聚光阴影瓦片合并为单张 4×2 图集（每瓦片 shadow_resolution 见方），
+		聚光阴影 pass 写入图集子视口，着色器按瓦片号换算纹素原点；
+		为 0（默认）时维持 8 张独立阴影图，画面与引入前逐字节一致。
+		*/
+		int spot_shadow_atlas = 0;
 		//PBR-lite 镜面开关与粗糙度缩放（第六十四轮；0 = 关闭走 Blinn-Phong，缩放 0.05..4）
 		int pbr_enabled = 0;
 		float pbr_roughness = 1.0f;
@@ -519,5 +526,7 @@ namespace engine
 		int shadow_cascade_blend_auto = 0;
 		//阴影批量提交（第六百六十九轮；语义见 Light_Data::shadow_batch_submit）
 		int shadow_batch_submit = 0;
+		//聚光阴影图集（第六百七十轮；语义见 Light_Data::spot_shadow_atlas）
+		int spot_shadow_atlas = 0;
 	};
 }

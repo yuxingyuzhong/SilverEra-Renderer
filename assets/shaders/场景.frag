@@ -341,12 +341,13 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 
 /*
 阴影深度读取（第六百五十七轮；供 PCSS 阻塞物搜索与比较复用）
-在给定纹素取一次打包深度并解包；越界钳边。
+在给定纹素取一次打包深度并解包；钳边限制在 texel_origin 起的 size 范围内
+（图集开启时瓦片原点非零，避免采到相邻瓦片）。
 */
-float shadow_depth_read(sampler2D shadow_tex, ivec2 texel, int size)
+float shadow_depth_read(sampler2D shadow_tex, ivec2 texel, int size, ivec2 texel_origin)
 {
-	//越界钳边
-	ivec2 clamped = clamp(texel, ivec2(0), ivec2(size - 1));
+	//越界钳到本瓦片纹素范围
+	ivec2 clamped = clamp(texel, texel_origin, texel_origin + ivec2(size - 1));
 	vec4 packed = texelFetch(shadow_tex, clamped, 0);
 	//解包 32 位深度
 	return dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
@@ -356,10 +357,10 @@ float shadow_depth_read(sampler2D shadow_tex, ivec2 texel, int size)
 阴影深度比较（第五十三轮；第四百八十四轮改为显式收阴影图）
 在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
 */
-float shadow_compare(sampler2D shadow_tex, ivec2 texel, float current, int size)
+float shadow_compare(sampler2D shadow_tex, ivec2 texel, float current, int size, ivec2 texel_origin)
 {
 	//片元比阴影图记录更近则受光，否则遮蔽
-	float stored = shadow_depth_read(shadow_tex, texel, size);
+	float stored = shadow_depth_read(shadow_tex, texel, size, texel_origin);
 	return current <= stored ? 1.0 : 0.0;
 }
 
@@ -404,9 +405,10 @@ float cascade_span_of(int index)
 单级阴影因子（未乘阴影强度；count 为级数、index 为级序）
 矩阵、深度跨度与阴影图显式传入（第四百八十四轮）：方向光取级联矩阵 / 跨度 / binding 1，
 聚光取 spot_view_proj_tiles[i] / spot_shadow_spans[i] / binding 9 的数组元素 i。
+texel_origin 为图集内的瓦片像素原点（第六百七十轮；独立阴影图恒为 (0,0)）。
 */
 float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_tex, int count, int index,
-	vec3 world_pos, vec3 normal, float bias, float softness)
+	vec3 world_pos, vec3 normal, float bias, float softness, ivec2 texel_origin)
 {
 	/*
 	法线偏移（第五十九轮）
@@ -440,8 +442,8 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 		uv.y = uv.y * slice;
 	}
 	int size = int(scene.shadow_params.z + 0.5);
-	//纹素坐标（最近点，避免插值得到无意义的打包字节）
-	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
+	//纹素坐标（最近点，避免插值得到无意义的打包字节；叠加图集瓦片原点）
+	ivec2 texel = texel_origin + ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
 	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
 	float current = ndc.z - bias;
 	/*
@@ -459,7 +461,7 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 		float blockers = 0.0;
 		for (int tap = 0; tap < 16; ++tap)
 		{
-			float stored = shadow_depth_read(shadow_tex, texel + ivec2(PCSS_DISK[tap] * search), size);
+			float stored = shadow_depth_read(shadow_tex, texel + ivec2(PCSS_DISK[tap] * search), size, texel_origin);
 			//若该样本比片元更近则计入遮挡
 			if (stored < current)
 			{
@@ -476,12 +478,12 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 		//可变半径 PCF：同一盘按半影半径采样
 		float lit = 0.0;
 		for (int tap = 0; tap < 16; ++tap)
-			lit += shadow_compare(shadow_tex, texel + ivec2(PCSS_DISK[tap] * penumbra), current, size);
+			lit += shadow_compare(shadow_tex, texel + ivec2(PCSS_DISK[tap] * penumbra), current, size, texel_origin);
 		return lit / 16.0;
 	}
 	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
 	if (softness <= 0.0)
-		return shadow_compare(shadow_tex, texel, current, size);
+		return shadow_compare(shadow_tex, texel, current, size, texel_origin);
 	//邻域半径（0.25 以下 → 1、0.75 以下 → 2、其余 → 3）
 	float soft = clamp(softness, 0.0, 1.0);
 	int radius = soft <= 0.25 ? 1 : (soft <= 0.75 ? 2 : 3);
@@ -490,7 +492,7 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 	for (int offset_y = -radius; offset_y <= radius; ++offset_y)
 		for (int offset_x = -radius; offset_x <= radius; ++offset_x)
 		{
-			sum += shadow_compare(shadow_tex, texel + ivec2(offset_x, offset_y), current, size);
+			sum += shadow_compare(shadow_tex, texel + ivec2(offset_x, offset_y), current, size, texel_origin);
 			++samples;
 		}
 	return sum / float(samples);
@@ -500,7 +502,7 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 {
 	return shadow_sample_core(cascade_matrix_of(index), cascade_span_of(index), shadow_map, count, index,
-		world_pos, normal, scene.shadow_params.y, scene.shadow_params.w);
+		world_pos, normal, scene.shadow_params.y, scene.shadow_params.w, ivec2(0));
 }
 
 /*
@@ -537,33 +539,41 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	float softness = scene.spot_shadow_params.y;
 	float strength = clamp(scene.spot_shadow_params.z, 0.0, 1.0);
 	/*
+	图集纹素原点（第六百七十轮；C1）
+	图集开启（spot_shadow_params.x > 0.5）时瓦片按 4 列 2 行排布，原点 = (列·S, 行·S)；
+	关闭时为 (0, 0)，与引入前逐字节一致。
+	*/
+	int tile_size = int(scene.shadow_params.z + 0.5);
+	ivec2 tile_origin = scene.spot_shadow_params.x > 0.5
+		? ivec2((tile % 4) * tile_size, (tile / 4) * tile_size) : ivec2(0);
+	/*
 	按瓦片取矩阵 / 跨度 / 阴影图
 	显式八分支：采样器数组不做动态索引，避免驱动对「动态一致索引」的限制。
 	*/
 	if (tile == 0)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[0], scene.spot_shadow_spans[0].x,
-			spot_shadow_map[0], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].x, softness), strength);
+			spot_shadow_map[0], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].x, softness, tile_origin), strength);
 	if (tile == 1)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[1], scene.spot_shadow_spans[0].y,
-			spot_shadow_map[1], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].y, softness), strength);
+			spot_shadow_map[1], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].y, softness, tile_origin), strength);
 	if (tile == 2)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[2], scene.spot_shadow_spans[0].z,
-			spot_shadow_map[2], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].z, softness), strength);
+			spot_shadow_map[2], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].z, softness, tile_origin), strength);
 	if (tile == 3)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[3], scene.spot_shadow_spans[0].w,
-			spot_shadow_map[3], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].w, softness), strength);
+			spot_shadow_map[3], 1, 0, world_pos, normal, scene.spot_shadow_biases[0].w, softness, tile_origin), strength);
 	if (tile == 4)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[4], scene.spot_shadow_spans[1].x,
-			spot_shadow_map[4], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].x, softness), strength);
+			spot_shadow_map[4], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].x, softness, tile_origin), strength);
 	if (tile == 5)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[5], scene.spot_shadow_spans[1].y,
-			spot_shadow_map[5], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].y, softness), strength);
+			spot_shadow_map[5], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].y, softness, tile_origin), strength);
 	if (tile == 6)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[6], scene.spot_shadow_spans[1].z,
-			spot_shadow_map[6], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].z, softness), strength);
+			spot_shadow_map[6], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].z, softness, tile_origin), strength);
 	if (tile == 7)
 		return mix(1.0, shadow_sample_core(scene.spot_view_proj_tiles[7], scene.spot_shadow_spans[1].w,
-			spot_shadow_map[7], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].w, softness), strength);
+			spot_shadow_map[7], 1, 0, world_pos, normal, scene.spot_shadow_biases[1].w, softness, tile_origin), strength);
 	//越界瓦片按无阴影处理
 	return 1.0;
 }

@@ -655,6 +655,14 @@ namespace engine
 		与 shadow_target 同参数的独立阴影图，采样绑定 set 1 binding 9 的数组元素 0..7；
 		元素 0 与旧单盏行为兼容，其余七张供多盏聚光灯各自投影。
 		*/
+		/*
+		聚光阴影图集（第六百七十轮；C1）
+		atlas_target = 单张 4S × 2S 目标（0 = 未创建）；atlas = 实际生效（创建成功且开关打开）；
+		atlas_requested = 数据层请求（创建失败时保持请求，避免逐帧重试）。
+		*/
+		uint64_t spot_shadow_atlas_target = 0;
+		bool spot_shadow_atlas = false;
+		bool spot_shadow_atlas_requested = false;
 		uint64_t spot_shadow_targets[SPOT_SHADOW_TILES] = {};
 		//聚光灯阴影矩阵（第四百八十三轮；第五百零七轮扩为 4 份；第五百一十三轮扩为 8 份，关闭时为零矩阵）
 		float spot_view_proj_tiles[SPOT_SHADOW_TILES][16] = {};

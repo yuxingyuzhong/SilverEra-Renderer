@@ -1926,6 +1926,15 @@ namespace engine
 		*/
 		bool spot_shadow_light_set(uint32_t index, bool enabled);
 		/*
+		聚光阴影图集（第六百七十轮；C1）
+		enabled = true 时把 8 张聚光阴影瓦片并入单张 4×2 图集（每瓦片 shadow_resolution 见方），
+		聚光阴影 pass 改为写图集子视口；enabled = false 恢复 8 张独立阴影图（默认，逐字节一致）。
+		创建失败仅告警并保持独立图口径；返回实际生效状态。
+		*/
+		bool spot_shadow_atlas_set(bool enabled);
+		//当前聚光阴影图集是否实际生效（未初始化 / 创建失败时为假）
+		bool spot_shadow_atlas(void) const;
+		/*
 		PCSS 软阴影开关与预算（第六百五十七轮；仅影响着色器采样，不重建阴影图）
 		enabled = false 恢复旧口径（硬边 / 3×3 软度，逐字节一致）；
 		search 钳到 [1, 32] 纹素（阻塞物搜索尺度）；max_radius 钳到 [1, 16] 纹素（PCF 半径上限）。
@@ -2137,6 +2146,11 @@ namespace engine
 		std::unique_ptr<Impl> impl;
 		//按需创建并绑定聚光灯阴影瓦片 1..max_tiles-1（scene_apply 与运行期开关共用）
 		void spot_shadow_tiles_ensure(std::size_t max_tiles);
+		/*
+		聚光阴影图集切换（第六百七十轮；C1）
+		按当前请求重建图集并重绑 binding 9 的全部数组元素；关闭时恢复逐瓦片视图。
+		*/
+		void spot_shadow_atlas_apply(void);
 		//层内 GPU 粒子推进（实现位于 EngineSystem/src/effect/Particle/粒子GPU推进.cpp）
 		friend uint32_t particle_gpu::emit(Renderer&, uint32_t);
 		friend bool particle_gpu::step_resident(Renderer&, float);
