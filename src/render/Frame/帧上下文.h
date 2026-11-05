@@ -263,6 +263,13 @@ namespace engine
 		渲染区与清屏仍覆盖整幅目标（故同一目标的多个分片须由调用方自行控制清屏时机）。
 		*/
 		VkRect2D viewport_rect = { { 0, 0 }, { 0, 0 } };
+		/*
+		渲染区跟随子视口（第六百七十六轮）
+		为真且 viewport_rect 非空时，动态渲染的 renderArea 收缩到该矩形（清屏也只作用于该矩形）；
+		用于图集瓦片等「各分片独立清屏」的场景，避免整图 load / store 的带宽浪费。
+		为假（默认）时保持「渲染区覆盖整幅目标」的既有行为（级联分片依赖首片整图清屏）。
+		*/
+		bool render_area_from_viewport = false;
 	};
 
 	/*

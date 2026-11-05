@@ -2734,8 +2734,6 @@ namespace engine
 					atlas_target.depth_format = impl->swapchain.depth_format_get();
 					atlas_target.sample_count = 1;
 				}
-				//图集是否已由首个有效瓦片清屏
-				bool atlas_cleared = false;
 				if (spot_shadow_light_valid)
 				{
 					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
@@ -2749,11 +2747,12 @@ namespace engine
 						Frame_Render_Target spot_target{};
 						if (spot_atlas_active)
 						{
-							//复用图集目标并收缩到本瓦片小格
+							//复用图集目标并收缩到本瓦片小格（渲染区同步收缩，逐片独立清屏）
 							spot_target = atlas_target;
 							spot_target.viewport_rect.offset = { static_cast<int32_t>((tile % 4) * impl->shadow_size),
 								static_cast<int32_t>((tile / 4) * impl->shadow_size) };
 							spot_target.viewport_rect.extent = { impl->shadow_size, impl->shadow_size };
+							spot_target.render_area_from_viewport = true;
 						}
 						else if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
 							spot_target.color_view, spot_target.depth_view, spot_target.extent))
@@ -2767,8 +2766,8 @@ namespace engine
 							spot_target.depth_format = impl->swapchain.depth_format_get();
 							spot_target.sample_count = 1;
 						}
-						//本段清屏标志（图集仅首瓦片清整张图，独立图恒清）
-						const float* spot_clear = spot_atlas_active && atlas_cleared ? nullptr : shadow_clear;
+						//本段清屏标志（图集逐瓦片独立清屏；独立图恒清）
+						const float* spot_clear = shadow_clear;
 						if (batch_path)
 						{
 							batch_targets[batch_count] = spot_target;
@@ -2789,10 +2788,7 @@ namespace engine
 							//累计本帧阴影提交次数（第六百六十五轮；现口径一瓦片一次）
 							++impl->last_shadow_submits;
 						}
-						//图集首段已完成整图清屏
-						if (spot_atlas_active)
-							atlas_cleared = true;
-						//累计本帧聚光瓦片 pass 数（第六百四十七轮）
+						//图集段已逐片清屏（无需首段整图清屏标记）
 						++spot_passes;
 					}
 				}

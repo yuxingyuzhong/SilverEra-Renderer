@@ -894,6 +894,14 @@ namespace engine
 			scissor = target.viewport_rect;
 		}
 		/*
+		渲染区跟随子视口（第六百七十六轮）
+		图集瓦片等「各分片独立清屏」场景把 renderArea 收缩到该矩形，
+		清屏与 load / store 只作用于本片，避免整图带宽浪费；默认仍覆盖整幅目标。
+		*/
+		if (target.render_area_from_viewport
+			&& target.viewport_rect.extent.width != 0 && target.viewport_rect.extent.height != 0)
+			rendering_info.renderArea = target.viewport_rect;
+		/*
 		场景 pass 的并行录制（第二百零八轮统一走 core/并行录制.cpp 的公共实现）
 		段内完整渲染实例、首段沿用清屏、其余保留；MSAA 解析仅末段；
 		单采样时 UI 与场景共用本通道，故 UI 回调放在末段（位置与单线程一致）。
