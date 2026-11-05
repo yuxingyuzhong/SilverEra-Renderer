@@ -3047,6 +3047,11 @@ namespace engine
 		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
 		scene_block[241] = impl->pbr_roughness;
 		scene_block[242] = impl->pbr_metallic;
+		/*
+		场景缓冲尾部扩展（第六百七十二轮；D1 第一步）
+		456 = PBR 掠射高光能量修正开关；457..459 保留（保持 vec4 对齐）。
+		*/
+		scene_block[456] = impl->pbr_energy ? 1.0f : 0.0f;
 		//二次元风格化色阶数（第一百七十四轮；w 槽；0 = 关闭）
 		scene_block[243] = static_cast<float>(impl->toon_steps);
 		/*
@@ -9731,6 +9736,8 @@ namespace engine
 		pbr_roughness_set(light.pbr_roughness);
 		//PBR 金属度（第六十五轮；非法值由 setter 整次忽略）
 		pbr_metallic_set(light.pbr_metallic);
+		//PBR 掠射高光能量修正（第六百七十二轮；默认关闭）
+		impl->pbr_energy = light.pbr_energy != 0;
 		//二次元风格化（第一百七十四轮；非法参数由 setter 归一）
 		toon_set(light.toon_steps, light.toon_rim);
 		//二次元暗部色调（第一百七十八轮）
@@ -9828,7 +9835,10 @@ namespace engine
 		for (std::size_t index = 0; index < 3; ++index)
 			light.outline_color[index] = scene.outline_color[index];
 		//PBR 金属度（第六十五轮）
+		//PBR 金属度（第六十五轮）
 		light.pbr_metallic = scene.pbr_metallic;
+		//PBR 掠射高光能量修正（第六百七十二轮）
+		light.pbr_energy = scene.pbr_energy;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -12894,6 +12904,25 @@ namespace engine
 	{
 		//未初始化返回默认 0
 		return impl != nullptr && impl->initialized ? impl->pbr_metallic : 0.0f;
+	}
+
+	//PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
+	void Renderer::pbr_energy_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//与原值一致则无需处理
+		if (impl->pbr_energy == enabled)
+			return;
+		impl->pbr_energy = enabled;
+	}
+
+	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
+	bool Renderer::pbr_energy(void) const
+	{
+		//未初始化返回默认假
+		return impl != nullptr && impl->initialized ? impl->pbr_energy : false;
 	}
 
 	/*

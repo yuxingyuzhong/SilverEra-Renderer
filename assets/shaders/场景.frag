@@ -137,6 +137,11 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 spot_shadow_spans[2];
 	vec4 spot_shadow_slots[2];
 	vec4 spot_shadow_biases[2];
+	/*
+	光照扩展参数（第六百七十二轮；D1 第一步）
+	x = PBR 掠射高光能量修正（> 0.5 时镜面乘入射余弦）、yzw 保留；默认 0 时乘子恒 1。
+	*/
+	vec4 lighting_extra;
 } scene;
 
 //点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
@@ -224,6 +229,16 @@ PBR-lite 菲涅尔基色（第六十五轮；第六十八轮金属度改为入�
 vec3 pbr_f0(vec3 albedo, float metallic)
 {
 	return mix(vec3(0.04), albedo, clamp(metallic, 0.0, 1.0));
+}
+
+/*
+PBR 镜面能量修正（第六百七十二轮；D1 第一步）
+开启（lighting_extra.x > 0.5）时乘入射余弦 NoL，使镜面等价于 D·G·F/(4·NoV)，修正掠射角过亮；
+关闭时乘子为 1，既有 PBR 画面逐字节不变。
+*/
+vec3 pbr_specular_energy(vec3 specular, float ndotl)
+{
+	return scene.lighting_extra.x > 0.5 ? specular * ndotl : specular;
 }
 
 /*
@@ -325,9 +340,9 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 	float shininess = shininess_record > 0.0 ? shininess_record : max(scene.light_common.z, 1.0);
 	//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 	if (scene.pbr_params.x > 0.5)
-		specular = max(specular, ggx_specular(normal, to_view, to_light,
+		specular = max(specular, pbr_specular_energy(ggx_specular(normal, to_view, to_light,
 			pbr_roughness(shininess, roughness_cached), pbr_f0(albedo, metallic_cached))
-			* attenuation * cone_factor * cone.w * color_intensity.w);
+			* attenuation * cone_factor * cone.w * color_intensity.w, ndotl));
 	else
 	{
 		vec3 halfway = normalize(to_light + to_view);
@@ -794,10 +809,10 @@ void main()
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
-				specular = max(specular, ggx_specular(normal, to_view, to_light,
+				specular = max(specular, pbr_specular_energy(ggx_specular(normal, to_view, to_light,
 					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached),
 					pbr_f0(albedo_color.rgb, material_metallic_cached))
-					* scene.camera_pos.w * dir_shadow * scene.light_dir.w);
+					* scene.camera_pos.w * dir_shadow * scene.light_dir.w, ndotl));
 			else
 			{
 				vec3 halfway = normalize(to_light + to_view);
@@ -825,10 +840,10 @@ void main()
 			radiance += scene.fill_color.rgb * scene.fill_dir_intensity.w * fill_ndotl;
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
-				specular = max(specular, ggx_specular(normal, to_view, fill_to_light,
+				specular = max(specular, pbr_specular_energy(ggx_specular(normal, to_view, fill_to_light,
 					pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached),
 					pbr_f0(albedo_color.rgb, material_metallic_cached))
-					* scene.fill_color.w * scene.fill_dir_intensity.w);
+					* scene.fill_color.w * scene.fill_dir_intensity.w, fill_ndotl));
 			else
 			{
 				vec3 fill_halfway = normalize(fill_to_light + to_view);

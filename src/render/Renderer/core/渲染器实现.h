@@ -750,6 +750,11 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属；默认 0）
 		float pbr_metallic = 0.0f;
+		/*
+		PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
+		默认关闭；开启且 PBR 开启时镜面乘入射余弦，修正掠射角过亮。
+		*/
+		bool pbr_energy = false;
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）
@@ -1031,7 +1036,11 @@ namespace engine
 		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
 		*/
 		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 456;
+		/*
+		场景 UBO 浮点规模（第六百七十二轮由 456 扩为 460）
+		456..459 = `lighting_extra`（x = PBR 掠射高光能量修正开关，yzw 保留）。
+		*/
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 460;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*

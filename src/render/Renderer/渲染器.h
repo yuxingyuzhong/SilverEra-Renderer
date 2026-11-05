@@ -2070,6 +2070,13 @@ namespace engine
 		//当前 PBR 金属度（未初始化时为默认 0）
 		float pbr_metallic(void) const;
 		/*
+		PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
+		开启且 PBR 开启时镜面项乘入射余弦 NoL，修正掠射角过亮；默认关闭（逐字节不变）。
+		*/
+		void pbr_energy_set(bool enabled);
+		//当前 PBR 掠射高光能量修正是否开启（未初始化时为默认假）
+		bool pbr_energy(void) const;
+		/*
 		二次元风格化 · 光照色阶量化与边缘光（第一百七十四轮新增）
 		steps：色阶数（0 = 关闭，原样光照；1..8 = 把各光源的 N·L 量化到 N 档，形成硬边明暗分界）；
 		rim：菲涅尔边缘光强度（0 = 关闭；0..1，轮廓处叠加反照率亮边）。

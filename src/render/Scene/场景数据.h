@@ -186,6 +186,12 @@ namespace engine
 		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属）
 		float pbr_metallic = 0.0f;
 		/*
+		PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
+		非 0 且 PBR 开启时，镜面项乘入射余弦 NoL（等价 D·G·F/(4·NoV)），修正掠射角过亮；
+		为 0（默认）时乘子恒 1，画面与引入前逐字节一致。
+		*/
+		int pbr_energy = 0;
+		/*
 		二次元风格化（第一百七十四轮）
 		toon_steps：光照色阶数（0 = 关闭，原样光照；1..8 = 把各光源 N·L 量化到 N 档）；
 		toon_rim：菲涅尔边缘光强度（0 = 关闭；0..1）。
@@ -528,5 +534,7 @@ namespace engine
 		int shadow_batch_submit = 0;
 		//聚光阴影图集（第六百七十轮；语义见 Light_Data::spot_shadow_atlas）
 		int spot_shadow_atlas = 0;
+		//PBR 掠射高光能量修正（第六百七十二轮；语义见 Light_Data::pbr_energy）
+		int pbr_energy = 0;
 	};
 }
