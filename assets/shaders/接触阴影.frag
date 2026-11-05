@@ -59,12 +59,13 @@ layout(push_constant) uniform Push_Post
 const int MAX_STEPS = 32;
 
 /*
-接触遮挡采样（第六百七十五轮；相位可调）
+接触遮挡采样（第六百七十五轮；相位可调；第六百八十一轮增厚度剔除）
 phase 为步内相对偏移：0.5 = 固定中点（与 673 逐字节一致）；
+thickness 为允许的深度差上限（NDC）：超过即视为远处前景而非接触遮挡，不计入。
 返回遮挡样本数（0..step_count）。
 */
 float contact_occlusion(vec3 world_pos, vec3 to_light, int step_count, float step_length,
-	float bias, ivec2 depth_size, float phase, mat4 view_proj)
+	float bias, float thickness, ivec2 depth_size, float phase, mat4 view_proj)
 {
 	float occluded = 0.0;
 	for (int step = 1; step <= step_count; ++step)
@@ -86,8 +87,13 @@ float contact_occlusion(vec3 world_pos, vec3 to_light, int step_count, float ste
 		//深度图为天空则不算遮挡
 		if (stored >= 0.9999)
 			continue;
-		//深度图表面比采样点更近 → 该样本被遮挡
-		if (stored < sample_ndc.z - bias)
+		//深度差（正 = 深度图表面比采样点更近）
+		float difference = sample_ndc.z - stored;
+		/*
+		深度图表面比采样点更近 → 该样本被遮挡；
+		超过厚度上限则视为远处前景（非接触遮挡），不计入（第六百八十一轮）。
+		*/
+		if (difference > bias && difference <= thickness)
 			occluded += 1.0;
 	}
 	return occluded;
@@ -143,6 +149,13 @@ void main()
 	float bias = clamp(push.post_param.w, 0.0005, 0.05);
 	float step_length = max_distance / float(step_count);
 	/*
+	厚度阈值（第六百八十一轮）
+	以「最大步进距离 / 相机近远跨度」估算 NDC 厚度，仅统计厚度内的遮挡样本，
+	避免把远处前景当作接触阴影；钳到 [0.002, 0.2]。
+	*/
+	float depth_span = max(scene.camera_range.y - scene.camera_range.x, 0.001);
+	float thickness = clamp(max_distance / depth_span, 0.002, 0.2);
+	/*
 	抖动相位（第六百七十五轮）
 	post_color.a 为种子：0（默认）= 固定中点采样，与 673 逐字节一致；
 	> 0 时按像素与种子抖动，并以互补相位二次采样平均，摊平层状伪影。
@@ -153,12 +166,12 @@ void main()
 		phase = jitter_phase(gl_FragCoord.xy, jitter_seed);
 	//遮挡计数
 	float occluded = contact_occlusion(world_pos, to_light, step_count, step_length,
-		bias, depth_size, phase, scene.view_proj);
+		bias, thickness, depth_size, phase, scene.view_proj);
 	//互补相位平均（仅抖动开启时）
 	if (jitter_seed > 0.0)
 	{
 		float paired = contact_occlusion(world_pos, to_light, step_count, step_length,
-			bias, depth_size, 1.0 - phase, scene.view_proj);
+			bias, thickness, depth_size, 1.0 - phase, scene.view_proj);
 		occluded = 0.5 * (occluded + paired);
 	}
 	//遮挡比例 → 阴影强度
