@@ -240,6 +240,12 @@ namespace engine
 		int shadow_pcss = 0;
 		float shadow_pcss_search = 24.0f;
 		float shadow_pcss_max = 8.0f;
+		/*
+		逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位 0..7）
+		1（默认）= 沿用既有偏置口径；>1 加大偏置（抑制自阴影），<1 减小偏置（收紧接触阴影）；
+		有效偏置 = 既有逐瓦片偏置 × 该缩放（钳到 [0.1, 10]）。
+		*/
+		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 	};
 
 	/*
@@ -472,5 +478,7 @@ namespace engine
 		int shadow_pcss = 0;
 		float shadow_pcss_search = 24.0f;
 		float shadow_pcss_max = 8.0f;
+		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；语义见 Light_Data::spot_shadow_bias_scale）
+		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 	};
 }

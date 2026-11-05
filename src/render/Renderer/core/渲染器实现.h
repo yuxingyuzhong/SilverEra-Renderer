@@ -251,6 +251,8 @@ namespace engine
 		bool shadow_pcss_enabled = false;
 		float shadow_pcss_search = 24.0f;
 		float shadow_pcss_max = 8.0f;
+		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
+		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//平台模块
 		Platform_Context platform;
 		//设备模块

@@ -2363,8 +2363,11 @@ namespace engine
 		{
 			std::memset(impl->spot_view_proj_tiles[tile], 0, sizeof(impl->spot_view_proj_tiles[tile]));
 			impl->spot_shadow_spans[tile] = 0.0f;
-			//逐瓦片偏置默认取全局值（第五百二十一轮；无自校准时与引入前一致）
-			impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias;
+			//逐瓦片偏置默认取全局值（第五百二十一轮；无自校准时与引入前一致；第六百五十八轮乘逐盏缩放）
+			float slot_scale = 1.0f;
+			if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < 8)
+				slot_scale = impl->spot_shadow_bias_scale[impl->spot_shadow_index];
+			impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias * slot_scale;
 		}
 		for (std::size_t slot = 0; slot < 8; ++slot)
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
@@ -2445,13 +2448,16 @@ namespace engine
 				//该瓦片深度跨度（着色器法线偏移换算用）
 				impl->spot_shadow_spans[tile] = far_plane - 0.1f;
 				/*
-				逐瓦片有效偏置（第五百二十一轮）
+				逐瓦片有效偏置（第五百二十一轮；第六百五十八轮加逐盏缩放）
 				自校准开启时按「参考跨度 9 / 本瓦片跨度」缩放，保持世界法线偏移近似恒定；
-				关闭时恒为全局值（与引入前逐字节一致）。
+				关闭时恒为全局值（与引入前逐字节一致）；再乘该槽位的逐盏缩放（默认 1）。
 				*/
-				impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias_auto
+				float tile_scale = 1.0f;
+				if (candidates[tile] >= 0 && candidates[tile] < 8)
+					tile_scale = impl->spot_shadow_bias_scale[candidates[tile]];
+				impl->spot_shadow_bias_tiles[tile] = (impl->spot_shadow_bias_auto
 					? impl->spot_shadow_bias * (Impl::SPOT_BIAS_REFERENCE_SPAN / impl->spot_shadow_spans[tile])
-					: impl->spot_shadow_bias;
+					: impl->spot_shadow_bias) * tile_scale;
 				//前向槽位 → 瓦片号（未登记到映射表的槽位恒为 -1）
 				if (candidates[tile] >= 0 && candidates[tile] < 8)
 					impl->spot_shadow_slot_tiles[candidates[tile]] = static_cast<float>(tile);
@@ -9418,6 +9424,9 @@ namespace engine
 		仅影响着色器采样，不重建阴影图；非法值由 setter 整次忽略。
 		*/
 		shadow_pcss_set(light.shadow_pcss != 0, light.shadow_pcss_search, light.shadow_pcss_max);
+		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
+		for (std::size_t index = 0; index < 8; ++index)
+			spot_shadow_bias_scale_set(static_cast<uint32_t>(index), light.spot_shadow_bias_scale[index]);
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
@@ -9549,6 +9558,9 @@ namespace engine
 		light.shadow_pcss = scene.shadow_pcss;
 		light.shadow_pcss_search = scene.shadow_pcss_search;
 		light.shadow_pcss_max = scene.shadow_pcss_max;
+		//逐盏聚光灯阴影偏置缩放（第六百五十八轮）
+		for (std::size_t index = 0; index < 8; ++index)
+			light.spot_shadow_bias_scale[index] = scene.spot_shadow_bias_scale[index];
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
@@ -11943,6 +11955,22 @@ namespace engine
 		impl->shadow_pcss_search = search < 1.0f ? 1.0f : (search > 32.0f ? 32.0f : search);
 		impl->shadow_pcss_max = max_radius < 1.0f ? 1.0f : (max_radius > 16.0f ? 16.0f : max_radius);
 		impl->shadow_pcss_enabled = enabled;
+	}
+
+	/*
+	逐盏聚光灯阴影偏置缩放（第六百五十八轮）
+	仅影响采样偏置（不重建阴影图）；钳到 [0.1, 10]，非有限值忽略，越界槽位返回假。
+	*/
+	bool Renderer::spot_shadow_bias_scale_set(uint32_t index, float scale)
+	{
+		//若尚未初始化或槽位越界
+		if (impl == nullptr || !impl->initialized || index >= 8)
+			return false;
+		//非有限值忽略（保持原值）
+		if (!std::isfinite(scale))
+			return false;
+		impl->spot_shadow_bias_scale[index] = scale < 0.1f ? 0.1f : (scale > 10.0f ? 10.0f : scale);
+		return true;
 	}
 
 	//当前是否多盏聚光灯阴影（第五百一十一轮）

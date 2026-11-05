@@ -1920,6 +1920,12 @@ namespace engine
 		*/
 		void shadow_pcss_set(bool enabled, float search, float max_radius);
 		/*
+		逐盏聚光灯阴影偏置缩放（第六百五十八轮；仅影响采样偏置，不重建阴影图）
+		index 为前向槽位（0..7）；有效偏置 = 既有逐瓦片偏置 × 该缩放（钳到 [0.1, 10]，非有限值忽略）。
+		默认 1（与引入前一致）；越界返回假。
+		*/
+		bool spot_shadow_bias_scale_set(uint32_t index, float scale);
+		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；
 		false（默认）：逐瓦片偏置恒等于 spot_shadow_bias，画面与引入前逐字节一致。
