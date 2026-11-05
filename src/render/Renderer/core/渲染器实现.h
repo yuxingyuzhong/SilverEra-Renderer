@@ -244,6 +244,13 @@ namespace engine
 		*/
 		uint32_t last_shadow_passes = 0;
 		uint32_t last_spot_shadow_passes = 0;
+		/*
+		PCSS 软阴影配置（第六百五十七轮）
+		默认关闭；开启后着色器以 16 点阻塞物搜索 ＋ 16 点可变半径 PCF 取代硬边 / 3×3 软度口径。
+		*/
+		bool shadow_pcss_enabled = false;
+		float shadow_pcss_search = 24.0f;
+		float shadow_pcss_max = 8.0f;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

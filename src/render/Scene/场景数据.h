@@ -231,6 +231,15 @@ namespace engine
 		int shadow_cascade_count = 1;
 		float shadow_cascade_far_scale = 3.0f;
 		float shadow_cascade_split = 12.0f;
+		/*
+		PCSS 软阴影（第六百五十七轮；默认关闭）
+		shadow_pcss：0 = 关闭（旧硬边 / 3×3 软度口径，逐字节一致）、1 = 开启；
+		shadow_pcss_search：阻塞物搜索尺度（纹素，钳到 1..32）；
+		shadow_pcss_max：PCF 半径上限（纹素，钳到 1..16）。
+		*/
+		int shadow_pcss = 0;
+		float shadow_pcss_search = 24.0f;
+		float shadow_pcss_max = 8.0f;
 	};
 
 	/*
@@ -459,5 +468,9 @@ namespace engine
 		int shadow_cascade_count = 1;
 		float shadow_cascade_far_scale = 3.0f;
 		float shadow_cascade_split = 12.0f;
+		//PCSS 软阴影（第六百五十七轮；语义见 Light_Data::shadow_pcss / search / max）
+		int shadow_pcss = 0;
+		float shadow_pcss_search = 24.0f;
+		float shadow_pcss_max = 8.0f;
 	};
 }

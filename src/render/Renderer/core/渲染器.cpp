@@ -2944,6 +2944,14 @@ namespace engine
 		*/
 		scene_block[292] = impl->toon_specular;
 		/*
+		PCSS 软阴影参数（第六百五十七轮；复用卡通高光参数的空闲分量）
+		293 = 开关（> 0.5 生效）、294 = 阻塞物搜索尺度（纹素）、295 = PCF 半径上限（纹素）；
+		293 为 0（默认）时片元走旧硬边 / 3×3 软度口径，画面逐字节不变。
+		*/
+		scene_block[293] = impl->shadow_pcss_enabled ? 1.0f : 0.0f;
+		scene_block[294] = impl->shadow_pcss_search;
+		scene_block[295] = impl->shadow_pcss_max;
+		/*
 		簇参数（第二百八十五轮写入；第二百八十九轮由场景片元读取）
 		296 = Cluster 启用（> 0.5 时片元改读逐簇光源列表）、297..299 = 网格 x / y / z；
 		296 为 0（默认）时着色器走原 8 盏前向循环，画面逐字节不变。
@@ -4054,6 +4062,8 @@ namespace engine
 		stats.shadow_passes = impl->last_shadow_passes;
 		stats.spot_shadow_passes = impl->last_spot_shadow_passes;
 		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
+		//PCSS 软阴影状态（第六百五十七轮）
+		stats.shadow_pcss = impl->shadow_pcss_enabled ? 1u : 0u;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -9403,6 +9413,11 @@ namespace engine
 			shadow_cascade_set(light.shadow_cascade_count < 0 ? 0u : static_cast<uint32_t>(light.shadow_cascade_count),
 				light.shadow_cascade_far_scale, light.shadow_cascade_split);
 		}
+		/*
+		PCSS 软阴影（第六百五十七轮）
+		仅影响着色器采样，不重建阴影图；非法值由 setter 整次忽略。
+		*/
+		shadow_pcss_set(light.shadow_pcss != 0, light.shadow_pcss_search, light.shadow_pcss_max);
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
 		impl->spot_shadow_enabled = light.spot_shadow_enabled != 0;
 		if (impl->spot_shadow_enabled)
@@ -9530,6 +9545,10 @@ namespace engine
 		light.shadow_cascade_count = scene.shadow_cascade_count;
 		light.shadow_cascade_far_scale = scene.shadow_cascade_far_scale;
 		light.shadow_cascade_split = scene.shadow_cascade_split;
+		//PCSS 软阴影（第六百五十七轮）
+		light.shadow_pcss = scene.shadow_pcss;
+		light.shadow_pcss_search = scene.shadow_pcss_search;
+		light.shadow_pcss_max = scene.shadow_pcss_max;
 		//PBR-lite 镜面（第六十四轮）
 		light.pbr_enabled = scene.pbr_enabled;
 		light.pbr_roughness = scene.pbr_roughness;
@@ -11905,6 +11924,25 @@ namespace engine
 		//旧阴影图不再可信（该槽位可能不再投影或重新投影）
 		impl->shadow_pass_ready = false;
 		return true;
+	}
+
+	/*
+	PCSS 软阴影开关与预算（第六百五十七轮）
+	仅影响着色器采样（不重建阴影图）；enabled = false 恢复旧口径。
+	search 钳到 [1, 32] 纹素、max_radius 钳到 [1, 16] 纹素；非有限值整次忽略。
+	*/
+	void Renderer::shadow_pcss_set(bool enabled, float search, float max_radius)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//非有限值整次忽略
+		if (!std::isfinite(search) || !std::isfinite(max_radius))
+			return;
+		//搜索尺度与 PCF 半径钳到有效区间
+		impl->shadow_pcss_search = search < 1.0f ? 1.0f : (search > 32.0f ? 32.0f : search);
+		impl->shadow_pcss_max = max_radius < 1.0f ? 1.0f : (max_radius > 16.0f ? 16.0f : max_radius);
+		impl->shadow_pcss_enabled = enabled;
 	}
 
 	//当前是否多盏聚光灯阴影（第五百一十一轮）

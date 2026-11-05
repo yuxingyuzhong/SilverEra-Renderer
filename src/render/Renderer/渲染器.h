@@ -296,6 +296,8 @@ namespace engine
 		uint32_t shadow_passes = 0;
 		uint32_t spot_shadow_passes = 0;
 		uint32_t shadow_resolution = 0;
+		//PCSS 软阴影是否生效（第六百五十七轮；0 = 关闭（默认）、1 = 开启）
+		uint32_t shadow_pcss = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
@@ -1910,6 +1912,13 @@ namespace engine
 		越界返回假（配置不变）。默认全开，与引入前逐字节一致。
 		*/
 		bool spot_shadow_light_set(uint32_t index, bool enabled);
+		/*
+		PCSS 软阴影开关与预算（第六百五十七轮；仅影响着色器采样，不重建阴影图）
+		enabled = false 恢复旧口径（硬边 / 3×3 软度，逐字节一致）；
+		search 钳到 [1, 32] 纹素（阻塞物搜索尺度）；max_radius 钳到 [1, 16] 纹素（PCF 半径上限）。
+		非有限值整次忽略（保持原配置）。
+		*/
+		void shadow_pcss_set(bool enabled, float search, float max_radius);
 		/*
 		聚光灯阴影偏置自校准（第五百二十一轮新增）
 		true：逐瓦片有效偏置 = spot_shadow_bias × (9 / 该瓦片跨度)，使不同半径的世界法线偏移接近一致；

@@ -338,19 +338,39 @@ void accumulate_point_light(vec3 normal, vec3 to_view, vec3 albedo, float roughn
 }
 
 /*
-阴影深度比较（第五十三轮；第四百八十四轮改为显式收阴影图）
-在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
+阴影深度读取（第六百五十七轮；供 PCSS 阻塞物搜索与比较复用）
+在给定纹素取一次打包深度并解包；越界钳边。
 */
-float shadow_compare(sampler2D shadow_tex, ivec2 texel, float current, int size)
+float shadow_depth_read(sampler2D shadow_tex, ivec2 texel, int size)
 {
 	//越界钳边
 	ivec2 clamped = clamp(texel, ivec2(0), ivec2(size - 1));
 	vec4 packed = texelFetch(shadow_tex, clamped, 0);
 	//解包 32 位深度
-	float stored = dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+	return dot(packed, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+}
+
+/*
+阴影深度比较（第五十三轮；第四百八十四轮改为显式收阴影图）
+在阴影图纹素坐标处取一次打包深度并解包，返回 current <= stored ? 1 : 0。
+*/
+float shadow_compare(sampler2D shadow_tex, ivec2 texel, float current, int size)
+{
 	//片元比阴影图记录更近则受光，否则遮蔽
+	float stored = shadow_depth_read(shadow_tex, texel, size);
 	return current <= stored ? 1.0 : 0.0;
 }
+
+/*
+PCSS 采样盘（第六百五十七轮；16 点 Vogel 螺旋，单位圆内均布）
+阻塞物搜索与可变半径 PCF 共用同一盘，仅半径不同，避免两套分布带来的噪声差异。
+*/
+const vec2 PCSS_DISK[16] = vec2[](
+	vec2(0.177, 0.000), vec2(-0.226, 0.207), vec2(0.035, -0.394), vec2(0.285, 0.371),
+	vec2(-0.522, -0.092), vec2(0.495, -0.315), vec2(-0.165, 0.616), vec2(-0.316, -0.608),
+	vec2(0.685, 0.250), vec2(-0.712, 0.294), vec2(0.343, -0.734), vec2(0.254, 0.809),
+	vec2(-0.765, -0.443), vec2(0.897, -0.197), vec2(-0.548, 0.779), vec2(-0.126, -0.976)
+);
 
 /*
 方向光阴影系数（第五十二轮；第五十三轮增软度与强度；第五十九轮加法线偏移）
@@ -422,6 +442,41 @@ float shadow_sample_core(mat4 light_matrix, float depth_span, sampler2D shadow_t
 	ivec2 texel = ivec2(clamp(uv * float(size), vec2(0.0), vec2(float(size - 1))));
 	//当前片元在光源空间的深度（Vulkan 深度范围 [0,1]）减去偏置
 	float current = ndc.z - bias;
+	/*
+	PCSS 软阴影（第六百五十七轮）
+	开关与参数复用 toon_specular_params 的空闲分量：y = 启用（> 0.5）、z = 阻塞物搜索尺度（纹素）、
+	w = PCF 半径上限（纹素）；半影宽度 = clamp((片元深度 − 平均遮挡深度) × 搜索尺度, 1, 上限)。
+	关闭（y ≤ 0.5）时完全走下方旧口径（硬边 / 3×3 软度），画面逐字节不变。
+	*/
+	if (scene.toon_specular_params.y > 0.5)
+	{
+		float search = max(scene.toon_specular_params.z, 1.0);
+		float max_radius = max(scene.toon_specular_params.w, 1.0);
+		//阻塞物搜索：16 点盘，统计比片元更近的平均深度
+		float blocker_sum = 0.0;
+		float blockers = 0.0;
+		for (int tap = 0; tap < 16; ++tap)
+		{
+			float stored = shadow_depth_read(shadow_tex, texel + ivec2(PCSS_DISK[tap] * search), size);
+			//若该样本比片元更近则计入遮挡
+			if (stored < current)
+			{
+				blocker_sum += stored;
+				blockers += 1.0;
+			}
+		}
+		//无遮挡物 → 完全受光
+		if (blockers <= 0.0)
+			return 1.0;
+		float blocker_depth = blocker_sum / blockers;
+		//半影宽度（纹素）：深度差越大越软，钳到 [1, 上限]
+		float penumbra = clamp((current - blocker_depth) * search, 1.0, max_radius);
+		//可变半径 PCF：同一盘按半影半径采样
+		float lit = 0.0;
+		for (int tap = 0; tap < 16; ++tap)
+			lit += shadow_compare(shadow_tex, texel + ivec2(PCSS_DISK[tap] * penumbra), current, size);
+		return lit / 16.0;
+	}
 	//遮蔽系数（软度 0 = 单点；>0 按软度映射邻域半径 1..3 → 3×3 / 5×5 / 7×7）
 	if (softness <= 0.0)
 		return shadow_compare(shadow_tex, texel, current, size);
