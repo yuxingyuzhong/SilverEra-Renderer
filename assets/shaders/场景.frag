@@ -725,6 +725,12 @@ void main()
 	*/
 	vec3 radiance = vec3(occlusion);
 	vec3 specular = vec3(0.0);
+	/*
+	PBR 漫反射能量分摊（第六百七十四轮；D1 第二步）
+	默认 1（不做分摊）；能量模式且有法线时按 (1 − 菲涅尔) 衰减，
+	使掠射角处漫反射让位给镜面，最终权重在合成处乘到漫反射项。
+	*/
+	float pbr_diffuse_energy = 1.0;
 	//天空盒镜面 IBL 累加（第一百二十五轮；不受全局高光强度缩放）
 	vec3 sky_specular = vec3(0.0);
 	//若提供了法线
@@ -763,6 +769,17 @@ void main()
 		}
 		//视线方向（相机 → 片元 的反向，即片元指向相机）
 		vec3 to_view = normalize(scene.camera_pos.xyz - in_world);
+		/*
+		菲涅尔能量分摊（第六百七十四轮；仅能量模式 ＋ PBR 开启）
+		视角菲涅尔取 RGB 最大分量；关闭时 pbr_diffuse_energy 恒 1（逐字节不变）。
+		*/
+		if (scene.lighting_extra.x > 0.5 && scene.pbr_params.x > 0.5)
+		{
+			vec3 f0 = pbr_f0(albedo_color.rgb, material_metallic_cached);
+			vec3 fresnel = f0 + (vec3(1.0) - f0)
+				* pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 5.0);
+			pbr_diffuse_energy = clamp(1.0 - max(max(fresnel.r, fresnel.g), fresnel.b), 0.0, 1.0);
+		}
 		/*
 		环境光作为基底辐射度（颜色 × 强度；第四十轮引入颜色；第四十七轮支持半球混合）
 		半球混合：法线朝上取 ambient_color、朝下取 ambient_ground.rgb，
@@ -941,7 +958,7 @@ void main()
 	第二百三十六轮改为复用片元开头的预采样结果（`material_metallic_cached`）。
 	*/
 	float diffuse_weight = scene.pbr_params.x > 0.5
-		? clamp(1.0 - material_metallic_cached, 0.0, 1.0) : 1.0;
+		? clamp(1.0 - material_metallic_cached, 0.0, 1.0) * pbr_diffuse_energy : 1.0;
 	vec3 lit = albedo_color.rgb * radiance * diffuse_weight + specular * scene.light_common.y + sky_specular;
 	/*
 	二次元风格化 · 卡通高光（第一百七十九轮）
