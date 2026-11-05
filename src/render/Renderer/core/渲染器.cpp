@@ -2522,6 +2522,8 @@ namespace engine
 		//本帧阴影 pass 计数清零（第六百四十七轮；重绘路径内重新累计）
 		impl->last_shadow_passes = 0;
 		impl->last_spot_shadow_passes = 0;
+		//本帧阴影提交次数归零（第六百六十五轮；C2 基线）
+		impl->last_shadow_submits = 0;
 		if ((impl->shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
 			&& impl->shadow_target != 0 && !impl->pending_items.empty())
 		{
@@ -2663,6 +2665,8 @@ namespace engine
 						logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
 						return false;
 					}
+					//累计本帧阴影提交次数（第六百六十五轮；现口径一片一次）
+					++impl->last_shadow_submits;
 				}
 				/*
 				聚光灯阴影 pass（第四百八十四轮；第五百零七轮扩为多瓦片）
@@ -2696,6 +2700,8 @@ namespace engine
 							logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
 							return false;
 						}
+						//累计本帧阴影提交次数（第六百六十五轮；现口径一瓦片一次）
+						++impl->last_shadow_submits;
 						//累计本帧聚光瓦片 pass 数（第六百四十七轮）
 						++spot_passes;
 					}
@@ -4121,6 +4127,8 @@ namespace engine
 		//级联纹素与淡化观测（第六百六十一轮）
 		stats.shadow_texel_world = impl->shadow_texel_world;
 		stats.cascade_blend_applied = impl->cascade_blend_effective;
+		//阴影提交次数（第六百六十五轮；C2 基线）
+		stats.shadow_submits = impl->last_shadow_submits;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;

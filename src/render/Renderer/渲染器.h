@@ -305,6 +305,12 @@ namespace engine
 		*/
 		float shadow_texel_world = 0.0f;
 		float cascade_blend_applied = 0.0f;
+		/*
+		阴影提交观测（第六百六十五轮；C2 基线）
+		shadow_submits = 最近一次阴影重绘实际提交的命令缓冲次数。
+		当前口径为「一片一次提交」，故等于 shadow_passes；C2（单次提交合并）落地后应恒为 1。
+		*/
+		uint32_t shadow_submits = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
