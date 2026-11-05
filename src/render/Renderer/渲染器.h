@@ -279,6 +279,15 @@ namespace engine
 		uint32_t cluster_gpu_bytes = 0;
 		//是否发生过「Cluster 关闭且光源超过 8 盏」的截断（第二百八十轮；1 = 发生过）
 		uint32_t light_truncated = 0;
+		/*
+		光照诊断（第六百四十五轮；A4）
+		lights_active = 最近一次场景应用后参与光照的光源数（旧前向 ≤ 8、簇路径 ≤ 1024）；
+		lights_dropped = 同一次应用中因预算 / 重要性选择而未登记的光源数；
+		light_select_mode = 生效的选择模式（0 = 声明顺序、1 = 重要性选择）。
+		*/
+		uint32_t lights_active = 0;
+		uint32_t lights_dropped = 0;
+		uint32_t light_select_mode = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
@@ -1647,6 +1656,13 @@ namespace engine
 		uint32_t light_records_get(Light_Record* out, uint32_t capacity) const;
 		//当前光源记录总数（主光 ＋ 补光 ＋ 逐盏；不受 capacity 影响）
 		uint32_t light_record_count(void) const;
+		/*
+		设置光源选择模式与预算（第六百四十五轮；A1）
+		mode = 0 声明顺序（默认，与引入前逐字节一致）、1 = 重要性选择；其它取值按 0。
+		budget = 0 跟随路径上限（旧前向 8 盏 / 簇路径全量），>0 为参与光照的光源预算（钳到容量上限）。
+		选择在 scene_apply 时对「候选集合」生效，命中后仍按声明顺序登记（聚光槽位映射不变）。
+		*/
+		void light_select_set(uint32_t mode, uint32_t budget);
 		/*
 		设置镜面高光参数（第三十一轮新增；对方向光与点光源均生效）
 		intensity 为高光强度（≥ 0，0 = 关闭），shininess 为光泽度（≥ 1，越大高光越集中）。

@@ -205,6 +205,15 @@ namespace engine
 		*/
 		float outline_width = 0.0f;
 		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
+		/*
+		光源选择模式与预算（第六百四十五轮；A1）
+		light_select_mode：0 = 声明顺序（默认，与引入前逐字节一致）；1 = 重要性选择
+		（候选数超过预算时按「强度 × 半径 /(半径 ＋ 相机距离) × 锥角可见性」择优，同分同序）。
+		light_budget：参与前向光照的最大光源数（0 = 跟随路径上限（旧前向 8 / 簇路径全量））。
+		命中集合确定后仍按声明顺序登记，故聚光瓦片按槽位映射的口径不变。
+		*/
+		int light_select_mode = 0;
+		uint32_t light_budget = 0;
 	};
 
 	/*
@@ -422,5 +431,8 @@ namespace engine
 		//二次元反向外扩描边宽度与描边色（第二百二十八轮；语义见 Light_Data::outline_width）
 		float outline_width = 0.0f;
 		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
+		//光源选择模式与预算（第六百四十五轮；语义见 Light_Data::light_select_mode / light_budget）
+		int light_select_mode = 0;
+		uint32_t light_budget = 0;
 	};
 }

@@ -229,6 +229,14 @@ namespace engine
 		uint32_t point_light_count = 0;
 		//是否发生过「Cluster 关闭且超过 UBO 上限」的截断告警（第二百八十轮）
 		bool light_truncated = false;
+		/*
+		光源选择配置与诊断（第六百四十五轮；A1 / A4）
+		light_select_mode = 0 声明顺序（默认）、1 重要性选择；light_budget = 0 跟随路径上限；
+		light_dropped 为最近一次场景应用中被预算 / 选择淘汰的光源数（供 Frame_Stats 导出）。
+		*/
+		uint32_t light_select_mode = 0;
+		uint32_t light_budget = 0;
+		uint32_t light_dropped = 0;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

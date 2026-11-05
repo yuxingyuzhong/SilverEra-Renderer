@@ -4016,6 +4016,10 @@ namespace engine
 		stats.cluster_gpu_bytes = impl->last_cluster_gpu_bytes;
 		//光源截断标志（第二百八十轮；Cluster 关闭且超过 8 盏时置 1）
 		stats.light_truncated = impl->light_truncated ? 1u : 0u;
+		//光照诊断（第六百四十五轮；A4）
+		stats.lights_active = impl->point_light_count;
+		stats.lights_dropped = impl->light_dropped;
+		stats.light_select_mode = impl->light_select_mode;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;
@@ -9193,31 +9197,137 @@ namespace engine
 		//光照（统一走 light_set：非法参数由后者整次拒绝）
 		light_set(light.direction, light.color, light.intensity, light.ambient);
 		/*
-		点光源组与镜面高光
-		先按方向光重置点光源（light_set 已清空），再逐条追加；单条非法只跳过该条并告警，
-		数量超过上限（第六十二轮起 8）的部分同样忽略。
+		光源选择模式与预算（第六百四十五轮；A1）
+		预算 = 0 跟随路径上限（旧前向 8 盏 / 簇路径全量）；否则取用户预算与路径上限的较小值。
+		候选集合 = 点光（先）＋ 聚光（后）的声明序列表，各组最多 8 条（与 Light_Data 数组容量一致）。
 		*/
-		for (uint32_t index = 0; index < light.point_count; ++index)
-			//超过上限的部分不再登记
-			if (index >= Impl::POINT_LIGHT_UBO_MAX)
-				break;
-			else
-				light_add_point(light.point_position[index], light.point_color[index],
-					light.point_radius[index], light.point_intensity[index], light.ambient,
-					light.point_attenuation[index], light.point_specular[index], light.point_shininess[index]);
+		light_select_set(static_cast<uint32_t>(light.light_select_mode), light.light_budget);
+		const uint32_t path_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_budget = (impl->light_budget > 0u && impl->light_budget < path_limit)
+			? impl->light_budget : path_limit;
+		//候选总数（点光在前、聚光在后；与登记顺序一致）
+		const uint32_t point_total = light.point_count < 8u ? light.point_count : 8u;
+		const uint32_t spot_total = light.spot_count < 8u ? light.spot_count : 8u;
+		const uint32_t candidate_total = point_total + spot_total;
 		/*
-		聚光灯组
-		在点光源之后逐条追加；两类光源共用 8 盏上限，单条非法（含锥角非法）或已满时只跳过该条。
+		入选标志（true = 本次登记该候选）
+		声明顺序模式且候选未超预算时全为真，与引入前逐条等价；重要性选择时才逐候选重算。
 		*/
-		for (uint32_t index = 0; index < light.spot_count; ++index)
-			//超过上限的部分不再登记
-			if (index >= Impl::POINT_LIGHT_UBO_MAX)
+		bool keep[16] = {};
+		for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
+			keep[candidate] = true;
+		//若重要性选择且候选数超过预算
+		if (impl->light_select_mode == 1 && candidate_total > light_budget)
+		{
+			//相机位置（评分距离基准）
+			float camera_position[3] = {};
+			impl->camera.position_get(camera_position);
+			//逐候选评分
+			float scores[16] = {};
+			for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
+			{
+				//候选所属光源组与组内序号
+				const bool is_spot = candidate >= point_total;
+				const uint32_t index = is_spot ? candidate - point_total : candidate;
+				const float* position = is_spot ? light.spot_position[index] : light.point_position[index];
+				const float intensity = is_spot ? light.spot_intensity[index] : light.point_intensity[index];
+				const float radius = is_spot ? light.spot_radius[index] : light.point_radius[index];
+				//相机相对光源的位置分量（距离与锥角判定的公共基准）
+				float offset[3] = {
+					camera_position[0] - position[0],
+					camera_position[1] - position[1],
+					camera_position[2] - position[2],
+				};
+				float distance = std::sqrt(offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]);
+				//距离权重 = 半径 /(半径 ＋ 距离)（越近越高；非法半径按 0 分）
+				float proximity = 0.0f;
+				if (radius > 0.0f && std::isfinite(radius) && std::isfinite(distance))
+					proximity = radius / (radius + distance);
+				//锥角可见性（点光恒 1；聚光按相机方向落在锥内的程度）
+				float cone = 1.0f;
+				if (is_spot)
+				{
+					cone = 0.0f;
+					const float* direction = light.spot_direction[index];
+					float direction_length_squared = direction[0] * direction[0]
+						+ direction[1] * direction[1] + direction[2] * direction[2];
+					if (direction_length_squared > 1e-12f && distance > 0.0f && std::isfinite(direction_length_squared))
+					{
+						//相机方向与光传播方向的夹角余弦
+						float cos_angle = (direction[0] * offset[0] + direction[1] * offset[1] + direction[2] * offset[2])
+							/ (std::sqrt(direction_length_squared) * distance);
+						//内 / 外锥余弦（度 → 弧度）
+						constexpr float degrees_to_radians = 0.017453292519943295f;
+						float inner_cos = std::cos(light.spot_inner_deg[index] * degrees_to_radians);
+						float outer_cos = std::cos(light.spot_outer_deg[index] * degrees_to_radians);
+						//锥内为 1、锥外为 0、两者之间线性过渡
+						if (inner_cos > outer_cos)
+						{
+							float visibility = (cos_angle - outer_cos) / (inner_cos - outer_cos);
+							cone = visibility < 0.0f ? 0.0f : (visibility > 1.0f ? 1.0f : visibility);
+						}
+					}
+				}
+				//评分 = 强度 × 距离权重 × 锥角可见性（非法强度按 0 分）
+				float score = (intensity > 0.0f && std::isfinite(intensity))
+					? intensity * proximity * cone : 0.0f;
+				scores[candidate] = std::isfinite(score) ? score : 0.0f;
+			}
+			//先全部置为未入选，再逐个取最高分（同分按声明序号较小者，保证同分同序）
+			for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
+				keep[candidate] = false;
+			for (uint32_t pick = 0; pick < light_budget; ++pick)
+			{
+				uint32_t best = candidate_total;
+				for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
+					if (!keep[candidate] && (best == candidate_total || scores[candidate] > scores[best]))
+						best = candidate;
+				//无剩余候选则停止
+				if (best == candidate_total)
+					break;
+				keep[best] = true;
+			}
+		}
+		/*
+		逐条登记（按声明顺序；点光段在前、聚光段在后）
+		已登记数达到预算即停止（与旧实现「超出上限不再登记」等价）；
+		单条非法只跳过该条并告警，未入选候选直接跳过。
+		*/
+		uint32_t light_registered = 0;
+		for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
+		{
+			//已满预算则不再登记
+			if (light_registered >= light_budget)
 				break;
+			//未入选的候选跳过
+			if (!keep[candidate])
+				continue;
+			//按候选所属光源组登记
+			if (candidate < point_total)
+			{
+				light_add_point(light.point_position[candidate], light.point_color[candidate],
+					light.point_radius[candidate], light.point_intensity[candidate], light.ambient,
+					light.point_attenuation[candidate], light.point_specular[candidate], light.point_shininess[candidate]);
+			}
 			else
+			{
+				const uint32_t index = candidate - point_total;
 				light_add_spot(light.spot_position[index], light.spot_direction[index],
 					light.spot_color[index], light.spot_radius[index], light.spot_intensity[index],
 					light.spot_inner_deg[index], light.spot_outer_deg[index], light.ambient,
 					light.spot_attenuation[index], light.spot_specular[index], light.spot_shininess[index]);
+			}
+			//统计实际登记成功的光源数（失败项不计入）
+			if (impl->point_light_count > light_registered)
+				light_registered = impl->point_light_count;
+		}
+		/*
+		本轮淘汰数与截断标志（第六百四十五轮；A4）
+		淘汰数 = 候选总数 − 实际登记数；旧前向路径下确实有光源未登记时才置截断标志。
+		*/
+		impl->light_dropped = candidate_total > impl->point_light_count
+			? candidate_total - impl->point_light_count : 0;
+		impl->light_truncated = !impl->cluster_enabled && impl->light_dropped > 0;
 		specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(light.attenuation_mode);
@@ -9311,12 +9421,12 @@ namespace engine
 		toon_specular_set(light.toon_specular);
 		//反向外扩描边（第二百二十八轮；非法值由 setter 归一）
 		outline_set(light.outline_width, light.outline_color);
-		//若点光源数量超过上限则告警（已登记前 8 盏）
-		if (light.point_count > Impl::POINT_LIGHT_UBO_MAX)
+		//若点光源数量超过上限则告警（声明顺序模式；重要性选择模式已主动择优，不再告警）
+		if (impl->light_select_mode == 0 && light.point_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
 				light.point_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);
 		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 8 盏上限）
-		if (light.spot_count > Impl::POINT_LIGHT_UBO_MAX)
+		if (impl->light_select_mode == 0 && light.spot_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 {}，仅登记前 {} 盏（与点光源共用上限）",
 				light.spot_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);
 	}
@@ -9409,6 +9519,9 @@ namespace engine
 		light.specular_shininess = scene.specular_shininess;
 		light.spot_count = scene.spot_light_count;
 		light.attenuation_mode = scene.attenuation_mode;
+		//光源选择模式与预算（第六百四十五轮）
+		light.light_select_mode = scene.light_select_mode;
+		light.light_budget = scene.light_budget;
 		//雾组
 		Fog_Data fog{};
 		for (std::size_t index = 0; index < 3; ++index)
@@ -9655,7 +9768,21 @@ namespace engine
 		impl->point_light_count = 0;
 		//清空截断标志（第二百八十轮）
 		impl->light_truncated = false;
+		//清空淘汰数（第六百四十五轮）
+		impl->light_dropped = 0;
 		impl->light_intensity = 1.0f;
+	}
+
+	//设置光源选择模式与预算（第六百四十五轮）
+	void Renderer::light_select_set(uint32_t mode, uint32_t budget)
+	{
+		//若尚未初始化
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//模式仅接受 0 / 1（其它取值按 0，保持旧口径）
+		impl->light_select_mode = mode == 1u ? 1u : 0u;
+		//预算钳到容量上限（0 = 跟随路径上限）
+		impl->light_budget = budget > Impl::POINT_LIGHT_MAX ? Impl::POINT_LIGHT_MAX : budget;
 	}
 
 	//已登记点光源数量（第九十二轮）
