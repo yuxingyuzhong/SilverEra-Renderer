@@ -2447,6 +2447,9 @@ namespace engine
 		随后等尽在途帧，保证主 pass 采样时阴影图已写完。
 		若本帧输入签名与上一帧完全一致则跳过整个 pass（阴影图原样复用），静态场景省一次离屏提交与等待。
 		*/
+		//本帧阴影 pass 计数清零（第六百四十七轮；重绘路径内重新累计）
+		impl->last_shadow_passes = 0;
+		impl->last_spot_shadow_passes = 0;
 		if ((impl->shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
 			&& impl->shadow_target != 0 && !impl->pending_items.empty())
 		{
@@ -2594,6 +2597,8 @@ namespace engine
 				方向光级联之外，按有效瓦片逐张追加：每张写入独立的 spot_shadow_targets[tile]，单级整幅（无分片）；
 				复用同一阴影管线与实例缓冲，推送常量换成该瓦片的矩阵；首张清屏，其后同样清屏（各自独立图）。
 				*/
+				//聚光灯阴影 pass 计数（第六百四十七轮）
+				uint32_t spot_passes = 0;
 				if (spot_shadow_light_valid)
 				{
 					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
@@ -2619,6 +2624,8 @@ namespace engine
 							logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
 							return false;
 						}
+						//累计本帧聚光瓦片 pass 数（第六百四十七轮）
+						++spot_passes;
 					}
 				}
 				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
@@ -2627,6 +2634,9 @@ namespace engine
 					logger.error("渲染器:: 阴影 pass 等待完成失败");
 					return false;
 				}
+				//记录本帧阴影 pass 数（方向光级联 ＋ 聚光瓦片；第六百四十七轮）
+				impl->last_shadow_passes = directional_cascade_total + spot_passes;
+				impl->last_spot_shadow_passes = spot_passes;
 				//记录阴影 pass 的并行段数（最后一次分片录制的结果；第二百一十二轮）
 				impl->last_shadow_parallel_segments = impl->frame.last_parallel_segments_get();
 				//读回阴影 pass 的 GPU 耗时（第一百二十八轮；此时该提交已完成）
@@ -4020,6 +4030,10 @@ namespace engine
 		stats.lights_active = impl->point_light_count;
 		stats.lights_dropped = impl->light_dropped;
 		stats.light_select_mode = impl->light_select_mode;
+		//阴影 pass 诊断（第六百四十七轮；A4 补齐）
+		stats.shadow_passes = impl->last_shadow_passes;
+		stats.spot_shadow_passes = impl->last_spot_shadow_passes;
+		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
 		//最近一帧即时观测（第一百三十二轮；清零累计量时保持不变）
 		stats.last_draw_items = impl->last_draw_items;
 		stats.last_instances = impl->last_instances;

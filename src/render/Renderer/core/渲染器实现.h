@@ -237,6 +237,13 @@ namespace engine
 		uint32_t light_select_mode = 0;
 		uint32_t light_budget = 0;
 		uint32_t light_dropped = 0;
+		/*
+		阴影 pass 诊断（第六百四十七轮；A4 补齐）
+		last_shadow_passes = 最近一帧实际执行的阴影 pass 数（方向光级联 ＋ 聚光瓦片；复用帧为 0）；
+		last_spot_shadow_passes = 其中聚光瓦片 pass 数。
+		*/
+		uint32_t last_shadow_passes = 0;
+		uint32_t last_spot_shadow_passes = 0;
 		//平台模块
 		Platform_Context platform;
 		//设备模块

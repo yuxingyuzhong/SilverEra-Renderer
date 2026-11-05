@@ -288,6 +288,14 @@ namespace engine
 		uint32_t lights_active = 0;
 		uint32_t lights_dropped = 0;
 		uint32_t light_select_mode = 0;
+		/*
+		阴影 pass 诊断（第六百四十七轮；A4 补齐）
+		shadow_passes = 最近一帧实际执行的阴影 pass 数（方向光级联 ＋ 聚光瓦片；复用帧为 0）；
+		spot_shadow_passes = 其中聚光瓦片 pass 数；shadow_resolution = 当前阴影图边长（像素；未建立为 0）。
+		*/
+		uint32_t shadow_passes = 0;
+		uint32_t spot_shadow_passes = 0;
+		uint32_t shadow_resolution = 0;
 		uint64_t indirect_draws = 0;
 		/*
 		合批收益（第一百三十五轮）
