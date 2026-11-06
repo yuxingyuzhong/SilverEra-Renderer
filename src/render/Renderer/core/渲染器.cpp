@@ -4278,6 +4278,11 @@ namespace engine
 		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
 		//聚光阴影图集实际生效标志（第六百八十轮）
 		stats.shadow_atlas = impl->spot_shadow_atlas ? 1u : 0u;
+		//已建立的独立瓦片目标数（第七百零七轮；图集生效时为 0）
+		stats.spot_shadow_tile_targets = 0;
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+			if (impl->spot_shadow_targets[tile] != 0)
+				++stats.spot_shadow_tile_targets;
 		//图集颜色附件字节数（第六百八十四轮；RGBA8 = 4 字节/像素，4S × 2S）
 		stats.shadow_atlas_bytes = impl->spot_shadow_atlas
 			? static_cast<uint64_t>(impl->shadow_size) * 8u * impl->shadow_size * 4u : 0u;
@@ -12145,11 +12150,18 @@ namespace engine
 			max_tiles = 1;
 		if (max_tiles > Impl::SPOT_SHADOW_TILES)
 			max_tiles = Impl::SPOT_SHADOW_TILES;
+		/*
+		图集生效时独立瓦片不再需要（第七百零七轮；Q-A）
+		图集已承担全部瓦片采样与渲染，跳过创建可消除首帧资源分配与 8 份瓦片显存占用；
+		图集创建失败（实际未生效）时仍走独立瓦片回落路径。
+		*/
+		if (impl->spot_shadow_atlas)
+			return;
 		//默认采样器（与瓦片 0 共用）
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
 		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
-		for (std::size_t tile = 1; tile < max_tiles; ++tile)
+		for (std::size_t tile = 0; tile < max_tiles; ++tile)
 		{
 			//已建立则跳过
 			if (impl->spot_shadow_targets[tile] != 0)
@@ -12274,7 +12286,21 @@ namespace engine
 			const uint32_t atlas_height = impl->shadow_size * 2;
 			if (impl->render_target.target_create(impl->spot_shadow_atlas_target, atlas_width, atlas_height,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			{
 				impl->spot_shadow_atlas = true;
+				/*
+				图集接管后回收独立瓦片目标（第七百零七轮；Q-A）
+				本函数开头已等尽在途帧，销毁安全；此后瓦片由图集承担，不再逐帧懒创建。
+				*/
+				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+				{
+					//未建立的瓦片跳过
+					if (impl->spot_shadow_targets[tile] == 0)
+						continue;
+					impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+					impl->spot_shadow_targets[tile] = 0;
+				}
+			}
 			else
 			{
 				impl->spot_shadow_atlas_target = 0;

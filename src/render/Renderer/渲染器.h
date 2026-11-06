@@ -338,6 +338,11 @@ namespace engine
 		*/
 		uint32_t spot_shadow_tiles = 0;
 		/*
+		已建立的独立聚光阴影瓦片目标数（第七百零七轮；图集生效时恒 0）
+		图集承担全部瓦片后不再创建独立目标，用于验证「切换即预创建、首帧零创建」与显存回收。
+		*/
+		uint32_t spot_shadow_tile_targets = 0;
+		/*
 		最近一次阴影 pass 的并行段数（第二百一十二轮）
 		0 = 单线程录制（默认、投影项未达 `parallel_min_items`、线程数不足）；
 		≥ 2 表示阴影命令由多段次级缓冲并行录制。与 parallel_segments（最近一帧场景 pass）分列，便于分别观测两条录制链路。
