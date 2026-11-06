@@ -9,6 +9,7 @@ post_param.y = 最大步进距离（世界单位，0.05..20）
 post_param.z = 步数缩放（0.25..2，对应 4..32 步）
 post_param.w = 深度偏置（NDC，0.0005..0.05；抑制自阴影）
 post_color.rgb = 阴影色调（默认黑，即直接压暗）
+post_extra.x = 厚度上限（NDC；0 = 自动，沿用「最大距离 / 相机近远跨度」估算）
 天空像素、方向光关闭与强度 0 时一律原样输出（与引入前逐字节一致）。
 */
 //颜色附件输出
@@ -47,12 +48,13 @@ layout(set = 0, binding = 0) uniform Scene_Block
 	vec4 camera_range;
 } scene;
 
-//推送常量：源 / 宿尺寸（offset 80）、后处理参数（offset 96）与阴影色调（offset 112）
+//推送常量：源 / 宿尺寸（offset 80）、后处理参数（offset 96）、阴影色调（offset 112）与逐级 extra（offset 128）
 layout(push_constant) uniform Push_Post
 {
 	layout(offset = 80) vec4 size_xy;
 	layout(offset = 96) vec4 post_param;
 	layout(offset = 112) vec4 post_color;
+	layout(offset = 128) vec4 post_extra;
 } push;
 
 //步数上限（固定，保证各硬件行为一致）
@@ -149,12 +151,17 @@ void main()
 	float bias = clamp(push.post_param.w, 0.0005, 0.05);
 	float step_length = max_distance / float(step_count);
 	/*
-	厚度阈值（第六百八十一轮）
+	厚度阈值（第六百八十一轮；第七百零三轮参数化）
 	以「最大步进距离 / 相机近远跨度」估算 NDC 厚度，仅统计厚度内的遮挡样本，
 	避免把远处前景当作接触阴影；钳到 [0.002, 0.2]。
+	post_extra.x > 0 时改用其绝对上限（同样钳制），0 = 自动（默认路径逐字节不变）。
 	*/
 	float depth_span = max(scene.camera_range.y - scene.camera_range.x, 0.001);
-	float thickness = clamp(max_distance / depth_span, 0.002, 0.2);
+	float thickness_auto = clamp(max_distance / depth_span, 0.002, 0.2);
+	float thickness = thickness_auto;
+	//若显式厚度上限为正则覆盖自动估算
+	if (push.post_extra.x > 0.0)
+		thickness = clamp(push.post_extra.x, 0.002, 0.2);
 	/*
 	抖动相位（第六百七十五轮）
 	post_color.a 为种子：0（默认）= 固定中点采样，与 673 逐字节一致；
