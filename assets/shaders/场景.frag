@@ -252,6 +252,13 @@ PBR-lite 粗糙度换算（第六十四轮；第六十八轮增加逐物体缩�
 */
 float pbr_roughness(float shininess, float scale)
 {
+	/*
+	绝对口径（第七百轮；D1 收尾）
+	lighting_extra.y > 0.5 时材质 / 全局粗糙度直接作为 GGX 粗糙度，不再由光泽度换算；
+	默认 0 时沿用旧换算，画面逐字节不变。
+	*/
+	if (scene.lighting_extra.y > 0.5)
+		return clamp(scale, 0.03, 1.0);
 	float roughness = sqrt(2.0 / (max(shininess, 1.0) + 2.0));
 	return clamp(roughness * max(scale, 0.05), 0.03, 1.0);
 }

@@ -755,6 +755,8 @@ namespace engine
 		默认关闭；开启且 PBR 开启时镜面乘入射余弦，修正掠射角过亮。
 		*/
 		bool pbr_energy = false;
+		//PBR 粗糙度绝对口径（第七百轮；材质 / 全局粗糙度直接作为 GGX 粗糙度）
+		bool pbr_roughness_absolute = false;
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）

@@ -3070,6 +3070,8 @@ namespace engine
 		456 = PBR 掠射高光能量修正开关；457..459 保留（保持 vec4 对齐）。
 		*/
 		scene_block[456] = impl->pbr_energy ? 1.0f : 0.0f;
+		//PBR 粗糙度绝对口径（第七百轮；1 = 材质 / 全局粗糙度直接作为 GGX 粗糙度）
+		scene_block[457] = impl->pbr_roughness_absolute ? 1.0f : 0.0f;
 		//二次元风格化色阶数（第一百七十四轮；w 槽；0 = 关闭）
 		scene_block[243] = static_cast<float>(impl->toon_steps);
 		/*
@@ -9761,6 +9763,8 @@ namespace engine
 		pbr_metallic_set(light.pbr_metallic);
 		//PBR 掠射高光能量修正（第六百七十二轮；默认关闭）
 		impl->pbr_energy = light.pbr_energy != 0;
+		//PBR 粗糙度绝对口径（第七百轮；默认关闭）
+		impl->pbr_roughness_absolute = light.pbr_roughness_absolute != 0;
 		//二次元风格化（第一百七十四轮；非法参数由 setter 归一）
 		toon_set(light.toon_steps, light.toon_rim);
 		//二次元暗部色调（第一百七十八轮）
@@ -9862,6 +9866,8 @@ namespace engine
 		light.pbr_metallic = scene.pbr_metallic;
 		//PBR 掠射高光能量修正（第六百七十二轮）
 		light.pbr_energy = scene.pbr_energy;
+		//PBR 粗糙度绝对口径（第七百轮）
+		light.pbr_roughness_absolute = scene.pbr_roughness_absolute;
 		light.intensity = scene.light_intensity;
 		light.ambient = scene.light_ambient;
 		light.point_count = scene.light_count;
@@ -12947,6 +12953,25 @@ namespace engine
 	{
 		//未初始化返回默认假
 		return impl != nullptr && impl->initialized ? impl->pbr_energy : false;
+	}
+
+	//PBR 粗糙度绝对口径（第七百轮；D1 收尾）
+	void Renderer::pbr_roughness_absolute_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (impl == nullptr || !impl->initialized)
+			return;
+		//与原值一致则无需处理
+		if (impl->pbr_roughness_absolute == enabled)
+			return;
+		impl->pbr_roughness_absolute = enabled;
+	}
+
+	//当前 PBR 粗糙度绝对口径是否开启（第七百轮）
+	bool Renderer::pbr_roughness_absolute(void) const
+	{
+		//未初始化返回默认假
+		return impl != nullptr && impl->initialized ? impl->pbr_roughness_absolute : false;
 	}
 
 	/*

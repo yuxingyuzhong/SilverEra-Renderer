@@ -216,6 +216,12 @@ namespace engine
 		*/
 		int pbr_energy = 0;
 		/*
+		PBR 粗糙度绝对口径（第七百轮；D1 收尾）
+		非 0 且 PBR 开启时，材质 / 全局粗糙度值直接作为 GGX 粗糙度（不再由镜面光泽度换算），
+		使金属度-粗糙度与 Blinn 光泽度解耦；为 0（默认）时沿用旧换算，画面逐字节不变。
+		*/
+		int pbr_roughness_absolute = 0;
+		/*
 		二次元风格化（第一百七十四轮）
 		toon_steps：光照色阶数（0 = 关闭，原样光照；1..8 = 把各光源 N·L 量化到 N 档）；
 		toon_rim：菲涅尔边缘光强度（0 = 关闭；0..1）。
@@ -584,5 +590,7 @@ namespace engine
 		int spot_shadow_atlas = 0;
 		//PBR 掠射高光能量修正（第六百七十二轮；语义见 Light_Data::pbr_energy）
 		int pbr_energy = 0;
+		//PBR 粗糙度绝对口径（第七百轮；语义见 Light_Data::pbr_roughness_absolute）
+		int pbr_roughness_absolute = 0;
 	};
 }
