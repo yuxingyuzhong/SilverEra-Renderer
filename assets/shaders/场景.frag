@@ -142,10 +142,44 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	x = PBR 掠射高光能量修正（> 0.5 时镜面乘入射余弦）、yzw 保留；默认 0 时乘子恒 1。
 	*/
 	vec4 lighting_extra;
+	/*
+	前向高 8 槽（第六百九十九轮；追加在块尾，旧 8 槽偏移不变）
+	布局与低 8 槽一致：位置 ＋ 半径、颜色 ＋ 强度、聚光方向 ＋ 标志、锥参数、逐盏光泽度。
+	*/
+	vec4 point_pos_radius_hi[8];
+	vec4 point_color_intensity_hi[8];
+	vec4 point_spot_dir_hi[8];
+	vec4 point_spot_cone_hi[8];
+	float point_shininess_hi[8];
 } scene;
 
-//点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六十二轮由 4 扩为 8）
-const int POINT_LIGHT_MAX = 8;
+/*
+前向高 8 槽访问器（第六百九十九轮）
+index 0..7 读旧数组、8..15 读追加数组；两段布局一致，故调用方无需分支。
+*/
+vec4 point_pos_radius_at(int index)
+{
+	return index < 8 ? scene.point_pos_radius[index] : scene.point_pos_radius_hi[index - 8];
+}
+vec4 point_color_intensity_at(int index)
+{
+	return index < 8 ? scene.point_color_intensity[index] : scene.point_color_intensity_hi[index - 8];
+}
+vec4 point_spot_dir_at(int index)
+{
+	return index < 8 ? scene.point_spot_dir[index] : scene.point_spot_dir_hi[index - 8];
+}
+vec4 point_spot_cone_at(int index)
+{
+	return index < 8 ? scene.point_spot_cone[index] : scene.point_spot_cone_hi[index - 8];
+}
+float point_shininess_at(int index)
+{
+	return index < 8 ? scene.point_shininess[index] : scene.point_shininess_hi[index - 8];
+}
+
+//点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六百九十九轮由 8 扩为 16）
+const int POINT_LIGHT_MAX = 16;
 
 /*
 光源记录（与 Host 侧 Light_Record 逐字段一致，std430 共 80 字节）
@@ -531,7 +565,7 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	//阴影总开关关闭，或聚光阴影未开启（w = 0）
 	if (scene.shadow_params.x < 0.5 || scene.spot_shadow_params.w < 0.5)
 		return 1.0;
-	//槽位越界（前向路径最多 8 盏）
+	//槽位越界（聚光阴影仅支持前 8 槽；第六百九十九轮的高 8 槽不投影）
 	if (light_index < 0 || light_index >= 8)
 		return 1.0;
 	//取该槽位所在组的映射（每 4 个槽位一组）
@@ -937,12 +971,12 @@ void main()
 				if (index >= point_count)
 					break;
 				accumulate_point_light(normal, to_view, albedo_color.rgb, material_roughness_cached,
-					material_metallic_cached, toon_levels, scene.point_pos_radius[index],
-					scene.point_color_intensity[index], scene.point_spot_dir[index],
-					scene.point_spot_cone[index], scene.point_shininess[index],
-					scene.point_spot_dir[index].w > 0.5, radiance, specular);
+					material_metallic_cached, toon_levels, point_pos_radius_at(index),
+					point_color_intensity_at(index), point_spot_dir_at(index),
+					point_spot_cone_at(index), point_shininess_at(index),
+					point_spot_dir_at(index).w > 0.5, radiance, specular);
 				//聚光灯阴影（第四百七十四 / 479 轮；仅遮蔽所选序号的聚光灯）
-				if (scene.point_spot_dir[index].w > 0.5)
+				if (point_spot_dir_at(index).w > 0.5)
 				{
 					float spot_shadow = spot_shadow_factor(in_world, normal, index);
 					radiance *= spot_shadow;

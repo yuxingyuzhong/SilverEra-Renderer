@@ -220,7 +220,7 @@ namespace engine
 			//外锥角余弦（cos(外角)；锥外为 0）
 			float spot_outer_cos = 0.0f;
 		};
-		//旧前向路径（场景 UBO）支持的光源上限（与着色器数组一致；第二百八十轮）
+		//旧前向路径（场景 UBO）支持的光源上限（与着色器数组一致；第二百八十轮；第六百九十九轮由 8 扩为 16）
 		static constexpr uint32_t POINT_LIGHT_UBO_MAX = LIGHT_LEGACY_MAX;
 		//光源登记上限（Cluster 开启时生效；关闭时按 UBO 上限截断并告警；第二百八十轮）
 		static constexpr uint32_t POINT_LIGHT_MAX = LIGHT_RECORD_CAPACITY;
@@ -1037,10 +1037,15 @@ namespace engine
 		*/
 		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
 		/*
-		场景 UBO 浮点规模（第六百七十二轮由 456 扩为 460）
-		456..459 = `lighting_extra`（x = PBR 掠射高光能量修正开关，yzw 保留）。
+		场景 UBO 浮点规模（第六百七十二轮由 456 扩为 460；第六百九十九轮由 460 扩为 620）
+		456..459 = `lighting_extra`（x = PBR 掠射高光能量修正开关，yzw 保留）；
+		460..619 = 前向高 8 槽（位置 / 颜色 / 聚光方向 / 聚光锥 / 光泽度各 8 盏，共 160 浮点）。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 460;
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 620;
+		//旧段光源槽位数（UBO 原偏移保持不变；第六百九十九轮新增高 8 槽追加在块尾）
+		static constexpr uint32_t UBO_LEGACY_SLOTS = 8;
+		//高 8 槽在场景 UBO 中的起始浮点偏移（= 620 − 160）
+		static constexpr std::size_t SCENE_HIGH_SLOTS_BASE = 460;
 		//场景 UBO 字节数（浮点数 × 4）
 		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
 		/*
