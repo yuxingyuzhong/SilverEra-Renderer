@@ -165,6 +165,12 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_spot_dir_hi3[8];
 	vec4 point_spot_cone_hi3[8];
 	float point_shininess_hi3[8];
+	/*
+	逐瓦片聚光阴影质量缩放（第七百零八轮；追加在块尾）
+	每组 4 分量依次对应瓦片 0..3 / 4..7；默认 1（与全局参数相同，画面逐字节不变）。
+	*/
+	vec4 spot_shadow_softness_scale[2];
+	vec4 spot_shadow_strength_scale[2];
 } scene;
 
 /*
@@ -636,8 +642,31 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 		return 1.0;
 	//瓦片号与质量参数（偏置改为逐瓦片有效值，第五百二十一轮）
 	int tile = int(tile_value + 0.5);
-	float softness = scene.spot_shadow_params.y;
-	float strength = clamp(scene.spot_shadow_params.z, 0.0, 1.0);
+	/*
+	逐瓦片质量缩放（第七百零八轮）
+	按瓦片从 2 组 vec4 中取分量；默认 1，故有效软度 / 强度与全局参数相同（逐字节不变）。
+	*/
+	vec4 soft_group = scene.spot_shadow_softness_scale[tile / 4];
+	vec4 strength_group = scene.spot_shadow_strength_scale[tile / 4];
+	float soft_scale = soft_group.x;
+	float strength_scale = strength_group.x;
+	if (tile % 4 == 1)
+	{
+		soft_scale = soft_group.y;
+		strength_scale = strength_group.y;
+	}
+	else if (tile % 4 == 2)
+	{
+		soft_scale = soft_group.z;
+		strength_scale = strength_group.z;
+	}
+	else if (tile % 4 == 3)
+	{
+		soft_scale = soft_group.w;
+		strength_scale = strength_group.w;
+	}
+	float softness = scene.spot_shadow_params.y * soft_scale;
+	float strength = clamp(scene.spot_shadow_params.z * strength_scale, 0.0, 1.0);
 	/*
 	图集纹素原点（第六百七十轮；C1）
 	图集开启（spot_shadow_params.x > 0.5）时瓦片按 4 列 2 行排布，原点 = (列·S, 行·S)；

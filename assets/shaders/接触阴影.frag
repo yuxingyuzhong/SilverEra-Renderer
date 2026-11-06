@@ -79,6 +79,9 @@ layout(set = 0, binding = 0) uniform Scene_Block
 	vec4 point_spot_dir_hi3[8];
 	vec4 point_spot_cone_hi3[8];
 	float point_shininess_hi3[8];
+	//逐瓦片聚光阴影质量缩放（第七百零八轮；仅占位对齐，本片元不读取）
+	vec4 spot_shadow_softness_scale[2];
+	vec4 spot_shadow_strength_scale[2];
 } scene;
 
 /*

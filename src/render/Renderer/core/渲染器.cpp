@@ -2435,6 +2435,9 @@ namespace engine
 			if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < 8)
 				slot_scale = impl->spot_shadow_bias_scale[impl->spot_shadow_index];
 			impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias * slot_scale;
+			//逐瓦片质量缩放默认 1（第七百零八轮；无逐盏设置时与全局参数相同）
+			impl->spot_shadow_softness_tiles[tile] = 1.0f;
+			impl->spot_shadow_strength_tiles[tile] = 1.0f;
 		}
 		for (std::size_t slot = 0; slot < 8; ++slot)
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
@@ -2527,7 +2530,15 @@ namespace engine
 					: impl->spot_shadow_bias) * tile_scale;
 				//前向槽位 → 瓦片号（未登记到映射表的槽位恒为 -1）
 				if (candidates[tile] >= 0 && candidates[tile] < 8)
+				{
 					impl->spot_shadow_slot_tiles[candidates[tile]] = static_cast<float>(tile);
+					/*
+					逐盏质量缩放（第七百零八轮）
+					软度 / 强度按该槽位取值（默认 1 = 跟随全局），供着色器按瓦片读取。
+					*/
+					impl->spot_shadow_softness_tiles[tile] = impl->spot_shadow_softness_scale[candidates[tile]];
+					impl->spot_shadow_strength_tiles[tile] = impl->spot_shadow_strength_scale[candidates[tile]];
+				}
 				spot_shadow_light_valid = true;
 			}
 		}
@@ -3178,6 +3189,15 @@ namespace engine
 		//逐瓦片有效偏置（第五百二十一轮；448..455）
 		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			scene_block[448 + tile] = impl->spot_shadow_bias_tiles[tile];
+		/*
+		逐瓦片质量缩放（第七百零八轮）
+		940..947 = 软度缩放、948..955 = 强度缩放；默认 1（与全局参数相同，画面逐字节不变）。
+		*/
+		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+		{
+			scene_block[Impl::SCENE_SPOT_SOFTNESS_BASE + tile] = impl->spot_shadow_softness_tiles[tile];
+			scene_block[Impl::SCENE_SPOT_STRENGTH_BASE + tile] = impl->spot_shadow_strength_tiles[tile];
+		}
 		/*
 		场景 UBO 按需写入（第六十轮）
 		逐帧槽缓存上一次写入的全部浮点（300），按 16 字节（4 浮点）单元比较；
@@ -9650,6 +9670,10 @@ namespace engine
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
 		for (std::size_t index = 0; index < 8; ++index)
 			spot_shadow_bias_scale_set(static_cast<uint32_t>(index), light.spot_shadow_bias_scale[index]);
+		//逐盏聚光灯阴影质量缩放（第七百零八轮；按前向槽位，默认 1）
+		for (std::size_t index = 0; index < 8; ++index)
+			spot_shadow_quality_set(static_cast<uint32_t>(index), light.spot_shadow_softness_scale[index],
+				light.spot_shadow_strength_scale[index]);
 		/*
 		阴影分辨率预算（第六百五十九轮）
 		预算 > 0 时按 RGBA8 折算可用边长（向下取 256 倍数、钳 256..4096），与请求分辨率取较小值；
@@ -9848,6 +9872,12 @@ namespace engine
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮）
 		for (std::size_t index = 0; index < 8; ++index)
 			light.spot_shadow_bias_scale[index] = scene.spot_shadow_bias_scale[index];
+		//逐盏聚光灯阴影质量缩放（第七百零八轮）
+		for (std::size_t index = 0; index < 8; ++index)
+		{
+			light.spot_shadow_softness_scale[index] = scene.spot_shadow_softness_scale[index];
+			light.spot_shadow_strength_scale[index] = scene.spot_shadow_strength_scale[index];
+		}
 		//阴影分辨率预算（第六百五十九轮）
 		light.shadow_budget_bytes = scene.shadow_budget_bytes;
 		//曝光补偿（第六百六十轮）
@@ -12403,6 +12433,26 @@ namespace engine
 		if (!std::isfinite(scale))
 			return false;
 		impl->spot_shadow_bias_scale[index] = scale < 0.1f ? 0.1f : (scale > 10.0f ? 10.0f : scale);
+		return true;
+	}
+
+	/*
+	逐盏聚光灯阴影质量缩放（第七百零八轮）
+	仅影响采样（不重建阴影图）：软度钳到 [0.25, 4]、强度钳到 [0, 1]，默认 1 / 1。
+	非有限值整次忽略，越界槽位返回假。
+	*/
+	bool Renderer::spot_shadow_quality_set(uint32_t index, float softness_scale, float strength_scale)
+	{
+		//若尚未初始化或槽位越界
+		if (impl == nullptr || !impl->initialized || index >= 8)
+			return false;
+		//非有限值整次忽略（保持原值）
+		if (!std::isfinite(softness_scale) || !std::isfinite(strength_scale))
+			return false;
+		impl->spot_shadow_softness_scale[index] =
+			softness_scale < 0.25f ? 0.25f : (softness_scale > 4.0f ? 4.0f : softness_scale);
+		impl->spot_shadow_strength_scale[index] =
+			strength_scale < 0.0f ? 0.0f : (strength_scale > 1.0f ? 1.0f : strength_scale);
 		return true;
 	}
 

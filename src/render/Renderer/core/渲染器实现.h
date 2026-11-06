@@ -253,6 +253,9 @@ namespace engine
 		float shadow_pcss_max = 8.0f;
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		//逐盏聚光灯阴影质量缩放（第七百零八轮；软度 / 强度，按前向槽位，默认 1）
+		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//阴影分辨率预算（第六百五十九轮；0 = 关闭；门面 shadow_budget_set 的存值副本）
 		uint64_t shadow_budget_bytes = 0;
 		//曝光补偿 EV（第六百六十轮；0 = 关闭；写场景 UBO 237）
@@ -674,6 +677,12 @@ namespace engine
 		使不同半径的聚光灯在相同参数下得到接近一致的世界法线偏移。
 		*/
 		float spot_shadow_bias_tiles[SPOT_SHADOW_TILES] = {};
+		/*
+		逐瓦片质量缩放（第七百零八轮；按前向槽位 0..7 写入）
+		软度缩放 / 强度缩放，默认 1（与全局参数相同，画面逐字节不变）。
+		*/
+		float spot_shadow_softness_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_shadow_strength_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//聚光灯阴影偏置自校准开关（第五百二十一轮；默认关闭，画面与引入前逐字节一致）
 		bool spot_shadow_bias_auto = false;
 		//聚光灯阴影槽位映射（第五百零七轮；8 个前向槽位各自对应的瓦片号，-1 = 不投影）
@@ -1039,10 +1048,15 @@ namespace engine
 		*/
 		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
 		/*
-		场景 UBO 浮点规模（第六百七十二轮 460；第六百九十九轮 620；第七百零一轮 940）
-		456..459 = `lighting_extra`；460..619 = 高 8..15 槽；620..779 = 16..23 槽；780..939 = 24..31 槽（每组 160 浮点）。
+		场景 UBO 浮点规模（第六百七十二轮 460；第六百九十九轮 620；第七百零一轮 940；第七百零八轮 956）
+		456..459 = `lighting_extra`；460..619 = 高 8..15 槽；620..779 = 16..23 槽；780..939 = 24..31 槽（每组 160 浮点）；
+		940..947 = 逐瓦片软度缩放（8）；948..955 = 逐瓦片强度缩放（8）。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 940;
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 956;
+		//逐瓦片软度缩放起始浮点偏移（第七百零八轮）
+		static constexpr std::size_t SCENE_SPOT_SOFTNESS_BASE = 940;
+		//逐瓦片强度缩放起始浮点偏移（第七百零八轮）
+		static constexpr std::size_t SCENE_SPOT_STRENGTH_BASE = 948;
 		//旧段光源槽位数（UBO 原偏移保持不变）
 		static constexpr uint32_t UBO_LEGACY_SLOTS = 8;
 		//高 8 槽在场景 UBO 中的起始浮点偏移（= 620 − 160）

@@ -306,6 +306,15 @@ namespace engine
 		*/
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		/*
+		逐盏聚光灯阴影质量缩放（第七百零八轮；按前向槽位 0..7）
+		spot_shadow_softness_scale：软度缩放（0.25..4，默认 1 = 跟随全局软度）；
+		spot_shadow_strength_scale：强度缩放（0..1，默认 1 = 跟随全局强度）。
+		有效软度 = 全局软度 × 该缩放；有效强度 = 全局强度 × 该缩放（钳到 0..1）。
+		分辨率仍由全局 shadow_resolution / shadow_budget_bytes 决定（图集各瓦片尺寸一致，不可逐盏分档）。
+		*/
+		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		/*
 		阴影分辨率预算（第六百五十九轮；0 = 关闭（默认，不干预既有分辨率））
 		总字节按 RGBA8（4 字节/像素）折算：边长 = floor(√(预算 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
 		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。
@@ -609,6 +618,9 @@ namespace engine
 		float shadow_pcss_max = 8.0f;
 		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；语义见 Light_Data::spot_shadow_bias_scale）
 		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		//逐盏聚光灯阴影质量缩放（第七百零八轮；语义见 Light_Data::spot_shadow_softness_scale / strength_scale）
+		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//阴影分辨率预算（第六百五十九轮；语义见 Light_Data::shadow_budget_bytes）
 		uint32_t shadow_budget_bytes = 0;
 		//曝光补偿（第六百六十轮；语义见 Light_Data::exposure）

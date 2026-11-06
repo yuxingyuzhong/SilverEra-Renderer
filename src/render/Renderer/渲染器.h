@@ -1957,6 +1957,13 @@ namespace engine
 		*/
 		bool spot_shadow_bias_scale_set(uint32_t index, float scale);
 		/*
+		逐盏聚光灯阴影质量缩放（第七百零八轮；仅影响着色器采样，不重建阴影图）
+		index 为前向槽位（0..7）；softness_scale 钳到 [0.25, 4]（有效软度 = 全局软度 × 该值），
+		strength_scale 钳到 [0, 1]（有效强度 = 全局强度 × 该值）。默认 1 / 1（与引入前一致）。
+		非有限值整次忽略；越界槽位返回假。
+		*/
+		bool spot_shadow_quality_set(uint32_t index, float softness_scale, float strength_scale);
+		/*
 		阴影分辨率预算（第六百五十九轮；0 = 关闭）
 		按 RGBA8 折算总阴影光栅内存：边长 = floor(√(字节 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
 		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。
