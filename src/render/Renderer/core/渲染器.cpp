@@ -2439,7 +2439,7 @@ namespace engine
 			impl->spot_shadow_softness_tiles[tile] = 1.0f;
 			impl->spot_shadow_strength_tiles[tile] = 1.0f;
 		}
-		for (std::size_t slot = 0; slot < 8; ++slot)
+		for (std::size_t slot = 0; slot < 32; ++slot)
 			impl->spot_shadow_slot_tiles[slot] = -1.0f;
 		//是否存在至少一盏有效聚光阴影
 		bool spot_shadow_light_valid = false;
@@ -2452,17 +2452,15 @@ namespace engine
 			if (impl->spot_shadow_all)
 			{
 				/*
-				多盏：优先「瓦片号 = 光源槽位」（第六百四十四轮）
-				光源槽位都能落进 8 瓦片时按槽位固定，光源增减 / 重排不再使其它灯的瓦片整体前移；
-				总光源超过 8 槽（如 8 聚光 ＋ 3 点光 = 11 盏）时槽位无法一一对应，回落旧的「按声明顺序压缩」口径，
-				与既有 8 瓦片用例一致。
+				多盏：优先「瓦片号 = 光源槽位」（第六百四十四轮；第七百零九轮加优先级）
+				可投影聚光灯全部落在槽位 0..7 时按槽位固定，光源增减 / 重排不再使其它灯的瓦片整体前移；
+				否则按优先级降序、同分槽位升序取前 8 盏，再按槽位升序分配到瓦片 0..7（默认优先级全 0 → 取登记顺序最前的 8 盏，
+				与引入优先级前口径一致）。
 				*/
+				std::size_t spot_pool[32] = {};
+				std::size_t spot_pool_count = 0;
 				bool slot_mapping = true;
-				for (std::size_t index = 0; index < impl->point_light_count; ++index)
-					if (impl->point_lights[index].is_spot && index >= Impl::SPOT_SHADOW_TILES)
-						slot_mapping = false;
-				std::size_t spot_ordinal = 0;
-				for (std::size_t index = 0; index < impl->point_light_count; ++index)
+				for (std::size_t index = 0; index < impl->point_light_count && index < 32; ++index)
 				{
 					//非聚光灯跳过
 					if (!impl->point_lights[index].is_spot)
@@ -2470,10 +2468,50 @@ namespace engine
 					//该槽位的聚光阴影被关闭则跳过（第六百四十八轮；槽位 ≥ 8 不适用）
 					if (index < 8 && !impl->spot_shadow_light_enabled[index])
 						continue;
-					if (slot_mapping)
-						candidates[index] = static_cast<int>(index);
-					else if (spot_ordinal < Impl::SPOT_SHADOW_TILES)
-						candidates[spot_ordinal++] = static_cast<int>(index);
+					//槽位超出 8 时无法按槽位固定瓦片号
+					if (index >= Impl::SPOT_SHADOW_TILES)
+						slot_mapping = false;
+					spot_pool[spot_pool_count++] = index;
+				}
+				if (slot_mapping)
+				{
+					for (std::size_t entry = 0; entry < spot_pool_count; ++entry)
+						candidates[spot_pool[entry]] = static_cast<int>(spot_pool[entry]);
+				}
+				else
+				{
+					//超过 8 盏：按优先级降序、同分槽位升序取前 8（简单选择排序，池 ≤ 32）
+					const std::size_t keep = spot_pool_count < Impl::SPOT_SHADOW_TILES
+						? spot_pool_count : Impl::SPOT_SHADOW_TILES;
+					for (std::size_t pick = 0; pick < keep; ++pick)
+					{
+						std::size_t best = pick;
+						for (std::size_t probe = pick + 1; probe < spot_pool_count; ++probe)
+						{
+							const float probe_priority = impl->spot_shadow_priority[spot_pool[probe]];
+							const float best_priority = impl->spot_shadow_priority[spot_pool[best]];
+							//优先级更高者优先；同分保持较小槽位在前
+							if (probe_priority > best_priority)
+								best = probe;
+						}
+						if (best != pick)
+						{
+							const std::size_t swap = spot_pool[pick];
+							spot_pool[pick] = spot_pool[best];
+							spot_pool[best] = swap;
+						}
+					}
+					//选中集合按槽位升序分配到瓦片 0..keep-1
+					for (std::size_t first = 0; first < keep; ++first)
+						for (std::size_t second = first + 1; second < keep; ++second)
+							if (spot_pool[second] < spot_pool[first])
+							{
+								const std::size_t swap = spot_pool[first];
+								spot_pool[first] = spot_pool[second];
+								spot_pool[second] = swap;
+							}
+					for (std::size_t tile = 0; tile < keep; ++tile)
+						candidates[tile] = static_cast<int>(spot_pool[tile]);
 				}
 				//统计本帧有效瓦片数
 				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
@@ -2528,16 +2566,19 @@ namespace engine
 				impl->spot_shadow_bias_tiles[tile] = (impl->spot_shadow_bias_auto
 					? impl->spot_shadow_bias * (Impl::SPOT_BIAS_REFERENCE_SPAN / impl->spot_shadow_spans[tile])
 					: impl->spot_shadow_bias) * tile_scale;
-				//前向槽位 → 瓦片号（未登记到映射表的槽位恒为 -1）
-				if (candidates[tile] >= 0 && candidates[tile] < 8)
+				//前向槽位 → 瓦片号（第七百零九轮扩到 32 槽；未登记到映射表的槽位恒为 -1）
+				if (candidates[tile] >= 0 && candidates[tile] < 32)
 				{
 					impl->spot_shadow_slot_tiles[candidates[tile]] = static_cast<float>(tile);
 					/*
-					逐盏质量缩放（第七百零八轮）
+					逐盏质量缩放（第七百零八轮；仅槽位 0..7 有逐盏配置）
 					软度 / 强度按该槽位取值（默认 1 = 跟随全局），供着色器按瓦片读取。
 					*/
-					impl->spot_shadow_softness_tiles[tile] = impl->spot_shadow_softness_scale[candidates[tile]];
-					impl->spot_shadow_strength_tiles[tile] = impl->spot_shadow_strength_scale[candidates[tile]];
+					if (candidates[tile] < 8)
+					{
+						impl->spot_shadow_softness_tiles[tile] = impl->spot_shadow_softness_scale[candidates[tile]];
+						impl->spot_shadow_strength_tiles[tile] = impl->spot_shadow_strength_scale[candidates[tile]];
+					}
 				}
 				spot_shadow_light_valid = true;
 			}
@@ -3186,6 +3227,9 @@ namespace engine
 			scene_block[432 + tile] = impl->spot_shadow_spans[tile];
 		for (std::size_t slot = 0; slot < 8; ++slot)
 			scene_block[440 + slot] = impl->spot_shadow_slot_tiles[slot];
+		//槽位 8..31 的瓦片映射（第七百零九轮；956..979）
+		for (std::size_t slot = 0; slot < 24; ++slot)
+			scene_block[Impl::SCENE_SPOT_SLOTS_HI_BASE + slot] = impl->spot_shadow_slot_tiles[8 + slot];
 		//逐瓦片有效偏置（第五百二十一轮；448..455）
 		for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
 			scene_block[448 + tile] = impl->spot_shadow_bias_tiles[tile];
@@ -9674,6 +9718,9 @@ namespace engine
 		for (std::size_t index = 0; index < 8; ++index)
 			spot_shadow_quality_set(static_cast<uint32_t>(index), light.spot_shadow_softness_scale[index],
 				light.spot_shadow_strength_scale[index]);
+		//逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31，默认 0）
+		for (std::size_t index = 0; index < 32; ++index)
+			spot_shadow_priority_set(static_cast<uint32_t>(index), light.spot_shadow_priority[index]);
 		/*
 		阴影分辨率预算（第六百五十九轮）
 		预算 > 0 时按 RGBA8 折算可用边长（向下取 256 倍数、钳 256..4096），与请求分辨率取较小值；
@@ -9878,6 +9925,9 @@ namespace engine
 			light.spot_shadow_softness_scale[index] = scene.spot_shadow_softness_scale[index];
 			light.spot_shadow_strength_scale[index] = scene.spot_shadow_strength_scale[index];
 		}
+		//逐盏聚光灯阴影优先级（第七百零九轮）
+		for (std::size_t index = 0; index < 32; ++index)
+			light.spot_shadow_priority[index] = scene.spot_shadow_priority[index];
 		//阴影分辨率预算（第六百五十九轮）
 		light.shadow_budget_bytes = scene.shadow_budget_bytes;
 		//曝光补偿（第六百六十轮）
@@ -12453,6 +12503,22 @@ namespace engine
 			softness_scale < 0.25f ? 0.25f : (softness_scale > 4.0f ? 4.0f : softness_scale);
 		impl->spot_shadow_strength_scale[index] =
 			strength_scale < 0.0f ? 0.0f : (strength_scale > 1.0f ? 1.0f : strength_scale);
+		return true;
+	}
+
+	/*
+	逐盏聚光灯阴影优先级（第七百零九轮）
+	仅用于「可投影聚光灯超过 8 盏」时的取舍，不影响单盏与 ≤ 8 盏路径；非有限值忽略，越界槽位返回假。
+	*/
+	bool Renderer::spot_shadow_priority_set(uint32_t index, float priority)
+	{
+		//若尚未初始化或槽位越界
+		if (impl == nullptr || !impl->initialized || index >= 32)
+			return false;
+		//非有限值忽略（保持原值）
+		if (!std::isfinite(priority))
+			return false;
+		impl->spot_shadow_priority[index] = priority;
 		return true;
 	}
 

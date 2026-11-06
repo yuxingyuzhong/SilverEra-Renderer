@@ -171,6 +171,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	*/
 	vec4 spot_shadow_softness_scale[2];
 	vec4 spot_shadow_strength_scale[2];
+	//槽位 8..31 的瓦片映射（第七百零九轮；-1 = 不投影）
+	vec4 spot_shadow_slots_hi[6];
 } scene;
 
 /*
@@ -612,9 +614,37 @@ float shadow_sample(int index, int count, vec3 world_pos, vec3 normal)
 }
 
 /*
-聚光灯阴影系数（第四百七十四 / 476 / 479 / 484 轮；第五百零七轮扩为多盏）
+聚光灯阴影槽位映射读取（第七百零九轮；槽位 0..31）
+0..7 读 spot_shadow_slots（每组 4 槽），8..31 读追加在块尾的 spot_shadow_slots_hi；-1 = 不投影。
+*/
+float spot_slot_tile(int slot)
+{
+	if (slot < 8)
+	{
+		vec4 group = scene.spot_shadow_slots[slot / 4];
+		if (slot % 4 == 0)
+			return group.x;
+		if (slot % 4 == 1)
+			return group.y;
+		if (slot % 4 == 2)
+			return group.z;
+		return group.w;
+	}
+	vec4 group = scene.spot_shadow_slots_hi[(slot - 8) / 4];
+	int offset = (slot - 8) % 4;
+	if (offset == 0)
+		return group.x;
+	if (offset == 1)
+		return group.y;
+	if (offset == 2)
+		return group.z;
+	return group.w;
+}
+
+/*
+聚光灯阴影系数（第四百七十四 / 476 / 479 / 484 轮；第五百零七轮扩为多盏；第七百零九轮扩到 32 槽）
 与方向光阴影完全独立：开关由 spot_shadow_params.w 表达（> 0.5 = 本帧存在有效聚光阴影）；
-槽位映射 spot_shadow_slots 把「前向槽位」映射到「瓦片号」（-1 = 该灯不投影），
+槽位映射把「前向槽位」映射到「瓦片号」（-1 = 该灯不投影），
 矩阵 / 跨度 / 阴影图分别取对应瓦片的 spot_view_proj_tiles / spot_shadow_spans / binding 9 数组元素。
 */
 float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
@@ -622,21 +652,11 @@ float spot_shadow_factor(vec3 world_pos, vec3 normal, int light_index)
 	//阴影总开关关闭，或聚光阴影未开启（w = 0）
 	if (scene.shadow_params.x < 0.5 || scene.spot_shadow_params.w < 0.5)
 		return 1.0;
-	//槽位越界（聚光阴影仅支持前 8 槽；第六百九十九轮的高 8 槽不投影）
-	if (light_index < 0 || light_index >= 8)
+	//槽位越界（前向最多 32 槽）
+	if (light_index < 0 || light_index >= 32)
 		return 1.0;
-	//取该槽位所在组的映射（每 4 个槽位一组）
-	vec4 slots = scene.spot_shadow_slots[light_index / 4];
 	//该槽位的瓦片号（-1 = 不投影）
-	float tile_value = -1.0;
-	if (light_index % 4 == 0)
-		tile_value = slots.x;
-	else if (light_index % 4 == 1)
-		tile_value = slots.y;
-	else if (light_index % 4 == 2)
-		tile_value = slots.z;
-	else
-		tile_value = slots.w;
+	float tile_value = spot_slot_tile(light_index);
 	//未映射到任何瓦片：该灯不受聚光阴影影响
 	if (tile_value < -0.5)
 		return 1.0;

@@ -685,8 +685,15 @@ namespace engine
 		float spot_shadow_strength_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		//聚光灯阴影偏置自校准开关（第五百二十一轮；默认关闭，画面与引入前逐字节一致）
 		bool spot_shadow_bias_auto = false;
-		//聚光灯阴影槽位映射（第五百零七轮；8 个前向槽位各自对应的瓦片号，-1 = 不投影）
-		float spot_shadow_slot_tiles[8] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+		//聚光灯阴影槽位映射（第五百零七轮；前向槽位各自对应的瓦片号，-1 = 不投影；第七百零九轮扩为 32 槽）
+		float spot_shadow_slot_tiles[32] = {
+			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
+			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
+			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
+			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
+		};
+		//逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31，默认 0 = 全部同分）
+		float spot_shadow_priority[32] = {};
 		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
 		bool shadow_enabled = false;
 		/*
@@ -1048,15 +1055,17 @@ namespace engine
 		*/
 		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
 		/*
-		场景 UBO 浮点规模（第六百七十二轮 460；第六百九十九轮 620；第七百零一轮 940；第七百零八轮 956）
+		场景 UBO 浮点规模（第六百七十二轮 460；第六百九十九轮 620；第七百零一轮 940；第七百零八轮 956；第七百零九轮 980）
 		456..459 = `lighting_extra`；460..619 = 高 8..15 槽；620..779 = 16..23 槽；780..939 = 24..31 槽（每组 160 浮点）；
-		940..947 = 逐瓦片软度缩放（8）；948..955 = 逐瓦片强度缩放（8）。
+		940..947 = 逐瓦片软度缩放（8）；948..955 = 逐瓦片强度缩放（8）；956..979 = 槽位 8..31 的瓦片映射（24）。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 956;
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 980;
 		//逐瓦片软度缩放起始浮点偏移（第七百零八轮）
 		static constexpr std::size_t SCENE_SPOT_SOFTNESS_BASE = 940;
 		//逐瓦片强度缩放起始浮点偏移（第七百零八轮）
 		static constexpr std::size_t SCENE_SPOT_STRENGTH_BASE = 948;
+		//槽位 8..31 的瓦片映射起始浮点偏移（第七百零九轮）
+		static constexpr std::size_t SCENE_SPOT_SLOTS_HI_BASE = 956;
 		//旧段光源槽位数（UBO 原偏移保持不变）
 		static constexpr uint32_t UBO_LEGACY_SLOTS = 8;
 		//高 8 槽在场景 UBO 中的起始浮点偏移（= 620 − 160）

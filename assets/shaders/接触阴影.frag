@@ -82,6 +82,8 @@ layout(set = 0, binding = 0) uniform Scene_Block
 	//逐瓦片聚光阴影质量缩放（第七百零八轮；仅占位对齐，本片元不读取）
 	vec4 spot_shadow_softness_scale[2];
 	vec4 spot_shadow_strength_scale[2];
+	//槽位 8..31 的瓦片映射（第七百零九轮；仅占位对齐，本片元不读取）
+	vec4 spot_shadow_slots_hi[6];
 } scene;
 
 /*

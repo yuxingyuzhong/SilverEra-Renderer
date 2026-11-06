@@ -1964,6 +1964,12 @@ namespace engine
 		*/
 		bool spot_shadow_quality_set(uint32_t index, float softness_scale, float strength_scale);
 		/*
+		逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31）
+		仅在「多盏聚光阴影开启且可投影聚光灯超过 8 盏」时生效：按优先级降序、同分槽位升序取前 8 盏投影。
+		默认 0（全部同分 → 取登记顺序最前的 8 盏，与引入前一致）；非有限值整次忽略，越界槽位返回假。
+		*/
+		bool spot_shadow_priority_set(uint32_t index, float priority);
+		/*
 		阴影分辨率预算（第六百五十九轮；0 = 关闭）
 		按 RGBA8 折算总阴影光栅内存：边长 = floor(√(字节 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
 		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。

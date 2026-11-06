@@ -315,6 +315,12 @@ namespace engine
 		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		/*
+		逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31）
+		仅在「多盏聚光阴影开启且可投影聚光灯超过 8 盏」时生效：按优先级降序、同分按槽位升序取前 8 盏分配阴影瓦片。
+		默认 0（全部同分）→ 仍取登记顺序最前的 8 盏，与引入该字段前逐字节一致。
+		*/
+		float spot_shadow_priority[32] = {};
+		/*
 		阴影分辨率预算（第六百五十九轮；0 = 关闭（默认，不干预既有分辨率））
 		总字节按 RGBA8（4 字节/像素）折算：边长 = floor(√(预算 /(单位数 × 4)))，向下取 256 倍数并钳 256..4096，
 		再取不超过该值的最大受支持档（512 / 1024 / 2048）；结果与请求分辨率取较小值。
@@ -621,7 +627,8 @@ namespace engine
 		//逐盏聚光灯阴影质量缩放（第七百零八轮；语义见 Light_Data::spot_shadow_softness_scale / strength_scale）
 		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		//阴影分辨率预算（第六百五十九轮；语义见 Light_Data::shadow_budget_bytes）
+		//逐盏聚光灯阴影优先级（第七百零九轮；语义见 Light_Data::spot_shadow_priority）
+		float spot_shadow_priority[32] = {};
 		uint32_t shadow_budget_bytes = 0;
 		//曝光补偿（第六百六十轮；语义见 Light_Data::exposure）
 		float exposure = 0.0f;
