@@ -11,7 +11,7 @@ post_param.w = 深度偏置（NDC，0.0005..0.05；抑制自阴影）
 post_color.rgb = 阴影色调（默认黑，即直接压暗）
 post_extra.x = 厚度上限（NDC；0 = 自动，沿用「最大距离 / 相机近远跨度」估算）
 post_extra.y = 光源模式（0 = 方向光，默认；1 = 聚光灯；2 = 点光源）
-post_extra.z = 光源槽位（0..7；仅模式 1 / 2 使用）
+post_extra.z = 光源槽位（0..31；仅模式 1 / 2 使用）
 天空像素、方向光关闭与强度 0 时一律原样输出（与引入前逐字节一致）。
 */
 //颜色附件输出
@@ -22,7 +22,11 @@ layout(set = 1, binding = 0) uniform sampler2D source_image;
 //场景深度（描述符集 1 binding 2）：主 pass 写入的单采样深度图
 layout(set = 1, binding = 2) uniform sampler2D depth_image;
 
-//场景 UBO（set 0 binding 0；前缀与体积雾一致，仅读取视图投影 / 光照 / 相机位置与近远平面）
+/*
+场景 UBO（set 0 binding 0）
+第七百零六轮补全整块声明（与 `场景.frag` 同序同型），以便读取高段 8..31 槽光源；
+仅实际读取视图投影 / 光照 / 相机 / 近远平面与点光数组，未读字段仅为偏移对齐。
+*/
 layout(set = 0, binding = 0) uniform Scene_Block
 {
 	mat4 view_proj;
@@ -44,11 +48,86 @@ layout(set = 0, binding = 0) uniform Scene_Block
 	mat4 light_view_proj;
 	vec4 shadow_params;
 	float shadow_strength;
+	float exposure;
 	vec4 pbr_params;
 	mat4 light_view_proj_far;
 	vec4 cascade_params;
 	vec4 camera_range;
+	vec4 sky_params;
+	mat4 light_view_proj_far2;
+	vec4 cascade_params2;
+	vec4 toon_specular_params;
+	vec4 cluster_params;
+	vec4 spot_shadow_params;
+	mat4 spot_view_proj_tiles[8];
+	vec4 spot_shadow_spans[2];
+	vec4 spot_shadow_slots[2];
+	vec4 spot_shadow_biases[2];
+	vec4 lighting_extra;
+	vec4 point_pos_radius_hi[8];
+	vec4 point_color_intensity_hi[8];
+	vec4 point_spot_dir_hi[8];
+	vec4 point_spot_cone_hi[8];
+	float point_shininess_hi[8];
+	vec4 point_pos_radius_hi2[8];
+	vec4 point_color_intensity_hi2[8];
+	vec4 point_spot_dir_hi2[8];
+	vec4 point_spot_cone_hi2[8];
+	float point_shininess_hi2[8];
+	vec4 point_pos_radius_hi3[8];
+	vec4 point_color_intensity_hi3[8];
+	vec4 point_spot_dir_hi3[8];
+	vec4 point_spot_cone_hi3[8];
+	float point_shininess_hi3[8];
 } scene;
+
+/*
+前向 32 槽访问器（第七百零六轮；布局与 `场景.frag` 一致）
+index 0..7 读旧数组、8..15 读 hi、16..23 读 hi2、24..31 读 hi3。
+*/
+vec4 point_pos_radius_at(int index)
+{
+	if (index < 8)
+		return scene.point_pos_radius[index];
+	if (index < 16)
+		return scene.point_pos_radius_hi[index - 8];
+	if (index < 24)
+		return scene.point_pos_radius_hi2[index - 16];
+	return scene.point_pos_radius_hi3[index - 24];
+}
+
+vec4 point_color_intensity_at(int index)
+{
+	if (index < 8)
+		return scene.point_color_intensity[index];
+	if (index < 16)
+		return scene.point_color_intensity_hi[index - 8];
+	if (index < 24)
+		return scene.point_color_intensity_hi2[index - 16];
+	return scene.point_color_intensity_hi3[index - 24];
+}
+
+vec4 point_spot_dir_at(int index)
+{
+	if (index < 8)
+		return scene.point_spot_dir[index];
+	if (index < 16)
+		return scene.point_spot_dir_hi[index - 8];
+	if (index < 24)
+		return scene.point_spot_dir_hi2[index - 16];
+	return scene.point_spot_dir_hi3[index - 24];
+}
+
+vec4 point_spot_cone_at(int index)
+{
+	if (index < 8)
+		return scene.point_spot_cone[index];
+	if (index < 16)
+		return scene.point_spot_cone_hi[index - 8];
+	if (index < 24)
+		return scene.point_spot_cone_hi2[index - 16];
+	return scene.point_spot_cone_hi3[index - 24];
+}
 
 //推送常量：源 / 宿尺寸（offset 80）、后处理参数（offset 96）、阴影色调（offset 112）与逐级 extra（offset 128）
 layout(push_constant) uniform Push_Post
@@ -160,20 +239,21 @@ void main()
 	float cone_mask = 1.0;
 	if (light_mode != 0)
 	{
-		int light_slot = clamp(int(push.post_extra.z + 0.5), 0, 7);
-		bool is_spot = scene.point_spot_dir[light_slot].w > 0.5;
-		float intensity = scene.point_color_intensity[light_slot].w;
+		int light_slot = clamp(int(push.post_extra.z + 0.5), 0, 31);
+		vec4 slot_dir = point_spot_dir_at(light_slot);
+		vec4 slot_pos = point_pos_radius_at(light_slot);
+		bool is_spot = slot_dir.w > 0.5;
+		float intensity = point_color_intensity_at(light_slot).w;
 		//槽位类型与模式不符或强度为 0：无接触阴影
 		if (intensity <= 0.0 || (light_mode == 1 && !is_spot) || (light_mode == 2 && is_spot))
 		{
 			out_color = color;
 			return;
 		}
-		vec3 light_offset = scene.point_pos_radius[light_slot].xyz - world_pos;
+		vec3 light_offset = slot_pos.xyz - world_pos;
 		float light_distance = length(light_offset);
 		//零距离或超出照射半径：无接触阴影
-		if (light_distance <= 0.000001
-			|| light_distance > scene.point_pos_radius[light_slot].w)
+		if (light_distance <= 0.000001 || light_distance > slot_pos.w)
 		{
 			out_color = color;
 			return;
@@ -182,9 +262,9 @@ void main()
 		//聚光灯锥形遮罩（x = 外锥余弦、y = 内锥余弦；点光源恒 1）
 		if (is_spot)
 		{
-			float cos_angle = dot(-to_light, scene.point_spot_dir[light_slot].xyz);
-			cone_mask = smoothstep(scene.point_spot_cone[light_slot].y,
-				scene.point_spot_cone[light_slot].x, cos_angle);
+			vec4 cone = point_spot_cone_at(light_slot);
+			float cos_angle = dot(-to_light, slot_dir.xyz);
+			cone_mask = smoothstep(cone.y, cone.x, cos_angle);
 			//锥外：无接触阴影
 			if (cone_mask <= 0.0)
 			{
