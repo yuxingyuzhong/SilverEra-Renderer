@@ -27,8 +27,8 @@ namespace engine
 
 	//光源记录容量上限（阶段 D 的 SSBO 默认容量，见规划 §2.6）
 	constexpr uint32_t LIGHT_RECORD_CAPACITY = 1024;
-	//旧前向路径（无 Cluster）支持的光源上限（第六百九十九轮由 8 扩为 16）
-	constexpr uint32_t LIGHT_LEGACY_MAX = 16;
+	//旧前向路径（无 Cluster）支持的光源上限（第六百九十九轮 8 → 16；第七百零一轮 16 → 32）
+	constexpr uint32_t LIGHT_LEGACY_MAX = 32;
 	//单个光源记录的字节数
 	constexpr uint32_t LIGHT_RECORD_BYTES = 80;
 
@@ -62,7 +62,7 @@ shininess：逐盏光泽度（0 = 跟随全局）；type / flags 供着色器分
 
 	/*
 	有效光源数（规划 §2.6）
-	Cluster 关闭时旧前向路径只循环前 16 盏（超出部分须由调用方告警截断，不静默）；
+	Cluster 关闭时旧前向路径只循环前 32 盏（超出部分须由调用方告警截断，不静默）；
 	Cluster 开启时返回全量（上限由 LIGHT_RECORD_CAPACITY 约束）。
 	*/
 	constexpr uint32_t light_effective_count(uint32_t light_count, bool cluster_enabled)

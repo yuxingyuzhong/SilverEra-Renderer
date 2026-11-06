@@ -151,35 +151,79 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 point_spot_dir_hi[8];
 	vec4 point_spot_cone_hi[8];
 	float point_shininess_hi[8];
+	/*
+	前向 16..31 槽（第七百零一轮；继续追加在块尾）
+	布局同上，两组各 160 浮点。
+	*/
+	vec4 point_pos_radius_hi2[8];
+	vec4 point_color_intensity_hi2[8];
+	vec4 point_spot_dir_hi2[8];
+	vec4 point_spot_cone_hi2[8];
+	float point_shininess_hi2[8];
+	vec4 point_pos_radius_hi3[8];
+	vec4 point_color_intensity_hi3[8];
+	vec4 point_spot_dir_hi3[8];
+	vec4 point_spot_cone_hi3[8];
+	float point_shininess_hi3[8];
 } scene;
 
 /*
-前向高 8 槽访问器（第六百九十九轮）
-index 0..7 读旧数组、8..15 读追加数组；两段布局一致，故调用方无需分支。
+前向 32 槽访问器（第六百九十九轮 16 槽；第七百零一轮 32 槽）
+index 0..7 读旧数组、8..15 读 hi、16..23 读 hi2、24..31 读 hi3。
 */
 vec4 point_pos_radius_at(int index)
 {
-	return index < 8 ? scene.point_pos_radius[index] : scene.point_pos_radius_hi[index - 8];
+	if (index < 8)
+		return scene.point_pos_radius[index];
+	if (index < 16)
+		return scene.point_pos_radius_hi[index - 8];
+	if (index < 24)
+		return scene.point_pos_radius_hi2[index - 16];
+	return scene.point_pos_radius_hi3[index - 24];
 }
 vec4 point_color_intensity_at(int index)
 {
-	return index < 8 ? scene.point_color_intensity[index] : scene.point_color_intensity_hi[index - 8];
+	if (index < 8)
+		return scene.point_color_intensity[index];
+	if (index < 16)
+		return scene.point_color_intensity_hi[index - 8];
+	if (index < 24)
+		return scene.point_color_intensity_hi2[index - 16];
+	return scene.point_color_intensity_hi3[index - 24];
 }
 vec4 point_spot_dir_at(int index)
 {
-	return index < 8 ? scene.point_spot_dir[index] : scene.point_spot_dir_hi[index - 8];
+	if (index < 8)
+		return scene.point_spot_dir[index];
+	if (index < 16)
+		return scene.point_spot_dir_hi[index - 8];
+	if (index < 24)
+		return scene.point_spot_dir_hi2[index - 16];
+	return scene.point_spot_dir_hi3[index - 24];
 }
 vec4 point_spot_cone_at(int index)
 {
-	return index < 8 ? scene.point_spot_cone[index] : scene.point_spot_cone_hi[index - 8];
+	if (index < 8)
+		return scene.point_spot_cone[index];
+	if (index < 16)
+		return scene.point_spot_cone_hi[index - 8];
+	if (index < 24)
+		return scene.point_spot_cone_hi2[index - 16];
+	return scene.point_spot_cone_hi3[index - 24];
 }
 float point_shininess_at(int index)
 {
-	return index < 8 ? scene.point_shininess[index] : scene.point_shininess_hi[index - 8];
+	if (index < 8)
+		return scene.point_shininess[index];
+	if (index < 16)
+		return scene.point_shininess_hi[index - 8];
+	if (index < 24)
+		return scene.point_shininess_hi2[index - 16];
+	return scene.point_shininess_hi3[index - 24];
 }
 
-//点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第六百九十九轮由 8 扩为 16）
-const int POINT_LIGHT_MAX = 16;
+//点光源数量上限（旧前向路径；与门面 Impl::POINT_LIGHT_UBO_MAX 一致；第七百零一轮 16 → 32）
+const int POINT_LIGHT_MAX = 32;
 
 /*
 光源记录（与 Host 侧 Light_Record 逐字段一致，std430 共 80 字节）

@@ -1412,13 +1412,13 @@ namespace engine
 				return false;
 			}
 			/*
-			写入初始高 8 槽（offset 1840、640 字节；第六百九十九轮）
-			前向 16 槽中的 8..15 槽追加在场景 UBO 块尾，旧 8 槽偏移保持不变；
+			写入高 24 槽（offset 1840、1920 字节；第六百九十九轮 8 槽、第七百零一轮 24 槽）
+			前向 32 槽中的 8..31 槽追加在场景 UBO 块尾（三组 × 160 浮点），旧 8 槽偏移保持不变；
 			每帧由 scene_apply 覆盖，此处先清零保证首帧前不读取脏数据。
 			*/
-			float high_slot_block[160] = {};
+			float high_slot_block[480] = {};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				high_slot_block, 640, static_cast<VkDeviceSize>(Impl::SCENE_HIGH_SLOTS_BASE) * sizeof(float)))
+				high_slot_block, 1920, static_cast<VkDeviceSize>(Impl::SCENE_HIGH_SLOTS_BASE) * sizeof(float)))
 			{
 				logger.error("渲染器:: 场景高 8 槽写入失败（帧槽 {}）", slot);
 				shutdown();
@@ -2977,7 +2977,9 @@ namespace engine
 		{
 			const std::size_t base = light < Impl::UBO_LEGACY_SLOTS
 				? 32 + static_cast<std::size_t>(light) * 4
-				: Impl::SCENE_HIGH_SLOTS_BASE + static_cast<std::size_t>(light - Impl::UBO_LEGACY_SLOTS) * 4;
+				: Impl::SCENE_HIGH_SLOTS_BASE
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) / 8) * Impl::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) % 8) * 4;
 			scene_block[base + 0] = impl->point_lights[light].position[0];
 			scene_block[base + 1] = impl->point_lights[light].position[1];
 			scene_block[base + 2] = impl->point_lights[light].position[2];
@@ -2993,7 +2995,9 @@ namespace engine
 		{
 			const std::size_t base = light < Impl::UBO_LEGACY_SLOTS
 				? 96 + static_cast<std::size_t>(light) * 4
-				: Impl::SCENE_HIGH_SLOTS_BASE + 64 + static_cast<std::size_t>(light - Impl::UBO_LEGACY_SLOTS) * 4;
+				: Impl::SCENE_HIGH_SLOTS_BASE + 64
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) / 8) * Impl::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) % 8) * 4;
 			scene_block[base + 0] = impl->point_lights[light].spot_direction[0];
 			scene_block[base + 1] = impl->point_lights[light].spot_direction[1];
 			scene_block[base + 2] = impl->point_lights[light].spot_direction[2];
@@ -3038,7 +3042,9 @@ namespace engine
 		{
 			const std::size_t offset = light < Impl::UBO_LEGACY_SLOTS
 				? 184 + static_cast<std::size_t>(light) * 4
-				: Impl::SCENE_HIGH_SLOTS_BASE + 128 + static_cast<std::size_t>(light - Impl::UBO_LEGACY_SLOTS) * 4;
+				: Impl::SCENE_HIGH_SLOTS_BASE + 128
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) / 8) * Impl::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - Impl::UBO_LEGACY_SLOTS) % 8) * 4;
 			scene_block[offset] = impl->point_lights[light].shininess;
 		}
 		/*
@@ -9460,22 +9466,22 @@ namespace engine
 		light_set(light.direction, light.color, light.intensity, light.ambient);
 		/*
 		光源选择模式与预算（第六百四十五轮；A1）
-		预算 = 0 跟随路径上限（旧前向 16 盏 / 簇路径全量）；否则取用户预算与路径上限的较小值。
-		候选集合 = 点光（先）＋ 聚光（后）的声明序列表，各组最多 16 条（与 Light_Data 数组容量一致）。
+		预算 = 0 跟随路径上限（旧前向 32 盏 / 簇路径全量）；否则取用户预算与路径上限的较小值。
+		候选集合 = 点光（先）＋ 聚光（后）的声明序列表，各组最多 32 条（与 Light_Data 数组容量一致）。
 		*/
 		light_select_set(static_cast<uint32_t>(light.light_select_mode), light.light_budget);
 		const uint32_t path_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		const uint32_t light_budget = (impl->light_budget > 0u && impl->light_budget < path_limit)
 			? impl->light_budget : path_limit;
-		//候选总数（点光在前、聚光在后；与登记顺序一致；第六百九十九轮各组上限 8 → 16）
-		const uint32_t point_total = light.point_count < 16u ? light.point_count : 16u;
-		const uint32_t spot_total = light.spot_count < 16u ? light.spot_count : 16u;
+		//候选总数（点光在前、聚光在后；与登记顺序一致；第七百零一轮各组上限 16 → 32）
+		const uint32_t point_total = light.point_count < 32u ? light.point_count : 32u;
+		const uint32_t spot_total = light.spot_count < 32u ? light.spot_count : 32u;
 		const uint32_t candidate_total = point_total + spot_total;
 		/*
 		入选标志（true = 本次登记该候选）
 		声明顺序模式且候选未超预算时全为真，与引入前逐条等价；重要性选择时才逐候选重算。
 		*/
-		bool keep[32] = {};
+		bool keep[64] = {};
 		for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
 			keep[candidate] = true;
 		//若重要性选择且候选数超过预算
@@ -9485,7 +9491,7 @@ namespace engine
 			float camera_position[3] = {};
 			impl->camera.position_get(camera_position);
 			//逐候选评分
-			float scores[32] = {};
+			float scores[64] = {};
 			for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
 			{
 				//候选所属光源组与组内序号
@@ -9777,7 +9783,7 @@ namespace engine
 		if (impl->light_select_mode == 0 && light.point_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
 				light.point_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);
-		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 16 盏上限）
+		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 32 盏上限）
 		if (impl->light_select_mode == 0 && light.spot_count > Impl::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 {}，仅登记前 {} 盏（与点光源共用上限）",
 				light.spot_count, Impl::POINT_LIGHT_UBO_MAX, Impl::POINT_LIGHT_UBO_MAX);

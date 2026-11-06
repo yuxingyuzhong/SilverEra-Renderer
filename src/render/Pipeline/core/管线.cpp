@@ -617,11 +617,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 2480 字节：… ＋ 八份偏置 ＋ 光照扩展参数 ＋ 前向高 8 槽；第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480）
+		//缓冲描述（场景 UBO 3760 字节：… ＋ 前向高 24 槽；第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480，第七百零一轮 3760）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 2480;
+		buffer_info.range = 3760;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
@@ -702,11 +702,11 @@ namespace engine
 			return false;
 		}
 
-		//绑定 0：场景 UBO（范围与场景集一致，第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480）
+		//绑定 0：场景 UBO（范围与场景集一致，第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480，第七百零一轮 3760）
 		VkDescriptorBufferInfo ubo_info{};
 		ubo_info.buffer = ubo_buffer;
 		ubo_info.offset = 0;
-		ubo_info.range = 2480;
+		ubo_info.range = 3760;
 		VkWriteDescriptorSet ubo_write{};
 		ubo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		ubo_write.dstSet = particle_sets[slot];
