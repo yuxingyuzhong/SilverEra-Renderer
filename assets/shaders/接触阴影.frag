@@ -10,8 +10,8 @@ post_param.z = 步数缩放（0.25..2，对应 4..32 步）
 post_param.w = 深度偏置（NDC，0.0005..0.05；抑制自阴影）
 post_color.rgb = 阴影色调（默认黑，即直接压暗）
 post_extra.x = 厚度上限（NDC；0 = 自动，沿用「最大距离 / 相机近远跨度」估算）
-post_extra.y = 光源模式（0 = 方向光，默认；1 = 聚光灯）
-post_extra.z = 聚光灯槽位（0..7；仅模式 1 使用）
+post_extra.y = 光源模式（0 = 方向光，默认；1 = 聚光灯；2 = 点光源）
+post_extra.z = 光源槽位（0..7；仅模式 1 / 2 使用）
 天空像素、方向光关闭与强度 0 时一律原样输出（与引入前逐字节一致）。
 */
 //颜色附件输出
@@ -124,11 +124,12 @@ void main()
 	vec4 color = texelFetch(source_image, coord, 0);
 	/*
 	强度 0 原样输出（第七百零四轮：方向光关闭仅在方向光模式生效，
-	聚光灯模式由槽位标志决定；默认模式 0 与引入前逐字节一致）
+	其余模式由槽位标志决定；默认模式 0 与引入前逐字节一致）
 	*/
 	float strength = clamp(push.post_param.x, 0.0, 1.0);
-	bool spot_mode = push.post_extra.y > 0.5;
-	if (strength <= 0.0001 || (!spot_mode && scene.light_dir.w <= 0.0))
+	//光源模式（0 = 方向光、1 = 聚光灯、2 = 点光源；第七百零四 / 第七百零五轮）
+	int light_mode = int(push.post_extra.y + 0.5);
+	if (strength <= 0.0001 || (light_mode == 0 && scene.light_dir.w <= 0.0))
 	{
 		out_color = color;
 		return;
@@ -151,18 +152,19 @@ void main()
 	vec4 world_h = inverse_view_proj * vec4(ndc, raw, 1.0);
 	vec3 world_pos = world_h.xyz / world_h.w;
 	/*
-	指向光源的单位向量与锥形遮罩（第七百零四轮）
+	指向光源的单位向量与锥形遮罩（第七百零四轮；第七百零五轮扩点光源）
 	方向光模式：取主光传播方向的反向，遮罩恒 1（默认路径逐字节不变）；
-	聚光灯模式：取槽位 0..7 的聚光灯位置，超出半径 / 槽位未启用 / 锥外一律原样输出。
+	聚光灯 / 点光源模式：取槽位 0..7 的灯位，超出半径 / 槽位类型不符 / 强度 0 / 锥外一律原样输出。
 	*/
 	vec3 to_light = normalize(-scene.light_dir.xyz);
 	float cone_mask = 1.0;
-	if (spot_mode)
+	if (light_mode != 0)
 	{
 		int light_slot = clamp(int(push.post_extra.z + 0.5), 0, 7);
-		//槽位非聚光灯或强度为 0：无接触阴影
-		if (scene.point_spot_dir[light_slot].w <= 0.5
-			|| scene.point_color_intensity[light_slot].w <= 0.0)
+		bool is_spot = scene.point_spot_dir[light_slot].w > 0.5;
+		float intensity = scene.point_color_intensity[light_slot].w;
+		//槽位类型与模式不符或强度为 0：无接触阴影
+		if (intensity <= 0.0 || (light_mode == 1 && !is_spot) || (light_mode == 2 && is_spot))
 		{
 			out_color = color;
 			return;
@@ -177,15 +179,18 @@ void main()
 			return;
 		}
 		to_light = light_offset / light_distance;
-		//锥形遮罩（x = 外锥余弦、y = 内锥余弦）
-		float cos_angle = dot(-to_light, scene.point_spot_dir[light_slot].xyz);
-		cone_mask = smoothstep(scene.point_spot_cone[light_slot].y,
-			scene.point_spot_cone[light_slot].x, cos_angle);
-		//锥外：无接触阴影
-		if (cone_mask <= 0.0)
+		//聚光灯锥形遮罩（x = 外锥余弦、y = 内锥余弦；点光源恒 1）
+		if (is_spot)
 		{
-			out_color = color;
-			return;
+			float cos_angle = dot(-to_light, scene.point_spot_dir[light_slot].xyz);
+			cone_mask = smoothstep(scene.point_spot_cone[light_slot].y,
+				scene.point_spot_cone[light_slot].x, cos_angle);
+			//锥外：无接触阴影
+			if (cone_mask <= 0.0)
+			{
+				out_color = color;
+				return;
+			}
 		}
 	}
 	float max_distance = clamp(push.post_param.y, 0.05, 20.0);
