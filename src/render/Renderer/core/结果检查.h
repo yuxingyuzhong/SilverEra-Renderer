@@ -1,8 +1,8 @@
 #pragma once
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //获取日志系统
-#include "Engine/EngineCore/src/tools/Logging/日志系统运行包.h"
+#include "Engine/EngineFoundation/src/tools/Logging/日志系统运行包.h"
 /*
 Vulkan 头
 本头属本层「实现细节」：只被本层 .cpp 与层内模块头包含，不进公共头，

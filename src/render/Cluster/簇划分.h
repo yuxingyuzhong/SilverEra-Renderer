@@ -6,7 +6,7 @@
 并给出「光源记录 → 逐簇计数」的保守覆盖实现，供第二百六十八轮的 GPU 计数对数。
 本头不依赖 Vulkan，也不依赖相机模块。
 */
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/光源数据.h"
+#include "Engine/EngineRenderer/src/render/Scene/光源数据.h"
 
 //游戏引擎命名空间
 namespace engine

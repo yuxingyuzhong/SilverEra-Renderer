@@ -2,19 +2,19 @@
 //============================================================================
 // 前置头文件包含（Renderer 预编译头）
 //============================================================================
-// 位置：Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h
+// 位置：Engine/EngineRenderer/common/前置头文件包含.h
 //
 // 为什么 Renderer 需要自己这一份
-//     本层源码统一写 #include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"。
+//     本层源码统一写 #include "Engine/EngineRenderer/common/前置头文件包含.h"。
 //     项目内部一律用「项目根相对全路径」，路径归属明确、不会与其它层的同名头互撞。
 //
-//     做法：先整体吃下 EngineCore 那份（保持单一真源，避免两份清单各自漂移）。
+//     做法：先整体吃下 EngineFoundation 那份（保持单一真源，避免两份清单各自漂移）。
 //
 // 为什么本层没有额外条目
 //     SDL3 / Vulkan / VMA 都属于本层「实现细节」：只在 .cpp 内部按需包含，
-//     不进入任何公共头，因而也不进预编译头 —— 上层拿到 RendererCore 的公共头
+//     不进入任何公共头，因而也不进预编译头 —— 上层拿到 EngineRenderer 的公共头
 //     时不应该顺带吃进这些第三方头。
 //============================================================================
 
 // 引擎层的通用前置包含（C/C++ 标准库、windows）
-#include "Engine/EngineCore/common/前置头文件包含.h"
+#include "Engine/EngineFoundation/common/前置头文件包含.h"

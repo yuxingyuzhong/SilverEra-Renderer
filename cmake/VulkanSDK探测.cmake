@@ -1,13 +1,13 @@
 # =============================================================================
 # Vulkan SDK 定位 —— 渲染层专用（探测口径单点收口）
 # -----------------------------------------------------------------------------
-# 位置：Application/Renderer/cmake/VulkanSDK探测.cmake
+# 位置：Engine/EngineRenderer/cmake/VulkanSDK探测.cmake
 #
 # 作用
 #     解析出 Vulkan SDK 根目录与其头目录 / 导入库路径，供两处共用同一口径，
 #     避免「构建脚本」与「对外接口」各写一套探测逻辑而悄悄漂移：
-#       - Application/Renderer/CMakeLists.txt   编译本层时用
-#       - Application/Renderer/cmake/对外接口.cmake  向上层传递 vulkan-1.lib 时用
+#       - Engine/EngineRenderer/CMakeLists.txt   编译本层时用
+#       - Engine/EngineRenderer/cmake/对外接口.cmake  向上层传递 vulkan-1.lib 时用
 #
 # 探测顺序（不猜路径、不静默降级）
 #     ① 环境变量 VULKAN_SDK 非空，且 <该目录>/Include/vulkan/vulkan.h 存在 → 采用

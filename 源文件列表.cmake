@@ -1,9 +1,9 @@
 #
 # =============================================================================
-# Application/Renderer 源文件列表（生成物，勿手改）
+# Engine/EngineRenderer 源文件列表（生成物，勿手改）
 # -----------------------------------------------------------------------------
 # 生成方式
-#     由 Engine/EngineCore/cmake/生成源文件列表.cmake 在每轮配置时自动维护：把
+#     由 Engine/EngineFoundation/cmake/生成源文件列表.cmake 在每轮配置时自动维护：把
 #     file(GLOB_RECURSE) 的扫描结果与本文件比对（按路径集合），仅在集合有差异时
 #     整体写回。
 #
@@ -16,14 +16,15 @@
 #
 # 维护
 #     - 不要手工编辑。新增 / 删除 / 改名文件后，下一轮配置自动刷新。
-#     - 路径一律相对本层根目录（Application/Renderer），与 VS 改写后的写法一致。
+#     - 路径一律相对本层根目录（Engine/EngineRenderer），与 VS 改写后的写法一致。
 #     - 这里是这些文件的「唯一」加入点：CMakeLists 的 add_library 不再传这些源文件，
 #       否则 backtrace 会归到 add_library 上，VS 就又无法改写了。
 # =============================================================================
 #
-target_sources(RendererCore PRIVATE
+target_sources(EngineRenderer PRIVATE
     "src/render/Asset/core/mtl文件加载.cpp"
     "src/render/Asset/core/obj文件加载.cpp"
+    "src/render/Asset/资产缓存.cpp"
     "src/render/Cluster/core/簇划分.cpp"
     "src/render/Compute/core/Compute.cpp"
     "src/render/Device/core/实例创建.cpp"
@@ -48,6 +49,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Memory/core/缓冲创建.cpp"
     "src/render/Mesh/core/网格加载器.cpp"
     "src/render/Mesh/core/网格缓冲.cpp"
+    "src/render/Particle/粒子GPU推进.cpp"
     "src/render/Pipeline/core/图形管线.cpp"
     "src/render/Pipeline/core/描述符布局.cpp"
     "src/render/Pipeline/core/管线.cpp"
@@ -60,6 +62,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Renderer/core/UI通道.cpp"
     "src/render/Renderer/core/渲染器.cpp"
     "src/render/Scene/core/相机.cpp"
+    "src/render/Scene/场景装配.cpp"
     "src/render/Shader/core/着色器.cpp"
     "src/render/Shader/core/着色器模块.cpp"
     "src/render/Swapchain/core/交换链.cpp"
@@ -76,11 +79,12 @@ target_sources(RendererCore PRIVATE
 
 # 头文件不参与编译，只为让 IDE 建立文件索引；同样经 target_sources 列出，
 # 使头文件改名 / 迁移时 VS 也能改写引用
-target_sources(RendererCore PRIVATE
+target_sources(EngineRenderer PRIVATE
     "common/前置头文件包含.h"
     "src/render/Asset/core/文本解析工具.h"
     "src/render/Asset/局部命名空间使用.h"
     "src/render/Asset/资产加载.h"
+    "src/render/Asset/资产缓存.h"
     "src/render/Cluster/簇划分.h"
     "src/render/Compute/Compute.h"
     "src/render/Compute/局部命名空间使用.h"
@@ -101,6 +105,8 @@ target_sources(RendererCore PRIVATE
     "src/render/Mesh/局部命名空间使用.h"
     "src/render/Mesh/网格.h"
     "src/render/Mesh/网格数据.h"
+    "src/render/Particle/粒子GPU推进.h"
+    "src/render/Particle/粒子宿主.h"
     "src/render/Pipeline/局部命名空间使用.h"
     "src/render/Pipeline/材质数据.h"
     "src/render/Pipeline/管线.h"
@@ -116,6 +122,7 @@ target_sources(RendererCore PRIVATE
     "src/render/Renderer/渲染器_UI通道.h"
     "src/render/Scene/光源数据.h"
     "src/render/Scene/场景数据.h"
+    "src/render/Scene/场景装配.h"
     "src/render/Scene/局部命名空间使用.h"
     "src/render/Scene/相机.h"
     "src/render/Shader/局部命名空间使用.h"

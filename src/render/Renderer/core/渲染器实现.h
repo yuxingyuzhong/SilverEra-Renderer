@@ -1,44 +1,44 @@
 #pragma once
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 各模块对外头
 本头属本层「实现细节」：实现体持有各模块实例，故需其完整类型；
 不进公共头，故可以合法暴露 Vulkan / SDL3 类型（层外仍看不到）。
 */
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Platform/平台上下文.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Device/设备上下文.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Memory/内存上下文.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Swapchain/交换链.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Frame/帧上下文.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Shader/着色器.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/管线.h"
+#include "Engine/EngineRenderer/src/render/Platform/平台上下文.h"
+#include "Engine/EngineRenderer/src/render/Device/设备上下文.h"
+#include "Engine/EngineRenderer/src/render/Memory/内存上下文.h"
+#include "Engine/EngineRenderer/src/render/Swapchain/交换链.h"
+#include "Engine/EngineRenderer/src/render/Frame/帧上下文.h"
+#include "Engine/EngineRenderer/src/render/Shader/着色器.h"
+#include "Engine/EngineRenderer/src/render/Pipeline/管线.h"
 //计算管线模块（第二百四十一轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Compute/Compute.h"
+#include "Engine/EngineRenderer/src/render/Compute/Compute.h"
 //Hi-Z 深度历史与金字塔资源（第二百五十三轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/HiZ/HiZ.h"
+#include "Engine/EngineRenderer/src/render/HiZ/HiZ.h"
 //分簇网格与 CPU 逐簇计数参考（第二百六十七轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Cluster/簇划分.h"
+#include "Engine/EngineRenderer/src/render/Cluster/簇划分.h"
 //粒子数据与粒子池（第三百零七 / 三百零八轮）
-#include "Engine/EngineCore/src/core/effect/粒子数据.h"
+#include "Engine/EngineFoundation/src/core/effect/粒子数据.h"
 //GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/GPU驱动/包围体.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/GPU驱动/剔除数据.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Texture/纹理.h"
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/相机.h"
+#include "Engine/EngineRenderer/src/render/GPU驱动/包围体.h"
+#include "Engine/EngineRenderer/src/render/GPU驱动/剔除数据.h"
+#include "Engine/EngineRenderer/src/render/Mesh/网格.h"
+#include "Engine/EngineRenderer/src/render/Texture/纹理.h"
+#include "Engine/EngineRenderer/src/render/Scene/相机.h"
 //渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/RenderTarget/渲染目标.h"
+#include "Engine/EngineRenderer/src/render/RenderTarget/渲染目标.h"
 //线程池模块（帧内粗粒度并行执行器；第一百七十七轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Thread/线程池.h"
+#include "Engine/EngineRenderer/src/render/Thread/线程池.h"
 //字体模块（TTF → 字形图集；文字绘制取用）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Text/字体.h"
+#include "Engine/EngineRenderer/src/render/Text/字体.h"
 //文字绘制子系统（网格缓存 / 文字颜色 / 管线句柄；第四十七轮下沉）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Text/文字渲染.h"
+#include "Engine/EngineRenderer/src/render/Text/文字渲染.h"
 //门面声明（Renderer::Impl 为其私有嵌套类）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Renderer/渲染器.h"
+#include "Engine/EngineRenderer/src/render/Renderer/渲染器.h"
 //UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Renderer/渲染器_UI通道.h"
+#include "Engine/EngineRenderer/src/render/Renderer/渲染器_UI通道.h"
 
 //游戏引擎命名空间
 namespace engine

@@ -1,14 +1,14 @@
 #pragma once
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //网格数据类型（Vertex / Mesh_Data / Mesh_Section / Mesh_File_Data）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格数据.h"
+#include "Engine/EngineRenderer/src/render/Mesh/网格数据.h"
 
 //游戏引擎命名空间
 namespace engine
 {
 	/*
-	从 OBJ 文件加载网格（第四百二十二轮；解析器 2026-11-04 起归 EngineCore 的 Mesh_Loader）
+	从 OBJ 文件加载网格（第四百二十二轮；解析器 2026-11-04 起归 EngineFoundation 的 Mesh_Loader）
 	本入口保留为薄包装（转调 `Mesh_Loader::load_file`），以保持资产加载侧的调用面稳定。
 	*/
 	bool obj_mesh_load(const std::string& path, Mesh_File_Data& out);

@@ -1,5 +1,5 @@
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //本模块内部类型引入（含 Compute.h）
 #include "src/render/Compute/局部命名空间使用.h"
 //std::memcpy（自检回读）

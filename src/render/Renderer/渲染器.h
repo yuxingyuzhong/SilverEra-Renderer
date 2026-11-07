@@ -1,30 +1,30 @@
 #pragma once
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //光源数据记录（Vulkan-free；第二百六十五轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/光源数据.h"
+#include "Engine/EngineRenderer/src/render/Scene/光源数据.h"
 //分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Cluster/簇划分.h"
-//粒子数据（Vulkan-free；第三百零七轮；已下沉到 EngineCore，模拟与绘制两侧共享同一份布局）
-#include "Engine/EngineCore/src/core/effect/粒子数据.h"
+#include "Engine/EngineRenderer/src/render/Cluster/簇划分.h"
+//粒子数据（Vulkan-free；第三百零七轮；已下沉到 EngineFoundation，模拟与绘制两侧共享同一份布局）
+#include "Engine/EngineFoundation/src/core/effect/粒子数据.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
 其定义置于 Mesh 模块的共用头，层外看不到任何 Vulkan / VMA / SDL3 / glm 类型。
 */
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格数据.h"
+#include "Engine/EngineRenderer/src/render/Mesh/网格数据.h"
 //管线公共语义类型（Vulkan-free）：混合档
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/管线数据.h"
+#include "Engine/EngineRenderer/src/render/Pipeline/管线数据.h"
 //纹理公共语义类型（Vulkan-free）：采样器状态
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Texture/纹理数据.h"
+#include "Engine/EngineRenderer/src/render/Texture/纹理数据.h"
 //材质公共语义类型（Vulkan-free）：材质描述与句柄
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Pipeline/材质数据.h"
+#include "Engine/EngineRenderer/src/render/Pipeline/材质数据.h"
 //场景公共语义类型（Vulkan-free）：场景描述
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Scene/场景数据.h"
+#include "Engine/EngineRenderer/src/render/Scene/场景数据.h"
 //文字布局公共语义类型（Vulkan-free）：对齐方式与换行宽度
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Text/文字布局数据.h"
+#include "Engine/EngineRenderer/src/render/Text/文字布局数据.h"
 //计算公共语义类型（Vulkan-free）：句柄与字节上限（第二百四十三轮）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Compute/计算数据.h"
+#include "Engine/EngineRenderer/src/render/Compute/计算数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -36,8 +36,8 @@ namespace engine
 	class Renderer;
 
 	/*
-	层内 GPU 粒子推进（模拟语义归 EngineSystem；渲染层只提供计算原语与缓冲）
-	实现位于 EngineSystem/src/effect/Particle/粒子GPU推进.cpp，经 friend 访问渲染器私有实现。
+	层内 GPU 粒子推进（模拟语义与计算原语同归本层）
+	实现位于 src/render/Particle/粒子GPU推进.cpp，经 friend 访问渲染器私有实现。
 	*/
 	namespace particle_gpu
 	{
@@ -847,7 +847,7 @@ namespace engine
 		加载带子网格分段的网格（第四百一十六轮）
 		与 mesh_load 相同，但额外保存 sections（每段 first_index / index_count / material）；
 		段校验在网格模块完成（索引数为 3 的倍数、区间不越界），任一不合法整次拒绝并返回假。
-		注意（第四百一十六轮修正）：分段不作为 Mesh_Data 字段，避免与 EngineCore 同名 Mesh_Data 的 ODR 冲突。
+		注意（第四百一十六轮修正）：分段不作为 Mesh_Data 字段，避免与 EngineFoundation 同名 Mesh_Data 的 ODR 冲突。
 		*/
 		bool mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
 			const Mesh_Section* sections, uint32_t count);
@@ -2188,7 +2188,7 @@ namespace engine
 		按当前请求重建图集并重绑 binding 9 的全部数组元素；关闭时恢复逐瓦片视图。
 		*/
 		void spot_shadow_atlas_apply(void);
-		//层内 GPU 粒子推进（实现位于 EngineSystem/src/effect/Particle/粒子GPU推进.cpp）
+		//层内 GPU 粒子推进（实现位于 src/render/Particle/粒子GPU推进.cpp）
 		friend uint32_t particle_gpu::emit(Renderer&, uint32_t);
 		friend bool particle_gpu::step_resident(Renderer&, float);
 	};

@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 # 生成方式
 #     取官方 VisualC/SDL/SDL.vcxproj 的 ClCompile / ResourceCompile 条目，
-#     路径相对本层根目录（Application/Renderer）。
+#     路径相对本层根目录（Engine/EngineRenderer）。
 #
 # 为什么不用 GLOB
 #     external/SDL3/src/ 下并非每个 .c 都是独立编译单元。SDL3 把一部分实现体

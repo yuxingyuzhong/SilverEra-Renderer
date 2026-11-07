@@ -1,6 +1,6 @@
 #pragma once
 //模块内部解析工具（OBJ / MTL 两个实现共用；仅头文件内联，不引出符号）
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 
 namespace engine
 {

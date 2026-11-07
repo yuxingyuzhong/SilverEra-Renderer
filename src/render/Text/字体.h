@@ -1,10 +1,10 @@
 #pragma once
 //预编译头
-#include "Engine/EngineSystem/src/core/Renderer/common/前置头文件包含.h"
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //网格数据（文字几何生成需要 Vertex / Mesh_Data；Vulkan-free）
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Mesh/网格数据.h"
+#include "Engine/EngineRenderer/src/render/Mesh/网格数据.h"
 //文字布局参数（Vulkan-free）：对齐方式与换行宽度
-#include "Engine/EngineSystem/src/core/Renderer/src/render/Text/文字布局数据.h"
+#include "Engine/EngineRenderer/src/render/Text/文字布局数据.h"
 
 //游戏引擎命名空间
 namespace engine

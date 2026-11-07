@@ -1,7 +1,7 @@
 // =============================================================================
 // VMA 实现单元
 // =============================================================================
-// 位置：Engine/EngineSystem/src/core/Renderer/src/render/Memory/core/VMA实现.cpp
+// 位置：Engine/EngineRenderer/src/render/Memory/core/VMA实现.cpp
 //
 // 作用
 //     VulkanMemoryAllocator 是「头文件即实现」形态：全部函数体都写在
