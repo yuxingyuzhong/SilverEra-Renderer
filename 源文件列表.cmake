@@ -42,6 +42,9 @@ target_sources(EngineRenderer PRIVATE
     "src/render/GPU驱动/core/包围体.cpp"
     "src/render/HiZ/core/HiZ.cpp"
     "src/render/HiZ/core/遮挡测试.cpp"
+    "src/render/Input/core/SDL事件适配.cpp"
+    "src/render/Input/core/帧锁存.cpp"
+    "src/render/Input/core/系统输入桥.cpp"
     "src/render/Memory/core/VMA实现.cpp"
     "src/render/Memory/core/上传批次.cpp"
     "src/render/Memory/core/分配器创建.cpp"
@@ -75,13 +78,16 @@ target_sources(EngineRenderer PRIVATE
     "src/render/Texture/core/纹理解码.cpp"
     "src/render/Texture/core/采样器创建.cpp"
     "src/render/Thread/core/作业分派.cpp"
+    "src/render/UI/core/UI事件桥.cpp"
+    "src/render/UI/core/UI渲染器.cpp"
+    "src/render/UI/core/交互.cpp"
+    "src/render/UI/core/控件树.cpp"
 )
 
 # 头文件不参与编译，只为让 IDE 建立文件索引；同样经 target_sources 列出，
 # 使头文件改名 / 迁移时 VS 也能改写引用
 target_sources(EngineRenderer PRIVATE
     "common/前置头文件包含.h"
-    "src/render/Asset/core/文本解析工具.h"
     "src/render/Asset/局部命名空间使用.h"
     "src/render/Asset/资产加载.h"
     "src/render/Asset/资产缓存.h"
@@ -100,6 +106,10 @@ target_sources(EngineRenderer PRIVATE
     "src/render/HiZ/HiZ.h"
     "src/render/HiZ/局部命名空间使用.h"
     "src/render/HiZ/遮挡测试.h"
+    "src/render/Input/局部命名空间使用.h"
+    "src/render/Input/系统输入桥.h"
+    "src/render/Input/输入快照.h"
+    "src/render/Input/输入聚合.h"
     "src/render/Memory/内存上下文.h"
     "src/render/Memory/局部命名空间使用.h"
     "src/render/Mesh/局部命名空间使用.h"
@@ -138,4 +148,8 @@ target_sources(EngineRenderer PRIVATE
     "src/render/Texture/纹理数据.h"
     "src/render/Thread/局部命名空间使用.h"
     "src/render/Thread/线程池.h"
+    "src/render/UI/UI事件桥.h"
+    "src/render/UI/UI渲染器.h"
+    "src/render/UI/局部命名空间使用.h"
+    "src/render/UI/用户界面.h"
 )
