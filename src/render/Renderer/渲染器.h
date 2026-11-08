@@ -5,8 +5,8 @@
 #include "Engine/EngineRenderer/src/render/Scene/光源数据.h"
 //分簇数据与 CPU 逐簇计数参考（Vulkan-free；第二百六十七轮）
 #include "Engine/EngineRenderer/src/render/Cluster/簇划分.h"
-//粒子数据（Vulkan-free；第三百零七轮；已下沉到 EngineFoundation，模拟与绘制两侧共享同一份布局）
-#include "Engine/EngineFoundation/src/core/effect/粒子数据.h"
+//粒子数据（Vulkan-free；第三百零七轮；位于 EngineSystem，模拟与绘制两侧共享同一份布局）
+#include "Engine/EngineSystem/src/world/data/particle/Particle_Data/粒子数据.h"
 /*
 网格数据（Vulkan-free）
 公共面只暴露引擎语义类型（Vertex / Mesh_Data / Mesh_Handle），
@@ -31,6 +31,12 @@ namespace engine
 {
 	//UI 通道（扩展公共头 渲染器_UI通道.h 定义；此处仅前置声明，保持本公共头零 Vulkan / SDL 类型）
 	class Ui_Channel_Context;
+	//原生 UI 上下文（完整定义见 用户界面.h，SDL / Vulkan-free）
+	class Ui_Context;
+	//帧输入聚合器（完整定义见公共扩展头 输入聚合.h，含 SDL3 类型）
+	class Input_Aggregator;
+	//事件终端（完整定义见 EngineFoundation 的事件终端头）
+	class Event_Terminal;
 
 	//渲染器前置声明（供下方层内 GPU 粒子推进入口引用）
 	class Renderer;
@@ -2177,6 +2183,44 @@ namespace engine
 		需上层自行包含该扩展头）；未初始化时返回空。
 		*/
 		Ui_Channel_Context* ui_channel(void);
+
+		/*
+		原生 UI 上下文（保留模式控件树）
+		返回渲染层持有的 UI 上下文（完整定义见 用户界面.h，SDL / Vulkan-free）；未初始化时返回空。
+		控件在本帧 frame_render 之前创建 / 修改即参与本帧交互与绘制。
+		*/
+		Ui_Context* ui_context(void);
+
+		/*
+		帧输入聚合器（渲染层自持原始输入）
+		返回渲染层持有的输入聚合器（完整定义见扩展头 输入聚合.h，含 SDL3 类型）；
+		未初始化时返回空。外部可直接 event_feed 喂入平台事件（多窗口 / 测试注入），
+		正常帧循环由渲染层在事件泵内自动喂入。
+		*/
+		Input_Aggregator* input_aggregator(void);
+
+		/*
+		系统输入 / UI 事件终端（供应用层绑定中转站）
+		应用层需在终端上绑定 Broker_Attacher 与 Evt_Sender 两个端口（与其它模块同口径），
+		随后调用 input_system_attach；渲染层会自行绑定接收入口并订阅
+		FocusChanged / TextMode / Command / Text，同时每帧发布
+		Raw / MouseFocus / ModalPush / ModalPop / TextSession。
+		*/
+		Event_Terminal* input_event_terminal(void);
+		//接入系统输入（生成密钥、登记订阅者并订阅事件；端口未绑定时返回假）
+		bool input_system_attach(void);
+		//退出系统输入（向中转站发送订阅者退出事件；幂等）
+		void input_system_detach(void);
+		//是否已接入系统输入
+		bool input_system_attached(void) const;
+
+		//取一条未被 UI 消费的系统语义命令（队首；成功写出并移除）
+		bool ui_command_pop(std::string& command);
+		//取一条未被 UI 消费的系统文本语义（队首；成功写出并移除）
+		bool ui_text_pop(std::string& text);
+		//取系统焦点状态（main / child / modal / 文本模式；未接入时返回假）
+		bool ui_focus_state_get(std::string& main, std::string& child,
+			std::string& modal, bool& text) const;
 	private:
 		//实现体（把 SDL3 / Vulkan / VMA 全部关在 .cpp 里）
 		class Impl;

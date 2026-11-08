@@ -1,20 +1,18 @@
-#include "src/render/Renderer/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //实现体定义（持有各模块实例）
 #include "渲染器实现.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
 #include "src/render/Asset/资产加载.h"
+//系统输入桥（原始输入载荷构造）
+#include "Engine/EngineRenderer/src/render/Input/系统输入桥.h"
+//中转站协议（订阅者退出事件）
+#include "Engine/EngineFoundation/src/event/Common/事件协议.h"
 //std::nothrow
-#include <new>
 //std::isfinite（第一百七十一轮：材质 UV 变换的有限性校验）
-#include <cmath>
 //管线缓存文件读写（第一百零六轮）
-#include <fstream>
-#include <filesystem>
 //异步资产加载（第四百二十六轮；std::async 与轮询）
-#include <future>
-#include <chrono>
 //glm 数学库（第五十二轮：光源空间视图投影矩阵）
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -846,6 +844,8 @@ namespace engine
 		}
 		//② 平台：实例扩展清单
 		vector<const char*> instance_extensions;
+		//输入聚合器绑定平台窗口（文本输入启停需要）
+		impl->input.window_set(impl->platform.window_get());
 		if (!impl->platform.instance_extensions_get(instance_extensions))
 		{
 			logger.error("渲染器:: 实例扩展清单获取失败");
@@ -1695,9 +1695,24 @@ namespace engine
 		*/
 		impl->platform.event_forward_set(
 			[](const SDL_Event* event, void* user_data) {
-				static_cast<Ui_Channel_Context*>(user_data)->event_dispatch(event);
+				//本实现体（先喂输入聚合器，再转交外部 UI 平台后端）
+				Renderer::Impl* self = static_cast<Renderer::Impl*>(user_data);
+				self->input.event_feed(event);
+				self->ui_channel.event_dispatch(event);
 			},
-			&impl->ui_channel);
+			impl.get());
+
+		/*
+		原生 UI 装配（保留模式控件树 + UI 阶段绘制）
+		管线惰性登记失败只告警（原生 UI 不绘制），不影响既有渲染路径；
+		UI 上下文随渲染器生命周期存续，控件由上层经 ui_context() 创建。
+		*/
+		impl->ui.build();
+		impl->ui_pipeline_ensure();
+		if (!impl->ui_render.build(impl->device.device_get(), impl->memory, impl->pipeline,
+			impl->texture, impl->font, impl->ui_solid_pipeline, impl->ui_text_pipeline,
+			effective.frame_overlap))
+			logger.warn("渲染器:: 原生 UI 渲染器装配失败（原生 UI 不绘制）");
 
 		//记录配置并标记初始化完成
 		impl->config = effective;
@@ -1885,6 +1900,19 @@ namespace engine
 		impl->particle_draw_pipeline = 0;
 		impl->particle_gpu_pipeline = 0;
 		impl->frame.destroy();
+		/*
+		原生 UI 与输入先于依赖模块销毁
+		ui_render 持有每帧槽缓冲（依赖内存模块）；ui / input 只持有主机侧状态，
+		但文本输入需在平台视频子系统仍存活时关闭。
+		*/
+		impl->ui_render.shutdown();
+		impl->ui.shutdown();
+		impl->input.reset();
+		impl->ui_solid_pipeline = 0;
+		impl->ui_text_pipeline = 0;
+		impl->ui_pipeline_ready = false;
+		//退出系统输入（须在中转站仍存活时发送退出事件）
+		input_system_detach();
 		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
 		impl->text.shutdown();
 		//网格缓冲依赖内存模块，须先于 memory 销毁
@@ -2231,6 +2259,44 @@ namespace engine
 
 		//① 泵事件
 		impl->platform.events_pump();
+		/*
+		①.5 帧输入锁存与原生 UI 交互
+		事件泵已把 SDL 事件喂入输入聚合器；此处推进为「本帧快照」，再交给 UI 做命中测试与文本编辑。
+		原生 UI 与外部 UI 共用同一 UI 阶段回调（见下方 ui_callback）。
+		*/
+		{
+			//窗口客户区尺寸（UI 坐标与命中测试的基准）
+			uint32_t input_width = 0;
+			uint32_t input_height = 0;
+			impl->platform.window_size_get(input_width, input_height);
+			//锁存本帧输入（UI 不使用 dt，按 0 传）
+			impl->input.frame_advance(0.0, input_width, input_height, impl->platform.display_scale_get());
+			/*
+			帧前准备：按上一帧系统焦点决定控件键盘总闸（不在 UI 主对象时不响应 Tab/回车），
+			并按系统文本模式决定本地拼接或系统回传落文本（必须在 frame_begin 之前）。
+			*/
+			impl->ui_event.text_route_prepare(impl->ui);
+			//控件树消费本帧输入
+			impl->ui.frame_begin(impl->input.frame_get());
+			//系统文本模式或 UI 文本框焦点都启停平台文本输入
+			impl->input.text_input_enable(impl->ui.text_focus_active() || impl->ui_event.system_text_mode());
+			/*
+			UI / 渲染层事件发布（已接入时）
+			Raw → 焦点系统；UI 命中 → MouseFocus；模态切换 → ModalPush/Pop；
+			系统文本模式下的文本框提交 → TextSession。
+			*/
+			impl->ui_event.frame_publish(impl->input.frame_get(), impl->ui);
+			/*
+			应用已收到的系统事件
+			FocusChanged → 控件系统焦点环；Command → 绑定控件激活；
+			Text → 焦点文本框落文本。放在发布之后，使同帧收发即时生效。
+			*/
+			impl->ui_event.frame_apply(impl->ui);
+		}
+		//UI 阶段统一回调（原生 UI 先绘制，外部 UI 后绘制）
+		Frame_Ui_Callback ui_callback{};
+		ui_callback.fn = &Renderer::Impl::ui_draw_entry;
+		ui_callback.user_data = impl.get();
 		/*
 		② 若窗口请求退出则交调用方收敛
 		③ 若窗口最小化则挂起本帧（避免 0×0 交换链；K7）
@@ -3881,7 +3947,7 @@ namespace engine
 					if (!impl->frame.render_chain_present(impl->swapchain, targets.data(), 2,
 						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
 						post_items.data(), static_cast<uint32_t>(post_items.size()),
-						clear_color, rebuild_needed, readback_ptr, impl->ui_channel.draw_callback_get()))
+						clear_color, rebuild_needed, readback_ptr, &ui_callback))
 					{
 						logger.error("渲染器:: SSAA 帧渲染失败");
 						return false;
@@ -4074,7 +4140,7 @@ namespace engine
 						static_cast<uint32_t>(targets.size()),
 						impl->pending_items.data(), static_cast<uint32_t>(impl->pending_items.size()),
 						post_items.data(), static_cast<uint32_t>(post_items.size()),
-						clear_color, rebuild_needed, readback_ptr, impl->ui_channel.draw_callback_get()))
+						clear_color, rebuild_needed, readback_ptr, &ui_callback))
 					{
 						logger.error("渲染器:: 同帧后处理链渲染失败");
 						return false;
@@ -4117,7 +4183,7 @@ namespace engine
 				//渲染到离屏目标（不取交换链图像、不呈现）
 				if (!impl->frame.render_to_target(target, impl->pending_items.data(),
 					static_cast<uint32_t>(impl->pending_items.size()), clear_color,
-					impl->ui_channel.draw_callback_get(), readback_ptr, false, &post_scene))
+					&ui_callback, readback_ptr, false, &post_scene))
 				{
 					logger.error("渲染器:: 离屏帧渲染失败");
 					return false;
@@ -4143,7 +4209,7 @@ namespace engine
 			}
 			if (!impl->frame.render(impl->swapchain, impl->pending_items.data(),
 				static_cast<uint32_t>(impl->pending_items.size()), rebuild_needed, clear_color,
-				impl->ui_channel.draw_callback_get(), readback_ptr, &post_scene))
+				&ui_callback, readback_ptr, &post_scene))
 			{
 				logger.error("渲染器:: 帧渲染失败");
 				return false;
@@ -7446,7 +7512,8 @@ namespace engine
 	//登记具名图形管线（内部实现；可指定是否关闭背面剔除与是否写深度）
 	bool Renderer::Impl::pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
-		bool depth_write, bool cull_front)
+		bool depth_write, bool cull_front, bool depth_test, bool depth_format_override,
+		VkFormat depth_format, uint32_t sample_count)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -7470,7 +7537,8 @@ namespace engine
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
 		if (!pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
-			VK_FORMAT_UNDEFINED, cull_none, 0, vert_input_locations, depth_write, false, alpha_to_coverage, cull_front))
+			VK_FORMAT_UNDEFINED, cull_none, sample_count, vert_input_locations, depth_write, false,
+			alpha_to_coverage, cull_front, depth_test, depth_format_override, depth_format))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -7488,6 +7556,64 @@ namespace engine
 		handle_out = handle;
 		logger.info("渲染器:: 具名管线已登记（句柄 {}）", handle);
 		return true;
+	}
+
+	/*
+	确保 UI 管线就绪（惰性登记）
+	纯色 / 文字两条管线均固定：Alpha 混合、双面、关闭深度测试、深度附件格式 UNDEFINED、单采样；
+	UI 阶段只有颜色附件，若沿用场景深度格式会在动态渲染格式不匹配处被校验层拦截。
+	*/
+	bool Renderer::Impl::ui_pipeline_ensure(void)
+	{
+		//已尝试过则直接返回结果
+		if (ui_pipeline_ready)
+			return ui_solid_pipeline != 0 && ui_text_pipeline != 0;
+		ui_pipeline_ready = true;
+
+		//登记纯色管线
+		uint64_t solid = 0;
+		if (pipeline_load_ex(solid, "UI纯色.vert.spv", "UI纯色.frag.spv", Blend_Mode::Alpha,
+			false, true, false, false, false, true, VK_FORMAT_UNDEFINED, 1))
+			ui_solid_pipeline = solid;
+		else
+			logger.warn("渲染器:: UI 纯色管线登记失败（原生 UI 只绘制文字）");
+
+		//登记文字管线
+		uint64_t text = 0;
+		if (pipeline_load_ex(text, "UI文字.vert.spv", "UI文字.frag.spv", Blend_Mode::Alpha,
+			false, true, false, false, false, true, VK_FORMAT_UNDEFINED, 1))
+			ui_text_pipeline = text;
+		else
+			logger.warn("渲染器:: UI 文字管线登记失败（原生 UI 只绘制纯色）");
+
+		return ui_solid_pipeline != 0 && ui_text_pipeline != 0;
+	}
+
+	/*
+	UI 阶段绘制入口
+	先绘制原生 UI，再把同一命令缓冲交给外部 UI 回调（ImGui 等平台后端）；
+	最后绘制者在最上层，故外部 UI 覆盖原生 UI。
+	*/
+	void Renderer::Impl::ui_draw_entry(VkCommandBuffer command_buffer, void* user_data)
+	{
+		//用户数据为本实现体
+		Impl* self = static_cast<Impl*>(user_data);
+		//空实现体直接返回
+		if (self == nullptr || command_buffer == VK_NULL_HANDLE)
+			return;
+		/*
+		原生 UI 绘制
+		目标尺寸取交换链尺寸：UI 阶段恒在最终呈现图像上绘制（SSAA / 后处理链均不吃 UI）。
+		*/
+		if (self->ui_render.valid())
+		{
+			const VkExtent2D extent = self->swapchain.extent_get();
+			const uint32_t slot = self->frame.slot_index_get();
+			self->ui_render.draw(self->ui, command_buffer, extent, slot);
+		}
+		//外部 UI 回调（未注册时为空操作）
+		if (const Frame_Ui_Callback* external = self->ui_channel.draw_callback_get())
+			external->fn(command_buffer, external->user_data);
 	}
 
 	/*
@@ -13308,5 +13434,89 @@ namespace engine
 		if (impl == nullptr)
 			return nullptr;
 		return &impl->ui_channel;
+	}
+
+	//原生 UI 上下文
+	Ui_Context* Renderer::ui_context(void)
+	{
+		//若实现体未分配或未初始化
+		if (impl == nullptr || !impl->initialized)
+			return nullptr;
+		return &impl->ui;
+	}
+
+	//帧输入聚合器
+	Input_Aggregator* Renderer::input_aggregator(void)
+	{
+		//若实现体未分配
+		if (impl == nullptr)
+			return nullptr;
+		return &impl->input;
+	}
+
+	//系统输入终端
+	Event_Terminal* Renderer::input_event_terminal(void)
+	{
+		//若实现体未分配
+		if (impl == nullptr)
+			return nullptr;
+		return &impl->ui_event.event_terminal;
+	}
+
+	//接入系统输入与 UI 事件
+	bool Renderer::input_system_attach(void)
+	{
+		//前置：实现体存在且已初始化
+		if (impl == nullptr || !impl->initialized)
+			return false;
+		//委托事件桥（登记订阅者 + 订阅焦点/文本/命令/文本语义）
+		return impl->ui_event.attach("Renderer_UI");
+	}
+
+	//退出系统输入与 UI 事件
+	void Renderer::input_system_detach(void)
+	{
+		//实现体缺失则忽略
+		if (impl == nullptr)
+			return;
+		impl->ui_event.detach();
+	}
+
+	//是否已接入系统输入
+	bool Renderer::input_system_attached(void) const
+	{
+		//实现体缺失或未接入
+		if (impl == nullptr)
+			return false;
+		return impl->ui_event.attached();
+	}
+
+	//取一条未消费的系统语义命令
+	bool Renderer::ui_command_pop(std::string& command)
+	{
+		//实现体缺失
+		if (impl == nullptr)
+			return false;
+		return impl->ui_event.command_pop(command);
+	}
+
+	//取一条未消费的系统文本语义
+	bool Renderer::ui_text_pop(std::string& text)
+	{
+		//实现体缺失
+		if (impl == nullptr)
+			return false;
+		return impl->ui_event.text_pop(text);
+	}
+
+	//取系统焦点状态（main / child / modal / text）
+	bool Renderer::ui_focus_state_get(std::string& main, std::string& child,
+		std::string& modal, bool& text) const
+	{
+		//实现体缺失
+		if (impl == nullptr)
+			return false;
+		impl->ui_event.focus_state_get(main, child, modal, text);
+		return true;
 	}
 }

@@ -19,8 +19,8 @@
 #include "Engine/EngineRenderer/src/render/HiZ/HiZ.h"
 //分簇网格与 CPU 逐簇计数参考（第二百六十七轮）
 #include "Engine/EngineRenderer/src/render/Cluster/簇划分.h"
-//粒子数据与粒子池（第三百零七 / 三百零八轮）
-#include "Engine/EngineFoundation/src/core/effect/粒子数据.h"
+//粒子数据与粒子池（第三百零七 / 三百零八轮；位于 EngineSystem）
+#include "Engine/EngineSystem/src/world/data/particle/Particle_Data/粒子数据.h"
 //GPU 驱动模块：实例包围体与视锥剔除参考（第二百四十七 / 二百四十八轮）
 #include "Engine/EngineRenderer/src/render/GPU驱动/包围体.h"
 #include "Engine/EngineRenderer/src/render/GPU驱动/剔除数据.h"
@@ -39,6 +39,15 @@
 #include "Engine/EngineRenderer/src/render/Renderer/渲染器.h"
 //UI 通道（实现体持有其实例，供上层接入 ImGui Vulkan 后端）
 #include "Engine/EngineRenderer/src/render/Renderer/渲染器_UI通道.h"
+//帧输入聚合器（渲染层自持原始输入）
+#include "Engine/EngineRenderer/src/render/Input/输入聚合.h"
+//原生 UI 控件树与绘制器
+#include "Engine/EngineRenderer/src/render/UI/用户界面.h"
+#include "Engine/EngineRenderer/src/render/UI/UI渲染器.h"
+//UI 事件桥（与系统输入体系交互）
+#include "Engine/EngineRenderer/src/render/UI/UI事件桥.h"
+//事件终端（渲染层向系统层投递原始输入）
+#include "Engine/EngineFoundation/src/event/Event_Terminal/事件终端.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -97,7 +106,16 @@ namespace engine
 		*/
 		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
-			bool depth_write = true, bool cull_front = false);
+			bool depth_write = true, bool cull_front = false,
+			bool depth_test = true, bool depth_format_override = false,
+			VkFormat depth_format = VK_FORMAT_UNDEFINED, uint32_t sample_count = 0);
+		//确保 UI 管线（纯色 / 文字）就绪（惰性登记；失败返回假且不留下半登记状态）
+		bool ui_pipeline_ensure(void);
+		/*
+		UI 阶段绘制入口（帧模块以 C 函数指针调用）
+		先绘制原生 UI，再把同一命令缓冲交给外部 UI 回调（ImGui 等平台后端），最后一个绘制者在最上层。
+		*/
+		static void ui_draw_entry(VkCommandBuffer command_buffer, void* user_data);
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；
@@ -611,6 +629,26 @@ namespace engine
 		Camera camera;
 		//UI 通道（供上层接入 ImGui Vulkan 后端；不代管 UI）
 		Ui_Channel_Context ui_channel;
+		/*
+		原生 UI（保留模式控件树 + GPU 绘制）
+		input 为渲染层自持的帧输入聚合器；ui 为控件树与交互；ui_render 负责 UI 阶段的 GPU 绘制。
+		两个 UI 管线由 ui_pipeline_ensure 惰性登记，着色器模块随 extra_pipelines 统一销毁。
+		*/
+		Input_Aggregator input;
+		Ui_Context ui;
+		Ui_Renderer ui_render;
+		//UI 纯色管线句柄（0 = 未登记）
+		uint64_t ui_solid_pipeline = 0;
+		//UI 文字管线句柄（0 = 未登记）
+		uint64_t ui_text_pipeline = 0;
+		//UI 管线是否已尝试登记
+		bool ui_pipeline_ready = false;
+		/*
+		系统输入 / UI 事件桥
+		ui_event 持有事件终端并负责 Raw、鼠标焦点、模态、文本会话的出站与
+		焦点变更 / 文本模式 / 语义命令 / 文本语义的入站。
+		*/
+		Ui_Event_Bridge ui_event;
 		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 		Render_Target_Context render_target;
 		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
