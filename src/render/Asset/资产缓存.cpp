@@ -2,17 +2,11 @@
 #include "src/render/Asset/资产缓存.h"
 
 //日志系统
-#include "Engine/EngineFoundation/src/tools/Logging/日志系统运行包.h"
+#include "Engine/EngineFoundation/src/log/日志系统运行包.h"
 //OBJ 解析结果类型（后台线程解析，主线程建资源）
 #include "Engine/EngineRenderer/src/render/Asset/资产加载.h"
 
 //异步任务与容器
-#include <cstdint>
-#include <future>
-#include <map>
-#include <memory>
-#include <string>
-#include <utility>
 
 namespace engine
 {
