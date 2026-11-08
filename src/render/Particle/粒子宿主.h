@@ -3,11 +3,8 @@
 #include "Engine/EngineRenderer/common/前置头文件包含.h"
 //渲染器门面（只做 GPU 上传与 billboard 绘制登记）
 #include "Engine/EngineRenderer/src/render/Renderer/渲染器.h"
-//粒子池与模拟语义（已下沉到 EngineFoundation）
-#include "Engine/EngineFoundation/src/core/effect/粒子系统.h"
-
-//数学
-#include <cmath>
+//粒子池与模拟语义（位于 EngineSystem）
+#include "Engine/EngineSystem/src/world/data/particle/Particle_Pool/粒子系统.h"
 
 /*
 粒子模拟宿主（渲染层；2026-11-07 自 EngineSystem 归位）

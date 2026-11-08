@@ -1,4 +1,4 @@
-#include "src/render/HiZ/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（图像创建 / 销毁依赖它）

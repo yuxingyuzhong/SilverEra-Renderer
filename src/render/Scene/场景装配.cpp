@@ -2,14 +2,9 @@
 #include "src/render/Scene/场景装配.h"
 
 //日志系统
-#include "Engine/EngineFoundation/src/tools/Logging/日志系统运行包.h"
+#include "Engine/EngineFoundation/src/log/日志系统运行包.h"
 
 //浮动与整数
-#include <cmath>
-#include <cstdint>
-#include <string>
-#include <utility>
-#include <vector>
 
 namespace engine
 {

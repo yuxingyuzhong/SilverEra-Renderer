@@ -1,4 +1,4 @@
-#include "src/render/Frame/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 
@@ -619,16 +619,10 @@ namespace engine
 
 		/*
 		UI 阶段
-		若设置了 UI 绘制回调，则交还上层绘制 UI：上层（Test 层）在此调用
-		ImGui_ImplVulkan_RenderDrawData —— 直接画在本帧已开启的动态渲染通道内
-		（与场景共用同一通道；该通道附件为交换链颜色附件 + 深度附件，故上层
-		ImGui 管线的 PipelineRenderingCreateInfo 必须与本通道附件格式相容）。
-		回调返回后本通道仍处于开启状态。
+		单采样与 MSAA 统一改为「场景 pass 结束后另起无深度颜色通道」：
+		UI 管线声明 depthAttachmentFormat = UNDEFINED 且关闭深度测试，
+		若与场景通道（含深度附件）共用会在 vkCmdDraw* 触发附件格式不匹配的校验错误。
 		*/
-		//单采样：UI 与场景共用同一动态渲染通道；MSAA：留到解析完成后另起单采样通道
-		if (sample_count <= 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
-			ui_callback->fn(command_buffer, ui_callback->user_data);
-
 		//结束场景动态渲染（MSAA 时此处完成解析到交换链图像）
 		vkCmdEndRendering(command_buffer);
 		}
@@ -654,10 +648,10 @@ namespace engine
 		}
 
 		/*
-		UI 阶段（MSAA；第九十六轮；第二百一十四轮改走公共实现）
-		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；通道仅含颜色附件。
+		UI 阶段（单采样与 MSAA 统一）
+		场景 pass 结束后以「加载后保留」的单采样颜色通道绘制 UI（无深度附件）；视图 / 裁剪按全屏。
 		*/
-		if (sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
+		if (ui_callback != nullptr && ui_callback->fn != nullptr)
 			ui_pass_record(command_buffer, image, image_view, extent, viewport, scissor, ui_callback);
 
 		/*
@@ -920,10 +914,7 @@ namespace engine
 		frame_recorded = Recorded_Counts{};
 		frame_recorded = items_record(command_buffer, items, item_count);
 
-		//单采样：UI 与场景共用同一通道；MSAA：留到解析完成后另起单采样通道
-		if (target.sample_count <= 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
-			ui_callback->fn(command_buffer, ui_callback->user_data);
-
+		//单采样与 MSAA 统一：UI 另起无深度颜色通道（见下方 UI 阶段）
 		//结束场景动态渲染（MSAA 时此处完成解析到目标颜色图像）
 		vkCmdEndRendering(command_buffer);
 		}
@@ -950,10 +941,10 @@ namespace engine
 		}
 
 		/*
-		UI 阶段（MSAA；第九十六轮；第二百一十四轮改走公共实现）
-		解析完成后以「加载后保留」的单采样通道绘制 UI（UI 管线为单采样）；通道仅含颜色附件。
+		UI 阶段（单采样与 MSAA 统一）
+		场景 pass 结束后以「加载后保留」的单采样颜色通道绘制 UI（无深度附件）。
 		*/
-		if (target.sample_count > 1 && ui_callback != nullptr && ui_callback->fn != nullptr)
+		if (ui_callback != nullptr && ui_callback->fn != nullptr)
 			ui_pass_record(command_buffer, target.color_image, target.color_view, target.extent,
 				viewport, scissor, ui_callback);
 

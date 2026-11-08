@@ -1,4 +1,4 @@
-#include "src/render/Frame/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 
@@ -94,10 +94,7 @@ namespace engine
 				vkCmdSetScissor(segment_buffer, 0, 1, &scissor);
 				//本段绘制（各段只写自己的统计槽）
 				parallel_counts[segment] = items_record(segment_buffer, items + start, finish - start);
-				//单采样时 UI 与场景共用通道：放在末段（与单线程位置一致）
-				if (segment + 1 == segment_count && sample_count <= 1
-					&& ui_callback != nullptr && ui_callback->fn != nullptr)
-					ui_callback->fn(segment_buffer, ui_callback->user_data);
+				//UI 已改由调用方在场景 pass 结束后另起无深度颜色通道绘制，分段内不再回调
 				vkCmdEndRendering(segment_buffer);
 				vk_result_check(vkEndCommandBuffer(segment_buffer), "vkEndCommandBuffer(次级)");
 			}

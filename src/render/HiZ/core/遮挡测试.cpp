@@ -1,10 +1,8 @@
-#include "src/render/HiZ/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //遮挡测试公开面（Vulkan-free）
 #include "src/render/HiZ/遮挡测试.h"
 //std::ceil / std::log2 / std::isfinite / std::floor
-#include <cmath>
 //std::min / std::max
-#include <algorithm>
 
 namespace engine
 {

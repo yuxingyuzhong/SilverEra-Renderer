@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 分簇数据（Vulkan-free；第二百六十七轮）
 阶段 D 的 CPU 参考：把裁剪空间（NDC）按网格切成 `Cluster_Grid` 个簇，

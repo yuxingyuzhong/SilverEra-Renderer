@@ -1,7 +1,5 @@
 ﻿#include "src/render/Cluster/簇划分.h"
 
-#include <cmath>
-#include <cstring>
 
 //游戏引擎命名空间
 namespace engine

@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 Hi-Z 遮挡测试（Vulkan-free；第二百五十五轮）
 方向一规划 §2.8 的 CPU 参考实现：把世界 AABB 投影到屏幕矩形，按矩形尺寸选择金字塔级，

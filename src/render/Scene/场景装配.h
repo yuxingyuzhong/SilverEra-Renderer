@@ -4,9 +4,9 @@
 //渲染器门面（Vulkan-free 公共面：资源创建 / 纯数据场景提交 / 绘制登记）
 #include "Engine/EngineRenderer/src/render/Renderer/渲染器.h"
 //系统层关卡数据（中立数据契约：相机 / 光照 / 雾 ＋ 资产段落 ＋ 材质实例声明）
-#include "Engine/EngineSystem/src/scene/Level/关卡文本.h"
+#include "Engine/EngineSystem/src/world/data/scene/Level/关卡文本.h"
 //系统层场景清单解析（中立数据契约：网格 / 材质库 / 摆放）
-#include "Engine/EngineSystem/src/scene/Manifest/场景清单.h"
+#include "Engine/EngineSystem/src/world/data/scene/Manifest/场景清单.h"
 
 /*
 场景装配（渲染层；2026-11-07 自 EngineSystem 归位）

@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 光源数据（Vulkan-free；第二百六十五轮）
 阶段 D（Cluster 光照）的数据底座：把主方向光 / 补光 / 逐盏点光与聚光统一为 `Light_Record`，
