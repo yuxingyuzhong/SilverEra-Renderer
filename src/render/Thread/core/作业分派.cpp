@@ -1,4 +1,4 @@
-#include "src/render/Thread/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取日志系统（线程创建失败告警）
 #include "src/render/Renderer/core/结果检查.h"
 
