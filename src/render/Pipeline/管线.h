@@ -97,6 +97,14 @@ namespace engine
 		bool depth_write = true;
 		bool depth_lequal = false;
 		/*
+		无深度附件管线（UI 阶段）
+		depth_format_override 为真时该管线固定按 depth_format 创建（UI 阶段无深度附件，取 UNDEFINED）；
+		depth_test 为假时关闭深度测试与写入（无深度附件的管线必须关闭深度测试）。
+		*/
+		bool depth_test = true;
+		bool depth_format_override = false;
+		VkFormat depth_format = VK_FORMAT_UNDEFINED;
+		/*
 		覆盖率写入（第一百二十六轮）
 		alphaToCoverageEnable = 真时，片元 alpha 转化为多重采样覆盖率（仅采样数 > 1 的管线有效）；
 		采样数为 1 时自动关闭，等价于既有 alpha 混合路径。
@@ -143,7 +151,8 @@ namespace engine
 		bool pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode = Blend_Mode::Opaque,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
-			bool alpha_to_coverage = false, bool cull_front = false);
+			bool alpha_to_coverage = false, bool cull_front = false,
+			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -190,6 +199,14 @@ namespace engine
 		VkDescriptorSet scene_set_get(uint32_t slot) const;
 		//第 slot 帧槽的采样器描述符集（set 1）
 		VkDescriptorSet sampler_set_get(uint32_t slot) const;
+		/*
+		UI 专用采样器描述符集（set 1 同布局，按帧槽独立分配）
+		UI 阶段在场景 / 后处理之后绘制，若复用场景采样集会覆盖已录制的纹理绑定，故单列一条；
+		每帧槽一条：ui_set_get 取集，ui_texture_bind 写入字形图集。
+		*/
+		static constexpr uint32_t UI_SET_PER_SLOT = 1;
+		VkDescriptorSet ui_set_get(uint32_t slot) const;
+		bool ui_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 		/*
 		粒子专用场景集（第三百四十一轮；set 0 同布局、独立分配）
 		绑定 0 = 场景 UBO、1 = 粒子状态 SSBO、2 = 紧凑索引 SSBO、3/4 = 占位（与簇缓冲同位但集合独立，
@@ -330,7 +347,8 @@ namespace engine
 		bool graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
-			bool alpha_to_coverage = false, bool cull_front = false);
+			bool alpha_to_coverage = false, bool cull_front = false,
+			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）
@@ -356,6 +374,8 @@ namespace engine
 		std::vector<VkDescriptorSet> scene_sets;
 		//采样器描述符集（长度 = frame_overlap）
 		std::vector<VkDescriptorSet> sampler_sets;
+		//UI 专用采样器描述符集（长度 = frame_overlap × UI_SET_PER_SLOT）
+		std::vector<VkDescriptorSet> ui_sets;
 		//后处理采样器描述符集（长度 = frame_overlap × POST_SET_PER_SLOT；同布局、独立分配；下标 = slot × 2 + index）
 		std::vector<VkDescriptorSet> post_sets;
 		//逐绘制项采样器描述符集（长度 = frame_overlap × DRAW_SET_PER_SLOT；第一百七十四轮）

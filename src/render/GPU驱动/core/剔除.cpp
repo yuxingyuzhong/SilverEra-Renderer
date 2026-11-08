@@ -1,7 +1,7 @@
 //预编译头
 #include "Engine/EngineRenderer/common/前置头文件包含.h"
 //局部命名空间使用
-#include "Engine/EngineRenderer/src/render/GPU驱动/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 
 //游戏引擎命名空间
 namespace engine

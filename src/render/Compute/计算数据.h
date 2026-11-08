@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 //计算管线公共语义类型（Vulkan-free）：配置与统计（第二百四十一轮）
 
 //游戏引擎命名空间

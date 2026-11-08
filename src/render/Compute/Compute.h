@@ -7,7 +7,6 @@ Vulkan 头
 故可以合法暴露 Vulkan 类型（层外仍看不到 —— 见 cmake/对外接口.cmake 的私有包含根）。
 */
 #include <vulkan/vulkan.h>
-#include <functional>
 //计算公共语义类型（Vulkan-free）：配置与统计
 #include "Engine/EngineRenderer/src/render/Compute/计算数据.h"
 

@@ -1,8 +1,8 @@
-#include "src/render/Shader/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //获取引擎环境（锚定可执行文件目录，处理中文路径）
-#include "Engine/EngineFoundation/src/tools/Engine_Env/引擎环境.h"
+#include "Engine/EngineFoundation/src/detail/methods/文件路径获取.h"
 
 namespace engine
 {
@@ -65,6 +65,6 @@ namespace engine
 		if (!directory.empty())
 			return directory;
 		//否则锚定可执行文件目录的 shaders 子目录（§6.5：不得使用相对 CWD 的路径）
-		return path_to_utf8(Engine_Env::exe_dir_get() / "shaders");
+		return path_to_utf8(detail::exe_dir_get() / "shaders");
 	}
 }

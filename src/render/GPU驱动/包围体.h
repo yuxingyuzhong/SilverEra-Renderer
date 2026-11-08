@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 实例包围体（Vulkan-free；第二百四十七轮）
 方向一规划 §2.3 的落地实现：把「网格局部 AABB ＋ 模型矩阵」换算成世界空间包围球与世界空间 AABB。

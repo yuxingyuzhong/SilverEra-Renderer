@@ -1,4 +1,4 @@
-﻿#include "src/render/Pipeline/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 
@@ -41,7 +41,8 @@ namespace engine
 		//若图形管线创建失败
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
 			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations,
-			entry.depth_write, entry.depth_lequal, entry.alpha_to_coverage, entry.cull_front))
+			entry.depth_write, entry.depth_lequal, entry.alpha_to_coverage, entry.cull_front,
+			entry.depth_test, entry.depth_format_override, entry.depth_format))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -111,16 +112,16 @@ namespace engine
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 		pool_sizes[1].descriptorCount = config.frame_overlap * 8;
 		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		//采样器类描述符按「场景集 ＋ 后处理集 ＋ 逐绘制项集」三部分计
+		//采样器类描述符按「场景集 ＋ UI 集 ＋ 后处理集 ＋ 逐绘制项集」四部分计
 		//每帧槽 17 个采样器（9 个单值 ＋ 8 个聚光灯阴影数组元素；第五百一十三轮由 13 扩为 17）
 		pool_sizes[2].descriptorCount = config.frame_overlap
-			* (1 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 17;
+			* (1 + UI_SET_PER_SLOT + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 17;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};
 		pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-		//集数：场景 ＋ 采样器 ＋ 后处理 + 逐绘制项 ＋ 粒子专用（第三百四十一轮）
-		pool_info.maxSets = config.frame_overlap * (3 + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
+		//集数：场景 ＋ 采样器 ＋ UI ＋ 后处理 + 逐绘制项 ＋ 粒子专用（第三百四十一轮）
+		pool_info.maxSets = config.frame_overlap * (3 + UI_SET_PER_SLOT + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT);
 		pool_info.poolSizeCount = 3;
 		pool_info.pPoolSizes = pool_sizes;
 		//若池创建失败
@@ -159,6 +160,22 @@ namespace engine
 		if (!vk_result_check(vkAllocateDescriptorSets(device, &sampler_alloc, sampler_sets.data()), "vkAllocateDescriptorSets（采样器）"))
 		{
 			logger.error("管线:: 采样器描述符集分配失败，回退");
+			destroy();
+			return false;
+		}
+
+		//分配 UI 专用采样器描述符集（set 1 同布局，按帧槽独立分配）
+		ui_sets.resize(static_cast<std::size_t>(config.frame_overlap) * UI_SET_PER_SLOT);
+		vector<VkDescriptorSetLayout> ui_layouts(ui_sets.size(), sampler_set_layout);
+		VkDescriptorSetAllocateInfo ui_alloc{};
+		ui_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		ui_alloc.descriptorPool = descriptor_pool;
+		ui_alloc.descriptorSetCount = static_cast<uint32_t>(ui_layouts.size());
+		ui_alloc.pSetLayouts = ui_layouts.data();
+		//若分配失败
+		if (!vk_result_check(vkAllocateDescriptorSets(device, &ui_alloc, ui_sets.data()), "vkAllocateDescriptorSets（UI）"))
+		{
+			logger.error("管线:: UI 描述符集分配失败，回退");
 			destroy();
 			return false;
 		}
@@ -251,6 +268,7 @@ namespace engine
 		scene_sets.clear();
 		sampler_sets.clear();
 		post_sets.clear();
+		ui_sets.clear();
 		draw_sets.clear();
 		particle_sets.clear();
 		next_handle = 1;
@@ -313,7 +331,8 @@ namespace engine
 	//登记具名图形管线
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations,
-		bool depth_write, bool depth_lequal, bool alpha_to_coverage, bool cull_front)
+		bool depth_write, bool depth_lequal, bool alpha_to_coverage, bool cull_front,
+		bool depth_test, bool depth_format_override, VkFormat depth_format)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -337,6 +356,9 @@ namespace engine
 		entry.depth_write = depth_write;
 		entry.depth_lequal = depth_lequal;
 		entry.alpha_to_coverage = alpha_to_coverage;
+		entry.depth_test = depth_test;
+		entry.depth_format_override = depth_format_override;
+		entry.depth_format = depth_format;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{
@@ -592,6 +614,51 @@ namespace engine
 		if (slot >= sampler_sets.size())
 			return VK_NULL_HANDLE;
 		return sampler_sets[slot];
+	}
+
+	//获取第 slot 帧槽的 UI 专用采样器描述符集
+	VkDescriptorSet Pipeline_Context::ui_set_get(uint32_t slot) const
+	{
+		//下标 = slot × UI_SET_PER_SLOT
+		const std::size_t flat = static_cast<std::size_t>(slot) * UI_SET_PER_SLOT;
+		//越界则返回空句柄
+		if (flat >= ui_sets.size())
+			return VK_NULL_HANDLE;
+		return ui_sets[flat];
+	}
+
+	//向第 slot 帧槽的 UI 专用集写字形图集
+	bool Pipeline_Context::ui_texture_bind(uint32_t slot, VkSampler sampler, VkImageView view)
+	{
+		//目标集
+		const VkDescriptorSet target = ui_set_get(slot);
+		//前置：设备、目标集、采样器与视图齐备
+		if (device == VK_NULL_HANDLE || target == VK_NULL_HANDLE
+			|| sampler == VK_NULL_HANDLE || view == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: UI 纹理绑定参数不完整");
+			return false;
+		}
+
+		//图像描述（终态为着色器可读）
+		VkDescriptorImageInfo image_info{};
+		image_info.sampler = sampler;
+		image_info.imageView = view;
+		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		//描述符写（set 1 binding 0：字形图集）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = target;
+		write.dstBinding = 0;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.pImageInfo = &image_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
 	}
 
 	//获取第 slot 帧槽指定 index 的后处理采样器描述符集

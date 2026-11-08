@@ -1,5 +1,6 @@
 #pragma once
-#include <cstdint>
+//预编译头
+#include "Engine/EngineRenderer/common/前置头文件包含.h"
 /*
 视锥剔除数据（Vulkan-free；第二百四十八轮）
 从「视图 × 投影」矩阵提取 6 个归一化平面，并提供两种 CPU 参考判定：

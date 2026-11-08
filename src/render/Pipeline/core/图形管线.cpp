@@ -1,10 +1,9 @@
-#include "src/render/Pipeline/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //顶点布局（Vertex 步长与属性偏移据此推导）
 #include "src/render/Mesh/网格数据.h"
 //offsetof
-#include <cstddef>
 
 namespace engine
 {
@@ -28,7 +27,8 @@ namespace engine
 	*/
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal,
-		bool alpha_to_coverage, bool cull_front)
+		bool alpha_to_coverage, bool cull_front,
+		bool depth_test, bool depth_format_override, VkFormat depth_format)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -154,11 +154,13 @@ namespace engine
 		*/
 		multisample.alphaToCoverageEnable = (alpha_to_coverage && effective_samples > 1) ? VK_TRUE : VK_FALSE;
 
-		//深度 / 模板（深度测试恒开；写开关与比较算子由参数给出，默认「写开 + LESS」）
+		//深度 / 模板（深度测试由参数决定；无深度附件的管线必须关闭深度测试与写入）
+		VkFormat attachment_depth_format = depth_format_override ? depth_format : config.depth_format;
+		bool depth_active = depth_test && attachment_depth_format != VK_FORMAT_UNDEFINED;
 		VkPipelineDepthStencilStateCreateInfo depth_stencil{};
 		depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-		depth_stencil.depthTestEnable = VK_TRUE;
-		depth_stencil.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
+		depth_stencil.depthTestEnable = depth_active ? VK_TRUE : VK_FALSE;
+		depth_stencil.depthWriteEnable = (depth_active && depth_write) ? VK_TRUE : VK_FALSE;
 		depth_stencil.depthCompareOp = depth_lequal ? VK_COMPARE_OP_LESS_OR_EQUAL : VK_COMPARE_OP_LESS;
 		depth_stencil.depthBoundsTestEnable = VK_FALSE;
 		depth_stencil.stencilTestEnable = VK_FALSE;
@@ -219,7 +221,7 @@ namespace engine
 		rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 		rendering_info.colorAttachmentCount = 1;
 		rendering_info.pColorAttachmentFormats = &attachment_color_format;
-		rendering_info.depthAttachmentFormat = config.depth_format;
+		rendering_info.depthAttachmentFormat = attachment_depth_format;
 
 		//图形管线创建信息
 		VkGraphicsPipelineCreateInfo pipeline_info{};
