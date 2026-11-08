@@ -1,13 +1,11 @@
-#include "src/render/Text/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //纹理模块完整定义（字形图集的创建与销毁）
 #include "src/render/Texture/纹理.h"
 
 //文件读取
-#include <fstream>
 //std::floor
-#include <cmath>
 /*
 stb_truetype 实现（**全层唯一**定义 STB_TRUETYPE_IMPLEMENTATION 的编译单元）
 第三方头以警告抑制包裹包含：本层要求「零本层新增警告」，第三方库自身的告警不属本层代码问题。

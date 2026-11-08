@@ -1,4 +1,4 @@
-#include "src/render/Text/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //文字绘制子系统（宿主回调与网格缓存）
 #include "src/render/Text/文字渲染.h"
 //获取结果检查出口（含日志系统）

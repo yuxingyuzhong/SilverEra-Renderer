@@ -1,4 +1,4 @@
-#include "src/render/Text/局部命名空间使用.h"
+#include "../局部命名空间使用.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 

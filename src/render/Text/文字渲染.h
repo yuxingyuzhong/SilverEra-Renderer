@@ -5,9 +5,6 @@
 #include "Engine/EngineRenderer/src/render/Mesh/网格数据.h"
 //文字布局参数（Vulkan-free）：对齐方式与换行宽度
 #include "Engine/EngineRenderer/src/render/Text/文字布局数据.h"
-//按字体分桶的缓存索引（第九十四轮；unordered_map）
-#include <unordered_map>
-#include <vector>
 
 //游戏引擎命名空间
 namespace engine
