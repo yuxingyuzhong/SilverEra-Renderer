@@ -327,4 +327,32 @@ namespace engine
 		}
 		return true;
 	}
+
+	/*
+	场景退场回调（第二百五十四轮）
+	把当帧场景深度经深度拷贝 compute 写入当前帧槽历史，并逐级生成金字塔；
+	调用入口在帧模块的场景动态渲染通道之外，进入 / 退出时深度均为深度附件布局。
+	*/
+	void Renderer_Impl_Holder::Impl::hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+		VkExtent2D extent, void* user_data)
+	{
+		//用户数据为本实现体
+		Renderer_Impl_Holder::Impl* self = static_cast<Renderer_Impl_Holder::Impl*>(user_data);
+		//未启用、资源缺失或管线未就绪时跳过
+		if (self == nullptr || !self->hiz_enabled || !self->hiz.valid()
+			|| self->hiz_depth_copy_pipeline == 0 || self->hiz_downsample_pipeline == 0)
+			return;
+		//尺寸与资源不一致（交换链刚重建）时跳过本帧
+		if (self->hiz.width_get() != extent.width || self->hiz.height_get() != extent.height)
+			return;
+		//当前帧槽
+		const uint32_t slot = self->frame.slot_index_get();
+		//录制深度拷贝与逐级降采样（失败仅告警，不影响出帧）
+		if (!self->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
+			self->hiz_depth_copy_pipeline, self->hiz_downsample_pipeline))
+			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
+		else
+			//记录最近生成完成的帧槽（第二百五十六轮：剔除读取该槽上一帧金字塔）
+			self->last_hiz_slot = slot;
+	}
 }

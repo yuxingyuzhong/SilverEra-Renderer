@@ -24,33 +24,6 @@
 namespace engine
 {
 
-	/*
-	场景退场回调（第二百五十四轮）
-	把当帧场景深度经深度拷贝 compute 写入当前帧槽历史，并逐级生成金字塔；
-	调用入口在帧模块的场景动态渲染通道之外，进入 / 退出时深度均为深度附件布局。
-	*/
-	void Renderer_Impl_Holder::Impl::hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
-		VkExtent2D extent, void* user_data)
-	{
-		//用户数据为本实现体
-		Renderer_Impl_Holder::Impl* self = static_cast<Renderer_Impl_Holder::Impl*>(user_data);
-		//未启用、资源缺失或管线未就绪时跳过
-		if (self == nullptr || !self->hiz_enabled || !self->hiz.valid()
-			|| self->hiz_depth_copy_pipeline == 0 || self->hiz_downsample_pipeline == 0)
-			return;
-		//尺寸与资源不一致（交换链刚重建）时跳过本帧
-		if (self->hiz.width_get() != extent.width || self->hiz.height_get() != extent.height)
-			return;
-		//当前帧槽
-		const uint32_t slot = self->frame.slot_index_get();
-		//录制深度拷贝与逐级降采样（失败仅告警，不影响出帧）
-		if (!self->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
-			self->hiz_depth_copy_pipeline, self->hiz_downsample_pipeline))
-			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
-		else
-			//记录最近生成完成的帧槽（第二百五十六轮：剔除读取该槽上一帧金字塔）
-			self->last_hiz_slot = slot;
-	}
 
 	//每帧推进（可选像素回读）
 	bool Renderer_Core::frame_render(uint8_t* readback_pixels, uint32_t readback_capacity,
@@ -347,51 +320,8 @@ namespace engine
 			impl->frame_merged_items += batch_adjacent_items(impl->pending_items, impl->batch_scratch);
 
 		frame_stage_descriptor_sets(impl.get(), slot);
-		/*
-		追加天空盒绘制项（第一百二十五轮）
-		复用后处理全屏网格与场景帧槽描述符集；推送常量 offset 0 为逆视图投影矩阵，
-		片元据此把 NDC 反推为世界方向并采样 binding 5 的立方体贴图。
-		*/
-		if (sky_frame)
-		{
-			VkPipeline sky_pipeline_object = impl->pipeline.pipeline_by_handle_get(impl->sky_pipeline);
-			VkBuffer sky_mesh_buffer = VK_NULL_HANDLE;
-			VkDeviceSize sky_mesh_index_offset = 0;
-			uint32_t sky_mesh_index_count = 0;
-			//若管线与全屏网格齐备
-			if (sky_pipeline_object != VK_NULL_HANDLE
-				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, sky_mesh_buffer,
-					sky_mesh_index_offset, sky_mesh_index_count))
-			{
-				//推送常量（16 浮点逆视图投影矩阵）
-				impl->pending_push_constants.emplace_back();
-				std::array<float, 32>& sky_push = impl->pending_push_constants.back();
-				sky_push.fill(0.0f);
-				glm::mat4 inverse_view_proj = glm::inverse(glm::make_mat4(view_proj));
-				const float* inverse_data = glm::value_ptr(inverse_view_proj);
-				for (std::size_t index = 0; index < 16; ++index)
-					sky_push[index] = inverse_data[index];
-				//天空项（全屏四边形 ＋ 天空管线 ＋ 单位实例；不参与阴影投影）
-				Frame_Render_Item sky_item{};
-				sky_item.pipeline = sky_pipeline_object;
-				sky_item.layout = impl->pipeline.layout_get();
-				sky_item.scene_set = impl->pipeline.scene_set_get(slot);
-				sky_item.sampler_set = impl->pipeline.sampler_set_get(slot);
-				sky_item.descriptor_set_count = 2;
-				sky_item.vertex_buffer = sky_mesh_buffer;
-				sky_item.index_buffer = sky_mesh_buffer;
-				sky_item.index_offset = sky_mesh_index_offset;
-				sky_item.index_count = sky_mesh_index_count;
-				sky_item.instance_buffer = impl->instance_buffers[slot];
-				sky_item.instance_offset = sky_instance_offset;
-				sky_item.instance_count = 1;
-				sky_item.push_constants = sky_push.data();
-				sky_item.push_constant_size = static_cast<uint32_t>(sizeof(float) * 16);
-				sky_item.cast_shadow = false;
-				sky_item.sample_count = impl->pipeline.pipeline_sample_count(impl->sky_pipeline);
-				impl->pending_items.push_back(sky_item);
-			}
-		}
+		//追加天空盒绘制项
+		frame_stage_sky_item(impl.get(), slot, view_proj, sky_instance_offset, sky_frame);
 
 		//交给帧模块走取图像 / 录制 / 提交 / 呈现（可选像素回读）
 		const float* clear_color = impl->clear_color;

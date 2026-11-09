@@ -32,6 +32,8 @@ namespace engine
 	bool frame_stage_shadow_pass(Renderer_Impl_Holder::Impl* impl, bool spot_shadow_light_valid);
 	//帧阶段：场景 UBO 组装与上传（返回假表示本帧失败）
 	bool frame_stage_scene_ubo(Renderer_Impl_Holder::Impl* impl, uint32_t slot, const float view_proj[16], bool spot_shadow_light_valid);
+	//帧阶段：追加天空盒绘制项
+	void frame_stage_sky_item(Renderer_Impl_Holder::Impl* impl, uint32_t slot, const float view_proj[16], VkDeviceSize sky_instance_offset, bool sky_frame);
 
 	//初始化阶段：管线 / 描述符 / 采样 / 粒子 / 文字 / 阴影 / 后处理 / 天空 等图形资源（实现在 渲染器_初始化_图形资源.cpp）
 	bool renderer_init_graphics(Renderer* owner, Renderer_Impl_Holder::Impl* impl, const Renderer_Config& effective);
