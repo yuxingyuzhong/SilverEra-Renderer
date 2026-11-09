@@ -298,7 +298,145 @@ namespace engine
 		以方向光传播方向构造正交视锥（覆盖以原点为中心、半径 12 的场景）；
 		投影与相机同口径做 Y 翻转；方向与世界上方平行时改用 X 轴作上向量，避免 lookAt 退化。
 		*/
-		impl->frame_stage_shadow_matrices();
+		{
+			glm::vec3 light_dir(impl->light_direction[0], impl->light_direction[1], impl->light_direction[2]);
+			//方向退化时取默认传播方向
+			if (glm::dot(light_dir, light_dir) < 1e-12f)
+				light_dir = glm::vec3(0.0f, 0.0f, -1.0f);
+			light_dir = glm::normalize(light_dir);
+			//上向量与光向平行时改用 X 轴
+			glm::vec3 up = glm::abs(light_dir.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+			/*
+			级联阴影矩阵（第一百二十一轮）
+			单级：与引入级联前完全一致 —— 光源机位固定在场景中心的「逆光向」一侧，
+			      正交半宽取 shadow_half_extent，近远取 shadow_near / shadow_far。
+			双级：两片各为「以相机为中心的包围球」，半径分别为 split_distance 与 split × far_scale；
+				      片元按与相机的距离选择，故与着色器的选择口径严格一致（不依赖视场角与宽高比）。
+				三级（第一百四十六轮）：再追加一片，半径为 split × far_scale²，选择阈值再加 split × far_scale。
+			*/
+			//本帧生效纹素世界尺寸（多级取各片最大；第六百六十一轮）
+			impl->shadow_texel_world = 0.0f;
+			if (impl->cascade_count >= 2 && impl->cascade_far_scale > 1.0f)
+			{
+				//相机世界位置（各片包围球的共同中心）
+				float camera_position[3] = {};
+				impl->camera.position_get(camera_position);
+				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
+				//级联总数（2 或 3；第一百四十六轮）
+				const uint32_t cascade_total = impl->cascade_count == 3 ? 3u : 2u;
+				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
+				{
+					/*
+					本片包围球半径
+					第 0 片 = 切换距离；其后每片再乘一次远区倍数（三级时第 2 片为 split × far_scale²）。
+					*/
+					float radius = impl->cascade_split_distance;
+					for (uint32_t level = 0; level < cascade; ++level)
+						radius *= impl->cascade_far_scale;
+					/*
+					纹素尺寸钳制（第六百六十一轮）
+					半径上限 = 纹素上限 × 分片边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
+					*/
+					const float tile_pixels = static_cast<float>(impl->shadow_size) / static_cast<float>(cascade_total);
+					if (impl->shadow_texel_max > 0.0f)
+					{
+						const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+						if (radius > radius_cap)
+							radius = radius_cap;
+					}
+					//光源机位：沿逆光向退到「球半径 + 近平面」处，使整球都落在近平面之后
+					glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+					glm::mat4 light_view = glm::lookAt(eye, center, up);
+					//深度跨度：球直径 + 两端近平面余量
+					float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
+					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
+					proj[1][1] *= -1.0f;
+					glm::mat4 vp = proj * light_view;
+					/*
+					级联纹素对齐（第六百四十四轮）
+					阴影视锥以相机为球心，相机移动会使整张阴影图逐帧平移（CSM 游泳 / 边缘闪烁）。
+					故把光源空间裁剪坐标的平移量（X / Y）吸附到本片纹素网格：NDC 步长 = 2 / 分片边长；
+					Z（深度）不吸附，避免改变深度精度分布。
+					*/
+					const float texel_ndc = 2.0f / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
+					vp[3][0] = std::floor(vp[3][0] / texel_ndc) * texel_ndc;
+					vp[3][1] = std::floor(vp[3][1] / texel_ndc) * texel_ndc;
+					//按片序写入对应矩阵（第四片不存在，级联数上限为 3）
+					float* target_matrix = cascade == 0 ? impl->light_view_proj
+						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
+					std::memcpy(target_matrix, glm::value_ptr(vp), sizeof(float) * 16);
+					//记录本片深度跨度（着色器法线偏移换算用）
+					impl->cascade_depth_span[cascade] = depth_far - impl->shadow_near;
+					/*
+					记录本片纹素世界尺寸（第六百六十一轮）
+					多级取各片最大值供诊断；钳制开启时该值不超过 shadow_texel_max。
+					*/
+					const float texel_world = 2.0f * radius / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
+					if (texel_world > impl->shadow_texel_world)
+						impl->shadow_texel_world = texel_world;
+				}
+			}
+			else
+			{
+				/*
+				单级：以相机为中心的包围球（第六百五十五轮；修复单级固定原点）
+				旧实现把光源机位固定在世界原点的逆光侧，相机离开原点后阴影整片丢失 / 复现；
+				现改为「与多级同一拟合口径」：球心 = 相机位置、半径 = shadow_half_extent，
+				深度跨度 = 球直径 ＋ 两端近平面余量，并同样做纹素对齐（相机平移不再重采样）。
+				*/
+				float camera_position[3] = {};
+				impl->camera.position_get(camera_position);
+				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
+				float radius = impl->shadow_half_extent;
+				/*
+				纹素尺寸钳制（第六百六十一轮）
+				半径上限 = 纹素上限 × 阴影图边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
+				*/
+				const float tile_pixels = impl->shadow_size > 1 ? static_cast<float>(impl->shadow_size) : 1.0f;
+				if (impl->shadow_texel_max > 0.0f)
+				{
+					const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+					if (radius > radius_cap)
+						radius = radius_cap;
+				}
+				glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+				glm::mat4 light_view = glm::lookAt(eye, center, up);
+				float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
+				glm::mat4 light_proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
+				light_proj[1][1] *= -1.0f;
+				glm::mat4 light_vp = light_proj * light_view;
+				/*
+				纹素对齐（与多级同口径）
+				NDC 步长 = 2 / 阴影图边长；Z（深度）不吸附。
+				*/
+				const float texel_ndc = 2.0f / tile_pixels;
+				light_vp[3][0] = std::floor(light_vp[3][0] / texel_ndc) * texel_ndc;
+				light_vp[3][1] = std::floor(light_vp[3][1] / texel_ndc) * texel_ndc;
+				std::memcpy(impl->light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
+				//单级：远区矩阵为零，三处深度跨度均取本片跨度（着色器按级联数取用）
+				std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
+				std::memset(impl->light_view_proj_far2, 0, sizeof(impl->light_view_proj_far2));
+				impl->cascade_depth_span[0] = depth_far - impl->shadow_near;
+				impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
+				impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
+				//单级纹素世界尺寸（第六百六十一轮；钳制开启时不超过 shadow_texel_max）
+				impl->shadow_texel_world = 2.0f * radius / tile_pixels;
+			}
+			/*
+			级联切换带自动淡化（第六百六十一轮）
+			显式比例为 0、级联数 ≥ 2 且开关开启时，按「切换带半宽 ≥ 2 纹素」给出建议比例 4 / 分片边长，
+			钳到 [0.005, 0.1]；显式比例 > 0 或开关关闭（默认）时保持显式值，画面逐字节不变。
+			*/
+			impl->cascade_blend_effective = impl->cascade_blend;
+			if (impl->cascade_blend_auto && impl->cascade_blend <= 0.0f && impl->cascade_count >= 2)
+			{
+				const float cascade_total_f = static_cast<float>(impl->cascade_count == 3 ? 3u : 2u);
+				const float tile_pixels_f = impl->shadow_size > 1
+					? static_cast<float>(impl->shadow_size) / cascade_total_f : 1.0f;
+				float recommended = 4.0f / tile_pixels_f;
+				impl->cascade_blend_effective = recommended < 0.005f ? 0.005f : (recommended > 0.1f ? 0.1f : recommended);
+			}
+		}
 		/*
 		聚光灯阴影矩阵（第四百八十四轮；第五百零七轮扩为多盏）
 		两路径：
@@ -1491,7 +1629,121 @@ namespace engine
 		逐绘制项采样集（第一百七十四轮）：每项按登记时的纹理快照写一条独立 set1，
 		使同帧内不同物体（含文字图集）各自采样自己的纹理；超出预留条数的项回落共享集。
 		*/
-		impl->frame_stage_descriptor_sets(slot);
+		{
+			//默认采样资源（回落用）
+			VkImageView default_view = VK_NULL_HANDLE;
+			VkSampler default_sampler = VK_NULL_HANDLE;
+			impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+			//阴影图视图（未建立阴影目标时以默认白纹理占位）
+			VkImageView shadow_view = default_view;
+			if (impl->shadow_target != 0)
+			{
+				VkImage shadow_image = VK_NULL_HANDLE;
+				VkImageView shadow_depth_view = VK_NULL_HANDLE;
+				VkExtent2D shadow_extent{};
+				impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
+					shadow_depth_view, shadow_extent);
+			}
+			//聚光灯阴影图视图（第四百八十三轮；第五百零七轮扩为 4 张；未建立时以默认白纹理占位）
+			VkImageView spot_shadow_views[Impl::SPOT_SHADOW_TILES] = { default_view, default_view,
+				default_view, default_view, default_view, default_view, default_view, default_view };
+			/*
+			图集（第六百七十轮；C1）
+			实际生效时 8 个数组元素全部写入同一张图集视图，瓦片定位由图集内像素原点完成；
+			否则沿用逐瓦片视图。
+			*/
+			if (impl->spot_shadow_atlas && impl->spot_shadow_atlas_target != 0)
+			{
+				VkImage atlas_image = VK_NULL_HANDLE;
+				VkImageView atlas_view = VK_NULL_HANDLE;
+				VkImageView atlas_depth_view = VK_NULL_HANDLE;
+				VkExtent2D atlas_extent{};
+				if (impl->render_target.target_get(impl->spot_shadow_atlas_target, atlas_image, atlas_view,
+					atlas_depth_view, atlas_extent))
+					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+						spot_shadow_views[tile] = atlas_view;
+			}
+			else
+			{
+				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+				{
+					//该瓦片未建立则保持默认白纹理
+					if (impl->spot_shadow_targets[tile] == 0)
+						continue;
+					VkImage spot_shadow_image = VK_NULL_HANDLE;
+					VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
+					VkExtent2D spot_shadow_extent{};
+					impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image,
+						spot_shadow_views[tile], spot_shadow_depth_view, spot_shadow_extent);
+				}
+			}
+			//天空盒立方体视图（未设置时用内置纯白立方体）
+			VkImageView sky_view = VK_NULL_HANDLE;
+			VkSampler sky_sampler = VK_NULL_HANDLE;
+			const uint64_t sky_texture = impl->sky_texture != 0 ? impl->sky_texture : impl->default_sky_texture;
+			impl->texture.texture_bind_get(sky_texture, sky_view, sky_sampler);
+			//写逐绘制项集前等尽在途帧（这些集会被下一轮同槽帧复用）
+			impl->frame.frames_wait();
+			//本帧逐绘制项集游标
+			uint32_t draw_index = 0;
+			/*
+			第一遍：填装公共字段并收集采样快照（第二百二十一轮：批量写入）
+			条件与逐项写入完全一致（有采样快照且预留未用尽），只是把「写哪一条集」延后到一次批量提交。
+			*/
+			impl->draw_set_inputs.clear();
+			for (auto& item : impl->pending_items)
+			{
+				//本帧槽的实例缓冲（模型矩阵来源；不消费实例属性的项留空，第三百四十一轮）
+				item.instance_buffer = item.instance_input ? impl->instance_buffers[slot] : VK_NULL_HANDLE;
+				//本帧槽的场景集（set0）：粒子专用项取粒子集，其余取场景集
+				item.scene_set = item.particle_scene_set
+					? impl->pipeline.particle_set_get(slot) : impl->pipeline.scene_set_get(slot);
+				//默认回落共享采样器集（set1）
+				item.sampler_set = impl->pipeline.sampler_set_get(slot);
+				item.descriptor_set_count = 2;
+				//若该项有采样快照且预留未用尽则收集待写快照
+				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
+					&& draw_index < Pipeline_Context::DRAW_SET_PER_SLOT)
+				{
+					Pipeline_Context::Draw_Set_Views views{};
+					views.sampler = item.draw_sampler;
+					views.albedo = item.draw_albedo;
+					views.normal = item.draw_normal != VK_NULL_HANDLE ? item.draw_normal : default_view;
+					views.roughness = item.draw_roughness != VK_NULL_HANDLE ? item.draw_roughness : default_view;
+					views.emissive = item.draw_emissive != VK_NULL_HANDLE ? item.draw_emissive : default_view;
+					views.ao = item.draw_ao != VK_NULL_HANDLE ? item.draw_ao : default_view;
+					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
+					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
+					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
+					//聚光灯阴影图（第四百八十三轮；binding 9；第五百一十三轮写入全部 8 个数组元素）
+					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
+						views.spot_shadow[tile] = spot_shadow_views[tile];
+					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
+					views.depth = item.draw_depth;
+					views.depth_sampler = item.draw_depth_sampler;
+					impl->draw_set_inputs.push_back(views);
+					++draw_index;
+				}
+			}
+			//一次写入本帧全部逐绘制项采样集
+			const uint32_t draw_set_written = static_cast<uint32_t>(impl->draw_set_inputs.size());
+			if (draw_set_written > 0)
+				impl->pipeline.draw_sets_bind_batch(slot, impl->draw_set_inputs.data(), draw_set_written);
+			/*
+			第二遍：回填专属采样集句柄
+			收集顺序与逐项写入一致（同一批集下标），故只有前 draw_set_written 项使用专属集，其余回落共享集。
+			*/
+			uint32_t assign_cursor = 0;
+			for (auto& item : impl->pending_items)
+			{
+				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
+					&& assign_cursor < draw_set_written)
+				{
+					item.sampler_set = impl->pipeline.draw_set_get(slot, assign_cursor);
+					++assign_cursor;
+				}
+			}
+		}
 		/*
 		追加天空盒绘制项（第一百二十五轮）
 		复用后处理全屏网格与场景帧槽描述符集；推送常量 offset 0 为逆视图投影矩阵，
@@ -1981,263 +2233,4 @@ namespace engine
 		return true;
 	}
 
-	//帧阶段：光源空间矩阵与级联拟合
-	void Renderer_Impl_Holder::Impl::frame_stage_shadow_matrices(void)
-	{
-			glm::vec3 light_dir(light_direction[0], light_direction[1], light_direction[2]);
-			//方向退化时取默认传播方向
-			if (glm::dot(light_dir, light_dir) < 1e-12f)
-				light_dir = glm::vec3(0.0f, 0.0f, -1.0f);
-			light_dir = glm::normalize(light_dir);
-			//上向量与光向平行时改用 X 轴
-			glm::vec3 up = glm::abs(light_dir.y) > 0.99f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-			/*
-			级联阴影矩阵（第一百二十一轮）
-			单级：与引入级联前完全一致 —— 光源机位固定在场景中心的「逆光向」一侧，
-			      正交半宽取 shadow_half_extent，近远取 shadow_near / shadow_far。
-			双级：两片各为「以相机为中心的包围球」，半径分别为 split_distance 与 split × far_scale；
-				      片元按与相机的距离选择，故与着色器的选择口径严格一致（不依赖视场角与宽高比）。
-				三级（第一百四十六轮）：再追加一片，半径为 split × far_scale²，选择阈值再加 split × far_scale。
-			*/
-			//本帧生效纹素世界尺寸（多级取各片最大；第六百六十一轮）
-			shadow_texel_world = 0.0f;
-			if (cascade_count >= 2 && cascade_far_scale > 1.0f)
-			{
-				//相机世界位置（各片包围球的共同中心）
-				float camera_position[3] = {};
-				camera.position_get(camera_position);
-				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
-				//级联总数（2 或 3；第一百四十六轮）
-				const uint32_t cascade_total = cascade_count == 3 ? 3u : 2u;
-				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
-				{
-					/*
-					本片包围球半径
-					第 0 片 = 切换距离；其后每片再乘一次远区倍数（三级时第 2 片为 split × far_scale²）。
-					*/
-					float radius = cascade_split_distance;
-					for (uint32_t level = 0; level < cascade; ++level)
-						radius *= cascade_far_scale;
-					/*
-					纹素尺寸钳制（第六百六十一轮）
-					半径上限 = 纹素上限 × 分片边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
-					*/
-					const float tile_pixels = static_cast<float>(shadow_size) / static_cast<float>(cascade_total);
-					if (shadow_texel_max > 0.0f)
-					{
-						const float radius_cap = shadow_texel_max * tile_pixels * 0.5f;
-						if (radius > radius_cap)
-							radius = radius_cap;
-					}
-					//光源机位：沿逆光向退到「球半径 + 近平面」处，使整球都落在近平面之后
-					glm::vec3 eye = center - light_dir * (radius + shadow_near);
-					glm::mat4 light_view = glm::lookAt(eye, center, up);
-					//深度跨度：球直径 + 两端近平面余量
-					float depth_far = 2.0f * radius + 2.0f * shadow_near;
-					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, shadow_near, depth_far);
-					proj[1][1] *= -1.0f;
-					glm::mat4 vp = proj * light_view;
-					/*
-					级联纹素对齐（第六百四十四轮）
-					阴影视锥以相机为球心，相机移动会使整张阴影图逐帧平移（CSM 游泳 / 边缘闪烁）。
-					故把光源空间裁剪坐标的平移量（X / Y）吸附到本片纹素网格：NDC 步长 = 2 / 分片边长；
-					Z（深度）不吸附，避免改变深度精度分布。
-					*/
-					const float texel_ndc = 2.0f / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
-					vp[3][0] = std::floor(vp[3][0] / texel_ndc) * texel_ndc;
-					vp[3][1] = std::floor(vp[3][1] / texel_ndc) * texel_ndc;
-					//按片序写入对应矩阵（第四片不存在，级联数上限为 3）
-					float* target_matrix = cascade == 0 ? light_view_proj
-						: (cascade == 1 ? light_view_proj_far : light_view_proj_far2);
-					std::memcpy(target_matrix, glm::value_ptr(vp), sizeof(float) * 16);
-					//记录本片深度跨度（着色器法线偏移换算用）
-					cascade_depth_span[cascade] = depth_far - shadow_near;
-					/*
-					记录本片纹素世界尺寸（第六百六十一轮）
-					多级取各片最大值供诊断；钳制开启时该值不超过 shadow_texel_max。
-					*/
-					const float texel_world = 2.0f * radius / (tile_pixels > 1.0f ? tile_pixels : 1.0f);
-					if (texel_world > shadow_texel_world)
-						shadow_texel_world = texel_world;
-				}
-			}
-			else
-			{
-				/*
-				单级：以相机为中心的包围球（第六百五十五轮；修复单级固定原点）
-				旧实现把光源机位固定在世界原点的逆光侧，相机离开原点后阴影整片丢失 / 复现；
-				现改为「与多级同一拟合口径」：球心 = 相机位置、半径 = shadow_half_extent，
-				深度跨度 = 球直径 ＋ 两端近平面余量，并同样做纹素对齐（相机平移不再重采样）。
-				*/
-				float camera_position[3] = {};
-				camera.position_get(camera_position);
-				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
-				float radius = shadow_half_extent;
-				/*
-				纹素尺寸钳制（第六百六十一轮）
-				半径上限 = 纹素上限 × 阴影图边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
-				*/
-				const float tile_pixels = shadow_size > 1 ? static_cast<float>(shadow_size) : 1.0f;
-				if (shadow_texel_max > 0.0f)
-				{
-					const float radius_cap = shadow_texel_max * tile_pixels * 0.5f;
-					if (radius > radius_cap)
-						radius = radius_cap;
-				}
-				glm::vec3 eye = center - light_dir * (radius + shadow_near);
-				glm::mat4 light_view = glm::lookAt(eye, center, up);
-				float depth_far = 2.0f * radius + 2.0f * shadow_near;
-				glm::mat4 light_proj = glm::ortho(-radius, radius, -radius, radius, shadow_near, depth_far);
-				light_proj[1][1] *= -1.0f;
-				glm::mat4 light_vp = light_proj * light_view;
-				/*
-				纹素对齐（与多级同口径）
-				NDC 步长 = 2 / 阴影图边长；Z（深度）不吸附。
-				*/
-				const float texel_ndc = 2.0f / tile_pixels;
-				light_vp[3][0] = std::floor(light_vp[3][0] / texel_ndc) * texel_ndc;
-				light_vp[3][1] = std::floor(light_vp[3][1] / texel_ndc) * texel_ndc;
-				std::memcpy(light_view_proj, glm::value_ptr(light_vp), sizeof(float) * 16);
-				//单级：远区矩阵为零，三处深度跨度均取本片跨度（着色器按级联数取用）
-				std::memset(light_view_proj_far, 0, sizeof(light_view_proj_far));
-				std::memset(light_view_proj_far2, 0, sizeof(light_view_proj_far2));
-				cascade_depth_span[0] = depth_far - shadow_near;
-				cascade_depth_span[1] = cascade_depth_span[0];
-				cascade_depth_span[2] = cascade_depth_span[0];
-				//单级纹素世界尺寸（第六百六十一轮；钳制开启时不超过 shadow_texel_max）
-				shadow_texel_world = 2.0f * radius / tile_pixels;
-			}
-			/*
-			级联切换带自动淡化（第六百六十一轮）
-			显式比例为 0、级联数 ≥ 2 且开关开启时，按「切换带半宽 ≥ 2 纹素」给出建议比例 4 / 分片边长，
-			钳到 [0.005, 0.1]；显式比例 > 0 或开关关闭（默认）时保持显式值，画面逐字节不变。
-			*/
-			cascade_blend_effective = cascade_blend;
-			if (cascade_blend_auto && cascade_blend <= 0.0f && cascade_count >= 2)
-			{
-				const float cascade_total_f = static_cast<float>(cascade_count == 3 ? 3u : 2u);
-				const float tile_pixels_f = shadow_size > 1
-					? static_cast<float>(shadow_size) / cascade_total_f : 1.0f;
-				float recommended = 4.0f / tile_pixels_f;
-				cascade_blend_effective = recommended < 0.005f ? 0.005f : (recommended > 0.1f ? 0.1f : recommended);
-			}
-	}
-
-	//帧阶段：描述符集与实例句柄填装
-	void Renderer_Impl_Holder::Impl::frame_stage_descriptor_sets(uint32_t slot)
-	{
-			//默认采样资源（回落用）
-			VkImageView default_view = VK_NULL_HANDLE;
-			VkSampler default_sampler = VK_NULL_HANDLE;
-			texture.texture_bind_get(default_texture, default_view, default_sampler);
-			//阴影图视图（未建立阴影目标时以默认白纹理占位）
-			VkImageView shadow_view = default_view;
-			if (shadow_target != 0)
-			{
-				VkImage shadow_image = VK_NULL_HANDLE;
-				VkImageView shadow_depth_view = VK_NULL_HANDLE;
-				VkExtent2D shadow_extent{};
-				render_target.target_get(shadow_target, shadow_image, shadow_view,
-					shadow_depth_view, shadow_extent);
-			}
-			//聚光灯阴影图视图（第四百八十三轮；第五百零七轮扩为 4 张；未建立时以默认白纹理占位）
-			VkImageView spot_shadow_views[Impl::SPOT_SHADOW_TILES] = { default_view, default_view,
-				default_view, default_view, default_view, default_view, default_view, default_view };
-			/*
-			图集（第六百七十轮；C1）
-			实际生效时 8 个数组元素全部写入同一张图集视图，瓦片定位由图集内像素原点完成；
-			否则沿用逐瓦片视图。
-			*/
-			if (spot_shadow_atlas && spot_shadow_atlas_target != 0)
-			{
-				VkImage atlas_image = VK_NULL_HANDLE;
-				VkImageView atlas_view = VK_NULL_HANDLE;
-				VkImageView atlas_depth_view = VK_NULL_HANDLE;
-				VkExtent2D atlas_extent{};
-				if (render_target.target_get(spot_shadow_atlas_target, atlas_image, atlas_view,
-					atlas_depth_view, atlas_extent))
-					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
-						spot_shadow_views[tile] = atlas_view;
-			}
-			else
-			{
-				for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
-				{
-					//该瓦片未建立则保持默认白纹理
-					if (spot_shadow_targets[tile] == 0)
-						continue;
-					VkImage spot_shadow_image = VK_NULL_HANDLE;
-					VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
-					VkExtent2D spot_shadow_extent{};
-					render_target.target_get(spot_shadow_targets[tile], spot_shadow_image,
-						spot_shadow_views[tile], spot_shadow_depth_view, spot_shadow_extent);
-				}
-			}
-			//天空盒立方体视图（未设置时用内置纯白立方体）
-			VkImageView sky_view = VK_NULL_HANDLE;
-			VkSampler sky_sampler = VK_NULL_HANDLE;
-			const uint64_t sky_texture = sky_texture != 0 ? sky_texture : default_sky_texture;
-			texture.texture_bind_get(sky_texture, sky_view, sky_sampler);
-			//写逐绘制项集前等尽在途帧（这些集会被下一轮同槽帧复用）
-			frame.frames_wait();
-			//本帧逐绘制项集游标
-			uint32_t draw_index = 0;
-			/*
-			第一遍：填装公共字段并收集采样快照（第二百二十一轮：批量写入）
-			条件与逐项写入完全一致（有采样快照且预留未用尽），只是把「写哪一条集」延后到一次批量提交。
-			*/
-			draw_set_inputs.clear();
-			for (auto& item : pending_items)
-			{
-				//本帧槽的实例缓冲（模型矩阵来源；不消费实例属性的项留空，第三百四十一轮）
-				item.instance_buffer = item.instance_input ? instance_buffers[slot] : VK_NULL_HANDLE;
-				//本帧槽的场景集（set0）：粒子专用项取粒子集，其余取场景集
-				item.scene_set = item.particle_scene_set
-					? pipeline.particle_set_get(slot) : pipeline.scene_set_get(slot);
-				//默认回落共享采样器集（set1）
-				item.sampler_set = pipeline.sampler_set_get(slot);
-				item.descriptor_set_count = 2;
-				//若该项有采样快照且预留未用尽则收集待写快照
-				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
-					&& draw_index < Pipeline_Context::DRAW_SET_PER_SLOT)
-				{
-					Pipeline_Context::Draw_Set_Views views{};
-					views.sampler = item.draw_sampler;
-					views.albedo = item.draw_albedo;
-					views.normal = item.draw_normal != VK_NULL_HANDLE ? item.draw_normal : default_view;
-					views.roughness = item.draw_roughness != VK_NULL_HANDLE ? item.draw_roughness : default_view;
-					views.emissive = item.draw_emissive != VK_NULL_HANDLE ? item.draw_emissive : default_view;
-					views.ao = item.draw_ao != VK_NULL_HANDLE ? item.draw_ao : default_view;
-					views.metallic = item.draw_metallic != VK_NULL_HANDLE ? item.draw_metallic : default_view;
-					views.shadow = shadow_view != VK_NULL_HANDLE ? shadow_view : default_view;
-					views.sky = sky_view != VK_NULL_HANDLE ? sky_view : default_view;
-					//聚光灯阴影图（第四百八十三轮；binding 9；第五百一十三轮写入全部 8 个数组元素）
-					for (std::size_t tile = 0; tile < Impl::SPOT_SHADOW_TILES; ++tile)
-						views.spot_shadow[tile] = spot_shadow_views[tile];
-					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
-					views.depth = item.draw_depth;
-					views.depth_sampler = item.draw_depth_sampler;
-					draw_set_inputs.push_back(views);
-					++draw_index;
-				}
-			}
-			//一次写入本帧全部逐绘制项采样集
-			const uint32_t draw_set_written = static_cast<uint32_t>(draw_set_inputs.size());
-			if (draw_set_written > 0)
-				pipeline.draw_sets_bind_batch(slot, draw_set_inputs.data(), draw_set_written);
-			/*
-			第二遍：回填专属采样集句柄
-			收集顺序与逐项写入一致（同一批集下标），故只有前 draw_set_written 项使用专属集，其余回落共享集。
-			*/
-			uint32_t assign_cursor = 0;
-			for (auto& item : pending_items)
-			{
-				if (item.draw_albedo != VK_NULL_HANDLE && item.draw_sampler != VK_NULL_HANDLE
-					&& assign_cursor < draw_set_written)
-				{
-					item.sampler_set = pipeline.draw_set_get(slot, assign_cursor);
-					++assign_cursor;
-				}
-			}
-	}
 }
