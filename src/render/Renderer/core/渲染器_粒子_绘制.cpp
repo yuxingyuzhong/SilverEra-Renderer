@@ -26,464 +26,7 @@ namespace engine
 	本层只做 GPU 上传与 billboard 绘制登记。关闭时不登记任何绘制项。
 	*/
 	//粒子路径是否可用（第三百一十一轮：改由计算路径可用性决定）
-	bool Renderer_Particle::particle_supported(void) const
-	{
-		return impl != nullptr && impl->initialized && self().compute_supported();
-	}
 
-	//粒子开关（关闭不释放容量，重新开启沿用池内容）
-	bool Renderer_Particle::particle_enable_set(bool enabled)
-	{
-		//未初始化拒绝
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 粒子开关设置失败（未初始化）");
-			return false;
-		}
-		impl->particle_enabled = enabled;
-		return true;
-	}
-
-	//开关状态
-	bool Renderer_Particle::particle_enable_get(void) const
-	{
-		//未初始化返回假
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		return impl->particle_enabled;
-	}
-
-	//粒子容量（钳制 [1, PARTICLE_CAPACITY_MAX]；容量变化重建 GPU 缓冲）
-	bool Renderer_Particle::particle_capacity_set(uint32_t capacity)
-	{
-		//未初始化拒绝
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 粒子容量设置失败（未初始化）");
-			return false;
-		}
-		//钳制下界
-		if (capacity == 0)
-			capacity = 1;
-		//钳制上界
-		if (capacity > PARTICLE_CAPACITY_MAX)
-			capacity = PARTICLE_CAPACITY_MAX;
-		const uint32_t old_capacity = impl->particle_capacity;
-		impl->particle_capacity = capacity;
-		//容量实际变化时才等尽在途帧并释放旧尺寸 GPU 资源（同值重复设置为空操作）
-		if (old_capacity != impl->particle_capacity)
-		{
-			impl->frame.frames_wait();
-			self().particle_gpu_destroy();
-		}
-		//重置发射器配置（旧发射器可能已超出新容量）
-		impl->particle_emitter_configured = false;
-		return true;
-	}
-
-	//当前容量（未初始化返回 0）
-	uint32_t Renderer_Particle::particle_capacity_get(void) const
-	{
-		if (impl == nullptr || !impl->initialized)
-			return 0;
-		return impl->particle_capacity;
-	}
-
-	/*
-	粒子数据源（应用层持有模拟状态）
-	渲染层只保存指向状态数组与活跃标记的指针，不分配、不推进、不回收。
-	*/
-	void Renderer_Particle::particle_source_bind(Particle_State* states, uint8_t* alive, uint32_t capacity)
-	{
-		//未初始化
-		if (impl == nullptr || !impl->initialized)
-			return;
-		impl->particle_states = states;
-		impl->particle_alive = alive;
-		impl->particle_source_capacity = (states == nullptr || alive == nullptr) ? 0u : capacity;
-	}
-
-	//当前绑定容量（未绑定返回 0）
-	uint32_t Renderer_Particle::particle_source_capacity(void) const
-	{
-		//未初始化
-		if (impl == nullptr || !impl->initialized)
-			return 0;
-		return impl->particle_source_capacity;
-	}
-
-	//发射器（须先开启；参数非法整次拒绝）
-	bool Renderer_Particle::particle_emitter_set(const Particle_Emitter& emitter)
-	{
-		//未初始化或未开启
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-		{
-			logger.error("渲染器:: 粒子发射器设置失败（未初始化或未开启）");
-			return false;
-		}
-		//参数非法
-		if (!particle_emitter_valid(emitter))
-		{
-			logger.warn("渲染器:: 粒子发射器参数非法（已拒绝）");
-			return false;
-		}
-		impl->particle_emitter = emitter;
-		impl->particle_emitter_configured = true;
-		return true;
-	}
-
-	//当前发射器快照（未初始化返回默认构造值）
-	Particle_Emitter Renderer_Particle::particle_emitter_get(void) const
-	{
-		//未初始化
-		if (impl == nullptr || !impl->initialized)
-			return Particle_Emitter{};
-		return impl->particle_emitter;
-	}
-
-	//模拟统计回报（只累加帧统计）
-	void Renderer_Particle::particle_stats_add(uint32_t born, uint32_t died)
-	{
-		//未初始化
-		if (impl == nullptr || !impl->initialized)
-			return;
-		impl->particle_born_total += born;
-		impl->particle_died_total += died;
-	}
-
-	//模拟参数（须先开启；参数非法整次拒绝）
-	bool Renderer_Particle::particle_params_set(const Particle_Params& params)
-	{
-		//未初始化或未开启
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-		{
-			logger.error("渲染器:: 粒子参数设置失败（未初始化或未开启）");
-			return false;
-		}
-		//参数非法
-		if (!particle_params_valid(params))
-		{
-			logger.warn("渲染器:: 粒子参数非法（已拒绝）");
-			return false;
-		}
-		impl->particle_params = params;
-		return true;
-	}
-
-	//当前模拟参数快照（第三百七十轮；未初始化返回默认值）
-	Particle_Params Renderer_Particle::particle_params_get(void) const
-	{
-		//未初始化
-		if (impl == nullptr || !impl->initialized)
-			return Particle_Params{};
-		return impl->particle_params;
-	}
-
-	//确保粒子 GPU 推进资源就绪（第三百一十一轮；容量变化时重建）
-	bool Renderer_Compute::particle_gpu_ensure(void)
-	{
-		//未初始化或计算路径不可用
-		if (impl == nullptr || !impl->initialized || !self().compute_supported())
-			return false;
-		//按 GPU 缓冲容量分配（容量为 0 视为不可用）
-		uint32_t capacity = impl->particle_capacity;
-		if (capacity == 0 || capacity > PARTICLE_CAPACITY_MAX)
-			return false;
-		//已按当前容量就绪
-		if (impl->particle_buffer_capacity == capacity && impl->particle_buffer_front != 0
-			&& impl->particle_buffer_back != 0 && impl->particle_step_pipeline != 0)
-			return true;
-		//容量变化：先释放旧资源
-		self().particle_gpu_destroy();
-		//双缓冲字节数
-		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-		//零值初值（未登记槽位 lifetime = 0，GPU 侧原样写回）
-		std::vector<uint8_t> zeros(bytes, 0u);
-		//力场缓冲（固定 8 场 × 40 字节，零值初值）
-		std::vector<uint8_t> zero_forces(static_cast<std::size_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE, 0u);
-		//控制缓冲（环形指针 ＋ 活跃计数 ＋ 位图；第三百二十七轮）
-		uint32_t control_bytes = 8u + ((capacity + 31u) / 32u) * 4u;
-		std::vector<uint8_t> zero_control(control_bytes, 0u);
-		//紧凑索引（uint32 × 容量）与紧凑计数（4 字节；第三百三十三轮）
-		std::vector<uint8_t> zero_indices(static_cast<std::size_t>(capacity) * 4u, 0u);
-		uint32_t zero_count = 0;
-		/*
-		按帧槽创建间接命令缓冲（第三百四十二轮；阶段 D）
-		每条 20 字节（VkDrawIndexedIndirectCommand），用法 STORAGE ＋ INDIRECT、主机可见（便于回读校验）；
-		每槽一份，保证「上一轮帧仍在读取的命令」不会被本帧写入覆盖。
-		*/
-		uint32_t slot_count = impl->frame.in_flight_count_get();
-		slot_count = slot_count == 0 ? 1u : slot_count;
-		std::vector<uint8_t> zero_command(Renderer_Impl_Holder::Impl::INDIRECT_COMMAND_BYTES, 0u);
-		bool indirect_created = true;
-		for (uint32_t slot = 0; slot < slot_count && indirect_created; ++slot)
-		{
-			Compute_Buffer_Handle handle = 0;
-			//创建该槽命令缓冲（追加 INDIRECT 用法）
-			indirect_created = impl->compute_buffer_create_usage(handle, Renderer_Impl_Holder::Impl::INDIRECT_COMMAND_BYTES,
-				zero_command.data(), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
-			//成功则登记句柄
-			if (indirect_created)
-				impl->particle_indirect_buffers.push_back(handle);
-		}
-		bool created = indirect_created
-			&& self().compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
-			&& self().compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
-			&& self().compute_buffer_load(impl->particle_force_buffer,
-				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
-			&& self().compute_buffer_load(impl->particle_control_buffer, control_bytes, zero_control.data())
-			&& self().compute_buffer_load(impl->particle_index_buffer, static_cast<uint32_t>(zero_indices.size()),
-				zero_indices.data())
-			&& self().compute_buffer_load(impl->particle_compact_count_buffer, static_cast<uint32_t>(sizeof(zero_count)),
-				&zero_count)
-			&& self().compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_emit_pipeline, "Particle发射.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_resident_step_pipeline, "Particle常驻推进.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_compact_pipeline, "Particle紧凑.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_indirect_pipeline, "Particle间接.comp.spv");
-		//任一环节失败即整体回收
-		if (!created)
-		{
-			logger.error("渲染器:: 粒子 GPU 推进资源创建失败（容量 {}）", capacity);
-			self().particle_gpu_destroy();
-			return false;
-		}
-		impl->particle_buffer_capacity = capacity;
-		impl->particle_control_bytes = control_bytes;
-		impl->particle_resident_active = 0;
-		impl->particle_indirect_written = false;
-		return true;
-	}
-
-	//释放粒子 GPU 推进资源（第三百一十一轮；幂等）
-	void Renderer_Compute::particle_gpu_destroy(void)
-	{
-		//未初始化
-		if (impl == nullptr)
-			return;
-		//双缓冲与推进管线移交门面卸载（计算上下文仍存活时才有效）
-		if (impl->particle_buffer_front != 0)
-			self().compute_buffer_unload(impl->particle_buffer_front);
-		if (impl->particle_buffer_back != 0)
-			self().compute_buffer_unload(impl->particle_buffer_back);
-		if (impl->particle_force_buffer != 0)
-			self().compute_buffer_unload(impl->particle_force_buffer);
-		if (impl->particle_control_buffer != 0)
-			self().compute_buffer_unload(impl->particle_control_buffer);
-		if (impl->particle_index_buffer != 0)
-			self().compute_buffer_unload(impl->particle_index_buffer);
-		if (impl->particle_compact_count_buffer != 0)
-			self().compute_buffer_unload(impl->particle_compact_count_buffer);
-		//间接命令缓冲（第三百四十二轮；按槽逐个卸载）
-		for (Compute_Buffer_Handle handle : impl->particle_indirect_buffers)
-			self().compute_buffer_unload(handle);
-		if (impl->particle_step_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_step_pipeline);
-		if (impl->particle_emit_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_emit_pipeline);
-		if (impl->particle_resident_step_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_resident_step_pipeline);
-		if (impl->particle_compact_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_compact_pipeline);
-		if (impl->particle_indirect_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_indirect_pipeline);
-		impl->particle_indirect_buffers.clear();
-		impl->particle_indirect_written = false;
-		impl->particle_indirect_last_slot = 0;
-		impl->particle_buffer_front = 0;
-		impl->particle_buffer_back = 0;
-		impl->particle_force_buffer = 0;
-		impl->particle_control_buffer = 0;
-		impl->particle_index_buffer = 0;
-		impl->particle_compact_count_buffer = 0;
-		impl->particle_step_pipeline = 0;
-		impl->particle_emit_pipeline = 0;
-		impl->particle_resident_step_pipeline = 0;
-		impl->particle_compact_pipeline = 0;
-		impl->particle_control_bytes = 0;
-		impl->particle_resident_active = 0;
-		impl->particle_compact_count = 0;
-		impl->particle_buffer_capacity = 0;
-	}
-
-	//粒子 GPU 推进是否就绪（第三百一十一轮；首次调用惰性创建）
-	bool Renderer_Particle::particle_gpu_available(void)
-	{
-		//未开启粒子或计算路径不可用
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !self().compute_supported())
-			return false;
-		return self().particle_gpu_ensure();
-	}
-
-	/*
-	GPU 单步推进（第三百一十二轮）
-	上传应用层绑定的粒子镜像 → 推进着色器 → 回读覆盖镜像；
-	参数走推送常量：gravity_dt = {g.x, g.y, g.z, dt}、params = {damping, capacity, 0, 0}。
-	回读只更新状态数组与活跃标记；索引回收（空闲栈记账）由应用层负责。
-	*/
-	bool Renderer_Particle::particle_gpu_step(float dt)
-	{
-		//资源未就绪
-		if (!self().particle_gpu_available())
-			return false;
-		//未绑定数据源
-		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
-			|| impl->particle_source_capacity == 0)
-			return false;
-		//常驻模式下禁止同步链推进（会污染常驻状态；第三百二十八轮）
-		if (impl->particle_resident)
-			return false;
-		//步长非法
-		if (!std::isfinite(dt) || dt <= 0.0f)
-			return false;
-		//本次推进的死亡计数先清零
-		impl->particle_gpu_died_last = 0;
-		//GPU 同步链主机侧计时（第三百二十二轮）
-		const auto sim_begin = std::chrono::high_resolution_clock::now();
-		uint32_t capacity = impl->particle_buffer_capacity;
-		//镜像容量须不小于推进容量
-		if (impl->particle_source_capacity < capacity)
-			return false;
-		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-		//上传当前镜像到前缓冲
-		if (!self().compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
-			return false;
-		//上传力场数组（仅上传前 force_count 项；第三百一十八轮）
-		if (impl->particle_params.force_count > 0)
-		{
-			uint32_t force_bytes = impl->particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
-			if (!self().compute_buffer_write(impl->particle_force_buffer, impl->particle_params.forces, force_bytes))
-				return false;
-		}
-		//绑定前缓冲只读、后缓冲只写、力场数组只读
-		if (!self().compute_buffer_bind(impl->particle_buffer_front, 0))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_buffer_back, 1))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_force_buffer, 2))
-			return false;
-		//推送常量：重力与步长、阻尼与容量与力场数、碰撞球、地面与材质（第三百一十九轮）
-		const float push[16] = {
-			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
-			impl->particle_params.damping, static_cast<float>(capacity),
-			static_cast<float>(impl->particle_params.force_count), 0.0f,
-			impl->particle_params.sphere_center[0], impl->particle_params.sphere_center[1],
-			impl->particle_params.sphere_center[2], impl->particle_params.sphere_radius,
-			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction,
-			static_cast<float>(impl->particle_params.ground_enabled)
-		};
-		if (!self().compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
-			return false;
-		//回读覆盖镜像（GPU 结果作为下一步的上传源）
-		if (!self().compute_buffer_read(impl->particle_buffer_back, impl->particle_states, bytes))
-			return false;
-		/*
-		生命周期同步（第三百一十三轮）
-		GPU 以 lifetime ≤ 0 标记死亡；镜像侧逐索引置非活跃并清零寿命，
-		使下次上传的非活跃槽位保持「lifetime = 0」不变式（着色器据此原样写回）。
-		*/
-		uint32_t died = 0;
-		Particle_State* states = impl->particle_states;
-		uint8_t* alive = impl->particle_alive;
-		for (uint32_t index = 0; index < capacity; ++index)
-		{
-			//非活跃槽位保持零寿命不变式
-			if (alive[index] == 0u)
-			{
-				states[index].lifetime = 0.0f;
-				continue;
-			}
-			//GPU 标记死亡即置非活跃（索引记账由应用层负责）
-			if (!(states[index].lifetime > 0.0f))
-			{
-				alive[index] = 0u;
-				states[index].lifetime = 0.0f;
-				++died;
-			}
-		}
-		impl->particle_gpu_died_last = died;
-		impl->particle_died_total += died;
-		//GPU 设备耗时（设备不支持时间戳时为 −1）
-		impl->particle_gpu_ms_last = impl->compute.timestamp_supported()
-			? impl->compute.stats_get().elapsed_ms : -1.0;
-		//主机侧模拟耗时（含上传 / 调度 / 回读 + 镜像同步）
-		const auto sim_end = std::chrono::high_resolution_clock::now();
-		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
-		return true;
-	}
-
-	//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
-	uint32_t Renderer_Particle::particle_gpu_died_last(void) const
-	{
-		//未开启或未初始化
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
-			return 0;
-		return impl->particle_gpu_died_last;
-	}
-
-	//常驻 GPU 推进的活跃粒子数（只读观测）
-	uint32_t Renderer_Particle::particle_gpu_active_count(void) const
-	{
-		//未初始化 / 未开启常驻
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
-			return 0;
-		return impl->particle_resident_active;
-	}
-
-	//确保粒子 billboard 绘制资源就绪（第三百一十四轮）
-	bool Renderer_Compute::particle_draw_ensure(void)
-	{
-		//已就绪
-		if (impl->particle_quad_mesh != 0 && impl->particle_draw_pipeline != 0)
-			return true;
-		//单位四边形网格（XY 平面，边长 1）
-		if (impl->particle_quad_mesh == 0)
-		{
-			if (!self().mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
-				return false;
-		}
-		//粒子管线（Alpha 混合，与场景管线共享布局与描述符集布局）
-		if (impl->particle_draw_pipeline == 0)
-		{
-			/*
-			粒子管线：关闭背面剔除（billboard 朝向由相机决定）、深度写入按门面开关；
-			混合档取粒子混合设置（默认 Alpha）。
-			*/
-			if (!impl->pipeline_load_ex(impl->particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv",
-				impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
-			{
-				self().mesh_unload(impl->particle_quad_mesh);
-				impl->particle_quad_mesh = 0;
-				return false;
-			}
-		}
-		return true;
-	}
-
-	/*
-	确保粒子 GPU 绘制管线就绪（第三百四十一轮）
-	与 CPU 路径共用单位四边形网格；管线由「粒子GPU.vert ＋ 粒子.frag」构成，
-	顶点输入只声明位置与纹理坐标（SPIR-V 解析结果不含实例属性位），故不消费实例缓冲。
-	*/
-	bool Renderer_Compute::particle_gpu_draw_ensure(void)
-	{
-		//单位四边形网格（与 CPU 路径共用）
-		if (impl->particle_quad_mesh == 0)
-		{
-			if (!self().mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
-				return false;
-		}
-		//已就绪
-		if (impl->particle_gpu_pipeline != 0)
-			return true;
-		//粒子 GPU 管线（关闭背面剔除、深度写入按门面开关、混合档取粒子设置）
-		if (!impl->pipeline_load_ex(impl->particle_gpu_pipeline, "粒子GPU.vert.spv", "粒子.frag.spv",
-			impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
-			return false;
-		return true;
-	}
-
-	//设置粒子混合档（第三百一十六轮；仅 Alpha / Additive）
 	bool Renderer_Particle::particle_blend_set(Blend_Mode mode)
 	{
 		//未初始化
@@ -510,7 +53,6 @@ namespace engine
 		return true;
 	}
 
-	//当前粒子混合档（未初始化返回 Alpha）
 	Blend_Mode Renderer_Particle::particle_blend_get(void) const
 	{
 		if (impl == nullptr || !impl->initialized)
@@ -518,7 +60,6 @@ namespace engine
 		return impl->particle_blend_mode;
 	}
 
-	//设置粒子深度写入（第三百一十六轮）
 	bool Renderer_Particle::particle_depth_write_set(bool enabled)
 	{
 		//未初始化
@@ -542,7 +83,6 @@ namespace engine
 		return true;
 	}
 
-	//当前粒子深度写入（未初始化返回假）
 	bool Renderer_Particle::particle_depth_write_get(void) const
 	{
 		if (impl == nullptr || !impl->initialized)
@@ -550,7 +90,6 @@ namespace engine
 		return impl->particle_depth_write;
 	}
 
-	//设置粒子深度分桶数（第三百一十七轮；钳到 0..16）
 	bool Renderer_Particle::particle_sort_buckets_set(uint32_t buckets)
 	{
 		//未初始化
@@ -561,7 +100,6 @@ namespace engine
 		return true;
 	}
 
-	//当前粒子深度分桶数（未初始化返回 0）
 	uint32_t Renderer_Particle::particle_sort_buckets_get(void) const
 	{
 		if (impl == nullptr || !impl->initialized)
@@ -569,129 +107,6 @@ namespace engine
 		return impl->particle_sort_buckets;
 	}
 
-	//当前粒子 GPU 资源占用字节（第三百二十轮）
-	uint64_t Renderer_Particle::particle_gpu_bytes(void) const
-	{
-		//未初始化或资源未创建
-		if (impl == nullptr || !impl->initialized || impl->particle_buffer_capacity == 0
-			|| impl->particle_buffer_front == 0 || impl->particle_buffer_back == 0)
-			return 0;
-		uint64_t buffers = static_cast<uint64_t>(impl->particle_buffer_capacity) * PARTICLE_STRIDE * 2u;
-		uint64_t forces = impl->particle_force_buffer != 0
-			? static_cast<uint64_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE : 0u;
-		uint64_t control = static_cast<uint64_t>(impl->particle_control_bytes);
-		//紧凑索引与紧凑计数（第三百三十三轮）
-		uint64_t compact = impl->particle_index_buffer != 0
-			? static_cast<uint64_t>(impl->particle_buffer_capacity) * 4u + 4u : 0u;
-		//间接命令缓冲（第三百五十二轮；按帧槽各 20 B）
-		uint64_t indirect = static_cast<uint64_t>(impl->particle_indirect_buffers.size())
-			* Renderer_Impl_Holder::Impl::INDIRECT_COMMAND_BYTES;
-		return buffers + forces + control + compact + indirect;
-	}
-
-	/*
-	常驻推进开关（第三百二十七轮）
-	开启时尝试回读一次 GPU 活跃计数作为缓存；关闭时常驻计数不再参与。
-	*/
-	bool Renderer_Particle::particle_resident_set(bool enabled)
-	{
-		//未初始化 / 未开启粒子 / 计算不可用
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !self().compute_supported())
-			return false;
-		impl->particle_resident = enabled;
-		//开启时同步一次计数缓存
-		if (enabled && self().particle_gpu_available())
-		{
-			uint32_t active = 0;
-			if (self().compute_buffer_read(impl->particle_control_buffer, &active, 4u, 4u))
-				impl->particle_resident_active = active;
-		}
-		return true;
-	}
-
-	//常驻推进是否开启（未初始化返回假）
-	bool Renderer_Particle::particle_resident_get(void) const
-	{
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		return impl->particle_resident;
-	}
-
-
-
-	/*
-	常驻紧凑索引（第三百三十三轮；阶段 D）
-	清零紧凑计数 → 绑定控制 / 索引 / 计数 → 按容量调度 → 回读计数；
-	紧凑数组元素互异且覆盖全部活跃索引，但**顺序不保证为池索引升序**（原子取位由并发执行决定）。
-	*/
-	bool Renderer_Particle::particle_gpu_compact(void)
-	{
-		//前置条件
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
-			return false;
-		if (!self().particle_gpu_available())
-			return false;
-		uint32_t capacity = impl->particle_buffer_capacity;
-		if (capacity == 0)
-			return false;
-		//主机侧计时（第三百四十轮）
-		const auto compact_begin = std::chrono::high_resolution_clock::now();
-		//清零紧凑计数
-		uint32_t zero = 0;
-		if (!self().compute_buffer_write(impl->particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
-			return false;
-		//绑定：控制缓冲（位图）/ 紧凑索引 / 紧凑计数
-		if (!self().compute_buffer_bind(impl->particle_control_buffer, 0))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_index_buffer, 1))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_compact_count_buffer, 2))
-			return false;
-		const uint32_t push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
-		if (!self().compute_dispatch(impl->particle_compact_pipeline, capacity, 64u, push,
-			static_cast<uint32_t>(sizeof(push))))
-			return false;
-		//回读索引数（防御越界）
-		uint32_t count = 0;
-		if (!self().compute_buffer_read(impl->particle_compact_count_buffer, &count, static_cast<uint32_t>(sizeof(count))))
-			return false;
-		if (count > capacity)
-			count = capacity;
-		impl->particle_compact_count = count;
-		const auto compact_end = std::chrono::high_resolution_clock::now();
-		impl->particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
-		return true;
-	}
-
-	//最近一次紧凑结果索引数（未开启常驻返回 0）
-	uint32_t Renderer_Particle::particle_compact_count_get(void) const
-	{
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
-			return 0;
-		return impl->particle_compact_count;
-	}
-
-	//回读紧凑索引（诊断 / 测试用；返回实际写出项数）
-	uint32_t Renderer_Particle::particle_compact_indices_get(uint32_t* out, uint32_t max_count)
-	{
-		if (out == nullptr || max_count == 0)
-			return 0;
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
-			return 0;
-		uint32_t count = impl->particle_compact_count;
-		if (count > max_count)
-			count = max_count;
-		if (count == 0)
-			return 0;
-		if (!self().compute_buffer_read(impl->particle_index_buffer, out, count * static_cast<uint32_t>(sizeof(uint32_t))))
-			return 0;
-		return count;
-	}
-	/*
-	粒子软粒子深度源（第三百六十六轮）
-	仅当参数档位 > 0 且 HiZ 已启用、资源有效、该槽历史就绪时输出历史视图与最近邻采样器句柄；
-	其余情况返回假（调用方据此把推送档位清零，画面回落旧行为）。
-	*/
 	bool Renderer_Compute::particle_depth_source(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
 	{
 		//默认无有效句柄
@@ -711,13 +126,6 @@ namespace engine
 		return true;
 	}
 
-	/*
-	粒子外观推送（第三百五十四轮；第三百五十五轮补软边宽度）
-	按粒子参数填推送块：offset 64 = 新生颜色 rgb、offset 80 = 衰老颜色 rgb、
-	offset 96 = 外观分量（x 颜色启用标志 / y 软边宽度）。
-	未启用颜色时标志恒写 0；软边宽度恒写（0 = 内置 0.65 内半径）；
-	CPU 路径的实例化占位块（材质参数 / UV 变换）不参与粒子着色，但须避免被误读为标志或宽度。
-	*/
 	void Renderer_Compute::particle_style_push_fill(std::array<float, 32>& push) const
 	{
 		const Particle_Params& params = impl->particle_params;
@@ -734,11 +142,6 @@ namespace engine
 		}
 	}
 
-	/*
-	粒子 billboard 绘制（第三百一十四轮）
-	按相机位置逐粒子构造「右 / 上基向量 × 半尺寸 ＋ 中心」模型矩阵，一次性实例化登记；
-	登记期间的粒子管线为主状态，登记后恢复调用前的管线选择（纹理状态不变，粒子着色器不采样纹理）。
-	*/
 	bool Renderer_Particle::particle_draw(float size)
 	{
 		//未开启粒子或未初始化
@@ -1042,12 +445,6 @@ namespace engine
 		return drawn;
 	}
 
-	/*
-	粒子 GPU 绘制（第三百四十一轮；阶段 D）
-	紧凑索引 → 逐帧槽写粒子专用集（状态 / 索引的原生缓冲，front 会随推进交换）→
-	登记一个「不消费实例属性、使用粒子专用 set0」的绘制项：顶点为单位四边形，实例数 = 紧凑计数，
-	相机位置与尺寸进推送常量首位（其余 128 B 块留零）。
-	*/
 	bool Renderer_Particle::particle_gpu_draw(float size)
 	{
 		//前置条件
@@ -1155,13 +552,6 @@ namespace engine
 		return true;
 	}
 
-	/*
-	粒子 GPU 间接绘制（第三百四十二轮；阶段 D）
-	紧凑索引 → 「Particle间接.comp」把紧凑计数写成一条 VkDrawIndexedIndirectCommand →
-	登记一个「不消费实例属性、使用粒子专用 set0、GPU 侧间接」的绘制项。
-	命令缓冲按帧槽划分：写入前等待该槽上一轮帧完成，避免覆盖仍被 GPU 读取的命令；
-	录制阶段（帧模块）在该批存在间接项时插入「计算写 → 间接命令读」内存屏障。
-	*/
 	bool Renderer_Particle::particle_indirect_draw(float size)
 	{
 		//前置条件
@@ -1352,11 +742,6 @@ namespace engine
 		return true;
 	}
 
-	/*
-	粒子间接绘制命令回读（第三百四十二轮；诊断 / 测试）
-	回读最近一次 particle_indirect_draw 写入的 5 个 uint32：
-	index_count / instance_count / first_index / vertex_offset / first_instance。
-	*/
 	bool Renderer_Particle::particle_indirect_command_get(uint32_t command_out[5])
 	{
 		//输出指针为空
@@ -1372,62 +757,4 @@ namespace engine
 		return self().compute_buffer_read(impl->particle_indirect_buffers[slot], command_out,
 			static_cast<uint32_t>(sizeof(uint32_t) * 5u));
 	}
-
-	/*
-	粒子 GPU 推进自检（第三百一十一轮）
-	上传当前 CPU 状态到前缓冲 → 额定容量调度（零步：dt = 0、阻尼 = 1，恒等变换）→ 回读后缓冲；
-	按 CPU 活跃标记逐索引比对 32 字节，验证「描述符绑定 → 推送常量 → 调度 → 写回 → 读回」整条通路。
-	非活跃槽位可能保留上次状态（回收时不改写状态内容），不参与比对。
-	*/
-	bool Renderer_Particle::particle_gpu_probe(void)
-	{
-		//资源未就绪
-		if (!self().particle_gpu_available())
-			return false;
-		//常驻模式下自检会覆盖常驻状态，直接拒绝（第三百二十八轮）
-		if (impl->particle_resident)
-			return false;
-		//未绑定数据源
-		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
-			|| impl->particle_source_capacity == 0)
-			return false;
-		uint32_t capacity = impl->particle_buffer_capacity;
-		//镜像容量须不小于推进容量
-		if (impl->particle_source_capacity < capacity)
-			return false;
-		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-		//上传应用层状态到前缓冲
-		if (!self().compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
-			return false;
-		//绑定前缓冲只读、后缓冲只写、力场数组只读（零力场）
-		if (!self().compute_buffer_bind(impl->particle_buffer_front, 0))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_buffer_back, 1))
-			return false;
-		if (!self().compute_buffer_bind(impl->particle_force_buffer, 2))
-			return false;
-		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换；力场 / 碰撞球均关闭、地面不触发）
-		const float push[16] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f,
-			0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-		if (!self().compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
-			return false;
-		//回读后缓冲
-		std::vector<uint8_t> output(bytes, 0u);
-		if (!self().compute_buffer_read(impl->particle_buffer_back, output.data(), bytes))
-			return false;
-		//按活跃标记逐索引比对
-		const Particle_State* source = impl->particle_states;
-		const uint8_t* alive = impl->particle_alive;
-		for (uint32_t index = 0; index < capacity; ++index)
-		{
-			//跳过非活跃槽位
-			if (alive[index] == 0u)
-				continue;
-			std::size_t offset = static_cast<std::size_t>(index) * PARTICLE_STRIDE;
-			if (memcmp(output.data() + offset, &source[index], PARTICLE_STRIDE) != 0)
-				return false;
-		}
-		return true;
-	}
-
 }

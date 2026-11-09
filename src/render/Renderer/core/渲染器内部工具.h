@@ -26,8 +26,13 @@ namespace engine
 	bool frame_stage_spot_shadow_matrices(Renderer_Impl_Holder::Impl* impl);
 	//帧阶段：为本帧待绘制项填装描述符集与实例缓冲句柄
 	void frame_stage_descriptor_sets(Renderer_Impl_Holder::Impl* impl, uint32_t slot);
+	//帧阶段：实例模型矩阵写入本帧槽实例缓冲（返回假表示本帧失败）
+	bool frame_stage_instance_buffers(Renderer_Impl_Holder::Impl* impl, uint32_t slot);
 	//帧阶段：阴影 pass（按需重绘；返回假表示本帧失败）
 	bool frame_stage_shadow_pass(Renderer_Impl_Holder::Impl* impl, bool spot_shadow_light_valid);
 	//帧阶段：场景 UBO 组装与上传（返回假表示本帧失败）
 	bool frame_stage_scene_ubo(Renderer_Impl_Holder::Impl* impl, uint32_t slot, const float view_proj[16], bool spot_shadow_light_valid);
+
+	//初始化阶段：管线 / 描述符 / 采样 / 粒子 / 文字 / 阴影 / 后处理 / 天空 等图形资源（实现在 渲染器_初始化_图形资源.cpp）
+	bool renderer_init_graphics(Renderer* owner, Renderer_Impl_Holder::Impl* impl, const Renderer_Config& effective);
 }

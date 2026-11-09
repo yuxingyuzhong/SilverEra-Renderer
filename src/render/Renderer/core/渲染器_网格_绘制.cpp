@@ -20,6 +20,72 @@
 
 namespace engine
 {
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 ＋ 卡通 4 ＋ 暗部色调 4 浮点 / 个），返回首个实例的字节偏移
+	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
+	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
+		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
+		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular,
+		float toon_tint_r, float toon_tint_g, float toon_tint_b)
+	{
+		//首个实例的字节偏移（追加前的元素个数 × 实例步长）
+		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
+		//逐实例追加
+		for (uint32_t instance = 0; instance < count; ++instance)
+		{
+			//新实例的矩阵存储
+			store.emplace_back();
+			std::array<float, INSTANCE_FLOAT_COUNT>& target = store.back();
+			//transforms 为空则整批用单位矩阵
+			if (transforms == nullptr)
+			{
+				//单位矩阵（列主序）
+				const float identity[16] = {
+					1.0f, 0.0f, 0.0f, 0.0f,
+					0.0f, 1.0f, 0.0f, 0.0f,
+					0.0f, 0.0f, 1.0f, 0.0f,
+					0.0f, 0.0f, 0.0f, 1.0f
+				};
+				for (uint32_t element = 0; element < 16; ++element)
+					target[element] = identity[element];
+			}
+			else
+			{
+				//拷贝第 instance 个外部模型矩阵
+				for (uint32_t element = 0; element < 16; ++element)
+					target[element] = transforms[static_cast<size_t>(instance) * 16 + element];
+			}
+			/*
+			逐物体材质（第六十八轮）
+			覆盖标志置于第 2 分量（z）：0 = 不覆盖，片元着色器回落场景 UBO 的全局 PBR 参数；
+			故未调用 material_pbr_set 的绘制项与旧版逐字节一致。
+			*/
+			target[INSTANCE_MATERIAL_OFFSET + 0] = material_active ? roughness : 0.0f;
+			target[INSTANCE_MATERIAL_OFFSET + 1] = material_active ? metallic : 0.0f;
+			target[INSTANCE_MATERIAL_OFFSET + 2] = material_active ? 1.0f : 0.0f;
+			//第 4 分量为自发光强度（第七十轮；恒生效，0 = 无自发光）
+			target[INSTANCE_MATERIAL_OFFSET + 3] = emissive;
+			/*
+			逐物体卡通参数（第四百零八轮）
+			覆盖标志置于第 4 分量（w）：0 = 不覆盖，片元着色器回落场景 UBO 的全局卡通参数；
+			故未带 toon_override 的绘制项与旧版逐字节一致。
+			*/
+			target[INSTANCE_TOON_OFFSET + 0] = toon_active ? toon_steps : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 1] = toon_active ? toon_rim : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 2] = toon_active ? toon_specular : 0.0f;
+			target[INSTANCE_TOON_OFFSET + 3] = toon_active ? 1.0f : 0.0f;
+			/*
+			逐物体卡通暗部色调（第四百零九轮）
+			xyz = 色调；仅当卡通覆盖标志为真时被片元读取（默认 (1,1,1) 即不色偏）；
+			w 保留为 0。
+			*/
+			target[INSTANCE_TOON_TINT_OFFSET + 0] = toon_tint_r;
+			target[INSTANCE_TOON_TINT_OFFSET + 1] = toon_tint_g;
+			target[INSTANCE_TOON_TINT_OFFSET + 2] = toon_tint_b;
+			target[INSTANCE_TOON_TINT_OFFSET + 3] = 0.0f;
+		}
+		return offset;
+	}
+
 	namespace
 	{
 		//列主序 4×4 矩阵相乘（out = a × b；out 可与 a / b 不同）
@@ -94,419 +160,12 @@ namespace engine
 	}
 
 	//按程序化球体加载网格（第六十六轮新增）
-	bool Renderer_Mesh::mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks)
-	{
-		//前置：已初始化、半径为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
-			|| slices < 3 || slices > 128 || stacks < 2 || stacks > 64)
-		{
-			logger.warn("渲染器:: 球体参数非法（半径 {}、经度 {}、纬度 {}）", radius, slices, stacks);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::sphere_generate(radius, slices, stacks));
-	}
 
-	//按正二十面体球加载网格（第一百八十九轮）
-	bool Renderer_Mesh::mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions)
-	{
-		//前置：已初始化、半径为正（非数亦拒）、细分次数在 0..4
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || subdivisions > 4)
-		{
-			logger.warn("渲染器:: 正二十面体球参数非法（半径 {}、细分 {}）", radius, subdivisions);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::icosphere_generate(radius, subdivisions));
-	}
-
-	//按 XZ 平面细分网格加载网格（第一百九十三轮）
-	bool Renderer_Mesh::mesh_ground_grid_load(Mesh_Handle& handle_out, float width, float depth,
-		uint32_t segments_x, uint32_t segments_z)
-	{
-		//顶点总数（分段乘积上限约 100 万，防止误传超大分段耗尽内存）
-		const uint64_t vertex_count = (static_cast<uint64_t>(segments_x) + 1)
-			* (static_cast<uint64_t>(segments_z) + 1);
-		//前置：已初始化、宽深为正（非数亦拒）、分段在 1..512 且顶点总数受限
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(depth > 0.0f)
-			|| segments_x < 1 || segments_x > 512 || segments_z < 1 || segments_z > 512
-			|| vertex_count > (1ull << 20))
-		{
-			logger.warn("渲染器:: 细分平面参数非法（宽 {}、深 {}、分段 {}×{}）",
-				width, depth, segments_x, segments_z);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::ground_grid_generate(width, depth, segments_x, segments_z));
-	}
-
-	//按程序化圆柱加载网格（第六十六轮新增）
-	bool Renderer_Mesh::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
-	{
-		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
-			|| segments < 3 || segments > 128)
-		{
-			logger.warn("渲染器:: 圆柱参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
-	}
-
-	//按程序化平面加载网格（第七十一轮新增）
-	bool Renderer_Mesh::mesh_plane_load(Mesh_Handle& handle_out, float width, float height)
-	{
-		//前置：已初始化、宽高为正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f))
-		{
-			logger.warn("渲染器:: 平面参数非法（宽 {}、高 {}）", width, height);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
-	}
-
-	//按程序化三角形加载网格（第一百四十二轮新增）
-	bool Renderer_Mesh::mesh_triangle_load(Mesh_Handle& handle_out)
-	{
-		//前置：已初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.warn("渲染器:: 三角形加载失败：尚未初始化");
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::triangle_generate());
-	}
-
-	//按程序化立方体加载网格（第一百四十二轮新增）
-	bool Renderer_Mesh::mesh_cube_load(Mesh_Handle& handle_out, float half_extent)
-	{
-		//前置：已初始化、半边长正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(half_extent > 0.0f))
-		{
-			logger.warn("渲染器:: 立方体参数非法（半边长 {}）", half_extent);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cube_generate(half_extent));
-	}
-
-	//按程序化圆盘加载网格（第八十三轮新增）
-	bool Renderer_Mesh::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
-	{
-		//前置：已初始化、半径为正（非数亦拒）、分段在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
-			|| segments < 3 || segments > 256)
-		{
-			logger.warn("渲染器:: 圆盘参数非法（半径 {}、分段 {}）", radius, segments);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::disc_generate(radius, segments));
-	}
-
-	//按细分平面加载网格（第九十三轮新增）
-	bool Renderer_Mesh::mesh_grid_load(Mesh_Handle& handle_out, float width, float height,
-		uint32_t columns, uint32_t rows)
-	{
-		//前置：已初始化、宽高为正（非数亦拒）、分段在区间内
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f)
-			|| columns < 1 || columns > 256 || rows < 1 || rows > 256)
-		{
-			logger.warn("渲染器:: 细分平面参数非法（宽 {}、高 {}、列 {}、行 {}）",
-				width, height, columns, rows);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::grid_generate(width, height, columns, rows));
-	}
-
-	//查询网格顶点 / 索引数量（第九十三轮新增）
-	bool Renderer_Mesh::mesh_counts(Mesh_Handle handle, uint32_t* vertex_count_out, uint32_t* index_count_out) const
-	{
-		//出参先复位
-		if (vertex_count_out != nullptr)
-			*vertex_count_out = 0;
-		if (index_count_out != nullptr)
-			*index_count_out = 0;
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		//转交网格模块
-		uint32_t vertex_count = 0;
-		uint32_t index_count = 0;
-		if (!impl->mesh.mesh_counts_get(handle, vertex_count, index_count))
-			return false;
-		if (vertex_count_out != nullptr)
-			*vertex_count_out = vertex_count;
-		if (index_count_out != nullptr)
-			*index_count_out = index_count;
-		return true;
-	}
-
-	//按程序化胶囊加载网格（第六十九轮新增）
-	bool Renderer_Mesh::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
-		uint32_t segments, uint32_t rings)
-	{
-		//前置：已初始化、半径为正、中段高度非负（非数亦拒）、分段与纬圈在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height >= 0.0f)
-			|| segments < 3 || segments > 128 || rings < 2 || rings > 64)
-		{
-			logger.warn("渲染器:: 胶囊参数非法（半径 {}、高度 {}、分段 {}、纬圈 {}）",
-				radius, height, segments, rings);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::capsule_generate(radius, height, segments, rings));
-	}
-
-	//按程序化圆锥加载网格（第六十八轮新增）
-	bool Renderer_Mesh::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
-	{
-		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
-			|| segments < 3 || segments > 128)
-		{
-			logger.warn("渲染器:: 圆锥参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cone_generate(radius, height, segments));
-	}
-
-	//按程序化四棱锥加载网格（第二百三十二轮新增）
-	bool Renderer_Mesh::mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height)
-	{
-		//前置：已初始化、底面半边长与高度为正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(base_half > 0.0f) || !(height > 0.0f))
-		{
-			logger.warn("渲染器:: 四棱锥参数非法（底面半边长 {}、高度 {}）", base_half, height);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::pyramid_generate(base_half, height));
-	}
-
-	//按程序化圆环加载网格（第六十七轮新增）
-	bool Renderer_Mesh::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
-		uint32_t major_segments, uint32_t minor_segments)
-	{
-		//前置：已初始化、双半径为正（非数亦拒）、双分段在区间内
-		if (impl == nullptr || !impl->initialized || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
-			|| major_segments < 3 || major_segments > 128 || minor_segments < 3 || minor_segments > 128)
-		{
-			logger.warn("渲染器:: 圆环参数非法（环半径 {}、管半径 {}、环分段 {}、管分段 {}）",
-				major_radius, minor_radius, major_segments, minor_segments);
-			handle_out = 0;
-			return false;
-		}
-		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::torus_generate(major_radius, minor_radius,
-			major_segments, minor_segments));
-	}
-
-	bool Renderer_Mesh::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 网格加载失败：尚未初始化");
-			return false;
-		}
-		//转交网格模块创建顶点 / 索引缓冲（无分段）
-		return impl->mesh.mesh_create(handle_out, data);
-	}
-
-	//加载带子网格分段的网格（第四百一十六轮）
-	bool Renderer_Mesh::mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
-		const Mesh_Section* sections, uint32_t count)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: 网格加载失败：尚未初始化");
-			return false;
-		}
-		//段数组非空且段数为正（否则等价于整段，走 mesh_load 语义）
-		if (sections == nullptr || count == 0)
-		{
-			logger.warn("渲染器:: 分段网格加载参数非法（段数组为空或段数 0），已忽略");
-			handle_out = 0;
-			return false;
-		}
-		//转交网格模块（分段校验在网格模块完成）
-		std::vector<Mesh_Section> 段(sections, sections + count);
-		return impl->mesh.mesh_create(handle_out, data, 段);
-	}
-
-	/*
-	从 OBJ 文件加载网格（第四百二十二轮）
-	解析在资产加载模块完成；本函数只做「初始化检查 ＋ 转交网格模块建缓冲」。
-	已解析出的分段随网格记录保存，供 mesh_draw_sections 逐段绘制。
-	*/
-	bool Renderer_Mesh::mesh_load_obj(Mesh_Handle& handle_out, const std::string& path)
-	{
-		//默认无有效句柄
-		handle_out = 0;
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-		{
-			logger.error("渲染器:: OBJ 网格加载失败：尚未初始化");
-			return false;
-		}
-		//解析文件（失败时日志已由资产加载模块写出）
-		Mesh_File_Data file;
-		if (!obj_mesh_load(path, file))
-			return false;
-		//按 usemtl 分段建立网格
-		return impl->mesh.mesh_create(handle_out, file.data, file.sections);
-	}
-
-	//卸载网格
-	void Renderer_Mesh::mesh_unload(Mesh_Handle handle)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-			return;
-		//摘出网格缓冲（不立即销毁，避免销毁仍被在途命令缓冲引用的缓冲）
-		Mesh_Record record{};
-		if (!impl->mesh.mesh_detach(handle, record))
-			return;
-		//组装延迟条目（缓冲经内存模块归还）
-		Deferred_Entry entry{};
-		Deferred_Memory_Resource resource{};
-		resource.buffer = record.buffer;
-		resource.buffer_allocation = record.allocation;
-		entry.memory_resources.push_back(resource);
-		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
-		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
-	}
-
-	//查询网格包围盒（第七十三轮新增）
-	bool Renderer_Mesh::mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const
-	{
-		//未初始化或出参为空则拒绝
-		if (impl == nullptr || !impl->initialized || min_out == nullptr || max_out == nullptr)
-			return false;
-		//转交网格模块（句柄无效时返回假，出参不变）
-		return impl->mesh.mesh_bounds_get(handle, min_out, max_out);
-	}
-
-	//更新网格顶点区域（第一百五十九轮）
-	bool Renderer_Mesh::mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
-		const Vertex* vertices)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		//先把在途帧等尽（避免改写仍被绘制命令读取的顶点缓冲）
-		if (!impl->frame.frames_wait())
-			return false;
-		//转交网格模块（顶点区覆盖写入并保守扩张包围盒）
-		return impl->mesh.mesh_update_vertices(handle, first_vertex, count, vertices);
-	}
-
-	//更新网格索引区域（第一百六十轮）
-	bool Renderer_Mesh::mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
-		const uint32_t* indices)
-	{
-		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		//先把在途帧等尽（避免改写仍被绘制命令读取的索引缓冲）
-		if (!impl->frame.frames_wait())
-			return false;
-		//转交网格模块（索引区覆盖写入并校验取值）
-		return impl->mesh.mesh_update_indices(handle, first_index, count, indices);
-	}
-
-	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 ＋ 卡通 4 ＋ 暗部色调 4 浮点 / 个），返回首个实例的字节偏移
-	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
-	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
-		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
-		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular,
-		float toon_tint_r, float toon_tint_g, float toon_tint_b)
-	{
-		//首个实例的字节偏移（追加前的元素个数 × 实例步长）
-		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
-		//逐实例追加
-		for (uint32_t instance = 0; instance < count; ++instance)
-		{
-			//新实例的矩阵存储
-			store.emplace_back();
-			std::array<float, INSTANCE_FLOAT_COUNT>& target = store.back();
-			//transforms 为空则整批用单位矩阵
-			if (transforms == nullptr)
-			{
-				//单位矩阵（列主序）
-				const float identity[16] = {
-					1.0f, 0.0f, 0.0f, 0.0f,
-					0.0f, 1.0f, 0.0f, 0.0f,
-					0.0f, 0.0f, 1.0f, 0.0f,
-					0.0f, 0.0f, 0.0f, 1.0f
-				};
-				for (uint32_t element = 0; element < 16; ++element)
-					target[element] = identity[element];
-			}
-			else
-			{
-				//拷贝第 instance 个外部模型矩阵
-				for (uint32_t element = 0; element < 16; ++element)
-					target[element] = transforms[static_cast<size_t>(instance) * 16 + element];
-			}
-			/*
-			逐物体材质（第六十八轮）
-			覆盖标志置于第 2 分量（z）：0 = 不覆盖，片元着色器回落场景 UBO 的全局 PBR 参数；
-			故未调用 material_pbr_set 的绘制项与旧版逐字节一致。
-			*/
-			target[INSTANCE_MATERIAL_OFFSET + 0] = material_active ? roughness : 0.0f;
-			target[INSTANCE_MATERIAL_OFFSET + 1] = material_active ? metallic : 0.0f;
-			target[INSTANCE_MATERIAL_OFFSET + 2] = material_active ? 1.0f : 0.0f;
-			//第 4 分量为自发光强度（第七十轮；恒生效，0 = 无自发光）
-			target[INSTANCE_MATERIAL_OFFSET + 3] = emissive;
-			/*
-			逐物体卡通参数（第四百零八轮）
-			覆盖标志置于第 4 分量（w）：0 = 不覆盖，片元着色器回落场景 UBO 的全局卡通参数；
-			故未带 toon_override 的绘制项与旧版逐字节一致。
-			*/
-			target[INSTANCE_TOON_OFFSET + 0] = toon_active ? toon_steps : 0.0f;
-			target[INSTANCE_TOON_OFFSET + 1] = toon_active ? toon_rim : 0.0f;
-			target[INSTANCE_TOON_OFFSET + 2] = toon_active ? toon_specular : 0.0f;
-			target[INSTANCE_TOON_OFFSET + 3] = toon_active ? 1.0f : 0.0f;
-			/*
-			逐物体卡通暗部色调（第四百零九轮）
-			xyz = 色调；仅当卡通覆盖标志为真时被片元读取（默认 (1,1,1) 即不色偏）；
-			w 保留为 0。
-			*/
-			target[INSTANCE_TOON_TINT_OFFSET + 0] = toon_tint_r;
-			target[INSTANCE_TOON_TINT_OFFSET + 1] = toon_tint_g;
-			target[INSTANCE_TOON_TINT_OFFSET + 2] = toon_tint_b;
-			target[INSTANCE_TOON_TINT_OFFSET + 3] = 0.0f;
-		}
-		return offset;
-	}
-
-	//绘制整个网格（内部转交区间绘制；区间 (0, 0) 表示整段，第四百一十轮）
 	bool Renderer_Mesh::mesh_draw(Mesh_Handle handle, const float* transform, const float* color)
 	{
 		return self().mesh_draw_range(handle, transform, color, 0u, 0u);
 	}
 
-	//按索引区间绘制网格（第四百一十轮；物体多材质的分段绘制基础）
 	bool Renderer_Mesh::mesh_draw_range(Mesh_Handle handle, const float* transform, const float* color,
 		uint32_t first_index, uint32_t range_count)
 	{
@@ -696,7 +355,6 @@ namespace engine
 		return true;
 	}
 
-	//多材质分段绘制（第四百一十轮；一个物体一次请求内使用多个材质）
 	bool Renderer_Mesh::mesh_draw_sections(Mesh_Handle handle, const float* transform,
 		const Material_Handle* materials, uint32_t count, const Material_Instance_Data* instances)
 	{
@@ -817,7 +475,6 @@ namespace engine
 		return success;
 	}
 
-	//实例化绘制（同一网格 × count 个模型矩阵，一次绘制调用提交）
 	bool Renderer_Mesh::mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count)
 	{
 		//若尚未初始化
@@ -1026,5 +683,4 @@ namespace engine
 		impl->pending_items.push_back(item);
 		return true;
 	}
-
 }
