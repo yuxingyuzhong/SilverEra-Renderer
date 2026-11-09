@@ -48,15 +48,26 @@
 #include "Engine/EngineRenderer/src/render/UI/UI事件桥.h"
 //事件终端（渲染层向系统层投递原始输入）
 #include "Engine/EngineFoundation/src/event/Event_Terminal/事件终端.h"
+#include "实现体_常量.h"
+#include "实现体_平台.h"
+#include "实现体_内存.h"
+#include "实现体_交换链.h"
+#include "实现体_帧.h"
+#include "实现体_资源.h"
+#include "实现体_场景.h"
+#include "实现体_子系统.h"
+#include "实现体_状态.h"
 
 //游戏引擎命名空间
 namespace engine
 {
 	/*
 	渲染器实现体
-	持有各模块的实例并按依赖顺序编排创建与销毁；本类只被 渲染器.cpp 使用。
+	成员按域分散在 8 个聚合子结构（见 实现体_*.h），本类以继承方式聚合，
+	故 impl->成员 与函数体内的无限定访问写法全部保持不变。
 	*/
-	class Renderer::Impl
+	class Renderer_Impl_Holder::Impl : public Renderer_Impl_平台, public Renderer_Impl_内存, public Renderer_Impl_交换链, public Renderer_Impl_帧,
+		public Renderer_Impl_资源, public Renderer_Impl_场景, public Renderer_Impl_子系统, public Renderer_Impl_状态
 	{
 	public:
 		/*
@@ -159,51 +170,23 @@ namespace engine
 		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
 		//销毁 SSAA 超采样目标（关闭时调用；句柄清零）
 		void ssaa_targets_destroy(void);
+
+		//按句柄取 Vulkan 缓冲（第三百四十一轮；供描述符集写入；未找到返回空）
+		VkBuffer compute_buffer_native(uint64_t handle) const;
+		/*
+		计算存储缓冲创建（第三百四十二轮；可追加 Vulkan 用法位）
+		主机可见 STORAGE（恒含 TRANSFER_SRC），extra_usage 追加额外用法（如 INDIRECT_BUFFER）；
+		句柄自 1 起登记，失败时句柄置 0 且不留下任何资源。
+		*/
+		bool compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data,
+			VkBufferUsageFlags extra_usage);
+
+		//帧阶段：光源空间矩阵与级联拟合
+		void frame_stage_shadow_matrices(void);
+		//帧阶段：描述符集与实例句柄填装
+		void frame_stage_descriptor_sets(uint32_t slot);
 		//配置（init 成功后生效）
-		Renderer_Config config;
-		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
-		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
-		/*
-		光照参数（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源；随场景 UBO 逐帧下发）
-		默认值保证「未提供法线的网格」画面与旧版完全一致：
-		方向 (0,0,-1)（朝 -Z 传播）、颜色白、强度 1、环境光 0、无点光源 → 照度为 1。
-		*/
-		float light_direction[3] = { 0.0f, 0.0f, -1.0f };
-		float light_color[3] = { 1.0f, 1.0f, 1.0f };
-		float light_intensity = 1.0f;
-		float light_ambient = 0.0f;
-		//环境光颜色（第四十轮；默认白，与引入该参数前一致）
-		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
-		//半球环境光（第四十七轮）：rgb = 地面颜色、w = 混合强度（0 = 关闭，只用 ambient_color）
-		float ambient_ground[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
-		//补光（第四十七轮）：第二盏方向光；强度 0 = 关闭
-		float fill_direction[3] = { 0.0f, 0.0f, -1.0f };
-		float fill_color[3] = { 1.0f, 1.0f, 1.0f };
-		float fill_intensity = 0.0f;
-		//方向光 / 补光的逐光高光缩放（第五十轮；1 = 跟随全局，0 = 不产生高光）
-		float directional_specular = 1.0f;
-		float fill_specular = 1.0f;
-		//镜面高光（第三十一轮；对全部光源生效）
-		float specular_intensity = 0.0f;
-		float specular_shininess = 16.0f;
-		/*
-		距离衰减模式（第三十六轮；对点光源与聚光灯共同生效）
-		0 = 线性（clamp(1 − d / radius)，默认，与引入该开关前一致）；1 = 平方反比（1 / (1 + (d / radius)²)）。
-		随场景 UBO 的 `light_color.w` 逐帧下发。
-		*/
-		uint32_t attenuation_mode = 0;
-		/*
-		距离雾（第三十八轮）
-		密度为 0 表示关闭（默认，画面与引入雾前一致）；开启后按「相机 → 片元」距离在起始 / 结束距离间平滑混入雾色。
-		*/
-		float fog_color[3] = { 0.05f, 0.05f, 0.10f };
-		float fog_density = 0.0f;
-		float fog_start = 1.0f;
-		float fog_end = 10.0f;
-		//雾模式（第一百四十三轮：0 = 线性区间、1 = 指数平方；写入 fog_range.z）
-		uint32_t fog_mode = 0;
-		//雾高度衰减系数（第一百四十三轮；写入 fog_range.w；0 = 关闭）
-		float fog_height_falloff = 0.0f;
+
 		/*
 		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
 		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。
@@ -240,69 +223,15 @@ namespace engine
 		};
 		//旧前向路径（场景 UBO）支持的光源上限（与着色器数组一致；第二百八十轮；第六百九十九轮由 8 扩为 16）
 		static constexpr uint32_t POINT_LIGHT_UBO_MAX = LIGHT_LEGACY_MAX;
+
 		//光源登记上限（Cluster 开启时生效；关闭时按 UBO 上限截断并告警；第二百八十轮）
 		static constexpr uint32_t POINT_LIGHT_MAX = LIGHT_RECORD_CAPACITY;
+
 		//点光源数组与当前数量
 		Point_Light point_lights[POINT_LIGHT_MAX];
+
 		uint32_t point_light_count = 0;
-		//是否发生过「Cluster 关闭且超过 UBO 上限」的截断告警（第二百八十轮）
-		bool light_truncated = false;
-		/*
-		光源选择配置与诊断（第六百四十五轮；A1 / A4）
-		light_select_mode = 0 声明顺序（默认）、1 重要性选择；light_budget = 0 跟随路径上限；
-		light_dropped 为最近一次场景应用中被预算 / 选择淘汰的光源数（供 Frame_Stats 导出）。
-		*/
-		uint32_t light_select_mode = 0;
-		uint32_t light_budget = 0;
-		uint32_t light_dropped = 0;
-		/*
-		阴影 pass 诊断（第六百四十七轮；A4 补齐）
-		last_shadow_passes = 最近一帧实际执行的阴影 pass 数（方向光级联 ＋ 聚光瓦片；复用帧为 0）；
-		last_spot_shadow_passes = 其中聚光瓦片 pass 数。
-		*/
-		uint32_t last_shadow_passes = 0;
-		uint32_t last_spot_shadow_passes = 0;
-		/*
-		PCSS 软阴影配置（第六百五十七轮）
-		默认关闭；开启后着色器以 16 点阻塞物搜索 ＋ 16 点可变半径 PCF 取代硬边 / 3×3 软度口径。
-		*/
-		bool shadow_pcss_enabled = false;
-		float shadow_pcss_search = 24.0f;
-		float shadow_pcss_max = 8.0f;
-		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
-		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		//逐盏聚光灯阴影质量缩放（第七百零八轮；软度 / 强度，按前向槽位，默认 1）
-		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		//阴影分辨率预算（第六百五十九轮；0 = 关闭；门面 shadow_budget_set 的存值副本）
-		uint64_t shadow_budget_bytes = 0;
-		//曝光补偿 EV（第六百六十轮；0 = 关闭；写场景 UBO 237）
-		float exposure = 0.0f;
-		/*
-		级联纹素钳制与自动淡化（第六百六十一轮）
-		shadow_texel_max = 纹素世界尺寸上限（0 = 关闭）；cascade_blend_auto = 自动淡化建议开关（默认关）；
-		cascade_blend_effective = 本帧实际写入 UBO 290 的淡化比例；shadow_texel_world = 本帧生效纹素（多级取最大）。
-		*/
-		float shadow_texel_max = 0.0f;
-		bool cascade_blend_auto = false;
-		float cascade_blend_effective = 0.0f;
-		float shadow_texel_world = 0.0f;
-		//最近一次阴影重绘的命令缓冲提交次数（第六百六十五轮；C2 基线，现口径等于片数）
-		uint32_t last_shadow_submits = 0;
-		//阴影批量提交开关（第六百六十九轮；默认关，开启且段数 > 1 时一次提交）
-		bool shadow_batch_submit = false;
-		//平台模块
-		Platform_Context platform;
-		//设备模块
-		Device_Context device;
-		//内存模块
-		Memory_Context memory;
-		//交换链模块
-		Swapchain_Context swapchain;
-		//帧模块
-		Frame_Context frame;
-		//着色器模块
-		Shader_Context shader;
+
 		//具名管线记录（句柄 → 顶点 / 片元着色器模块；着色器模块所有权在门面，随卸载 / 关闭销毁）
 		struct Extra_Pipeline_Record
 		{
@@ -315,192 +244,10 @@ namespace engine
 		};
 		//管线模块
 		Pipeline_Context pipeline;
+
 		//具名管线集合（默认场景管线不在内）
 		std::vector<Extra_Pipeline_Record> extra_pipelines;
-		/*
-		计算管线上下文（第二百四十一轮）
-		设备不支持计算路径时 supported() 为假，但初始化不失败；此时全部 GPU 路径保持关闭。
-		*/
-		Compute_Context compute;
-		//计算健康检查管线句柄（内置自检；0 = 未登记）
-		uint64_t compute_health_handle = 0;
-		//计算健康检查着色器模块（所有权在本实现体，随 shutdown 销毁）
-		VkShaderModule compute_health_module = VK_NULL_HANDLE;
-		//GPU 能力与降级矩阵探测结果（第二百四十六轮）
-		Compute_Capabilities compute_capabilities;
-		//视锥剔除管线句柄（懒加载；第二百四十八轮；0 = 尚未加载）
-		Compute_Pipeline_Handle gpu_cull_pipeline = 0;
-		//GPU 实例压缩管线句柄（懒加载；第二百四十九轮；0 = 尚未加载）
-		Compute_Pipeline_Handle gpu_compact_pipeline = 0;
-		//GPU 实例剔除开关（第二百四十九轮；默认关）
-		bool gpu_cull_enabled = false;
-		//最近一次 GPU 剔除耗时（毫秒；第二百四十九轮）
-		double last_gpu_cull_ms = 0.0;
-		//GPU 压缩累计派发次数（第二百五十一轮）
-		uint64_t gpu_cull_dispatches = 0;
-		//间接绘制开关（第二百五十二轮；默认关）
-		bool gpu_indirect_enabled = false;
-		//设备是否支持间接绘制命令的 firstInstance 非零（第二百五十二轮；不支持时整轮回落逐项）
-		bool indirect_first_instance_supported = false;
-		/*
-		Hi-Z 上下文（第二百五十三轮）
-		按帧槽持有深度历史与 mip 金字塔；默认关闭时不创建任何资源，首次开启时惰性构建。
-		hiz_capable 为初始化时探测结果（计算可用 ＋ R32 浮点存储图像可用）。
-		*/
-		HiZ_Context hiz;
-		bool hiz_enabled = false;
-		bool hiz_capable = false;
-		//Hi-Z 生成管线（第二百五十四轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle hiz_depth_copy_pipeline = 0;
-		Compute_Pipeline_Handle hiz_downsample_pipeline = 0;
-		//最近一次完成金字塔生成的帧槽（第二百五十六轮；剔除读取该槽的上一帧金字塔）
-		uint32_t last_hiz_slot = 0;
-		//最近一次 GPU 压缩被 Hi-Z 完全遮挡而剔除的实例数（第二百六十一轮）
-		uint32_t last_gpu_occluded = 0;
-		/*
-		Cluster 光照（第二百六十六轮）
-		cluster_enabled 为开关（默认关）；cluster_capable 为初始化探测（计算路径可用）；
-		light_buffers / light_allocations 按帧槽持有光源记录 SSBO（仅开启时创建）；
-		last_cluster_light_count 为最近一帧上传的记录数。
-		*/
-		bool cluster_enabled = false;
-		bool cluster_capable = false;
-		std::vector<VkBuffer> light_buffers;
-		std::vector<VmaAllocation> light_allocations;
-		uint32_t last_cluster_light_count = 0;
-		//光源记录组装缓冲（复用，避免逐帧分配）
-		std::vector<Light_Record> light_records_scratch;
-		//分簇网格（第二百六十七轮；默认 16 × 9 × 24，运行期钳制）
-		Cluster_Grid cluster_grid;
-		//逐簇计数管线（第二百六十八轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_count_pipeline = 0;
-		//块内前缀和管线（第二百六十九轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_scan_pipeline = 0;
-		//块间偏移与偏移合成管线（第二百七十轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_block_offset_pipeline = 0;
-		Compute_Pipeline_Handle cluster_offset_apply_pipeline = 0;
-		//列表写入管线（第二百七十一轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_list_pipeline = 0;
-		//最近一次簇数据整备观测（第二百七十二轮）
-		uint32_t last_cluster_entries = 0;
-		double last_cluster_build_ms = 0.0;
-		//帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
-		std::vector<uint32_t> cluster_counts_scratch;
-		std::vector<uint32_t> cluster_offsets_scratch;
-		std::vector<uint32_t> cluster_list_scratch;
-		/*
-		图形 set0 的簇数据存储缓冲（第二百八十八轮；按帧槽持有）
-		binding 2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表；仅 Cluster 开启时惰性构建，
-		列表按条目数增长重建（计数 / 偏移容量 = 簇数）。
-		*/
-		std::vector<VkBuffer> cluster_counts_buffers;
-		std::vector<VmaAllocation> cluster_counts_allocations;
-		std::vector<VkBuffer> cluster_offsets_buffers;
-		std::vector<VmaAllocation> cluster_offsets_allocations;
-		std::vector<VkBuffer> cluster_list_buffers;
-		std::vector<VmaAllocation> cluster_list_allocations;
-		//已建容量（簇数 / 列表条目数）；增长时才重建
-		uint32_t cluster_counts_capacity = 0;
-		uint32_t cluster_list_capacity = 0;
-		//Cluster 关闭时的占位存储缓冲（set0 binding 1..4 共用；第二百八十八轮）
-		VkBuffer cluster_placeholder_buffer = VK_NULL_HANDLE;
-		VmaAllocation cluster_placeholder_allocation = VK_NULL_HANDLE;
-		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
-		uint32_t last_cluster_gpu_bytes = 0;
-		/*
-		粒子绘制数据源（第三百一十轮；模拟状态已迁出渲染层）
-		states / alive / source_capacity 由应用层绑定；本层只读取（GPU 推进回读时写入 states），
-		并在其上完成上传与 billboard 绘制登记。
-		*/
-		bool particle_enabled = false;
-		Particle_State* particle_states = nullptr;
-		uint8_t* particle_alive = nullptr;
-		uint32_t particle_source_capacity = 0;
-		//GPU 缓冲容量（独立于绑定容量；容量变化才重建缓冲）
-		uint32_t particle_capacity = PARTICLE_CAPACITY_DEFAULT;
-		Particle_Params particle_params{};
-		Particle_Emitter particle_emitter{};
-		bool particle_emitter_configured = false;
-		/*
-		CPU 绘制临时缓冲（第三百六十四轮；逐帧复用）
-		particle_draw 每次调用都会重建实例矩阵 / 深度 / 常驻回读三组临时数组，容量稳定时可复用底层存储，
-		避免每帧重复分配（内容每次 clear 后重填，语义与局部 vector 一致）。
-		*/
-		std::vector<float> particle_draw_transforms;
-		std::vector<float> particle_draw_depths;
-		std::vector<uint8_t> particle_draw_resident_bitmap;
-		std::vector<Particle_State> particle_draw_resident_states;
-		std::vector<uint8_t> particle_draw_resident_alive;
-		/*
-		粒子 GPU 推进资源（第三百一十一轮；惰性创建）
-		front / back 为双缓冲（容量 × 32 字节主机可见 SSBO）；pipeline 为推进着色器。
-		*/
-		Compute_Buffer_Handle particle_buffer_front = 0;
-		Compute_Buffer_Handle particle_buffer_back = 0;
-		//力场数组（第三百一十八轮；8 × 40 字节）
-		Compute_Buffer_Handle particle_force_buffer = 0;
-		/*
-		常驻推进（第三百二十七轮；默认关闭）
-		control 缓冲 = [0] 环形写指针、[1] 活跃计数、[2..] 活跃位图（每 32 粒子一字）；
-		emit_pipeline 为「Particle发射.comp」；resident_active 为最近一次回读的 GPU 活跃数。
-		*/
-		bool particle_resident = false;
-		Compute_Buffer_Handle particle_control_buffer = 0;
-		Compute_Pipeline_Handle particle_emit_pipeline = 0;
-		Compute_Pipeline_Handle particle_resident_step_pipeline = 0;
-		uint32_t particle_control_bytes = 0;
-		uint32_t particle_resident_active = 0;
-		Compute_Pipeline_Handle particle_step_pipeline = 0;
-		uint32_t particle_buffer_capacity = 0;
-		/*
-		常驻紧凑索引（第三百三十三轮；阶段 D）
-		compact_pipeline 为「Particle紧凑.comp」，index_buffer 为 uint32 × 容量，compact_count_buffer 存原子计数；
-		compact_count 为最近一次回读的索引数。
-		*/
-		Compute_Pipeline_Handle particle_compact_pipeline = 0;
-		Compute_Buffer_Handle particle_index_buffer = 0;
-		Compute_Buffer_Handle particle_compact_count_buffer = 0;
-		uint32_t particle_compact_count = 0;
-		//最近一次紧凑的主机侧耗时（毫秒；第三百四十轮）
-		double particle_compact_ms_last = 0.0;
-		//最近一次粒子绘制登记的路径（第三百四十八轮；0 未登记 / 1 CPU / 2 GPU 直接 / 3 GPU 间接）
-		uint32_t particle_draw_path_last = 0;
-		//最近一次 GPU 单步判定的死亡数（第三百一十三轮）
-		uint32_t particle_gpu_died_last = 0;
-		/*
-		粒子 billboard 绘制资源（第三百一十四轮；惰性创建）
-		quad 为单位四边形网格（XY 平面 ±0.5），pipeline 为「粒子.vert / 粒子.frag」Alpha 混合管线。
-		*/
-		Mesh_Handle particle_quad_mesh = 0;
-		uint64_t particle_draw_pipeline = 0;
-		//粒子 GPU 绘制管线（第三百四十一轮；不消费实例属性，按 gl_InstanceIndex 取紧凑索引）
-		uint64_t particle_gpu_pipeline = 0;
-		/*
-		粒子 GPU 间接绘制（第三百四十二轮；阶段 D）
-		indirect_pipeline 为「Particle间接.comp」；indirect_buffers 为按帧槽划分的 20 字节命令缓冲
-		（STORAGE + INDIRECT，主机可见便于回读）；indirect_last_slot 为最近一次写入的帧槽。
-		*/
-		Compute_Pipeline_Handle particle_indirect_pipeline = 0;
-		std::vector<Compute_Buffer_Handle> particle_indirect_buffers;
-		uint32_t particle_indirect_last_slot = 0;
-		bool particle_indirect_written = false;
-		//粒子混合档与深度写入（第三百一十六轮；切档重建粒子管线）
-		Blend_Mode particle_blend_mode = Blend_Mode::Alpha;
-		bool particle_depth_write = false;
-		//粒子深度分桶数（第三百一十七轮；0 = 关闭）
-		uint32_t particle_sort_buckets = 0;
-		/*
-		粒子模拟统计（第三百二十二轮）
-		born / died 自 init 累计；sim_ms 为最近一次步进主机侧耗时；gpu_ms 为最近一次 GPU 调度设备耗时（−1 表示不可用）。
-		*/
-		uint64_t particle_born_total = 0;
-		uint64_t particle_died_total = 0;
-		double particle_sim_ms_last = 0.0;
-		double particle_gpu_ms_last = -1.0;
-		//间接命令缓冲容量（每条命令 20 字节；第二百五十二轮）
-		static constexpr uint32_t INDIRECT_COMMAND_CAPACITY = 4096;
-		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）
-		static constexpr uint32_t INDIRECT_COMMAND_BYTES = 20;
+
 		/*
 		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
 		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；
@@ -521,17 +268,7 @@ namespace engine
 		};
 		//计算存储缓冲集合
 		std::vector<Compute_Buffer_Record> compute_buffers;
-		//按句柄取 Vulkan 缓冲（第三百四十一轮；供描述符集写入；未找到返回空）
-		VkBuffer compute_buffer_native(uint64_t handle) const;
-		/*
-		计算存储缓冲创建（第三百四十二轮；可追加 Vulkan 用法位）
-		主机可见 STORAGE（恒含 TRANSFER_SRC），extra_usage 追加额外用法（如 INDIRECT_BUFFER）；
-		句柄自 1 起登记，失败时句柄置 0 且不留下任何资源。
-		*/
-		bool compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data,
-			VkBufferUsageFlags extra_usage);
-		//下一个计算缓冲句柄
-		uint64_t next_compute_buffer_handle = 1;
+
 		/*
 		计算管线条目（第二百四十三轮）
 		handle = 门面句柄；context_handle = 计算上下文内部句柄；module = 着色器模块（本实现体持有）。
@@ -547,8 +284,7 @@ namespace engine
 		};
 		//计算管线条目集合
 		std::vector<Compute_Pipeline_Record> compute_pipelines;
-		//下一个计算管线句柄
-		uint64_t next_compute_pipeline_handle = 1;
+
 		//材质记录（管线 ＋ 纹理 ＋ 逐物体 PBR；有效标记用于句柄槽复用）
 		struct Material_Record
 		{
@@ -612,562 +348,5 @@ namespace engine
 		};
 		//材质集合（下标 = 句柄 - 1）
 		std::vector<Material_Record> materials;
-		/*
-		按「混合档 × 覆盖率写入 × 双面渲染 × 深度写入」组合缓存的具名管线（第一百七十三轮扩为单表八组合）
-		下标 = 档位序 × 8 + 组合位（bit2 = 关闭深度写入、bit1 = 覆盖率写入、bit0 = 双面渲染），0 表该组合尚未登记；
-		材质共享同组合的具名管线（以默认场景着色器对登记），故同组合多个材质不再各自登记；
-		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
-		*/
-		std::vector<uint64_t> material_pipelines;
-		//当前绘制所选管线句柄（0 = 默认场景管线）
-		uint64_t bound_pipeline_request = 0;
-		//网格模块
-		Mesh_Context mesh;
-		//纹理模块
-		Texture_Context texture;
-		//相机（生成每帧视图 × 投影矩阵）
-		Camera camera;
-		//UI 通道（供上层接入 ImGui Vulkan 后端；不代管 UI）
-		Ui_Channel_Context ui_channel;
-		/*
-		原生 UI（保留模式控件树 + GPU 绘制）
-		input 为渲染层自持的帧输入聚合器；ui 为控件树与交互；ui_render 负责 UI 阶段的 GPU 绘制。
-		两个 UI 管线由 ui_pipeline_ensure 惰性登记，着色器模块随 extra_pipelines 统一销毁。
-		*/
-		Input_Aggregator input;
-		Ui_Context ui;
-		Ui_Renderer ui_render;
-		//UI 纯色管线句柄（0 = 未登记）
-		uint64_t ui_solid_pipeline = 0;
-		//UI 文字管线句柄（0 = 未登记）
-		uint64_t ui_text_pipeline = 0;
-		//UI 管线是否已尝试登记
-		bool ui_pipeline_ready = false;
-		/*
-		系统输入 / UI 事件桥
-		ui_event 持有事件终端并负责 Raw、鼠标焦点、模态、文本会话的出站与
-		焦点变更 / 文本模式 / 语义命令 / 文本语义的入站。
-		*/
-		Ui_Event_Bridge ui_event;
-		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
-		Render_Target_Context render_target;
-		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
-		static constexpr uint32_t SHADOW_SIZE = 1024;
-		//阴影图实际边长（第五十四轮；可配 512 / 1024 / 2048）
-		uint32_t shadow_size = SHADOW_SIZE;
-		//上一帧阴影输入签名（第五十五轮；未就绪时为 0）
-		uint64_t shadow_signature = 0;
-		//上一帧阴影图是否可用（第五十五轮；重建目标 / 关闭时置假）
-		bool shadow_pass_ready = false;
-		//累计实际执行的阴影 pass 次数（第五十五轮；观测与测试）
-		uint64_t shadow_pass_count = 0;
-		//累计阴影重绘次数（第一百四十五轮）
-		uint64_t shadow_redraws = 0;
-		//累计阴影图复用次数（签名一致跳过重绘；第一百四十五轮）
-		uint64_t shadow_reuses = 0;
-		//最近一次阴影重绘的绘制项数（第一百四十五轮）
-		uint32_t last_shadow_items = 0;
-		//最近一帧是否重绘了阴影图（1 = 重绘、0 = 复用或未执行；第一百四十五轮）
-		uint32_t shadow_last_redrawn = 0;
-		//最近一帧参与投影的聚光灯阴影瓦片数（第五百二十轮；0..8）
-		uint32_t spot_shadow_tiles = 0;
-		//最近一次阴影 pass 的并行段数（第二百一十二轮；0 = 单线程录制）
-		uint32_t last_shadow_parallel_segments = 0;
-		//阴影管线句柄（第五十二轮；0 = 未登记）
-		uint64_t shadow_pipeline = 0;
-		/*
-		反向外扩描边（第二百二十八轮）
-		width = 外扩宽度（世界单位；0 = 关闭），color = 描边色（RGB 0..1）；
-		outline_pipeline 为「剔除正面」的具名场景管线（登记失败时为 0，此时描边自动失效）；
-		outline_push 为逐帧推送块（x = 宽度、yzw = 颜色），绘制项持其指针直到 frame_render 消费。
-		*/
-		uint64_t outline_pipeline = 0;
-		float outline_width = 0.0f;
-		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
-		std::array<float, 4> outline_push = { 0.0f, 0.0f, 0.0f, 0.0f };
-		//阴影目标句柄（第五十二轮；0 = 未创建）
-		uint64_t shadow_target = 0;
-		//聚光灯阴影瓦片数（第五百一十三轮由 4 扩为 8）
-		static constexpr std::size_t SPOT_SHADOW_TILES = 8;
-		//自校准偏置的参考锥远平面（第五百二十一轮；radius 9 时与手动偏差等价）
-		static constexpr float SPOT_BIAS_REFERENCE_SPAN = 9.0f;
-		/*
-		聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张；第五百一十三轮扩为 8 张）
-		与 shadow_target 同参数的独立阴影图，采样绑定 set 1 binding 9 的数组元素 0..7；
-		元素 0 与旧单盏行为兼容，其余七张供多盏聚光灯各自投影。
-		*/
-		/*
-		聚光阴影图集（第六百七十轮；C1）
-		atlas_target = 单张 4S × 2S 目标（0 = 未创建）；atlas = 实际生效（创建成功且开关打开）；
-		atlas_requested = 数据层请求（创建失败时保持请求，避免逐帧重试）。
-		*/
-		uint64_t spot_shadow_atlas_target = 0;
-		bool spot_shadow_atlas = false;
-		bool spot_shadow_atlas_requested = false;
-		uint64_t spot_shadow_targets[SPOT_SHADOW_TILES] = {};
-		//聚光灯阴影矩阵（第四百八十三轮；第五百零七轮扩为 4 份；第五百一十三轮扩为 8 份，关闭时为零矩阵）
-		float spot_view_proj_tiles[SPOT_SHADOW_TILES][16] = {};
-		//聚光灯阴影深度跨度（第四百八十四轮；第五百零七轮扩为 4 份；第五百一十三轮扩为 8 份，0 = 该瓦片无有效聚光灯）
-		float spot_shadow_spans[SPOT_SHADOW_TILES] = {};
-		/*
-		逐瓦片有效阴影偏置（第五百二十一轮）
-		默认等于 spot_shadow_bias；开启自校准后按「参考跨度 9 / 该瓦片跨度」缩放，
-		使不同半径的聚光灯在相同参数下得到接近一致的世界法线偏移。
-		*/
-		float spot_shadow_bias_tiles[SPOT_SHADOW_TILES] = {};
-		/*
-		逐瓦片质量缩放（第七百零八轮；按前向槽位 0..7 写入）
-		软度缩放 / 强度缩放，默认 1（与全局参数相同，画面逐字节不变）。
-		*/
-		float spot_shadow_softness_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		float spot_shadow_strength_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-		//聚光灯阴影偏置自校准开关（第五百二十一轮；默认关闭，画面与引入前逐字节一致）
-		bool spot_shadow_bias_auto = false;
-		//聚光灯阴影槽位映射（第五百零七轮；前向槽位各自对应的瓦片号，-1 = 不投影；第七百零九轮扩为 32 槽）
-		float spot_shadow_slot_tiles[32] = {
-			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
-			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
-			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
-			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
-		};
-		//逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31，默认 0 = 全部同分）
-		float spot_shadow_priority[32] = {};
-		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
-		bool shadow_enabled = false;
-		/*
-		聚光灯阴影（第四百七十四轮）
-		开启时阴影矩阵改为「第 1 盏聚光灯的透视视图投影」，复用方向光阴影图与阴影 pass；
-		着色器以 cascade_params.x = 0 判定聚光模式（方向光阴影让位）。
-		*/
-		bool spot_shadow_enabled = false;
-		/*
-		聚光灯阴影质量参数（第四百七十六轮）
-		与方向光阴影参数相互独立：偏置 0..0.05（默认 0.010）、软度 0..1（默认 0）、强度 0..1（默认 1）。
-		*/
-		float spot_shadow_bias = 0.010f;
-		float spot_shadow_softness = 0.0f;
-		float spot_shadow_strength = 1.0f;
-		//聚光灯阴影序号（第四百七十九轮；指向已登记聚光灯槽位 0..7，越界视为无聚光阴影）
-		int spot_shadow_index = 0;
-		/*
-		多盏聚光灯阴影（第五百零七轮）
-		开启时前 4 盏聚光灯按声明顺序各占瓦片 0..3，各自独立阴影图；
-		关闭时沿用 spot_shadow_index 的单盏语义（写入瓦片 0），画面与引入前一致。
-		*/
-		bool spot_shadow_all = false;
-		/*
-		逐盏聚光阴影开关（第六百四十八轮；A2 数据化）
-		按前向槽位（0..7）控制该盏聚光灯是否参与阴影；默认全开（与引入前逐字节一致）。
-		槽位超出 8（簇路径压缩口径）时该数组不适用，对应光源按旧口径参与投影。
-		*/
-		bool spot_shadow_light_enabled[8] = { true, true, true, true, true, true, true, true };
-		/*
-		阴影光源正交视锥（第一百零七轮）
-		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
-		*/
-		float shadow_half_extent = 12.0f;
-		float shadow_near = 1.0f;
-		float shadow_far = 60.0f;
-		/*
-		级联阴影（第一百二十一轮；第一百四十六轮扩为三级）
-		cascade_count 为 1 时沿用上面单级口径（画面逐字节不变）；为 2 / 3 时阴影图按象限切 2 / 3 片：
-		各片覆盖以相机为中心、半径 split × far_scale^(片序) 的包围球，
-		片元按「与相机的距离」在 split、split × far_scale 处选择级联。
-		每片占 shadow_size / 级数 边长，故片内分辨率随级数下降（级联的固有代价）。
-		*/
-		uint32_t cascade_count = 1;
-		float cascade_far_scale = 3.0f;
-		float cascade_split_distance = 12.0f;
-		//级联接缝淡化带宽比例（第一百四十八轮；0 = 硬切换，0.5 = 阈值两侧各半）
-		float cascade_blend = 0.0f;
-		//远区光源空间视图投影矩阵（cascade_count >= 2 时有效；每帧更新）
-		float light_view_proj_far[16] = {};
-		//第三级光源空间视图投影矩阵（cascade_count == 3 时有效；每帧更新）
-		float light_view_proj_far2[16] = {};
-		/*
-		各片光源空间深度跨度（近平面到远平面；第一百二十一轮）
-		片元着色器的法线偏移按「偏置 × 深度跨度」换算到世界量级，逐片跨度不同，故逐片记录。
-		单级时恒为 59（与引入级联前的硬编码口径一致）。
-		*/
-		float cascade_depth_span[3] = { 59.0f, 59.0f, 59.0f };
-		//阴影深度偏置（第五十二轮）
-		float shadow_bias = 0.003f;
-		//阴影软度（第五十三轮；0 = 单点硬边，≥0.5 = 3×3 PCF 平均）
-		float shadow_softness = 0.0f;
-		//阴影强度（第五十三轮；0 = 阴影无效、1 = 全遮蔽）
-		float shadow_strength = 1.0f;
-		/*
-		PBR-lite 镜面开关与粗糙度缩放（第六十四轮）
-		关闭时完全沿用 Blinn-Phong（画面逐字节不变）；粗糙度缩放默认 1（合法 0.05..4）。
-		*/
-		bool pbr_enabled = false;
-		float pbr_roughness = 1.0f;
-		//PBR 金属度（第六十五轮；0 = 介电、1 = 纯金属；默认 0）
-		float pbr_metallic = 0.0f;
-		/*
-		PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
-		默认关闭；开启且 PBR 开启时镜面乘入射余弦，修正掠射角过亮。
-		*/
-		bool pbr_energy = false;
-		//PBR 粗糙度绝对口径（第七百轮；材质 / 全局粗糙度直接作为 GGX 粗糙度）
-		bool pbr_roughness_absolute = false;
-		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
-		float light_view_proj[16] = {};
-		//是否正处于文字绘制回调内（第五十二轮；文字网格不参与阴影投影）
-		bool in_text_draw = false;
-		//本帧渲染目标句柄（0 = 直接渲染到交换链）
-		uint64_t active_target = 0;
-		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）
-		uint64_t present_target = 0;
-		/*
-		本帧「同帧后处理链」的额外中间目标句柄（下标 1..N-1；空 = 只有 present_target 一个目标）
-		由 render_target_present_chain_set 设置；链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时至少需 2 个目标。
-		*/
-		std::vector<uint64_t> present_extra;
-		//同帧后处理呈现的目标数上限（= 每帧槽后处理采样集数量，超出即整组拒绝）
-		static constexpr uint32_t PRESENT_TARGET_MAX = Pipeline_Context::POST_SET_PER_SLOT;
-		/*
-		本帧后处理链（各级具名管线句柄，下标即级序；空 = 走既有单级默认后处理路径）
-		由 post_chain_set 设置；各级使用同一全屏几何与场景 UBO，仅管线与源采样集不同。
-		级数上限见 POST_CHAIN_MAX_STAGES。
-		*/
-		std::vector<uint64_t> post_chain;
-		//后处理链级数上限（超出即整链拒绝；每级占用一次全屏 pass，超长链会带来隐性性能坍塌）
-		static constexpr uint32_t POST_CHAIN_MAX_STAGES = 8;
-		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档；仅用于既有单级默认路径）
-		uint64_t post_pipeline = 0;
-		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）
-		Mesh_Handle fullscreen_mesh = 0;
-		/*
-		SSAA 超采样状态（倍率钳制 1..4；1 = 关闭）
-		scene_target 为输出 × 倍率的场景目标，resolve_target 为输出尺寸的解析目标；
-		extent_* / target_factor 记录建立时的参数，变化即重建；extent_failed 避免逐帧重复失败尝试。
-		*/
-		uint32_t ssaa_factor = 1;
-		uint64_t ssaa_scene_target = 0;
-		uint64_t ssaa_resolve_target = 0;
-		uint32_t ssaa_extent_width = 0;
-		uint32_t ssaa_extent_height = 0;
-		uint32_t ssaa_target_factor = 0;
-		//SSAA 降采样具名管线句柄（0 = 尚未登记）
-		uint64_t ssaa_pipeline = 0;
-		/*
-		天空盒 / 简易 IBL（第一百二十五轮）
-		默认关闭，故未启用时画面与引入前逐字节一致；启用后场景片元按法线 / 反射方向采样立方体贴图作补光，
-		并由全屏天空项绘制背景。sky_texture 为用户设置的立方体贴图句柄（0 = 内置纯白立方体）。
-		*/
-		bool sky_enabled = false;
-		uint64_t sky_texture = 0;
-		uint64_t default_sky_texture = 0;
-		uint64_t sky_pipeline = 0;
-		//漫反射（环境补光）强度
-		float sky_ambient = 0.0f;
-		//镜面强度
-		float sky_specular = 0.0f;
-		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
-		uint32_t msaa_samples = 1;
-		//MSAA 深度解析开关（第一百九十轮；默认开启，仅影响采样数 > 1 且走后处理链的路径）
-		bool msaa_depth_resolve = true;
-		//并行录制的最小绘制项数（第二百零二轮；默认 32）
-		uint32_t parallel_min_items = 32;
-		//并行录制的最大段数（第二百零三轮；默认 8）
-		uint32_t parallel_max_segments = 8;
-		//场景顶点着色器声明的顶点输入位置位集（第九十七轮；0 = 未解析 → 按全量处理）
-		uint32_t scene_input_locations = 0;
-		/*
-		后处理采样集绑定签名（第九十七轮）
-		记录上次写入的目标视图组与采样器；未变化则跳过逐帧重写，避免更新在途描述符集。
-		*/
-		VkImageView post_bound_views[PRESENT_TARGET_MAX] = {};
-		uint32_t post_bound_view_count = 0;
-		VkSampler post_bound_sampler = VK_NULL_HANDLE;
-		//后处理采样集 binding 2 已绑定的场景深度视图（第一百二十三轮）
-		VkImageView post_bound_depth = VK_NULL_HANDLE;
-		//后处理采样集 binding 4 已绑定的方向光阴影视图（第三百九十九轮）
-		VkImageView post_bound_shadow = VK_NULL_HANDLE;
-		bool post_bind_cached = false;
-		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
-		bool ssaa_extent_failed = false;
-		//字体模块（TTF → 字形图集）
-		Font_Context font;
-		/*
-		文字绘制子系统（第四十七轮下沉）
-		持有文字管线句柄、文字颜色与「(字体, 文本, 布局) → 网格」缓存；
-		字形补烘 / 管线登记 / 纹理绑定 / 网格创建 / 绘制登记经宿主回调转交本实现体。
-		*/
-		Text_Renderer text;
-		/*
-		泛光参数（阈值 / 软膝 / 强度 / 保留；默认 0.6 / 0.1 / 1.0 / 0）
-		由 bloom_param_set 更新；后处理链各级以推送常量（offset 96）下发。
-		*/
-		float bloom_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
-		/*
-		逐级泛光参数覆盖（第二十三轮）
-		post_stage_param[stage] 有效时覆盖全局 bloom_param（x = 阈值、y = 软膝、z = 强度、w 保留）；
-		由 post_stage_param_set 设置，post_chain_set 时整体清除（链一变，旧下标即失去意义）。
-		*/
-		float post_stage_param[POST_CHAIN_MAX_STAGES][4] = {};
-		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
-		/*
-		逐级描边色（第一百八十一轮）
-		post_stage_color[stage] 为该级的描边色（rgb 0..1；默认 (0,0,0) = 压暗到黑）；
-		随「源 / 宿尺寸 ＋ 泛光参数」一并经推送常量（offset 112）下发；post_chain_set 时整体清除。
-		*/
-		float post_stage_color[POST_CHAIN_MAX_STAGES][4] = {};
-		bool post_stage_color_valid[POST_CHAIN_MAX_STAGES] = {};
-		/*
-		逐级额外四参（第四百零一轮）
-		写入推送块 offset 128 的第四组；设备 maxPushConstantsSize < 144 时接口拒绝写入（保持全零）。
-		与 param / color 同生命周期：post_chain_set 或级序压缩时整体清除。
-		*/
-		float post_stage_extra[POST_CHAIN_MAX_STAGES][4] = {};
-		bool post_stage_extra_valid[POST_CHAIN_MAX_STAGES] = {};
-		//设备是否支持 144 字节推送块（仅决定 extra 写入接口是否可用）
-		bool post_extra_supported = false;
-		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
-		uint64_t culled_items = 0;
-		/*
-		最近一帧的即时观测（第一百三十二轮）
-		frame_culled_items 为「本帧已登记阶段」累计、在 frame_render 收尾时转存到 last_culled_items 并清零；
-		last_draw_items / last_instances 在合批之后、清空待绘制项之前取用（故与累计口径一致）。
-		*/
-		uint64_t frame_culled_items = 0;
-		/*
-		实例级剔除（第一百五十三轮）
-		culled_instances 为自 init 以来因视锥剔除而未写入实例缓冲的实例数；
-		frame_culled_instances 为当前帧累计，帧收尾转存 last_culled_instances 后清零；
-		instanced_cull_scratch 为筛选可见实例的复用缓冲（避免每次调用分配）。
-		*/
-		uint64_t culled_instances = 0;
-		uint64_t frame_culled_instances = 0;
-		uint64_t last_culled_instances = 0;
-		//当前帧 / 最近一帧 / 累计的主机侧剔除耗时（毫秒；第二百四十七轮）
-		double frame_cull_ms = 0.0;
-		double last_cull_ms = 0.0;
-		double cull_total_ms = 0.0;
-		std::vector<float> instanced_cull_scratch;
-		/*
-		实例级剔除的可见性掩码（第一百七十七轮）
-		并行判定时每个实例只写自己的掩码槽（1 = 可见、0 = 剔除），压缩阶段仍单线程按原顺序执行，
-		故实例顺序（即绘制顺序）与单线程路径一致；按实例上限预留，避免逐次调用分配。
-		*/
-		std::vector<uint8_t> instanced_cull_mask;
-		/*
-		实例缓冲差异掩码（第一百七十七轮）
-		按「一个实例 = 80 字节」逐实例比较上一次写入内容，并行只写各自的掩码槽；
-		连续变化段仍单线程按掩码扫描，故上传区间与单线程路径完全一致。
-		*/
-		std::vector<uint8_t> instance_changed_mask;
-		/*
-		线程池（第一百七十七轮）
-		render_threads > 0 时启动工作线程，把「实例级剔除」与「实例缓冲差异扫描」按块分派；
-		0（默认）不启动任何线程，ranges_run 退化为调用线程整段执行，行为与引入并行前逐字节一致。
-		*/
-		Thread_Pool thread_pool;
-		//实例级剔除转为并行的最小实例数（默认 256；第二百二十二轮起由配置覆盖）
-		std::size_t cull_parallel_min_instances = 256;
-		//实例缓冲差异扫描 / 缓存回写转为并行的最小实例数（默认 512；第二百二十六轮起由配置覆盖）
-		std::size_t instance_scan_parallel_min = 512;
-		uint64_t last_culled_items = 0;
-		uint64_t last_draw_items = 0;
-		uint64_t last_instances = 0;
-		/*
-		合批收益观测（第一百三十五轮）
-		frame_merged_items 为本帧（主 pass ＋ 阴影各片）被合并掉的项数，帧收尾转存 last_merged_items 并清零；
-		merged_items 为自 init 以来累计被合并项数。
-		*/
-		uint64_t frame_merged_items = 0;
-		uint64_t last_merged_items = 0;
-		uint64_t merged_items = 0;
-		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
-		double shadow_gpu_ms = 0.0;
-		//是否启用视锥剔除（第二十五轮；默认开启；关闭时全部绘制项照常登记）
-		bool cull_enabled = true;
-		//当前生效的渲染工作线程数（第一百七十七轮；0 = 单线程）
-		uint32_t render_threads = 0;
-		//并行派发按用途累计（第二百二十四轮；实例剔除 / 差异扫描 / 缓存回写）
-		uint64_t cull_parallel_dispatches = 0;
-		uint64_t scan_parallel_dispatches = 0;
-		uint64_t cache_parallel_dispatches = 0;
-		//是否启用静态合批（第一百二十七轮；默认开启）
-		bool static_batching = true;
-		/*
-		文字描边参数（第一百四十轮；经推送常量 offset 80 下发）
-		text_outline_uv_width = 描边半宽（图集 UV；0 = 关闭），text_outline_color = 描边色（0..1）。
-		*/
-		float text_outline_uv_width = 0.0f;
-		float text_outline_color[3] = { 0.0f, 0.0f, 0.0f };
-		//本帧推送常量存储（每项 32 浮点 = mat4 矩阵 ＋ 色调 ＋ 材质贴图参数 ＋ UV 变换 ＋ 清漆；deque 保证元素引用稳定，绘制项持其指针）
-		std::deque<std::array<float, 32>> pending_push_constants;
-		//场景 UBO 缓冲（长度 = 在途帧数，主机可见，逐帧写入相机矩阵）
-		std::vector<VkBuffer> scene_ubos;
-		//场景 UBO 内存（与 scene_ubos 一一对应）
-		std::vector<VmaAllocation> scene_ubo_allocs;
-		/*
-		场景 UBO 上传缓存（第六十轮）
-		逐帧槽保存上一次已写入的 160 浮点（每个槽一段），用于按变化区间写入；
-		scene_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。
-		*/
-		std::vector<float> scene_block_cache;
-		std::vector<uint8_t> scene_block_cached;
-		//累计场景 UBO 上传字节数（第六十轮；仅供 scene_upload_bytes 观测，不随帧重置）
-		uint64_t scene_upload_bytes = 0;
-		/*
-		实例缓冲上传缓存（第六十一轮）
-		逐帧槽保存上次写入的实例属性（帧槽数 × instance_capacity × 20 浮点）与已写入实例数；
-		instance_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。
-		*/
-		std::vector<float> instance_block_cache;
-		std::vector<uint32_t> instance_block_count;
-		std::vector<uint8_t> instance_block_cached;
-		//累计实例缓冲上传字节数（第六十一轮；仅供 instance_upload_bytes 观测，不随帧重置）
-		uint64_t instance_upload_bytes = 0;
-		//实例缓冲（长度 = 在途帧数，主机可见，逐帧写入本帧全部实例模型矩阵）
-		std::vector<VkBuffer> instance_buffers;
-		//实例缓冲内存（与 instance_buffers 一一对应）
-		std::vector<VmaAllocation> instance_allocations;
-		/*
-		间接命令缓冲（第二百五十二轮；长度 = 在途帧数，主机可见，逐帧写入合批命令）
-		mapped 为持久映射指针（由缓冲创建时的 MAPPED 标志获得），录制时由帧模块直接写入。
-		*/
-		std::vector<VkBuffer> indirect_buffers;
-		std::vector<VmaAllocation> indirect_allocations;
-		std::vector<void*> indirect_mapped;
-		//每帧槽实例缓冲容量（实例个数）
-		uint32_t instance_capacity = 256;
-		//内置默认白纹理句柄
-		uint64_t default_texture = 0;
-		/*
-		当前绑定视图（写入各帧槽 set1 的采样源；持裸句柄）
-		纹理与渲染目标共用同一绑定语义：无论来源是纹理还是渲染目标，均以「实际绑定的图像视图」记录，
-		故采样器状态切换后可直接以该视图重写 set1（处置 R-FACADE-06：不再按句柄回落后覆盖目标绑定）。
-		*/
-		VkImageView bound_view = VK_NULL_HANDLE;
-		//当前绑定采样器（逐绘制项采样集写用；第一百七十四轮）
-		VkSampler bound_sampler = VK_NULL_HANDLE;
-		/*
-		当前材质贴图视图（第一百七十四轮）
-		依次为 法线 / 粗糙度 / 自发光 / 环境光遮蔽 / 金属度；无贴图时为内置默认白纹理视图。
-		*/
-		VkImageView material_views[5] = {};
-		//当前 3D LUT 纹理句柄（第一百四十四轮；0 = 未绑定）
-		uint64_t lut_texture = 0;
-		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
-		Blend_Mode blend_mode = Blend_Mode::Opaque;
-		/*
-		逐物体 PBR 材质吸附状态（第六十八轮）
-		material_pbr_set 之后，后续 mesh_draw / mesh_draw_instanced 的实例属性携带该材质；
-		material_pbr_clear（或 material_bind_set 绑定无覆盖的材质）回落到场景 UBO 的全局 pbr_params。
-		*/
-		bool material_pbr_active = false;
-		//逐物体材质粗糙度缩放（0.05..4）
-		float material_pbr_roughness = 1.0f;
-		//逐物体材质金属度（0..1）
-		float material_pbr_metallic = 0.0f;
-		/*
-		逐物体卡通参数吸附状态（第四百零八轮）
-		material_bind_set 绑定带 toon_override 的材质后，后续 mesh_draw / mesh_draw_instanced
-		的实例属性携带该组卡通参数；绑定 0 或带 toon_override = false 的材质时回落全局。
-		*/
-		bool material_toon_active = false;
-		//逐物体色阶数（0..8）
-		float material_toon_steps = 0.0f;
-		//逐物体边缘光强度（0..1）
-		float material_toon_rim = 0.0f;
-		//逐物体卡通高光阈值（0..1）
-		float material_toon_specular = 0.0f;
-		//逐物体卡通暗部色调（各分量 0..1；默认 (1,1,1) 不色偏；第四百零九轮）
-		float material_toon_tint[3] = { 1.0f, 1.0f, 1.0f };
-		//二次元风格化：色阶数（第一百七十四轮；0 = 关闭，1..8 = 量化档数）
-		uint32_t toon_steps = 0;
-		//二次元风格化：边缘光强度（第一百七十四轮；0 = 关闭，0..1）
-		float toon_rim = 0.0f;
-		//二次元风格化：暗部色调（第一百七十八轮；RGB 0..1，默认 (1,1,1) = 关闭）
-		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
-		//二次元风格化：卡通高光阈值（第一百七十九轮；0 = 关闭，0..1）
-		float toon_specular = 0.0f;
-		/*
-		场景 UBO 浮点数与字节数（第一百七十九轮抽出常量）
-		浮点布局：0 视图投影、16 光照块 … 288 第三级参数、292 卡通高光参数（vec4）、296 簇参数（vec4）；
-		第二百八十五轮由 296 扩为 300（字节 1184 → 1200），追加的 vec4 供下一窗口着色器 Cluster 采样读取。
-		*/
-		//场景 UBO 浮点数（456 个 32 位浮点 = 1824 字节；第五百零七轮追四份聚光矩阵 / 跨度 / 槽位映射，第五百一十三轮扩为 8 份，第五百二十一轮追逐瓦片偏置）
-		/*
-		场景 UBO 浮点规模（第六百七十二轮 460；第六百九十九轮 620；第七百零一轮 940；第七百零八轮 956；第七百零九轮 980）
-		456..459 = `lighting_extra`；460..619 = 高 8..15 槽；620..779 = 16..23 槽；780..939 = 24..31 槽（每组 160 浮点）；
-		940..947 = 逐瓦片软度缩放（8）；948..955 = 逐瓦片强度缩放（8）；956..979 = 槽位 8..31 的瓦片映射（24）。
-		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 980;
-		//逐瓦片软度缩放起始浮点偏移（第七百零八轮）
-		static constexpr std::size_t SCENE_SPOT_SOFTNESS_BASE = 940;
-		//逐瓦片强度缩放起始浮点偏移（第七百零八轮）
-		static constexpr std::size_t SCENE_SPOT_STRENGTH_BASE = 948;
-		//槽位 8..31 的瓦片映射起始浮点偏移（第七百零九轮）
-		static constexpr std::size_t SCENE_SPOT_SLOTS_HI_BASE = 956;
-		//旧段光源槽位数（UBO 原偏移保持不变）
-		static constexpr uint32_t UBO_LEGACY_SLOTS = 8;
-		//高 8 槽在场景 UBO 中的起始浮点偏移（= 620 − 160）
-		static constexpr std::size_t SCENE_HIGH_SLOTS_BASE = 460;
-		//每组高 8 槽占用的浮点数（位置 / 颜色 / 聚光方向 / 锥 / 光泽度）
-		static constexpr std::size_t SCENE_HIGH_GROUP_FLOATS = 160;
-		//场景 UBO 字节数（浮点数 × 4）
-		static constexpr std::size_t SCENE_BLOCK_BYTES = SCENE_BLOCK_FLOATS * sizeof(float);
-		/*
-		逐物体反照率色调吸附状态（第六十九轮）
-		material_tint_set 之后，后续非文字网格绘制在推送常量中携带该色调（albedo × tint）；
-		material_tint_clear（或 material_bind_set 绑定无色调的材质）回落白色（画面不变）。
-		mesh_draw 显式给出的 color 形参优先于该吸附状态。
-		*/
-		bool material_tint_active = false;
-		//逐物体反照率色调（RGBA，各分量 0..1）
-		float material_tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效，无需覆盖标志）
-		float material_emissive = 0.0f;
-		//逐物体法线强度（第一百二十四轮；0 = 不启用，随推送常量 offset 80 的 x 分量下发）
-		float material_normal_strength = 0.0f;
-		//逐物体贴图 UV 缩放（第一百七十一轮；默认 (1,1)，随推送常量 offset 96 的 xy 下发）
-		float material_uv_scale[2] = { 1.0f, 1.0f };
-		//逐物体贴图 UV 偏移（第一百七十一轮；默认 (0,0)，随推送常量 offset 96 的 zw 下发）
-		float material_uv_offset[2] = { 0.0f, 0.0f };
-		//逐物体贴图 UV 旋转（第一百八十三轮；默认 0，随推送常量 offset 80 的 w 下发）
-		float material_uv_rotation = 0.0f;
-		//逐物体 Alpha 裁剪阈值（第一百八十三轮；默认 0 = 关闭，随推送常量 offset 80 的 z 下发）
-		float material_alpha_cutoff = 0.0f;
-		//逐物体清漆强度与粗糙度（第二百三十三轮；默认 0 = 关闭，随推送常量 offset 112 的 xy 下发）
-		float material_clear_coat = 0.0f;
-		float material_clear_coat_roughness = 0.15f;
-		//顶点着色器模块句柄（销毁须先于着色器模块）
-		VkShaderModule vert_module = VK_NULL_HANDLE;
-		//片元着色器模块句柄（销毁须先于着色器模块）
-		VkShaderModule frag_module = VK_NULL_HANDLE;
-		//待绘制项（由 mesh_draw 逐次登记，frame_render 消费后清空；同帧可登记多个网格）
-		std::vector<Frame_Render_Item> pending_items;
-		//合批复用缓冲（第一百三十六轮；避免每帧为合并结果分配新向量）
-		std::vector<Frame_Render_Item> batch_scratch;
-		/*
-		阴影列表复用缓冲（第一百八十二轮）
-		阴影 pass 与后处理链原本逐帧在栈上新建 std::vector 并 reserve，
-		改为复用这两个成员（每帧 clear 后 push_back），避免逐帧堆分配与释放；
-		内容在 frame_render 返回前不再被使用（render_to_target / render_chain_present 均为同步调用）。
-		*/
-		std::vector<Frame_Render_Item> shadow_items_scratch;
-		std::vector<Frame_Render_Item> post_items_scratch;
-		//后处理级管线序列复用缓冲（第一百八十七轮；避免逐帧为「链 / 单级」序列分配向量）
-		std::vector<uint64_t> post_stage_pipelines_scratch;
-		/*
-		后处理链目标组复用缓冲（第一百九十四轮）
-		SSAA 路径与同帧后处理链路径原本逐帧在栈上新建 std::vector<Frame_Render_Target>；
-		改为复用该成员（每帧 assign 重置元素、容量保留），避免逐帧堆分配。
-		两条路径互斥，可共用；内容在 render_chain_present 返回前有效。
-		*/
-		std::vector<Frame_Render_Target> chain_targets_scratch;
-		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
-		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
-		//逐绘制项采样集批量写入的输入缓冲（第二百二十一轮；复用，避免每帧分配）
-		std::vector<Pipeline_Context::Draw_Set_Views> draw_set_inputs;
-		//是否已初始化
-		bool initialized = false;
-		//已呈现帧数
-		uint64_t frame_count = 0;
 	};
 }
