@@ -17,4 +17,17 @@ namespace engine
 	void spot_shadow_tiles_ensure_impl(Renderer_Impl_Holder::Impl* impl, std::size_t max_tiles);
 	//聚光灯阴影图集切换（跨接口共用；实现在 渲染器_雾与阴影.cpp）
 	void spot_shadow_atlas_apply_impl(Renderer_Impl_Holder::Impl* impl);
+
+	//帧阶段：泵事件 + 本帧输入锁存与原生 UI 交互（实现在 渲染器_帧阶段.cpp）
+	void frame_stage_input_events(Renderer_Impl_Holder::Impl* impl);
+	//帧阶段：光源空间矩阵与级联拟合
+	void frame_stage_shadow_matrices(Renderer_Impl_Holder::Impl* impl);
+	//帧阶段：聚光阴影矩阵与瓦片选择（返回本帧是否存在有效聚光阴影）
+	bool frame_stage_spot_shadow_matrices(Renderer_Impl_Holder::Impl* impl);
+	//帧阶段：为本帧待绘制项填装描述符集与实例缓冲句柄
+	void frame_stage_descriptor_sets(Renderer_Impl_Holder::Impl* impl, uint32_t slot);
+	//帧阶段：阴影 pass（按需重绘；返回假表示本帧失败）
+	bool frame_stage_shadow_pass(Renderer_Impl_Holder::Impl* impl, bool spot_shadow_light_valid);
+	//帧阶段：场景 UBO 组装与上传（返回假表示本帧失败）
+	bool frame_stage_scene_ubo(Renderer_Impl_Holder::Impl* impl, uint32_t slot, const float view_proj[16], bool spot_shadow_light_valid);
 }
