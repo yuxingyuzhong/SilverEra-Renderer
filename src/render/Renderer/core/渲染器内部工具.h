@@ -68,4 +68,15 @@ namespace engine
 
 	//初始化阶段：管线 / 描述符 / 采样 / 粒子 / 文字 / 阴影 / 后处理 / 天空 等图形资源（实现在 渲染器_初始化_图形资源.cpp）
 	bool renderer_init_graphics(Renderer* owner, Renderer_Impl_Holder::Impl* impl, const Renderer_Config& effective);
+
+	//初始化阶段：平台 / 实例 / 设备 / 表面
+	bool renderer_init_platform(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective);
+	//初始化阶段：VMA 分配器 / 交换链 / 在途帧数钳制
+	bool renderer_init_memory_swapchain(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective);
+	//初始化阶段：帧 / 着色器模块 / 描述符布局与管线
+	bool renderer_init_frame_shader_pipeline(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective);
+	//初始化阶段：网格 / 渲染目标 / 字体 / 相机
+	bool renderer_init_services(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective);
+	//初始化阶段：UI 通道 / 事件桥接 / 原生 UI
+	bool renderer_init_ui(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective);
 }

@@ -32,6 +32,14 @@ namespace engine
 		//取门面自身
 		Renderer& self(void) const;
 
+		//初始化阶段函数（自由函数形式；回调用到 impl，故授予访问权）
+		friend bool renderer_init_platform(Renderer*, Impl*, Renderer_Config&);
+		friend bool renderer_init_memory_swapchain(Renderer*, Impl*, Renderer_Config&);
+		friend bool renderer_init_frame_shader_pipeline(Renderer*, Impl*, Renderer_Config&);
+		friend bool renderer_init_services(Renderer*, Impl*, Renderer_Config&);
+		friend bool renderer_init_ui(Renderer*, Impl*, Renderer_Config&);
+		friend bool renderer_init_graphics(Renderer*, Impl*, const Renderer_Config&);
+
 		//层内 GPU 粒子推进（实现位于 src/render/Particle/粒子GPU推进.cpp）
 		friend uint32_t particle_gpu::emit(Renderer&, uint32_t);
 		friend bool particle_gpu::step_resident(Renderer&, float);
