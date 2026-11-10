@@ -35,6 +35,37 @@ namespace engine
 	//帧阶段：追加天空盒绘制项
 	void frame_stage_sky_item(Renderer_Impl_Holder::Impl* impl, uint32_t slot, const float view_proj[16], VkDeviceSize sky_instance_offset, bool sky_frame);
 
+	//帧分派输入（主链 → 分派阶段；只读）
+	struct Frame_Dispatch_Input
+	{
+		//窗口客户区尺寸
+		uint32_t width = 0;
+		uint32_t height = 0;
+		//本帧槽序号
+		uint32_t slot = 0;
+		//本帧是否已重建交换链
+		bool rebuilt = false;
+		//同帧多 pass 后处理路径开关 / 链模式
+		bool post_frame = false;
+		bool post_chain_mode = false;
+		//SSAA 路径开关
+		bool ssaa_frame = false;
+		//后处理 / SSAA 首个实例的字节偏移
+		VkDeviceSize post_instance_offset = 0;
+		VkDeviceSize ssaa_instance_offset = 0;
+		//视图投影矩阵（列主序 16 浮点）
+		const float* view_proj = nullptr;
+		//UI 阶段回调
+		Frame_Ui_Callback ui_callback{};
+		//像素回读请求（调用方缓冲）
+		uint8_t* readback_pixels = nullptr;
+		uint32_t readback_capacity = 0;
+		uint32_t* readback_width = nullptr;
+		uint32_t* readback_height = nullptr;
+	};
+	//帧阶段：分派渲染路径（SSAA / 多 pass 后处理 / 离屏 / 交换链）并交付回读（返回假表示本帧失败）
+	bool frame_stage_dispatch(Renderer_Impl_Holder::Impl* impl, const Frame_Dispatch_Input& input);
+
 	//初始化阶段：管线 / 描述符 / 采样 / 粒子 / 文字 / 阴影 / 后处理 / 天空 等图形资源（实现在 渲染器_初始化_图形资源.cpp）
 	bool renderer_init_graphics(Renderer* owner, Renderer_Impl_Holder::Impl* impl, const Renderer_Config& effective);
 }
