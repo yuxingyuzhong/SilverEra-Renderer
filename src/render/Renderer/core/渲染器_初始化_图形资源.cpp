@@ -48,97 +48,12 @@ namespace engine
 				logger.warn("渲染器:: 外扩描边管线登记失败（描边将保持关闭）");
 		}
 		/*
-		⑫.2 计算管线（第二百四十一轮）
-		计算与图形共用同一队列族；队列族不含 COMPUTE 位时 supported() 为假，初始化不失败（GPU 路径整体关闭）。
-		健康检查着色器缺失时不阻断初始化（仅告警，自检返回假）。
+		⑫.2 计算管线（第二百四十一轮；计算域承接）
+		计算与图形共用同一队列族；能力探测、上下文构建与健康检查管线登记由计算域完成，
+		队列族不含 COMPUTE 位时初始化不失败（GPU 路径整体关闭）。
 		*/
-		{
-			/*
-			GPU 能力与降级矩阵探测（第二百四十六轮）
-			与 compute_enable 无关：即使强制关闭计算路径，也如实记录设备能力，便于上层决定是否开启。
-			*/
-			Compute_Capabilities& capabilities = impl->compute_capabilities;
-			capabilities = Compute_Capabilities{};
-			VkPhysicalDevice physical = impl->device.physical_device_get();
-			uint32_t probe_family = impl->device.graphics_family_get();
-			//队列族属性：COMPUTE 位与时间戳有效位
-			uint32_t family_count = 0;
-			vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
-			if (family_count > probe_family)
-			{
-				std::vector<VkQueueFamilyProperties> families(family_count);
-				vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, families.data());
-				capabilities.compute = (families[probe_family].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
-				capabilities.timestamp = families[probe_family].timestampValidBits > 0;
-			}
-			//特性查询：多批次间接绘制（核心特性）与 Vulkan 1.2 两项
-			VkPhysicalDeviceVulkan12Features features12{};
-			features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-			VkPhysicalDeviceFeatures2 features{};
-			features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-			features.pNext = &features12;
-			vkGetPhysicalDeviceFeatures2(physical, &features);
-			capabilities.multi_draw_indirect = features.features.multiDrawIndirect == VK_TRUE;
-			capabilities.draw_indirect_count = features12.drawIndirectCount == VK_TRUE;
-			capabilities.host_query_reset = features12.hostQueryReset == VK_TRUE;
-			//间接命令以 firstInstance 承担实例偏移，故需该核心特性（第二百五十二轮）
-			impl->indirect_first_instance_supported = features.features.drawIndirectFirstInstance == VK_TRUE;
-			/*
-			Hi-Z 能力探测（第二百五十三轮）
-			要求计算路径可用且 R32 浮点格式支持存储图像（金字塔逐级写入）与采样（遮挡查询读取）；
-			不满足时 hiz_supported 为假，开启请求被拒绝且不创建任何资源。
-			*/
-			VkFormatProperties hiz_format_properties{};
-			vkGetPhysicalDeviceFormatProperties(physical, HIZ_PYRAMID_FORMAT, &hiz_format_properties);
-			const VkFormatFeatureFlags hiz_features = VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-			impl->hiz_capable = capabilities.compute
-				&& (hiz_format_properties.optimalTilingFeatures & hiz_features) == hiz_features;
-			//强制关闭计算路径时跳过构建（全部 GPU 驱动路径保持关闭，默认帧路径不受影响）
-			if (!effective.compute_enable)
-			{
-				impl->compute_health_handle = 0;
-				impl->compute_health_module = VK_NULL_HANDLE;
-			}
-			else
-			{
-				Compute_Config compute_config;
-				compute_config.frame_overlap = effective.frame_overlap;
-				//构建计算上下文（布局 / 池 / 描述符集 / 一次性提交资源）
-				if (!impl->compute.build(impl->device.physical_device_get(), impl->device.device_get(),
-					impl->device.graphics_family_get(), impl->device.graphics_queue_get(), compute_config))
-				{
-					logger.error("渲染器:: 计算上下文构建失败");
-					owner->shutdown();
-					return false;
-				}
-				//设备支持计算路径时才加载自检着色器并登记管线
-				if (impl->compute.supported())
-				{
-					VkShaderModule compute_module = VK_NULL_HANDLE;
-					if (impl->shader.module_load(compute_module, "计算写入.comp.spv"))
-					{
-						uint64_t compute_handle = 0;
-						//登记健康检查管线
-						if (impl->compute.pipeline_register(compute_handle, compute_module))
-						{
-							impl->compute_health_module = compute_module;
-							impl->compute_health_handle = compute_handle;
-						}
-						else
-						{
-							logger.warn("渲染器:: 计算健康检查管线登记失败");
-							impl->shader.module_destroy(compute_module);
-						}
-					}
-					else
-						logger.warn("渲染器:: 计算写入着色器加载失败（计算路径保持未启用）");
-				}
-			}
-			//时间戳能力与实际计时链路同口径（队列族有效位 ＋ 设备周期，二者与关闭开关无关）
-			VkPhysicalDeviceProperties device_properties{};
-			vkGetPhysicalDeviceProperties(physical, &device_properties);
-			capabilities.timestamp = capabilities.timestamp && device_properties.limits.timestampPeriod > 0.0f;
-		}
+		if (!owner->compute().init(effective))
+			return false;
 		/*
 		⑬ 场景 UBO：每帧槽一个主机可见缓冲（64 字节 mat4），
 		写入相机视图 × 投影并把该帧槽 set0 绑定到对应 UBO。

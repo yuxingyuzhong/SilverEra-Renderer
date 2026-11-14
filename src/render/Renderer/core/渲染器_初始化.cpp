@@ -91,7 +91,7 @@ namespace engine
 		//静态合批开关（第一百二十七轮；默认开启）
 		impl->static_batching = effective.static_batching;
 		//GPU 剔除开关（第二百四十九轮；默认关闭）
-		impl->gpu_cull_enabled = effective.gpu_cull_enable;
+		impl->compute_domain->state().gpu_cull_enabled = effective.gpu_cull_enable;
 		//间接绘制开关（第二百五十二轮；默认关闭）
 		impl->gpu_indirect_enabled = effective.gpu_indirect_enable;
 		/*
@@ -109,22 +109,22 @@ namespace engine
 		Cluster 光照能力探测（第二百六十六轮）
 		与 Hi-Z 同口径：计算路径可用即具备；每帧槽光源记录 SSBO 在启用时惰性构建。
 		*/
-		impl->cluster_capable = impl->compute.supported();
+		impl->compute_domain->state().cluster_capable = impl->compute_domain->state().compute.supported();
 		//分簇网格按配置钳制（第二百六十七轮；默认 16 × 9 × 24）
-		impl->cluster_grid = cluster_grid_clamp(Cluster_Grid{ effective.cluster_grid[0],
+		impl->compute_domain->state().cluster_grid = cluster_grid_clamp(Cluster_Grid{ effective.cluster_grid[0],
 			effective.cluster_grid[1], effective.cluster_grid[2] });
 		impl->initialized = true;
 		/*
 		Hi-Z 启用（第二百五十三 / 二百五十四轮）
 		配置为真时构建资源并懒加载生成管线；失败仅告警、开关保持关闭，默认路径不受影响。
 		*/
-		if (effective.hiz_enable && !self().hiz_enable_set(true))
+		if (effective.hiz_enable && !self().compute().hiz_enable_set(true))
 			logger.warn("渲染器:: Hi-Z 启用失败（开关保持关闭）");
 		/*
 		Cluster 光照启用（第二百六十六轮）
 		配置为真时构建每帧槽光源记录 SSBO；失败仅告警、开关保持关闭。
 		*/
-		if (effective.cluster_enable && !self().cluster_enable_set(true))
+		if (effective.cluster_enable && !self().compute().cluster_enable_set(true))
 			logger.warn("渲染器:: Cluster 光照启用失败（开关保持关闭）");
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）

@@ -338,18 +338,23 @@ namespace engine
 	{
 		//用户数据为本实现体
 		Renderer_Impl_Holder::Impl* self = static_cast<Renderer_Impl_Holder::Impl*>(user_data);
+		//用户数据缺失（不应发生）
+		if (self == nullptr)
+			return;
+		//计算域状态（域对象尚未登记时为空）
+		Compute_State* compute_state = self->compute_domain != nullptr ? &self->compute_domain->state() : nullptr;
 		//未启用、资源缺失或管线未就绪时跳过
-		if (self == nullptr || !self->hiz_enabled || !self->hiz.valid()
-			|| self->hiz_depth_copy_pipeline == 0 || self->hiz_downsample_pipeline == 0)
+		if (compute_state == nullptr || !compute_state->hiz_enabled || !compute_state->hiz.valid()
+			|| compute_state->hiz_depth_copy_pipeline == 0 || compute_state->hiz_downsample_pipeline == 0)
 			return;
 		//尺寸与资源不一致（交换链刚重建）时跳过本帧
-		if (self->hiz.width_get() != extent.width || self->hiz.height_get() != extent.height)
+		if (compute_state->hiz.width_get() != extent.width || compute_state->hiz.height_get() != extent.height)
 			return;
 		//当前帧槽
 		const uint32_t slot = self->frame.slot_index_get();
 		//录制深度拷贝与逐级降采样（失败仅告警，不影响出帧）
-		if (!self->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
-			self->hiz_depth_copy_pipeline, self->hiz_downsample_pipeline))
+		if (!compute_state->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
+			compute_state->hiz_depth_copy_pipeline, compute_state->hiz_downsample_pipeline))
 			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
 		else
 			//记录最近生成完成的帧槽（第二百五十六轮：剔除读取该槽上一帧金字塔）

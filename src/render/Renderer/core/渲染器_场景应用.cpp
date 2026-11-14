@@ -66,7 +66,7 @@ namespace engine
 		候选集合 = 点光（先）＋ 聚光（后）的声明序列表，各组最多 32 条（与 Light_Data 数组容量一致）。
 		*/
 		self().light_select_set(static_cast<uint32_t>(light.light_select_mode), light.light_budget);
-		const uint32_t path_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t path_limit = impl->compute_domain->state().cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		const uint32_t light_budget = (impl->light_budget > 0u && impl->light_budget < path_limit)
 			? impl->light_budget : path_limit;
 		//候选总数（点光在前、聚光在后；与登记顺序一致；第七百零一轮各组上限 16 → 32）
@@ -191,7 +191,7 @@ namespace engine
 		*/
 		impl->light_dropped = candidate_total > impl->point_light_count
 			? candidate_total - impl->point_light_count : 0;
-		impl->light_truncated = !impl->cluster_enabled && impl->light_dropped > 0;
+		impl->light_truncated = !impl->compute_domain->state().cluster_enabled && impl->light_dropped > 0;
 		self().specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		self().light_attenuation_set(light.attenuation_mode);

@@ -507,12 +507,12 @@ namespace engine
 			&& state().mesh.mesh_bounds_get(handle, bounds_min, bounds_max);
 		//GPU 实例压缩优先（第二百四十九轮；失败回落 CPU 路径）
 		bool gpu_compacted = false;
-		if (has_cull_input && owner->impl->gpu_cull_enabled)
+		if (has_cull_input && owner->compute().state().gpu_cull_enabled)
 		{
 			std::vector<float> compacted(static_cast<std::size_t>(count) * 16, 0.0f);
 			uint32_t visible_count = 0;
 			//压缩成功则直接采用 GPU 结果（与 CPU 剔除顺序 / 内容一致）
-			if (owner->gpu_instance_compact(transforms, count, bounds_min, bounds_max, compacted.data(), &visible_count))
+			if (owner->compute().gpu_instance_compact(transforms, count, bounds_min, bounds_max, compacted.data(), &visible_count))
 			{
 				const uint32_t culled_count = count - visible_count;
 				owner->impl->culled_instances += culled_count;

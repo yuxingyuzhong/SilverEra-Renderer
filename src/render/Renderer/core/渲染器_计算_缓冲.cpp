@@ -22,50 +22,53 @@ namespace engine
 {
 	//是否支持 GPU 时间戳
 
-	bool Renderer_Compute::gpu_timestamp_supported(void) const
+	bool Render_Compute::gpu_timestamp_supported(void) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return false;
 		//转调帧模块能力标志
-		return impl->frame.gpu_timestamp_supported_get();
+		return owner->impl->frame.gpu_timestamp_supported_get();
 	}
 
-	bool Renderer_Compute::readback_supported(void) const
+	bool Render_Compute::readback_supported(void) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return false;
 		//交换链图像具备传输源用法才可回读
-		return impl->swapchain.color_transfer_src_get();
+		return owner->impl->swapchain.color_transfer_src_get();
 	}
 
-	bool Renderer_Compute::compute_supported(void) const
+	bool Render_Compute::compute_supported(void) const
 	{
 		//若尚未初始化或无健康检查管线
-		if (impl == nullptr || !impl->initialized || impl->compute_health_handle == 0)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || state().compute_health_handle == 0)
 			return false;
-		return impl->compute.supported();
+		return state().compute.supported();
 	}
 
-	bool Renderer_Compute::compute_health_check(uint32_t magic, uint32_t& value_out)
+	bool Render_Compute::compute_health_check(uint32_t magic, uint32_t& value_out)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return false;
 		//不支持计算路径
-		if (!self().compute_supported())
+		if (!compute_supported())
 			return false;
-		return impl->compute.self_check_run(magic, value_out);
+		return state().compute.self_check_run(magic, value_out);
 	}
 
 	VkBuffer Renderer_Impl_Holder::Impl::compute_buffer_native(uint64_t handle) const
 	{
+		//计算域尚未登记（半初始化）
+		if (compute_domain == nullptr)
+			return VK_NULL_HANDLE;
 		//句柄无效
 		if (handle == 0)
 			return VK_NULL_HANDLE;
 		//线性查找（缓冲数量有限）
-		for (const Compute_Buffer_Record& record : compute_buffers)
+		for (const Compute_Buffer_Record& record : compute_domain->state().compute_buffers)
 			if (record.handle == handle)
 				return record.buffer;
 		return VK_NULL_HANDLE;
@@ -76,6 +79,11 @@ namespace engine
 	{
 		//失败路径一律复位句柄
 		handle_out = 0;
+		//计算域尚未登记（半初始化）
+		if (compute_domain == nullptr)
+			return false;
+		//计算域状态
+		Compute_State& compute_state = compute_domain->state();
 		//尺寸非法
 		if (size == 0 || size > COMPUTE_BUFFER_MAX_BYTES)
 			return false;
@@ -92,22 +100,22 @@ namespace engine
 			return false;
 		}
 		Compute_Buffer_Record record;
-		record.handle = next_compute_buffer_handle++;
+		record.handle = compute_state.next_compute_buffer_handle++;
 		record.buffer = buffer;
 		record.allocation = allocation;
 		record.size = size;
 		record.host_visible = true;
 		handle_out = record.handle;
-		compute_buffers.push_back(record);
+		compute_state.compute_buffers.push_back(record);
 		return true;
 	}
 
-	bool Renderer_Compute::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data, bool device_local)
+	bool Render_Compute::compute_buffer_load(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data, bool device_local)
 	{
 		//失败路径一律复位句柄（与材质句柄约定一致）
 		handle_out = 0;
 		//未初始化或不支持计算，或尺寸非法
-		if (impl == nullptr || !impl->initialized || !self().compute_supported()
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported()
 			|| size == 0 || size > COMPUTE_BUFFER_MAX_BYTES)
 			return false;
 		VkBuffer buffer = VK_NULL_HANDLE;
@@ -117,7 +125,7 @@ namespace engine
 		if (device_local)
 			usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 		//主机可见（默认）或设备本地
-		if (!impl->memory.buffer_create(buffer, allocation, size, usage, !device_local, false))
+		if (!owner->impl->memory.buffer_create(buffer, allocation, size, usage, !device_local, false))
 		{
 			logger.error("渲染器:: 计算存储缓冲创建失败（{} 字节）", size);
 			return false;
@@ -126,55 +134,55 @@ namespace engine
 		if (data != nullptr)
 		{
 			bool seeded = device_local
-				? impl->memory.upload_buffer(buffer, data, size, 0)
-				: impl->memory.buffer_write(buffer, allocation, data, size, 0);
+				? owner->impl->memory.upload_buffer(buffer, data, size, 0)
+				: owner->impl->memory.buffer_write(buffer, allocation, data, size, 0);
 			//初值写入失败即回收缓冲
 			if (!seeded)
 			{
-				impl->memory.buffer_destroy(buffer, allocation);
+				owner->impl->memory.buffer_destroy(buffer, allocation);
 				return false;
 			}
 		}
-		Renderer_Impl_Holder::Impl::Compute_Buffer_Record record;
-		record.handle = impl->next_compute_buffer_handle++;
+		Compute_Buffer_Record record;
+		record.handle = state().next_compute_buffer_handle++;
 		record.buffer = buffer;
 		record.allocation = allocation;
 		record.size = size;
 		record.host_visible = !device_local;
 		handle_out = record.handle;
-		impl->compute_buffers.push_back(record);
+		state().compute_buffers.push_back(record);
 		return true;
 	}
 
-	void Renderer_Compute::compute_buffer_unload(Compute_Buffer_Handle handle)
+	void Render_Compute::compute_buffer_unload(Compute_Buffer_Handle handle)
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return;
-		for (std::size_t index = 0; index < impl->compute_buffers.size(); ++index)
+		for (std::size_t index = 0; index < state().compute_buffers.size(); ++index)
 		{
 			//命中即移交延迟队列并移出列表（避免在途命令缓冲仍引用该缓冲）
-			if (impl->compute_buffers[index].handle == handle)
+			if (state().compute_buffers[index].handle == handle)
 			{
 				Deferred_Entry entry{};
 				Deferred_Memory_Resource resource{};
-				resource.buffer = impl->compute_buffers[index].buffer;
-				resource.buffer_allocation = impl->compute_buffers[index].allocation;
+				resource.buffer = state().compute_buffers[index].buffer;
+				resource.buffer_allocation = state().compute_buffers[index].allocation;
 				entry.memory_resources.push_back(resource);
 				//延迟 = 在途帧数 + 1（与网格 / 纹理卸载同口径）
-				impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
-				impl->compute_buffers.erase(impl->compute_buffers.begin() + static_cast<std::ptrdiff_t>(index));
+				owner->impl->frame.deferred_push(std::move(entry), owner->impl->frame.in_flight_count_get() + 1);
+				state().compute_buffers.erase(state().compute_buffers.begin() + static_cast<std::ptrdiff_t>(index));
 				return;
 			}
 		}
 	}
 
-	bool Renderer_Compute::compute_buffer_write(Compute_Buffer_Handle handle, const void* data, uint32_t size, uint32_t offset)
+	bool Render_Compute::compute_buffer_write(Compute_Buffer_Handle handle, const void* data, uint32_t size, uint32_t offset)
 	{
 		//未初始化或数据为空
-		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || data == nullptr || size == 0)
 			return false;
-		for (Renderer_Impl_Holder::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		for (Compute_Buffer_Record& record : state().compute_buffers)
 		{
 			//命中句柄并做越界检查
 			if (record.handle == handle)
@@ -183,39 +191,39 @@ namespace engine
 					return false;
 				//设备本地缓冲经暂存上传，主机可见缓冲直接映射
 				if (!record.host_visible)
-					return impl->memory.upload_buffer(record.buffer, data, size, offset);
-				return impl->memory.buffer_write(record.buffer, record.allocation, data, size, offset);
+					return owner->impl->memory.upload_buffer(record.buffer, data, size, offset);
+				return owner->impl->memory.buffer_write(record.buffer, record.allocation, data, size, offset);
 			}
 		}
 		return false;
 	}
 
-	bool Renderer_Compute::compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
+	bool Render_Compute::compute_buffer_read(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
 	{
 		//未初始化或输出为空
-		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || data == nullptr || size == 0)
 			return false;
-		for (Renderer_Impl_Holder::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		for (Compute_Buffer_Record& record : state().compute_buffers)
 		{
 			//命中句柄并做越界检查
 			if (record.handle == handle)
 			{
 				if (static_cast<uint64_t>(offset) + size > record.size)
 					return false;
-				return impl->memory.buffer_read(record.buffer, record.allocation, data, size, offset);
+				return owner->impl->memory.buffer_read(record.buffer, record.allocation, data, size, offset);
 			}
 		}
 		return false;
 	}
 
-	bool Renderer_Compute::compute_readback(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
+	bool Render_Compute::compute_readback(Compute_Buffer_Handle handle, void* data, uint32_t size, uint32_t offset)
 	{
 		//未初始化或输出为空
-		if (impl == nullptr || !impl->initialized || data == nullptr || size == 0)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || data == nullptr || size == 0)
 			return false;
 		//查找目标缓冲并做越界检查
-		Renderer_Impl_Holder::Impl::Compute_Buffer_Record* target = nullptr;
-		for (Renderer_Impl_Holder::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
+		Compute_Buffer_Record* target = nullptr;
+		for (Compute_Buffer_Record& record : state().compute_buffers)
 		{
 			//命中句柄
 			if (record.handle == handle)
@@ -230,54 +238,54 @@ namespace engine
 		VkBuffer staging = VK_NULL_HANDLE;
 		VmaAllocation staging_allocation = VK_NULL_HANDLE;
 		//暂存缓冲（主机可见，仅拷贝目标）
-		if (!impl->memory.buffer_create(staging, staging_allocation, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, false))
+		if (!owner->impl->memory.buffer_create(staging, staging_allocation, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, false))
 		{
 			logger.error("渲染器:: 计算回读暂存缓冲创建失败（{} 字节）", size);
 			return false;
 		}
 		VkBuffer source = target->buffer;
 		//一次性提交：计算→传输屏障 → 拷到暂存 → 传输→主机屏障
-		bool copied = impl->compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
+		bool copied = state().compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
 		{
-			if (!impl->compute.barrier(command_buffer, Compute_Barrier::ComputeToTransfer))
+			if (!state().compute.barrier(command_buffer, Compute_Barrier::ComputeToTransfer))
 				return false;
 			VkBufferCopy region{};
 			region.srcOffset = offset;
 			region.dstOffset = 0;
 			region.size = size;
 			vkCmdCopyBuffer(command_buffer, source, staging, 1, &region);
-			return impl->compute.barrier(command_buffer, Compute_Barrier::TransferToHost);
+			return state().compute.barrier(command_buffer, Compute_Barrier::TransferToHost);
 		});
 		//拷贝成功才映射读回
-		bool read = copied && impl->memory.buffer_read(staging, staging_allocation, data, size, 0);
-		impl->memory.buffer_destroy(staging, staging_allocation);
+		bool read = copied && owner->impl->memory.buffer_read(staging, staging_allocation, data, size, 0);
+		owner->impl->memory.buffer_destroy(staging, staging_allocation);
 		return read;
 	}
 
-	Compute_Stats Renderer_Compute::compute_stats_get(void) const
+	Compute_Stats Render_Compute::compute_stats_get(void) const
 	{
 		//未初始化：计数为零、计时 −1
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 		{
 			Compute_Stats empty;
 			return empty;
 		}
-		return impl->compute.stats_get();
+		return state().compute.stats_get();
 	}
 
-	bool Renderer_Compute::compute_timestamp_supported(void) const
+	bool Render_Compute::compute_timestamp_supported(void) const
 	{
 		//未初始化或不支持计算路径
-		if (impl == nullptr || !impl->initialized || !self().compute_supported())
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported())
 			return false;
-		return impl->compute.timestamp_supported();
+		return state().compute.timestamp_supported();
 	}
 
-	Compute_Capabilities Renderer_Compute::compute_capabilities_get(void) const
+	Compute_Capabilities Render_Compute::compute_capabilities_get(void) const
 	{
 		//未初始化：各项为假
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return Compute_Capabilities{};
-		return impl->compute_capabilities;
+		return state().compute_capabilities;
 	}
 }

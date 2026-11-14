@@ -43,13 +43,13 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return counts;
 		//各模块有效记录数
-		counts.meshes = impl->resource_domain->state().mesh.mesh_count();
-		counts.textures = impl->resource_domain->state().texture.texture_count();
+		counts.meshes = impl->mesh.mesh_count();
+		counts.textures = impl->texture.texture_count();
 		counts.pipelines = impl->pipeline.pipeline_count();
 		counts.fonts = self().ui().state().font.font_count();
 		counts.render_targets = impl->render_target.target_count();
 		//材质按有效记录计
-		for (const Material_Record& record : impl->resource_domain->state().materials)
+		for (const Impl::Material_Record& record : impl->materials)
 			if (record.valid)
 				++counts.materials;
 		return counts;

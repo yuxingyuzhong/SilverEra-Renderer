@@ -62,8 +62,8 @@ namespace engine
 		impl->culled_instances = 0;
 		//剔除耗时累计归零（最近一帧值保留；第二百四十七轮）
 		impl->cull_total_ms = 0.0;
-		impl->gpu_cull_dispatches = 0;
-		impl->last_gpu_occluded = 0;
+		impl->compute_domain->state().gpu_cull_dispatches = 0;
+		impl->compute_domain->state().last_gpu_occluded = 0;
 		impl->scene_upload_bytes = 0;
 		impl->instance_upload_bytes = 0;
 		//阴影重绘 / 复用计数归零（第一百四十五轮；最近一次量保持不变）
@@ -124,16 +124,16 @@ namespace engine
 		stats.cpu_cull_ms = impl->last_cull_ms;
 		stats.cpu_cull_total_ms = impl->cull_total_ms;
 		//GPU 剔除耗时（第二百四十九轮；未走 GPU 路径时为 0）
-		stats.gpu_cull_ms = impl->last_gpu_cull_ms;
+		stats.gpu_cull_ms = impl->compute_domain->state().last_gpu_cull_ms;
 		//GPU 压缩派发次数（第二百五十一轮）
-		stats.gpu_cull_dispatches = impl->gpu_cull_dispatches;
+		stats.gpu_cull_dispatches = impl->compute_domain->state().gpu_cull_dispatches;
 		//最近一次遮挡剔除数（第二百六十一轮）
-		stats.gpu_occluded = impl->last_gpu_occluded;
+		stats.gpu_occluded = impl->compute_domain->state().last_gpu_occluded;
 		//间接绘制次数（第二百五十二轮；未走间接路径时恒 0）
 		stats.indirect_draws = impl->frame.indirect_draw_count_get();
 		//簇数据整备观测（第二百七十三轮；Cluster 关闭时恒 0）
-		stats.cluster_build_ms = impl->last_cluster_build_ms;
-		stats.cluster_entries = impl->last_cluster_entries;
+		stats.cluster_build_ms = impl->compute_domain->state().last_cluster_build_ms;
+		stats.cluster_entries = impl->compute_domain->state().last_cluster_entries;
 		stats.cluster_gpu_bytes = impl->last_cluster_gpu_bytes;
 		//光源截断标志（第二百八十轮；Cluster 关闭且超过 8 盏时置 1）
 		stats.light_truncated = impl->light_truncated ? 1u : 0u;

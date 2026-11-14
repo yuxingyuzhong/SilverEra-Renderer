@@ -125,7 +125,7 @@ namespace engine
 		⑤a 光源记录上传（第二百六十六轮；仅 Cluster 开启时）
 		该帧槽上一轮已提交完成，可安全覆盖前 count × 80 字节；记录数为 267 起分簇的输入。
 		*/
-		if (impl->cluster_enabled && impl->cluster_ensure())
+		if (impl->compute_domain->state().cluster_enabled && impl->cluster_ensure())
 		{
 			//本帧记录数（含主方向光与补光；按容量截断）
 			uint32_t record_count = self().light_record_count();
@@ -143,18 +143,18 @@ namespace engine
 				logger.error("渲染器:: 光源记录上传失败（帧槽 {}）", slot);
 				return false;
 			}
-			impl->last_cluster_light_count = written;
+			impl->compute_domain->state().last_cluster_light_count = written;
 		}
 		else
-			impl->last_cluster_light_count = 0;
+			impl->compute_domain->state().last_cluster_light_count = 0;
 		/*
 		⑤b 簇数据整备（第二百七十三轮；仅 Cluster 开启时）
 		每帧重建计数 / 偏移 / 列表并写入观测；关闭时观测清零、零分配（画面路径不受影响）。
 		*/
-		if (impl->cluster_enabled && impl->cluster_ensure())
+		if (impl->compute_domain->state().cluster_enabled && impl->cluster_ensure())
 		{
 			//网格总簇数与光源记录数（列表容量上界 = 簇数 × 记录数）
-			uint32_t cluster_total = cluster_grid_clusters(impl->cluster_grid);
+			uint32_t cluster_total = cluster_grid_clusters(impl->compute_domain->state().cluster_grid);
 			uint32_t light_records = self().light_record_count();
 			uint32_t list_capacity = cluster_total * light_records;
 			impl->cluster_counts_scratch.resize(cluster_total);
@@ -162,7 +162,7 @@ namespace engine
 			impl->cluster_list_scratch.resize(list_capacity);
 			uint32_t entries = 0;
 			//整备（当前 ≤8 盏规模下 CPU 远快于 GPU 同步回读，帧内默认走 CPU；见 276 轮性能对照）
-			if (!self().cluster_data_build(impl->cluster_counts_scratch.data(), impl->cluster_offsets_scratch.data(),
+			if (!self().compute().cluster_data_build(impl->cluster_counts_scratch.data(), impl->cluster_offsets_scratch.data(),
 				impl->cluster_list_scratch.data(), cluster_total, list_capacity, &entries, false))
 				logger.warn("渲染器:: 簇数据整备失败（帧 {}）", impl->frame_count);
 			else
@@ -190,8 +190,8 @@ namespace engine
 		else
 		{
 			//关闭时观测清零
-			impl->last_cluster_entries = 0;
-			impl->last_cluster_build_ms = 0.0;
+			impl->compute_domain->state().last_cluster_entries = 0;
+			impl->compute_domain->state().last_cluster_build_ms = 0.0;
 			impl->last_cluster_gpu_bytes = 0;
 		}
 		float view_proj[16] = {};

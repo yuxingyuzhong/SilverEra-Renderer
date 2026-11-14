@@ -1,16 +1,28 @@
 #pragma once
-//公共语义类型与共享实现体访问
-#include "渲染器实现访问.h"
+//公共语义类型与前置声明
+#include "渲染器类型.h"
 
 //游戏引擎命名空间
 namespace engine
 {
+	class Renderer;
+	struct Compute_State;
+
 	/*
-	渲染器能力接口：计算
+	渲染器域：计算
+	计算健康检查与存储缓冲 / GPU 视锥剔除与实例压缩 / Hi-Z 深度历史与金字塔 /
+	分簇网格与簇数据整备 / 粒子 GPU 资源装配。
 	*/
-	class Renderer_Compute : public virtual Renderer_Impl_Holder
+	class Render_Compute
 	{
 	public:
+		explicit Render_Compute(Renderer* owner);
+		~Render_Compute(void);
+		//不可拷贝、不可移动
+		Render_Compute(const Render_Compute&) = delete;
+		Render_Compute& operator=(const Render_Compute&) = delete;
+
+		//=== 原计算域接口方法（签名原样照抄）===
 		/*
 		是否支持 GPU 时间戳（设备与图形队列族均支持时为真；未初始化时为假）
 		为假时帧统计的 gpu_frame_ms 恒 0（已优雅降级，不影响渲染）。
@@ -221,5 +233,20 @@ namespace engine
 		*/
 		bool compute_dispatch(Compute_Pipeline_Handle pipeline, uint32_t elements, uint32_t local_size,
 			const void* push_data = nullptr, uint32_t push_size = 0);
+
+		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//初始化（原 renderer_init_graphics 中能力探测 / 上下文构建 / 健康检查管线登记部分）
+		bool init(const Renderer_Config& effective);
+		//关闭（原 shutdown 中计算相关部分；幂等）
+		void shutdown(void);
+		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
+		Compute_State& state(void);
+		const Compute_State& state(void) const;
+
+	private:
+		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		Renderer* owner = nullptr;
+		//计算域状态
+		std::unique_ptr<Compute_State> state_ptr;
 	};
 }

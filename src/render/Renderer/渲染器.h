@@ -9,9 +9,10 @@
 #include "渲染粒子.h"
 //资源域
 #include "渲染资源.h"
+//计算域
+#include "渲染计算.h"
 //各能力接口
 #include "渲染器_接口_核心.h"
-#include "渲染器_接口_计算.h"
 #include "渲染器_接口_输出.h"
 #include "渲染器_接口_后处理.h"
 #include "渲染器_接口_场景.h"
@@ -36,7 +37,7 @@ namespace engine
 	实现组织：本类由各能力接口多重继承组合而成；所有接口虚继承 Renderer_Impl_Holder，
 	故整个门面共享同一份实现体指针，公共 API 与单类时期完全一致。
 	*/
-	class Renderer : public Renderer_Core, public Renderer_Compute, public Renderer_Output,
+	class Renderer : public Renderer_Core, public Renderer_Output,
 		public Renderer_Post,
 		public Renderer_Scene, public Renderer_Lighting,
 		public Renderer_Style
@@ -59,6 +60,10 @@ namespace engine
 		Render_Resource& resource(void);
 		const Render_Resource& resource(void) const;
 
+		//计算域
+		Render_Compute& compute(void);
+		const Render_Compute& compute(void) const;
+
 	private:
 		//界面域对象
 		std::unique_ptr<Render_Ui> ui_domain;
@@ -66,5 +71,7 @@ namespace engine
 		std::unique_ptr<Render_Particle> particle_domain;
 		//资源域对象
 		std::unique_ptr<Render_Resource> resource_domain;
+		//计算域对象
+		std::unique_ptr<Render_Compute> compute_domain;
 	};
 }

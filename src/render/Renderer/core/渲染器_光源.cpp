@@ -136,12 +136,12 @@ namespace engine
 			return false;
 		}
 		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
-		const uint32_t light_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_limit = impl->compute_domain->state().cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		//若已达上限
 		if (impl->point_light_count >= light_limit)
 		{
 			//关闭 Cluster 时的截断须在统计中可见（不静默）
-			if (!impl->cluster_enabled)
+			if (!impl->compute_domain->state().cluster_enabled)
 				impl->light_truncated = true;
 			logger.warn("渲染器:: 点光源数量已达上限（{}），拒绝追加", light_limit);
 			return false;
@@ -205,12 +205,12 @@ namespace engine
 			return false;
 		}
 		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
-		const uint32_t light_limit = impl->cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_limit = impl->compute_domain->state().cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
 		//若已达上限
 		if (impl->point_light_count >= light_limit)
 		{
 			//关闭 Cluster 时的截断须在统计中可见（不静默）
-			if (!impl->cluster_enabled)
+			if (!impl->compute_domain->state().cluster_enabled)
 				impl->light_truncated = true;
 			logger.warn("渲染器:: 光源数量已达上限（{}），拒绝追加聚光灯", light_limit);
 			return false;

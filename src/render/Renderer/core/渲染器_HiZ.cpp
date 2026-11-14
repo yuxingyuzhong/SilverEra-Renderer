@@ -22,112 +22,112 @@ namespace engine
 {
 	//是否支持 GPU 时间戳
 
-	bool Renderer_Compute::hiz_enable_set(bool enabled)
+	bool Render_Compute::hiz_enable_set(bool enabled)
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return false;
 		//关闭只置标志
 		if (!enabled)
 		{
-			impl->hiz_enabled = false;
+			state().hiz_enabled = false;
 			return true;
 		}
 		//已就绪直接开启
-		if (impl->hiz.valid())
+		if (state().hiz.valid())
 		{
-			impl->hiz_enabled = true;
+			state().hiz_enabled = true;
 			return true;
 		}
 		//惰性构建资源
-		if (!impl->hiz_ensure())
+		if (!owner->impl->hiz_ensure())
 			return false;
 		/*
 		懒加载两条生成管线（第二百五十四轮）
 		深度拷贝与逐级降采样；任一加载失败即保持关闭（避免「启用但生成被跳过」的假开启）。
 		*/
-		if (impl->hiz_depth_copy_pipeline == 0
-			&& !self().compute_pipeline_load(impl->hiz_depth_copy_pipeline, "HiZ深度拷贝.comp.spv"))
+		if (state().hiz_depth_copy_pipeline == 0
+			&& !compute_pipeline_load(state().hiz_depth_copy_pipeline, "HiZ深度拷贝.comp.spv"))
 		{
 			logger.warn("渲染器:: Hi-Z 深度拷贝管线加载失败（开关保持关闭）");
 			return false;
 		}
-		if (impl->hiz_downsample_pipeline == 0
-			&& !self().compute_pipeline_load(impl->hiz_downsample_pipeline, "HiZ降采样.comp.spv"))
+		if (state().hiz_downsample_pipeline == 0
+			&& !compute_pipeline_load(state().hiz_downsample_pipeline, "HiZ降采样.comp.spv"))
 		{
 			logger.warn("渲染器:: Hi-Z 降采样管线加载失败（开关保持关闭）");
 			return false;
 		}
-		impl->hiz_enabled = true;
+		state().hiz_enabled = true;
 		return true;
 	}
 
-	bool Renderer_Compute::hiz_enable_get(void) const
+	bool Render_Compute::hiz_enable_get(void) const
 	{
-		return impl != nullptr && impl->hiz_enabled;
+		return owner != nullptr && owner->impl != nullptr && state().hiz_enabled;
 	}
 
-	bool Renderer_Compute::hiz_supported(void) const
+	bool Render_Compute::hiz_supported(void) const
 	{
 		//未初始化或能力不足
-		if (impl == nullptr || !impl->initialized)
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
 			return false;
-		return impl->hiz_capable && impl->compute.supported();
+		return state().hiz_capable && state().compute.supported();
 	}
 
-	bool Renderer_Compute::hiz_state_get(uint32_t& width_out, uint32_t& height_out, uint32_t& level_count_out) const
+	bool Render_Compute::hiz_state_get(uint32_t& width_out, uint32_t& height_out, uint32_t& level_count_out) const
 	{
 		//出参先归零
 		width_out = 0;
 		height_out = 0;
 		level_count_out = 0;
 		//资源未创建
-		if (impl == nullptr || !impl->hiz.valid())
+		if ((owner == nullptr || owner->impl == nullptr) || !state().hiz.valid())
 			return false;
-		width_out = impl->hiz.width_get();
-		height_out = impl->hiz.height_get();
-		level_count_out = impl->hiz.level_count();
+		width_out = state().hiz.width_get();
+		height_out = state().hiz.height_get();
+		level_count_out = state().hiz.level_count();
 		return true;
 	}
 
-	bool Renderer_Compute::hiz_level_extent(uint32_t level, uint32_t& width_out, uint32_t& height_out) const
+	bool Render_Compute::hiz_level_extent(uint32_t level, uint32_t& width_out, uint32_t& height_out) const
 	{
 		//出参先归零
 		width_out = 0;
 		height_out = 0;
 		//资源未创建
-		if (impl == nullptr || !impl->hiz.valid())
+		if ((owner == nullptr || owner->impl == nullptr) || !state().hiz.valid())
 			return false;
-		return impl->hiz.level_extent_get(level, width_out, height_out);
+		return state().hiz.level_extent_get(level, width_out, height_out);
 	}
 
-	uint64_t Renderer_Compute::hiz_generation_count(void) const
+	uint64_t Render_Compute::hiz_generation_count(void) const
 	{
 		//未初始化或无资源
-		if (impl == nullptr || !impl->hiz.valid())
+		if ((owner == nullptr || owner->impl == nullptr) || !state().hiz.valid())
 			return 0;
-		return impl->hiz.generation_count();
+		return state().hiz.generation_count();
 	}
 
-	bool Renderer_Compute::hiz_history_ready(uint32_t slot) const
+	bool Render_Compute::hiz_history_ready(uint32_t slot) const
 	{
 		//未初始化或无资源
-		if (impl == nullptr || !impl->hiz.valid())
+		if ((owner == nullptr || owner->impl == nullptr) || !state().hiz.valid())
 			return false;
-		return impl->hiz.history_valid(slot);
+		return state().hiz.history_valid(slot);
 	}
 
-	bool Renderer_Compute::hiz_history_sample_get(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
+	bool Render_Compute::hiz_history_sample_get(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
 	{
 		//默认无有效句柄
 		view_out = 0;
 		sampler_out = 0;
 		//未初始化 / 未启用 / 资源未建 / 该槽无历史
-		if (impl == nullptr || !impl->initialized || !impl->hiz_enabled || !impl->hiz.valid()
-			|| !impl->hiz.history_valid(slot))
+		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !state().hiz_enabled || !state().hiz.valid()
+			|| !state().hiz.history_valid(slot))
 			return false;
-		VkImageView history_view = impl->hiz.depth_history_view(slot);
-		VkSampler depth_sampler = impl->hiz.depth_sampler_get();
+		VkImageView history_view = state().hiz.depth_history_view(slot);
+		VkSampler depth_sampler = state().hiz.depth_sampler_get();
 		//句柄齐备才算成功
 		if (history_view == VK_NULL_HANDLE || depth_sampler == VK_NULL_HANDLE)
 			return false;

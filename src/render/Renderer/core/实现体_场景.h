@@ -51,18 +51,6 @@ namespace engine
 
 		uint32_t light_dropped = 0;
 
-		//视锥剔除管线句柄（懒加载；第二百四十八轮；0 = 尚未加载）
-		Compute_Pipeline_Handle gpu_cull_pipeline = 0;
-
-		//GPU 实例剔除开关（第二百四十九轮；默认关）
-		bool gpu_cull_enabled = false;
-
-		//最近一次 GPU 剔除耗时（毫秒；第二百四十九轮）
-		double last_gpu_cull_ms = 0.0;
-
-		//GPU 压缩累计派发次数（第二百五十一轮）
-		uint64_t gpu_cull_dispatches = 0;
-
 		std::vector<VkBuffer> light_buffers;
 
 		std::vector<VmaAllocation> light_allocations;

@@ -33,18 +33,20 @@ namespace engine
 		entry.resources = std::move(old_resources);
 		frame.deferred_push(std::move(entry), frame.in_flight_count_get() + 1);
 		/*
-		Hi-Z 资源跟随交换链尺寸（第二百五十三轮）
+		Hi-Z 资源跟随交换链尺寸（第二百五十三轮；计算域承接状态）
 		已构建时按新尺寸重建；失败则整体销毁并降级为关闭（不阻断重建后的出帧）。
 		*/
-		if (hiz.valid())
+		//计算域状态（域对象尚未登记时为空）
+		Compute_State* compute_state = compute_domain != nullptr ? &compute_domain->state() : nullptr;
+		if (compute_state != nullptr && compute_state->hiz.valid())
 		{
 			VkExtent2D extent = swapchain.extent_get();
 			//尺寸变化后重建历史与金字塔
-			if (!hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get()))
+			if (!compute_state->hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get()))
 			{
 				logger.warn("渲染器:: Hi-Z 资源尺寸重建失败（已降级为关闭）");
-				hiz.destroy();
-				hiz_enabled = false;
+				compute_state->hiz.destroy();
+				compute_state->hiz_enabled = false;
 			}
 		}
 		return true;
@@ -56,24 +58,30 @@ namespace engine
 	*/
 	bool Renderer_Impl_Holder::Impl::hiz_ensure(void)
 	{
+		//计算域尚未登记（半初始化）
+		if (compute_domain == nullptr)
+			return false;
+		//计算域状态
+		Compute_State& compute_state = compute_domain->state();
 		//能力不足
-		if (!hiz_capable || !compute.supported())
+		if (!compute_state.hiz_capable || !compute_state.compute.supported())
 			return false;
 		//关联计算上下文（第二百五十四轮：生成经其描述符集与调度）
-		hiz.compute_set(&compute);
+		compute_state.hiz.compute_set(&compute_state.compute);
 		//当前交换链范围（为 0 表示尚未就绪）
 		VkExtent2D extent = swapchain.extent_get();
 		if (extent.width == 0 || extent.height == 0)
 			return false;
 		//已就绪且尺寸一致
-		if (hiz.valid() && hiz.width_get() == extent.width && hiz.height_get() == extent.height
-			&& hiz.depth_format_get() == swapchain.depth_format_get())
+		if (compute_state.hiz.valid() && compute_state.hiz.width_get() == extent.width
+			&& compute_state.hiz.height_get() == extent.height
+			&& compute_state.hiz.depth_format_get() == swapchain.depth_format_get())
 			return true;
 		//已构建但尺寸 / 格式变化：按新参数重建
-		if (hiz.valid())
-			return hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get());
+		if (compute_state.hiz.valid())
+			return compute_state.hiz.extent_set(extent.width, extent.height, swapchain.depth_format_get());
 		//首次构建（每帧槽一份历史 ＋ 一份金字塔）
-		return hiz.build(device.device_get(), memory, config.frame_overlap, extent.width, extent.height,
+		return compute_state.hiz.build(device.device_get(), memory, config.frame_overlap, extent.width, extent.height,
 			swapchain.depth_format_get());
 	}
 
@@ -83,8 +91,13 @@ namespace engine
 	*/
 	bool Renderer_Impl_Holder::Impl::cluster_ensure(void)
 	{
+		//计算域尚未登记（半初始化）
+		if (compute_domain == nullptr)
+			return false;
+		//计算域状态
+		Compute_State& compute_state = compute_domain->state();
 		//能力不足
-		if (!cluster_capable || !compute.supported())
+		if (!compute_state.cluster_capable || !compute_state.compute.supported())
 			return false;
 		//已就绪（逐槽缓冲均已建立）
 		if (light_buffers.size() == config.frame_overlap)
@@ -127,7 +140,9 @@ namespace engine
 					memory.buffer_destroy(light_buffers[slot], light_allocations[slot]);
 		light_buffers.clear();
 		light_allocations.clear();
-		last_cluster_light_count = 0;
+		//最近一帧上传记录数（计算域已登记时复位）
+		if (compute_domain != nullptr)
+			compute_domain->state().last_cluster_light_count = 0;
 	}
 
 	//销毁图形 set0 的簇数据缓冲与占位缓冲（第二百八十八轮；幂等）
@@ -186,8 +201,14 @@ namespace engine
 	*/
 	bool Renderer_Impl_Holder::Impl::cluster_graphics_ensure(uint32_t cluster_total, uint32_t list_capacity)
 	{
+		//计算域尚未登记（半初始化）
+		if (compute_domain == nullptr)
+			return false;
+		//计算域状态
+		Compute_State& compute_state = compute_domain->state();
 		//能力不足或入参非法
-		if (!cluster_capable || !compute.supported() || cluster_total == 0 || list_capacity == 0)
+		if (!compute_state.cluster_capable || !compute_state.compute.supported()
+			|| cluster_total == 0 || list_capacity == 0)
 			return false;
 		//已就绪：槽数与容量足够且逐槽句柄齐备
 		bool ready = cluster_counts_buffers.size() == config.frame_overlap

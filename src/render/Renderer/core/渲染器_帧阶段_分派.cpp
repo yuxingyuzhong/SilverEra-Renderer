@@ -364,7 +364,7 @@ namespace engine
 				*/
 				Frame_Post_Scene_Callback post_scene{};
 				//启用时挂接 Hi-Z 生成回调
-				if (impl->hiz_enabled && impl->hiz.valid())
+				if (impl->compute_domain->state().hiz_enabled && impl->compute_domain->state().hiz.valid())
 				{
 					post_scene.fn = Renderer_Impl_Holder::Impl::hiz_post_scene_entry;
 					post_scene.user_data = impl;
@@ -391,7 +391,7 @@ namespace engine
 			*/
 			Frame_Post_Scene_Callback post_scene{};
 			//启用时挂接 Hi-Z 生成回调
-			if (impl->hiz_enabled && impl->hiz.valid())
+			if (impl->compute_domain->state().hiz_enabled && impl->compute_domain->state().hiz.valid())
 			{
 				post_scene.fn = Renderer_Impl_Holder::Impl::hiz_post_scene_entry;
 				post_scene.user_data = impl;

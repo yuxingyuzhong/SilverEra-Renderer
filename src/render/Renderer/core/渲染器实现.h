@@ -63,6 +63,8 @@
 #include "粒子域状态.h"
 //资源域状态（从实现体迁出的网格 / 纹理 / 材质 / 管线成员）
 #include "资源域状态.h"
+//计算域状态（从实现体迁出的计算上下文 / Hi-Z / Cluster 成员）
+#include "计算域状态.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -132,6 +134,8 @@ namespace engine
 		Render_Particle* particle_domain = nullptr;
 		//资源域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
 		Render_Resource* resource_domain = nullptr;
+		//计算域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
+		Render_Compute* compute_domain = nullptr;
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；
@@ -252,42 +256,5 @@ namespace engine
 
 		//具名管线集合（默认场景管线不在内）
 		std::vector<Extra_Pipeline_Record> extra_pipelines;
-
-		/*
-		计算存储缓冲记录（第二百四十三轮；第二百四十四轮补设备本地标记）
-		句柄自 1 起，槽不复用（卸载即销毁并移出列表）；
-		host_visible 为假表示设备本地（写入经暂存上传，读回须走 compute_readback）。
-		*/
-		struct Compute_Buffer_Record
-		{
-			//门面句柄
-			uint64_t handle = 0;
-			//Vulkan 缓冲
-			VkBuffer buffer = VK_NULL_HANDLE;
-			//VMA 分配
-			VmaAllocation allocation = VK_NULL_HANDLE;
-			//字节数
-			uint32_t size = 0;
-			//是否主机可见（设备本地缓冲不可直接映射读写）
-			bool host_visible = true;
-		};
-		//计算存储缓冲集合
-		std::vector<Compute_Buffer_Record> compute_buffers;
-
-		/*
-		计算管线条目（第二百四十三轮）
-		handle = 门面句柄；context_handle = 计算上下文内部句柄；module = 着色器模块（本实现体持有）。
-		*/
-		struct Compute_Pipeline_Record
-		{
-			//门面句柄
-			uint64_t handle = 0;
-			//计算上下文内部句柄
-			uint64_t context_handle = 0;
-			//着色器模块
-			VkShaderModule module = VK_NULL_HANDLE;
-		};
-		//计算管线条目集合
-		std::vector<Compute_Pipeline_Record> compute_pipelines;
 	};
 }

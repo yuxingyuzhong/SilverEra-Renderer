@@ -29,7 +29,7 @@ namespace engine
 
 	bool Render_Particle::particle_supported(void) const
 	{
-		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized && owner->compute_supported();
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized && owner->compute().compute_supported();
 	}
 
 	bool Render_Particle::particle_enable_set(bool enabled)
@@ -72,7 +72,7 @@ namespace engine
 		if (old_capacity != state().particle_capacity)
 		{
 			owner->impl->frame.frames_wait();
-			owner->particle_gpu_destroy();
+			owner->compute().particle_gpu_destroy();
 		}
 		//重置发射器配置（旧发射器可能已超出新容量）
 		state().particle_emitter_configured = false;

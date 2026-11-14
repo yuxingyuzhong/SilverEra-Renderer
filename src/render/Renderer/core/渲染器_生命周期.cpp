@@ -38,11 +38,12 @@ namespace engine
 		return *self_ptr;
 	}
 
-	//门面构造（绑定自身指针并创建界面域、粒子域与资源域；实现体由共享基类构造）
+	//门面构造（绑定自身指针并创建界面域、粒子域、资源域与计算域；实现体由共享基类构造）
 	Renderer::Renderer(void)
 		: ui_domain(new(std::nothrow) Render_Ui(this)),
 		particle_domain(new(std::nothrow) Render_Particle(this)),
-		resource_domain(new(std::nothrow) Render_Resource(this))
+		resource_domain(new(std::nothrow) Render_Resource(this)),
+		compute_domain(new(std::nothrow) Render_Compute(this))
 	{
 		self_ptr = this;
 		//登记域对象（关闭流程据此判断域对象是否仍可访问）
@@ -51,6 +52,7 @@ namespace engine
 			impl->ui_domain = ui_domain.get();
 			impl->particle_domain = particle_domain.get();
 			impl->resource_domain = resource_domain.get();
+			impl->compute_domain = compute_domain.get();
 		}
 	}
 
@@ -67,11 +69,14 @@ namespace engine
 			ui_domain->shutdown();
 		if (resource_domain != nullptr)
 			resource_domain->shutdown();
+		if (compute_domain != nullptr)
+			compute_domain->shutdown();
 		if (impl != nullptr)
 		{
 			impl->particle_domain = nullptr;
 			impl->ui_domain = nullptr;
 			impl->resource_domain = nullptr;
+			impl->compute_domain = nullptr;
 		}
 	}
 
@@ -109,6 +114,18 @@ namespace engine
 	const Render_Resource& Renderer::resource(void) const
 	{
 		return *resource_domain;
+	}
+
+	//计算域
+	Render_Compute& Renderer::compute(void)
+	{
+		return *compute_domain;
+	}
+
+	//计算域（只读）
+	const Render_Compute& Renderer::compute(void) const
+	{
+		return *compute_domain;
 	}
 
 	//构造（不创建任何 GPU 资源）

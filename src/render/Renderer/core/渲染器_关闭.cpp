@@ -244,39 +244,12 @@ namespace engine
 						static_cast<std::streamsize>(cache_bytes.size()));
 			}
 		}
-		//先释放门面层计算资源（缓冲与管线模块），再销毁计算上下文（第二百四十三轮）
-		for (Renderer_Impl_Holder::Impl::Compute_Buffer_Record& record : impl->compute_buffers)
-		{
-			if (record.buffer != VK_NULL_HANDLE)
-				impl->memory.buffer_destroy(record.buffer, record.allocation);
-		}
-		impl->compute_buffers.clear();
-		for (Renderer_Impl_Holder::Impl::Compute_Pipeline_Record& record : impl->compute_pipelines)
-		{
-			impl->compute.pipeline_release(record.context_handle);
-			if (record.module != VK_NULL_HANDLE)
-				impl->shader.module_destroy(record.module);
-		}
-		impl->compute_pipelines.clear();
-		impl->gpu_cull_pipeline = 0;
-		//实例压缩管线句柄同样失效（第二百四十九轮）
-		impl->gpu_compact_pipeline = 0;
-		impl->last_gpu_cull_ms = 0.0;
-		//Hi-Z 资源依赖内存模块与计算上下文，须先于两者销毁（第二百五十三 / 二百五十四轮）
-		impl->hiz.compute_set(nullptr);
-		impl->hiz.destroy();
-		impl->hiz_enabled = false;
-		impl->hiz_depth_copy_pipeline = 0;
-		impl->hiz_downsample_pipeline = 0;
-		//计算管线同样依赖设备与内存，先于两者销毁（第二百四十一轮）
-		impl->compute.destroy();
-		//计算着色器模块须先于着色器上下文复位
-		if (impl->compute_health_module != VK_NULL_HANDLE)
-		{
-			impl->shader.module_destroy(impl->compute_health_module);
-			impl->compute_health_module = VK_NULL_HANDLE;
-		}
-		impl->compute_health_handle = 0;
+		/*
+		计算域（缓冲与管线登记 / 计算上下文 / 健康检查模块）
+		依赖内存与着色器模块，须先于二者销毁；域对象可能已随门面析构释放，故按实现体登记判断。
+		*/
+		if (impl->compute_domain != nullptr)
+			impl->compute_domain->shutdown();
 		//管线依赖设备与内存，须先于两者销毁
 		impl->pipeline.destroy();
 		//具名管线的着色器模块（须先于着色器上下文复位）

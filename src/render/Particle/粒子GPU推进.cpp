@@ -23,7 +23,7 @@ namespace engine
 		uint32_t capacity = renderer.particle().state().particle_buffer_capacity;
 		//当前活跃计数（GPU 侧 [1]）
 		uint32_t active = 0;
-		if (!renderer.compute_buffer_read(renderer.particle().state().particle_control_buffer, &active, 4u, 4u))
+		if (!renderer.compute().compute_buffer_read(renderer.particle().state().particle_control_buffer, &active, 4u, 4u))
 			return 0;
 		renderer.particle().state().particle_resident_active = active;
 		//池满
@@ -34,13 +34,13 @@ namespace engine
 		if (active + budget > capacity)
 			budget = capacity - active;
 		//绑定：状态（只写新槽）/ 控制 / 力场（占位）/ 状态（占位）
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_buffer_front, 0))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_buffer_front, 0))
 			return 0;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_control_buffer, 1))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_control_buffer, 1))
 			return 0;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_force_buffer, 2))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_force_buffer, 2))
 			return 0;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_buffer_front, 3))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_buffer_front, 3))
 			return 0;
 		const Particle_Emitter& emitter = renderer.particle().state().particle_emitter;
 		//推送常量：位置与形状 / 速度与寿命 / 容量数量种子半径 / 主方向
@@ -51,11 +51,11 @@ namespace engine
 			static_cast<float>(renderer.particle().state().particle_born_total + 1u), emitter.extents[0],
 			emitter.direction[0], emitter.direction[1], emitter.direction[2], 0.0f
 		};
-		if (!renderer.compute_dispatch(renderer.particle().state().particle_emit_pipeline, budget, 64u, push, sizeof(push)))
+		if (!renderer.compute().compute_dispatch(renderer.particle().state().particle_emit_pipeline, budget, 64u, push, sizeof(push)))
 			return 0;
 		//回读新计数并结算实际发射数
 		uint32_t after = 0;
-		if (!renderer.compute_buffer_read(renderer.particle().state().particle_control_buffer, &after, 4u, 4u))
+		if (!renderer.compute().compute_buffer_read(renderer.particle().state().particle_control_buffer, &after, 4u, 4u))
 			return 0;
 		renderer.particle().state().particle_resident_active = after;
 		uint32_t spawned = after > active ? after - active : 0u;
@@ -81,24 +81,24 @@ namespace engine
 		uint32_t capacity = renderer.particle().state().particle_buffer_capacity;
 		//推进前活跃计数
 		uint32_t before = 0;
-		if (!renderer.compute_buffer_read(renderer.particle().state().particle_control_buffer, &before, 4u, 4u))
+		if (!renderer.compute().compute_buffer_read(renderer.particle().state().particle_control_buffer, &before, 4u, 4u))
 			return false;
 		renderer.particle().state().particle_resident_active = before;
 		//上传力场（仅前 force_count 项）
 		if (renderer.particle().state().particle_params.force_count > 0)
 		{
 			uint32_t force_bytes = renderer.particle().state().particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
-			if (!renderer.compute_buffer_write(renderer.particle().state().particle_force_buffer, renderer.particle().state().particle_params.forces, force_bytes))
+			if (!renderer.compute().compute_buffer_write(renderer.particle().state().particle_force_buffer, renderer.particle().state().particle_params.forces, force_bytes))
 				return false;
 		}
 		//绑定：front 状态 / back 状态 / 力场 / 控制缓冲
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_buffer_front, 0))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_buffer_front, 0))
 			return false;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_buffer_back, 1))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_buffer_back, 1))
 			return false;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_force_buffer, 2))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_force_buffer, 2))
 			return false;
-		if (!renderer.compute_buffer_bind(renderer.particle().state().particle_control_buffer, 3))
+		if (!renderer.compute().compute_buffer_bind(renderer.particle().state().particle_control_buffer, 3))
 			return false;
 		//推送常量（与同步链推进同布局）
 		const float push[16] = {
@@ -110,7 +110,7 @@ namespace engine
 			renderer.particle().state().particle_params.floor_y, renderer.particle().state().particle_params.restitution, renderer.particle().state().particle_params.friction,
 			static_cast<float>(renderer.particle().state().particle_params.ground_enabled)
 		};
-		if (!renderer.compute_dispatch(renderer.particle().state().particle_resident_step_pipeline, capacity, 64u, push, sizeof(push)))
+		if (!renderer.compute().compute_dispatch(renderer.particle().state().particle_resident_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
 		//交换前后缓冲（下一步读取新结果）
 		uint64_t swapped = renderer.particle().state().particle_buffer_front;
@@ -118,15 +118,15 @@ namespace engine
 		renderer.particle().state().particle_buffer_back = swapped;
 		//推进后活跃计数与死亡数
 		uint32_t after = 0;
-		if (!renderer.compute_buffer_read(renderer.particle().state().particle_control_buffer, &after, 4u, 4u))
+		if (!renderer.compute().compute_buffer_read(renderer.particle().state().particle_control_buffer, &after, 4u, 4u))
 			return false;
 		renderer.particle().state().particle_resident_active = after;
 		uint32_t died = before > after ? before - after : 0u;
 		renderer.particle().state().particle_gpu_died_last = died;
 		renderer.particle().state().particle_died_total += died;
 		//设备耗时（不支持时间戳为 −1）与主机侧耗时
-		renderer.particle().state().particle_gpu_ms_last = renderer.impl->compute.timestamp_supported()
-			? renderer.impl->compute.stats_get().elapsed_ms : -1.0;
+		renderer.particle().state().particle_gpu_ms_last = renderer.compute().state().compute.timestamp_supported()
+			? renderer.compute().state().compute.stats_get().elapsed_ms : -1.0;
 		const auto sim_end = std::chrono::high_resolution_clock::now();
 		renderer.particle().state().particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
 		return true;

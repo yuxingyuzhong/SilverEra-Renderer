@@ -225,10 +225,10 @@ namespace engine
 		296 = Cluster 启用（> 0.5 时片元改读逐簇光源列表）、297..299 = 网格 x / y / z；
 		296 为 0（默认）时着色器走原 8 盏前向循环，画面逐字节不变。
 		*/
-		scene_block[296] = impl->cluster_enabled ? 1.0f : 0.0f;
-		scene_block[297] = static_cast<float>(impl->cluster_grid.x);
-		scene_block[298] = static_cast<float>(impl->cluster_grid.y);
-		scene_block[299] = static_cast<float>(impl->cluster_grid.z);
+		scene_block[296] = impl->compute_domain->state().cluster_enabled ? 1.0f : 0.0f;
+		scene_block[297] = static_cast<float>(impl->compute_domain->state().cluster_grid.x);
+		scene_block[298] = static_cast<float>(impl->compute_domain->state().cluster_grid.y);
+		scene_block[299] = static_cast<float>(impl->compute_domain->state().cluster_grid.z);
 		/*
 		聚光灯阴影参数（第四百七十六 / 479 轮；x = 图集开关（第六百七十轮）、y = 软度、z = 强度、w = 开关）
 		x > 0.5 时着色器按瓦片号换算图集像素原点；w > 0.5 表示本帧存在有效聚光阴影。

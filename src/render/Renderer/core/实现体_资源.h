@@ -46,56 +46,8 @@ namespace engine
 		bool shadow_batch_submit = false;
 
 		/*
-		Hi-Z 上下文（第二百五十三轮）
-		按帧槽持有深度历史与 mip 金字塔；默认关闭时不创建任何资源，首次开启时惰性构建。
-		hiz_capable 为初始化时探测结果（计算可用 ＋ R32 浮点存储图像可用）。
+		帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
 		*/
-		HiZ_Context hiz;
-
-		bool hiz_enabled = false;
-
-		bool hiz_capable = false;
-
-		//Hi-Z 生成管线（第二百五十四轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle hiz_depth_copy_pipeline = 0;
-
-		Compute_Pipeline_Handle hiz_downsample_pipeline = 0;
-
-		/*
-		Cluster 光照（第二百六十六轮）
-		cluster_enabled 为开关（默认关）；cluster_capable 为初始化探测（计算路径可用）；
-		light_buffers / light_allocations 按帧槽持有光源记录 SSBO（仅开启时创建）；
-		last_cluster_light_count 为最近一帧上传的记录数。
-		*/
-		bool cluster_enabled = false;
-
-		bool cluster_capable = false;
-
-		uint32_t last_cluster_light_count = 0;
-
-		//分簇网格（第二百六十七轮；默认 16 × 9 × 24，运行期钳制）
-		Cluster_Grid cluster_grid;
-
-		//逐簇计数管线（第二百六十八轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_count_pipeline = 0;
-
-		//块内前缀和管线（第二百六十九轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_scan_pipeline = 0;
-
-		//块间偏移与偏移合成管线（第二百七十轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_block_offset_pipeline = 0;
-
-		Compute_Pipeline_Handle cluster_offset_apply_pipeline = 0;
-
-		//列表写入管线（第二百七十一轮；懒加载，0 = 尚未加载）
-		Compute_Pipeline_Handle cluster_list_pipeline = 0;
-
-		//最近一次簇数据整备观测（第二百七十二轮）
-		uint32_t last_cluster_entries = 0;
-
-		double last_cluster_build_ms = 0.0;
-
-		//帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
 		std::vector<uint32_t> cluster_counts_scratch;
 
 		std::vector<uint32_t> cluster_offsets_scratch;
