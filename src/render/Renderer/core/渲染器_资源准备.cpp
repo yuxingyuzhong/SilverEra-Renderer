@@ -321,7 +321,7 @@ namespace engine
 			data.indices = { 0, 2, 1, 0, 3, 2 };
 			//网格句柄（创建失败则整体失败）
 			Mesh_Handle created = 0;
-			if (!mesh.mesh_create(created, data))
+			if (!resource_domain->state().mesh.mesh_create(created, data))
 			{
 				logger.error("渲染器:: 后处理全屏网格创建失败");
 				return false;
@@ -424,7 +424,7 @@ namespace engine
 	bool Renderer_Impl_Holder::Impl::sky_pipeline_ensure(void)
 	{
 		//天空盒具名管线尚未登记
-		if (sky_pipeline == 0)
+		if (resource_domain->state().sky_pipeline == 0)
 		{
 			//加载天空盒顶点 / 片元着色器模块（顺带解析顶点输入位置）
 			VkShaderModule vert_module = VK_NULL_HANDLE;
@@ -452,7 +452,7 @@ namespace engine
 				return false;
 			}
 			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
-			sky_pipeline = registered;
+			resource_domain->state().sky_pipeline = registered;
 			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
 			logger.info("渲染器:: 天空盒管线已登记（句柄 {}）", registered);
 		}

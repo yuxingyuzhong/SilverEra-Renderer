@@ -7,14 +7,12 @@
 #include "渲染界面.h"
 //粒子域
 #include "渲染粒子.h"
+//资源域
+#include "渲染资源.h"
 //各能力接口
 #include "渲染器_接口_核心.h"
 #include "渲染器_接口_计算.h"
 #include "渲染器_接口_输出.h"
-#include "渲染器_接口_网格.h"
-#include "渲染器_接口_纹理.h"
-#include "渲染器_接口_材质.h"
-#include "渲染器_接口_管线.h"
 #include "渲染器_接口_后处理.h"
 #include "渲染器_接口_场景.h"
 #include "渲染器_接口_光照.h"
@@ -39,8 +37,7 @@ namespace engine
 	故整个门面共享同一份实现体指针，公共 API 与单类时期完全一致。
 	*/
 	class Renderer : public Renderer_Core, public Renderer_Compute, public Renderer_Output,
-		public Renderer_Mesh, public Renderer_Texture, public Renderer_Material,
-		public Renderer_Pipeline, public Renderer_Post,
+		public Renderer_Post,
 		public Renderer_Scene, public Renderer_Lighting,
 		public Renderer_Style
 	{
@@ -58,10 +55,16 @@ namespace engine
 		Render_Particle& particle(void);
 		const Render_Particle& particle(void) const;
 
+		//资源域
+		Render_Resource& resource(void);
+		const Render_Resource& resource(void) const;
+
 	private:
 		//界面域对象
 		std::unique_ptr<Render_Ui> ui_domain;
 		//粒子域对象
 		std::unique_ptr<Render_Particle> particle_domain;
+		//资源域对象
+		std::unique_ptr<Render_Resource> resource_domain;
 	};
 }

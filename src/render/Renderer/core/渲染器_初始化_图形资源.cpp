@@ -27,7 +27,7 @@ namespace engine
 	bool renderer_init_graphics(Renderer* owner, Renderer_Impl_Holder::Impl* impl, const Renderer_Config& effective)
 	{
 		//⑫ 管线：图形管线（初始档位 = 不透明）
-		if (!impl->pipeline.pipeline_build(impl->vert_module, impl->frag_module, Blend_Mode::Opaque,
+		if (!impl->pipeline.pipeline_build(impl->resource_domain->state().vert_module, impl->resource_domain->state().frag_module, Blend_Mode::Opaque,
 			impl->scene_input_locations))
 		{
 			logger.error("渲染器:: 图形管线创建失败");
@@ -394,94 +394,9 @@ namespace engine
 				}
 			}
 		}
-		/*
-		⑭ 纹理：记录内存与设备，生成内置默认白纹理（2×2 全白）并绑定到所有帧槽 set1，
-		保证 descriptor_set_count = 2 时不存在未写入的描述符集。
-		*/
-		if (!impl->texture.build(impl->memory, impl->device.device_get()))
-		{
-			logger.error("渲染器:: 纹理模块初始化失败");
-			owner->shutdown();
+		//⑭ 纹理与内置默认资源（资源域；失败时资源域内部已关闭门面）
+		if (!owner->resource().init(effective))
 			return false;
-		}
-		//2×2 全白像素（RGBA8 紧排）
-		const uint8_t white_pixels[16] = {
-			255, 255, 255, 255, 255, 255, 255, 255,
-			255, 255, 255, 255, 255, 255, 255, 255,
-		};
-		if (!impl->texture.texture_create_from_memory(impl->default_texture, white_pixels, 2, 2))
-		{
-			logger.error("渲染器:: 默认白纹理创建失败");
-			owner->shutdown();
-			return false;
-		}
-		//取默认纹理的视图与采样器
-		VkImageView default_view = VK_NULL_HANDLE;
-		VkSampler default_sampler = VK_NULL_HANDLE;
-		if (!impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler))
-		{
-			logger.error("渲染器:: 默认白纹理视图获取失败");
-			owner->shutdown();
-			return false;
-		}
-		//初始采样状态（逐绘制项采样集按此快照写入；第一百七十四轮）
-		impl->bound_view = default_view;
-		impl->bound_sampler = default_sampler;
-		for (VkImageView& material_view : impl->material_views)
-			material_view = default_view;
-		//把默认纹理写入所有帧槽 set1（长命资源，一次写满）
-		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
-		{
-			if (!impl->pipeline.texture_bind(slot, default_sampler, default_view))
-			{
-				logger.error("渲染器:: 默认纹理绑定失败（帧槽 {}）", slot);
-				owner->shutdown();
-				return false;
-			}
-			/*
-			材质贴图槽同步写入默认白纹理（第一百二十四轮；第一百七十轮合并为一次批量写）
-			场景片元静态声明 binding 3 / 4 / 6 / 7 / 8，即使未使用材质也必须有有效绑定；
-			白纹理使法线 / 粗糙度 / 自发光 / 遮蔽 / 金属度乘子恒为 1，故不影响默认画面。
-			*/
-			if (!impl->pipeline.material_textures_bind(slot, default_sampler, default_view, default_view,
-				default_view, default_view, default_view))
-			{
-				logger.error("渲染器:: 默认材质贴图绑定失败（帧槽 {}）", slot);
-				owner->shutdown();
-				return false;
-			}
-		}
-		/*
-		内置纯白立方体（第一百二十五轮）
-		场景片元静态声明 binding 5（samplerCube），故即使未启用天空盒也必须有有效绑定；
-		1×1×6 面全白，且默认天空盒强度为 0，故不改变既有画面。
-		*/
-		const uint8_t white_cube_faces[6 * 4] = {
-			255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-			255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-		};
-		if (!impl->texture.texture_create_cube(impl->default_sky_texture, white_cube_faces, 1, 1))
-		{
-			logger.error("渲染器:: 默认天空盒立方体创建失败");
-			owner->shutdown();
-			return false;
-		}
-		//取默认立方体的视图与采样器（与默认白纹理共用同一共享采样器）
-		VkImageView sky_view = VK_NULL_HANDLE;
-		VkSampler sky_sampler = VK_NULL_HANDLE;
-		if (!impl->texture.texture_bind_get(impl->default_sky_texture, sky_view, sky_sampler))
-		{
-			logger.error("渲染器:: 默认天空盒立方体视图获取失败");
-			owner->shutdown();
-			return false;
-		}
-		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
-			if (!impl->pipeline.sky_bind(slot, sky_sampler, sky_view))
-			{
-				logger.error("渲染器:: 默认天空盒绑定失败（帧槽 {}）", slot);
-				owner->shutdown();
-				return false;
-			}
 		return true;
 	}
 }

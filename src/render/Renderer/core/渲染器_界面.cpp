@@ -161,7 +161,7 @@ namespace engine
 		state().ui.build();
 		ui_pipeline_ensure();
 		if (!state().ui_render.build(impl->device.device_get(), impl->memory, impl->pipeline,
-			impl->texture, state().font, state().ui_solid_pipeline, state().ui_text_pipeline,
+			impl->resource_domain->state().texture, state().font, state().ui_solid_pipeline, state().ui_text_pipeline,
 			effective.frame_overlap))
 			logger.warn("渲染器:: 原生 UI 渲染器装配失败（原生 UI 不绘制）");
 		/*
@@ -185,7 +185,7 @@ namespace engine
 					return self->state().text.pipeline_get();
 				uint64_t handle = 0;
 				//登记失败保持 0（文字覆盖率写入按配置决定；仅 MSAA > 1× 时生效）
-				if (!self->owner->pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha,
+				if (!self->owner->resource().pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha,
 					self->owner->impl->config.text_alpha_to_coverage))
 					return 0;
 				self->state().text.pipeline_set(handle);
@@ -194,30 +194,30 @@ namespace engine
 			//绑定文字管线
 			text_host.pipeline_bind = [](void* user, uint64_t pipeline)
 			{
-				static_cast<Render_Ui*>(user)->owner->pipeline_bind_set(pipeline);
+				static_cast<Render_Ui*>(user)->owner->resource().pipeline_bind_set(pipeline);
 			};
 			//绑定字形图集纹理
 			text_host.texture_bind = [](void* user, uint64_t texture)
 			{
-				static_cast<Render_Ui*>(user)->owner->texture_bind_set(texture);
+				static_cast<Render_Ui*>(user)->owner->resource().texture_bind_set(texture);
 			};
 			//创建文字网格
 			text_host.mesh_create = [](void* user, Mesh_Handle& mesh, const Mesh_Data& data) -> bool
 			{
-				return static_cast<Render_Ui*>(user)->owner->impl->mesh.mesh_create(mesh, data);
+				return static_cast<Render_Ui*>(user)->owner->impl->resource_domain->state().mesh.mesh_create(mesh, data);
 			};
 			//归还文字网格（网格模块未就绪时只丢弃句柄）
 			text_host.mesh_destroy = [](void* user, Mesh_Handle mesh)
 			{
 				Render_Ui* self = static_cast<Render_Ui*>(user);
 				//若网格模块仍有效
-				if (self->owner != nullptr && self->owner->impl != nullptr && self->owner->impl->mesh.valid())
-					self->owner->impl->mesh.mesh_destroy(mesh);
+				if (self->owner != nullptr && self->owner->impl != nullptr && self->owner->impl->resource_domain->state().mesh.valid())
+					self->owner->impl->resource_domain->state().mesh.mesh_destroy(mesh);
 			};
 			//登记文字绘制项
 			text_host.mesh_draw = [](void* user, Mesh_Handle mesh, const float* transform, const float* color) -> bool
 			{
-				return static_cast<Render_Ui*>(user)->owner->mesh_draw(mesh, transform, color);
+				return static_cast<Render_Ui*>(user)->owner->resource().mesh_draw(mesh, transform, color);
 			};
 			//取当前绘制目标尺寸（像素）
 			text_host.extent_get = [](void* user, float& width, float& height)

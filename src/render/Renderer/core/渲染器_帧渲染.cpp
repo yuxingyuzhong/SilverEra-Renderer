@@ -298,7 +298,7 @@ namespace engine
 		bool sky_frame = false;
 		//天空项在本帧实例缓冲内的字节偏移
 		VkDeviceSize sky_instance_offset = 0;
-		if (impl->sky_enabled)
+		if (impl->resource_domain->state().sky_enabled)
 		{
 			//本帧实例存储须仍有空位，且全屏网格与天空管线就绪
 			if (impl->pending_instances.size() < impl->instance_capacity

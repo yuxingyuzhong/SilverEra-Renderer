@@ -161,16 +161,16 @@ namespace engine
 
 	//按程序化球体加载网格（第六十六轮新增）
 
-	bool Renderer_Mesh::mesh_draw(Mesh_Handle handle, const float* transform, const float* color)
+	bool Render_Resource::mesh_draw(Mesh_Handle handle, const float* transform, const float* color)
 	{
-		return self().mesh_draw_range(handle, transform, color, 0u, 0u);
+		return mesh_draw_range(handle, transform, color, 0u, 0u);
 	}
 
-	bool Renderer_Mesh::mesh_draw_range(Mesh_Handle handle, const float* transform, const float* color,
+	bool Render_Resource::mesh_draw_range(Mesh_Handle handle, const float* transform, const float* color,
 		uint32_t first_index, uint32_t range_count)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 网格绘制失败：尚未初始化");
 			return false;
@@ -180,7 +180,7 @@ namespace engine
 		VkBuffer mesh_buffer = VK_NULL_HANDLE;
 		VkDeviceSize index_offset = 0;
 		uint32_t index_count = 0;
-		if (!impl->mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
+		if (!state().mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
 		{
 			logger.error("渲染器:: 网格绘制失败：网格句柄 {} 无效", handle);
 			return false;
@@ -210,19 +210,19 @@ namespace engine
 		*/
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
-		if (impl->cull_enabled && impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
+		if (owner->impl->cull_enabled && state().mesh.mesh_bounds_get(handle, bounds_min, bounds_max))
 		{
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
-			impl->camera.view_proj_get(view_proj);
+			owner->impl->camera.view_proj_get(view_proj);
 			//模型矩阵（空指针视作单位矩阵）
 			const float* model = (transform != nullptr) ? transform : IDENTITY_MATRIX4;
 			//若包围盒完全落在视锥外则跳过登记
 			if (frustum_cull_aabb(view_proj, model, bounds_min, bounds_max))
 			{
 				//计入剔除观测（累计量与最近一帧量）
-				++impl->culled_items;
-				++impl->frame_culled_items;
+				++owner->impl->culled_items;
+				++owner->impl->frame_culled_items;
 				return true;
 			}
 		}
@@ -231,17 +231,17 @@ namespace engine
 		模型矩阵改由「实例缓冲」承载（本层统一走实例路径）
 		transform 为空则用单位矩阵；实例数为 1 即等价于逐次绘制（模型矩阵不再经推送常量传递）。
 		*/
-		if (impl->pending_instances.size() >= impl->instance_capacity)
+		if (owner->impl->pending_instances.size() >= owner->impl->instance_capacity)
 		{
-			logger.error("渲染器:: 本帧实例矩阵存储已满（容量 {}），绘制被拒", impl->instance_capacity);
+			logger.error("渲染器:: 本帧实例矩阵存储已满（容量 {}），绘制被拒", owner->impl->instance_capacity);
 			return false;
 		}
 		//追加本项模型矩阵与材质并取其在本帧实例缓冲内的字节偏移
-		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transform, 1,
-			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
-			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
-			impl->material_toon_rim, impl->material_toon_specular, impl->material_toon_tint[0],
-			impl->material_toon_tint[1], impl->material_toon_tint[2]);
+		VkDeviceSize instance_offset = instance_matrices_append(owner->impl->pending_instances, transform, 1,
+			state().material_pbr_active, state().material_pbr_roughness, state().material_pbr_metallic,
+			state().material_emissive, state().material_toon_active, state().material_toon_steps,
+			state().material_toon_rim, state().material_toon_specular, state().material_toon_tint[0],
+			state().material_toon_tint[1], state().material_toon_tint[2]);
 
 		/*
 		组装待绘制项
@@ -249,8 +249,8 @@ namespace engine
 		故此处先置空、数量为 0。
 		*/
 		Frame_Render_Item item{};
-		item.pipeline = impl->pipeline.pipeline_get();
-		item.layout = impl->pipeline.layout_get();
+		item.pipeline = owner->impl->pipeline.pipeline_get();
+		item.layout = owner->impl->pipeline.layout_get();
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
 		item.descriptor_set_count = 0;
@@ -262,17 +262,17 @@ namespace engine
 		item.instance_offset = instance_offset;
 		item.instance_count = 1;
 		//采样状态快照（第一百七十四轮；帧渲染阶段据此写专属采样器集）
-		item.draw_sampler = impl->bound_sampler;
-		item.draw_albedo = impl->bound_view;
-		item.draw_normal = impl->material_views[0];
-		item.draw_roughness = impl->material_views[1];
-		item.draw_emissive = impl->material_views[2];
-		item.draw_ao = impl->material_views[3];
-		item.draw_metallic = impl->material_views[4];
+		item.draw_sampler = state().bound_sampler;
+		item.draw_albedo = state().bound_view;
+		item.draw_normal = state().material_views[0];
+		item.draw_roughness = state().material_views[1];
+		item.draw_emissive = state().material_views[2];
+		item.draw_ao = state().material_views[3];
+		item.draw_metallic = state().material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
-		item.cast_shadow = !self().ui().state().in_text_draw;
+		item.cast_shadow = !owner->ui().state().in_text_draw;
 		//透明标记（第一百三十轮：文字等非不透明混合项不参与合批，避免混叠顺序改变）
-		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
+		item.transparent = owner->impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*
 		颜色 / 色调推送（文字着色 ＋ 第六十九轮逐物体色调）
 		矩阵已由实例缓冲承载，推送块前 64 字节仅用于占位（单位矩阵），后 16 字节为颜色；
@@ -282,14 +282,14 @@ namespace engine
 		*/
 		const float* push_color = color;
 		//非文字且未显式给出颜色时，改用吸附色调或白色
-		if (push_color == nullptr && !self().ui().state().in_text_draw)
-			push_color = impl->material_tint_active
-				? impl->material_tint
+		if (push_color == nullptr && !owner->ui().state().in_text_draw)
+			push_color = state().material_tint_active
+				? state().material_tint
 				: WHITE_COLOR_RGBA;
 		if (push_color != nullptr)
 		{
-			impl->pending_push_constants.emplace_back();
-			std::array<float, 32>& push = impl->pending_push_constants.back();
+			owner->impl->pending_push_constants.emplace_back();
+			std::array<float, 32>& push = owner->impl->pending_push_constants.back();
 			//前 64 字节 = 单位矩阵
 			push.fill(0.0f);
 			push[0] = 1.0f;
@@ -304,62 +304,62 @@ namespace engine
 			x = 法线强度（0 = 不启用），y = 粗糙度贴图启用标志（贴图恒绑定，默认白纹理即恒等），zw 保留。
 			文字绘制时该 vec4 改作描边参数（第一百四十轮）：x = 描边半宽（UV）、yzw = 描边色。
 			*/
-			if (self().ui().state().in_text_draw)
+			if (owner->ui().state().in_text_draw)
 			{
-				push[20] = self().ui().state().text_outline_uv_width;
-				push[21] = self().ui().state().text_outline_color[0];
-				push[22] = self().ui().state().text_outline_color[1];
-				push[23] = self().ui().state().text_outline_color[2];
+				push[20] = owner->ui().state().text_outline_uv_width;
+				push[21] = owner->ui().state().text_outline_color[0];
+				push[22] = owner->ui().state().text_outline_color[1];
+				push[23] = owner->ui().state().text_outline_color[2];
 			}
 			else
 			{
-				push[20] = impl->material_normal_strength;
-				push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
+				push[20] = state().material_normal_strength;
+				push[21] = state().material_normal_strength > 0.0f ? 1.0f : 0.0f;
 				//Alpha 裁剪阈值与 UV 旋转（第一百八十三轮；默认 0 = 关闭 / 不旋转）
-				push[22] = impl->material_alpha_cutoff;
-				push[23] = impl->material_uv_rotation;
+				push[22] = state().material_alpha_cutoff;
+				push[23] = state().material_uv_rotation;
 			}
 			/*
 			贴图 UV 变换（第一百七十一轮；offset 96 的 vec4）
 			xy = 缩放、zw = 偏移；文字绘制不采样材质贴图，保持恒等变换（1,1,0,0）。
 			*/
-			if (self().ui().state().in_text_draw)
+			if (owner->ui().state().in_text_draw)
 			{
 				push[24] = 1.0f;
 				push[25] = 1.0f;
 			}
 			else
 			{
-				push[24] = impl->material_uv_scale[0];
-				push[25] = impl->material_uv_scale[1];
-				push[26] = impl->material_uv_offset[0];
-				push[27] = impl->material_uv_offset[1];
+				push[24] = state().material_uv_scale[0];
+				push[25] = state().material_uv_scale[1];
+				push[26] = state().material_uv_offset[0];
+				push[27] = state().material_uv_offset[1];
 			}
 			/*
 			清漆层（第二百三十三轮；offset 112 的 vec4）
 			x = 清漆强度、y = 清漆粗糙度；文字绘制无材质语义，恒为零（关闭）。
 			*/
-			if (!self().ui().state().in_text_draw)
+			if (!owner->ui().state().in_text_draw)
 			{
-				push[28] = impl->material_clear_coat;
-				push[29] = impl->material_clear_coat_roughness;
+				push[28] = state().material_clear_coat;
+				push[29] = state().material_clear_coat_roughness;
 			}
 			item.push_constants = push.data();
 			item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		}
 
 		//先登记描边项（外扩轮廓须先写入深度，主体几何随后按更近深度覆盖内部）
-		impl->outline_item_push(item);
+		owner->impl->outline_item_push(item);
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
-		impl->pending_items.push_back(item);
+		owner->impl->pending_items.push_back(item);
 		return true;
 	}
 
-	bool Renderer_Mesh::mesh_draw_sections(Mesh_Handle handle, const float* transform,
+	bool Render_Resource::mesh_draw_sections(Mesh_Handle handle, const float* transform,
 		const Material_Handle* materials, uint32_t count, const Material_Instance_Data* instances)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 多材质绘制失败：尚未初始化");
 			return false;
@@ -377,44 +377,44 @@ namespace engine
 		*/
 		auto apply_instance = [this](const Material_Instance_Data& data)
 		{
-			if (data.模板 == 0 || data.模板 > impl->materials.size() || !impl->materials[data.模板 - 1].valid)
+			if (data.模板 == 0 || data.模板 > state().materials.size() || !state().materials[data.模板 - 1].valid)
 				return;
 			//覆盖底色（乘性叠加到模板色调）
 			if (data.use_tint)
 			{
-				impl->material_tint_active = true;
+				state().material_tint_active = true;
 				for (std::size_t index = 0; index < 4; ++index)
-					impl->material_tint[index] *= data.tint[index];
+					state().material_tint[index] *= data.tint[index];
 			}
 			//覆盖自发光（直接覆盖模板值）
 			if (data.use_emissive)
-				impl->material_emissive = data.emissive;
+				state().material_emissive = data.emissive;
 			//逐实例卡通（第四百七十一轮；三项直接覆盖模板卡通参数）
 			if (data.use_toon)
 			{
-				impl->material_toon_active = true;
-				impl->material_toon_steps = data.toon_steps;
-				impl->material_toon_rim = data.toon_rim;
-				impl->material_toon_specular = data.toon_specular;
+				state().material_toon_active = true;
+				state().material_toon_steps = data.toon_steps;
+				state().material_toon_rim = data.toon_rim;
+				state().material_toon_specular = data.toon_specular;
 			}
 			//逐实例 PBR（第五百六十四轮；覆盖即启用）
 			if (data.use_pbr)
 			{
-				impl->material_pbr_active = true;
-				impl->material_pbr_roughness = data.pbr_roughness;
-				impl->material_pbr_metallic = data.pbr_metallic;
+				state().material_pbr_active = true;
+				state().material_pbr_roughness = data.pbr_roughness;
+				state().material_pbr_metallic = data.pbr_metallic;
 			}
 			//逐实例清漆（第五百九十四轮；覆盖即启用）
 			if (data.use_clearcoat)
 			{
-				impl->material_clear_coat = data.clear_coat;
-				impl->material_clear_coat_roughness = data.clear_coat_roughness;
+				state().material_clear_coat = data.clear_coat;
+				state().material_clear_coat_roughness = data.clear_coat_roughness;
 			}
 		};
 		//取网格索引总数（均分回落用）
 		uint32_t vertex_count = 0;
 		uint32_t total_indices = 0;
-		if (!impl->mesh.mesh_counts_get(handle, vertex_count, total_indices))
+		if (!state().mesh.mesh_counts_get(handle, vertex_count, total_indices))
 		{
 			logger.error("渲染器:: 多材质绘制失败：网格句柄 {} 无效", handle);
 			return false;
@@ -425,22 +425,22 @@ namespace engine
 		无分段时回落到「按材质数均分」的旧口径。
 		*/
 		std::vector<Mesh_Section> sections;
-		if (impl->mesh.mesh_sections_get(handle, sections) && !sections.empty())
+		if (state().mesh.mesh_sections_get(handle, sections) && !sections.empty())
 		{
 			bool success = true;
 			for (const Mesh_Section& section : sections)
 			{
 				//材质槽越界回落首个材质
 				uint32_t slot = section.material < count ? section.material : 0u;
-				self().material_bind_set(materials[slot]);
+				material_bind_set(materials[slot]);
 				//套用该段实例覆盖（第四百六十九轮）
 				if (instances != nullptr)
 					apply_instance(instances[slot]);
-				if (!self().mesh_draw_range(handle, transform, nullptr, section.first_index, section.index_count))
+				if (!mesh_draw_range(handle, transform, nullptr, section.first_index, section.index_count))
 					success = false;
 			}
 			//恢复默认绑定
-			self().material_bind_set(0);
+			material_bind_set(0);
 			return success;
 		}
 		//每段索引数按 3 对齐（避免切断三角形），余数归最后一段
@@ -462,23 +462,23 @@ namespace engine
 			if (length == 0)
 				continue;
 			//绑定该段的材质（0 或无效句柄由绑定入口回落默认）
-			self().material_bind_set(materials[index]);
+			material_bind_set(materials[index]);
 			//套用该段实例覆盖（第四百六十九轮）
 			if (instances != nullptr)
 				apply_instance(instances[index]);
-			if (!self().mesh_draw_range(handle, transform, nullptr, first, length))
+			if (!mesh_draw_range(handle, transform, nullptr, first, length))
 				success = false;
 			first += length;
 		}
 		//恢复默认绑定
-		self().material_bind_set(0);
+		material_bind_set(0);
 		return success;
 	}
 
-	bool Renderer_Mesh::mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count)
+	bool Render_Resource::mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//实例数必须为正
 		if (count == 0)
@@ -490,7 +490,7 @@ namespace engine
 		VkBuffer mesh_buffer = VK_NULL_HANDLE;
 		VkDeviceSize index_offset = 0;
 		uint32_t index_count = 0;
-		if (!impl->mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
+		if (!state().mesh.mesh_record_get(handle, mesh_buffer, index_offset, index_count))
 		{
 			logger.error("渲染器:: 实例化绘制的网格句柄无效");
 			return false;
@@ -503,30 +503,30 @@ namespace engine
 		float bounds_min[3] = {};
 		float bounds_max[3] = {};
 		//是否具备剔除前置（变换 ＋ 剔除开启 ＋ 网格包围盒）
-		const bool has_cull_input = transforms != nullptr && impl->cull_enabled
-			&& impl->mesh.mesh_bounds_get(handle, bounds_min, bounds_max);
+		const bool has_cull_input = transforms != nullptr && owner->impl->cull_enabled
+			&& state().mesh.mesh_bounds_get(handle, bounds_min, bounds_max);
 		//GPU 实例压缩优先（第二百四十九轮；失败回落 CPU 路径）
 		bool gpu_compacted = false;
-		if (has_cull_input && impl->gpu_cull_enabled)
+		if (has_cull_input && owner->impl->gpu_cull_enabled)
 		{
 			std::vector<float> compacted(static_cast<std::size_t>(count) * 16, 0.0f);
 			uint32_t visible_count = 0;
 			//压缩成功则直接采用 GPU 结果（与 CPU 剔除顺序 / 内容一致）
-			if (self().gpu_instance_compact(transforms, count, bounds_min, bounds_max, compacted.data(), &visible_count))
+			if (owner->gpu_instance_compact(transforms, count, bounds_min, bounds_max, compacted.data(), &visible_count))
 			{
 				const uint32_t culled_count = count - visible_count;
-				impl->culled_instances += culled_count;
-				impl->frame_culled_instances += culled_count;
+				owner->impl->culled_instances += culled_count;
+				owner->impl->frame_culled_instances += culled_count;
 				//整批不可见按一个绘制项计
 				if (visible_count == 0)
 				{
-					++impl->culled_items;
-					++impl->frame_culled_items;
+					++owner->impl->culled_items;
+					++owner->impl->frame_culled_items;
 					return true;
 				}
-				impl->instanced_cull_scratch.assign(compacted.begin(),
+				owner->impl->instanced_cull_scratch.assign(compacted.begin(),
 					compacted.begin() + static_cast<std::ptrdiff_t>(visible_count) * 16);
-				transforms = impl->instanced_cull_scratch.data();
+				transforms = owner->impl->instanced_cull_scratch.data();
 				count = visible_count;
 				gpu_compacted = true;
 			}
@@ -538,90 +538,90 @@ namespace engine
 			const auto cull_begin = std::chrono::high_resolution_clock::now();
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
-			impl->camera.view_proj_get(view_proj);
+			owner->impl->camera.view_proj_get(view_proj);
 			/*
 			可见性掩码（第一百七十七轮）
 			逐实例只写自己的掩码槽（1 = 可见、0 = 剔除），故可分块并行且与单线程结果完全一致；
 			实例数达到阈值且工作线程可用时走并行，否则由调用线程整段执行。
 			*/
-			impl->instanced_cull_mask.assign(count, 0);
+			owner->impl->instanced_cull_mask.assign(count, 0);
 			//本帧生效的并行阈值（默认 256；可由配置调整，第二百二十二轮）
-			const std::size_t cull_parallel_min = impl->cull_parallel_min_instances;
-			if (impl->thread_pool.active() && count >= cull_parallel_min)
+			const std::size_t cull_parallel_min = owner->impl->cull_parallel_min_instances;
+			if (owner->impl->thread_pool.active() && count >= cull_parallel_min)
 			{
 				//派发计数差值（第二百二十四轮：按用途归入剔除）
-				const uint64_t dispatch_before = impl->thread_pool.dispatch_count_get();
+				const uint64_t dispatch_before = owner->impl->thread_pool.dispatch_count_get();
 				//并行判定（块之间无共享写入）
-				impl->thread_pool.ranges_run(count, cull_parallel_min,
+				owner->impl->thread_pool.ranges_run(count, cull_parallel_min,
 					[this, view_proj, transforms, bounds_min, bounds_max](std::size_t begin, std::size_t end)
 					{
 						for (std::size_t instance = begin; instance < end; ++instance)
-							impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
+							owner->impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
 								transforms + instance * 16, bounds_min, bounds_max) ? 0 : 1;
 					});
 				//累加剔除用途的派发次数
-				impl->cull_parallel_dispatches += impl->thread_pool.dispatch_count_get() - dispatch_before;
+				owner->impl->cull_parallel_dispatches += owner->impl->thread_pool.dispatch_count_get() - dispatch_before;
 			}
 			else
 			{
 				//单线程判定（与引入并行前逐字节一致）
 				for (uint32_t instance = 0; instance < count; ++instance)
-					impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
+					owner->impl->instanced_cull_mask[instance] = frustum_cull_aabb(view_proj,
 						transforms + static_cast<std::size_t>(instance) * 16, bounds_min, bounds_max) ? 0 : 1;
 			}
 			//筛选可见实例（按原相对顺序压缩；整块拷贝 16 浮点）
-			impl->instanced_cull_scratch.clear();
-			impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(count) * 16);
+			owner->impl->instanced_cull_scratch.clear();
+			owner->impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(count) * 16);
 			for (uint32_t instance = 0; instance < count; ++instance)
 				//仅可见实例写入压缩缓冲
-				if (impl->instanced_cull_mask[instance] != 0)
+				if (owner->impl->instanced_cull_mask[instance] != 0)
 				{
 					const float* matrix = transforms + static_cast<std::size_t>(instance) * 16;
-					impl->instanced_cull_scratch.insert(impl->instanced_cull_scratch.end(), matrix, matrix + 16);
+					owner->impl->instanced_cull_scratch.insert(owner->impl->instanced_cull_scratch.end(), matrix, matrix + 16);
 				}
 			//可见 / 剔除的实例数
-			const uint32_t visible_count = static_cast<uint32_t>(impl->instanced_cull_scratch.size() / 16);
+			const uint32_t visible_count = static_cast<uint32_t>(owner->impl->instanced_cull_scratch.size() / 16);
 			const uint32_t culled_count = count - visible_count;
 			//累计本帧剔除耗时（第二百四十七轮）
 			const auto cull_end = std::chrono::high_resolution_clock::now();
-			impl->frame_cull_ms += std::chrono::duration<double, std::milli>(cull_end - cull_begin).count();
-			impl->culled_instances += culled_count;
-			impl->frame_culled_instances += culled_count;
+			owner->impl->frame_cull_ms += std::chrono::duration<double, std::milli>(cull_end - cull_begin).count();
+			owner->impl->culled_instances += culled_count;
+			owner->impl->frame_culled_instances += culled_count;
 			//若整批不可见则不登记（按一个绘制项计）
 			if (visible_count == 0)
 			{
-				++impl->culled_items;
-				++impl->frame_culled_items;
+				++owner->impl->culled_items;
+				++owner->impl->frame_culled_items;
 				return true;
 			}
 			//以筛选后的可见子集继续登记
-			transforms = impl->instanced_cull_scratch.data();
+			transforms = owner->impl->instanced_cull_scratch.data();
 			count = visible_count;
 		}
 		/*
 		本帧实例矩阵存储容量校验
 		不足则整体拒绝、不登记任何绘制项（避免留下「半个实例化绘制」）。
 		*/
-		if (impl->pending_instances.size() + count > impl->instance_capacity)
+		if (owner->impl->pending_instances.size() + count > owner->impl->instance_capacity)
 		{
 			logger.error("渲染器:: 本帧实例矩阵存储不足（需 {} 个，余 {} 个）", count,
-				impl->instance_capacity - static_cast<uint32_t>(impl->pending_instances.size()));
+				owner->impl->instance_capacity - static_cast<uint32_t>(owner->impl->pending_instances.size()));
 			return false;
 		}
 		//追加本批模型矩阵与材质并取首个实例在本帧实例缓冲内的字节偏移
-		VkDeviceSize instance_offset = instance_matrices_append(impl->pending_instances, transforms, count,
-			impl->material_pbr_active, impl->material_pbr_roughness, impl->material_pbr_metallic,
-			impl->material_emissive, impl->material_toon_active, impl->material_toon_steps,
-			impl->material_toon_rim, impl->material_toon_specular, impl->material_toon_tint[0],
-			impl->material_toon_tint[1], impl->material_toon_tint[2]);
+		VkDeviceSize instance_offset = instance_matrices_append(owner->impl->pending_instances, transforms, count,
+			state().material_pbr_active, state().material_pbr_roughness, state().material_pbr_metallic,
+			state().material_emissive, state().material_toon_active, state().material_toon_steps,
+			state().material_toon_rim, state().material_toon_specular, state().material_toon_tint[0],
+			state().material_toon_tint[1], state().material_toon_tint[2]);
 
 		/*
 		组装待绘制项
 		描述符集与实例缓冲句柄延迟到 frame_render 时按「本帧帧槽」填装，故此处先置空。
 		*/
 		Frame_Render_Item item{};
-		item.pipeline = impl->pipeline.pipeline_get();
-		item.layout = impl->pipeline.layout_get();
+		item.pipeline = owner->impl->pipeline.pipeline_get();
+		item.layout = owner->impl->pipeline.layout_get();
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
 		item.descriptor_set_count = 0;
@@ -633,54 +633,54 @@ namespace engine
 		item.instance_offset = instance_offset;
 		item.instance_count = count;
 		//采样状态快照（第一百七十四轮；帧渲染阶段据此写专属采样器集）
-		item.draw_sampler = impl->bound_sampler;
-		item.draw_albedo = impl->bound_view;
-		item.draw_normal = impl->material_views[0];
-		item.draw_roughness = impl->material_views[1];
-		item.draw_emissive = impl->material_views[2];
-		item.draw_ao = impl->material_views[3];
-		item.draw_metallic = impl->material_views[4];
+		item.draw_sampler = state().bound_sampler;
+		item.draw_albedo = state().bound_view;
+		item.draw_normal = state().material_views[0];
+		item.draw_roughness = state().material_views[1];
+		item.draw_emissive = state().material_views[2];
+		item.draw_ao = state().material_views[3];
+		item.draw_metallic = state().material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
-		item.cast_shadow = !self().ui().state().in_text_draw;
+		item.cast_shadow = !owner->ui().state().in_text_draw;
 		//透明标记（第一百三十轮：非不透明混合项不参与合批）
-		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
+		item.transparent = owner->impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*
 		色调推送（第六十九轮）
 		场景片元着色器恒读推送常量 offset 64 处的 tint，故实例化绘制也必须推送该块：
 		吸附色调或白色（未设置时），否则未设置的推送常量取值未定义。
 		*/
-		impl->pending_push_constants.emplace_back();
-		std::array<float, 32>& push = impl->pending_push_constants.back();
+		owner->impl->pending_push_constants.emplace_back();
+		std::array<float, 32>& push = owner->impl->pending_push_constants.back();
 		push.fill(0.0f);
 		push[0] = 1.0f;
 		push[5] = 1.0f;
 		push[10] = 1.0f;
 		push[15] = 1.0f;
 		for (std::size_t index = 0; index < 4; ++index)
-			push[16 + index] = impl->material_tint_active ? impl->material_tint[index] : 1.0f;
+			push[16 + index] = state().material_tint_active ? state().material_tint[index] : 1.0f;
 		/*
 		材质贴图参数（第一百二十四 / 一百八十四轮；offset 80 的 vec4）
 		x = 法线强度、y = 粗糙度贴图启用标志、z = Alpha 裁剪阈值、w = UV 旋转角。
 		实例化路径此前未写 x / y（法线映射与粗糙度贴图在实例化绘制下失效），本轮补齐。
 		*/
-		push[20] = impl->material_normal_strength;
-		push[21] = impl->material_normal_strength > 0.0f ? 1.0f : 0.0f;
-		push[22] = impl->material_alpha_cutoff;
-		push[23] = impl->material_uv_rotation;
+		push[20] = state().material_normal_strength;
+		push[21] = state().material_normal_strength > 0.0f ? 1.0f : 0.0f;
+		push[22] = state().material_alpha_cutoff;
+		push[23] = state().material_uv_rotation;
 		//贴图 UV 变换（第一百七十一轮；实例化绘制同样使用吸附的材质 UV）
-		push[24] = impl->material_uv_scale[0];
-		push[25] = impl->material_uv_scale[1];
-		push[26] = impl->material_uv_offset[0];
-		push[27] = impl->material_uv_offset[1];
+		push[24] = state().material_uv_scale[0];
+		push[25] = state().material_uv_scale[1];
+		push[26] = state().material_uv_offset[0];
+		push[27] = state().material_uv_offset[1];
 		//清漆层（第二百三十三轮；offset 112 的 vec4）
-		push[28] = impl->material_clear_coat;
-		push[29] = impl->material_clear_coat_roughness;
+		push[28] = state().material_clear_coat;
+		push[29] = state().material_clear_coat_roughness;
 		item.push_constants = push.data();
 		item.push_constant_size = static_cast<uint32_t>(sizeof(float) * push.size());
 		//先登记描边项（外扩轮廓须先写入深度，主体几何随后按更近深度覆盖内部）
-		impl->outline_item_push(item);
+		owner->impl->outline_item_push(item);
 		//登记待绘制项（同帧可累积多个；由 frame_render 消费后统一清空）
-		impl->pending_items.push_back(item);
+		owner->impl->pending_items.push_back(item);
 		return true;
 	}
 }

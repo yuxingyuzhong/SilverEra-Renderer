@@ -42,12 +42,12 @@ namespace engine
 		//释放旧管线，下次绘制按新档重建（含 GPU 绘制管线；第三百四十一轮）
 		if (state().particle_draw_pipeline != 0)
 		{
-			owner->pipeline_unload(state().particle_draw_pipeline);
+			owner->resource().pipeline_unload(state().particle_draw_pipeline);
 			state().particle_draw_pipeline = 0;
 		}
 		if (state().particle_gpu_pipeline != 0)
 		{
-			owner->pipeline_unload(state().particle_gpu_pipeline);
+			owner->resource().pipeline_unload(state().particle_gpu_pipeline);
 			state().particle_gpu_pipeline = 0;
 		}
 		return true;
@@ -72,12 +72,12 @@ namespace engine
 		//释放旧管线，下次绘制按新设置重建（含 GPU 绘制管线；第三百四十一轮）
 		if (state().particle_draw_pipeline != 0)
 		{
-			owner->pipeline_unload(state().particle_draw_pipeline);
+			owner->resource().pipeline_unload(state().particle_draw_pipeline);
 			state().particle_draw_pipeline = 0;
 		}
 		if (state().particle_gpu_pipeline != 0)
 		{
-			owner->pipeline_unload(state().particle_gpu_pipeline);
+			owner->resource().pipeline_unload(state().particle_gpu_pipeline);
 			state().particle_gpu_pipeline = 0;
 		}
 		return true;
@@ -303,8 +303,8 @@ namespace engine
 			}
 		}
 		//切换粒子管线登记实例化绘制
-		uint64_t previous_pipeline = owner->impl->bound_pipeline_request;
-		owner->pipeline_bind_set(state().particle_draw_pipeline);
+		uint64_t previous_pipeline = owner->impl->resource_domain->state().bound_pipeline_request;
+		owner->resource().pipeline_bind_set(state().particle_draw_pipeline);
 		/*
 		软粒子深度源（第三百六十六轮）
 		本帧槽 HiZ 历史（约两帧前的场景深度）；未启用 / 未就绪时档位清零，画面回落旧行为。
@@ -335,7 +335,7 @@ namespace engine
 			//登记前的计数（用于判定本批是否真的产生了绘制项）
 			const std::size_t items_before = owner->impl->pending_items.size();
 			const std::size_t push_before = owner->impl->pending_push_constants.size();
-			drawn = owner->mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
+			drawn = owner->resource().mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
 			/*
 			刚登记项为粒子实例化项
 			关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮）；
@@ -360,7 +360,7 @@ namespace engine
 				{
 					VkImageView default_view = VK_NULL_HANDLE;
 					VkSampler default_sampler = VK_NULL_HANDLE;
-					owner->impl->texture.texture_bind_get(owner->impl->default_texture, default_view, default_sampler);
+					owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
 					owner->impl->pending_items.back().draw_albedo = default_view;
 					owner->impl->pending_items.back().draw_sampler = default_sampler;
 				}
@@ -409,7 +409,7 @@ namespace engine
 				//登记前的计数（用于判定本桶是否真的产生了绘制项）
 				const std::size_t items_before = owner->impl->pending_items.size();
 				const std::size_t push_before = owner->impl->pending_push_constants.size();
-				bool registered = owner->mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
+				bool registered = owner->resource().mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
 				/*
 				刚登记项为粒子实例化项
 				关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮；每桶一次）。
@@ -429,7 +429,7 @@ namespace engine
 					{
 						VkImageView default_view = VK_NULL_HANDLE;
 						VkSampler default_sampler = VK_NULL_HANDLE;
-						owner->impl->texture.texture_bind_get(owner->impl->default_texture, default_view, default_sampler);
+						owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
 						owner->impl->pending_items.back().draw_albedo = default_view;
 						owner->impl->pending_items.back().draw_sampler = default_sampler;
 					}
@@ -438,7 +438,7 @@ namespace engine
 			}
 		}
 		//恢复调用前的管线选择
-		owner->pipeline_bind_set(previous_pipeline);
+		owner->resource().pipeline_bind_set(previous_pipeline);
 		//登记路径观测（第三百四十八轮；1 = CPU 参考）
 		if (drawn)
 			state().particle_draw_path_last = 1;
@@ -478,7 +478,7 @@ namespace engine
 		VkBuffer quad_buffer = VK_NULL_HANDLE;
 		VkDeviceSize quad_index_offset = 0;
 		uint32_t quad_index_count = 0;
-		if (!owner->impl->mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+		if (!owner->impl->resource_domain->state().mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
 			return false;
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
@@ -523,7 +523,7 @@ namespace engine
 		{
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler default_sampler = VK_NULL_HANDLE;
-			owner->impl->texture.texture_bind_get(owner->impl->default_texture, default_view, default_sampler);
+			owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
 			item.draw_albedo = default_view;
 			item.draw_sampler = default_sampler;
 			item.draw_depth = depth_view;
@@ -576,7 +576,7 @@ namespace engine
 		VkBuffer quad_buffer = VK_NULL_HANDLE;
 		VkDeviceSize quad_index_offset = 0;
 		uint32_t quad_index_count = 0;
-		if (!owner->impl->mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+		if (!owner->impl->resource_domain->state().mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
 			return false;
 		//命令缓冲原生句柄
 		VkBuffer command_buffer = owner->impl->compute_buffer_native(state().particle_indirect_buffers[slot]);
@@ -713,7 +713,7 @@ namespace engine
 		{
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler default_sampler = VK_NULL_HANDLE;
-			owner->impl->texture.texture_bind_get(owner->impl->default_texture, default_view, default_sampler);
+			owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
 			item.draw_albedo = default_view;
 			item.draw_sampler = default_sampler;
 			item.draw_depth = depth_view;

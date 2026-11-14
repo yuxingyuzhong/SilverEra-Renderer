@@ -132,14 +132,6 @@ namespace engine
 		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
 		uint32_t last_cluster_gpu_bytes = 0;
 
-		/*
-		按「混合档 × 覆盖率写入 × 双面渲染 × 深度写入」组合缓存的具名管线（第一百七十三轮扩为单表八组合）
-		下标 = 档位序 × 8 + 组合位（bit2 = 关闭深度写入、bit1 = 覆盖率写入、bit0 = 双面渲染），0 表该组合尚未登记；
-		材质共享同组合的具名管线（以默认场景着色器对登记），故同组合多个材质不再各自登记；
-		管线所有权归门面（随 shutdown 的 extra_pipelines 统一释放），材质卸载**不**释放它。
-		*/
-		std::vector<uint64_t> material_pipelines;
-
 		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 		Render_Target_Context render_target;
 
@@ -327,25 +319,6 @@ namespace engine
 		uint64_t ssaa_pipeline = 0;
 
 		/*
-		天空盒 / 简易 IBL（第一百二十五轮）
-		默认关闭，故未启用时画面与引入前逐字节一致；启用后场景片元按法线 / 反射方向采样立方体贴图作补光，
-		并由全屏天空项绘制背景。sky_texture 为用户设置的立方体贴图句柄（0 = 内置纯白立方体）。
-		*/
-		bool sky_enabled = false;
-
-		uint64_t sky_texture = 0;
-
-		uint64_t default_sky_texture = 0;
-
-		uint64_t sky_pipeline = 0;
-
-		//漫反射（环境补光）强度
-		float sky_ambient = 0.0f;
-
-		//镜面强度
-		float sky_specular = 0.0f;
-
-		/*
 		后处理采样集绑定签名（第九十七轮）
 		记录上次写入的目标视图组与采样器；未变化则跳过逐帧重写，避免更新在途描述符集。
 		*/
@@ -371,9 +344,6 @@ namespace engine
 
 		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
 		double shadow_gpu_ms = 0.0;
-
-		//内置默认白纹理句柄
-		uint64_t default_texture = 0;
 
 		//二次元风格化：暗部色调（第一百七十八轮；RGB 0..1，默认 (1,1,1) = 关闭）
 		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };

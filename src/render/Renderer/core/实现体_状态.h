@@ -62,16 +62,6 @@ namespace engine
 
 		std::vector<void*> indirect_mapped;
 
-		/*
-		当前绑定视图（写入各帧槽 set1 的采样源；持裸句柄）
-		纹理与渲染目标共用同一绑定语义：无论来源是纹理还是渲染目标，均以「实际绑定的图像视图」记录，
-		故采样器状态切换后可直接以该视图重写 set1（处置 R-FACADE-06：不再按句柄回落后覆盖目标绑定）。
-		*/
-		VkImageView bound_view = VK_NULL_HANDLE;
-
-		//当前绑定采样器（逐绘制项采样集写用；第一百七十四轮）
-		VkSampler bound_sampler = VK_NULL_HANDLE;
-
 		//当前混合档（与管线模块内记录保持一致；交换链重建时随重建传入）
 		Blend_Mode blend_mode = Blend_Mode::Opaque;
 

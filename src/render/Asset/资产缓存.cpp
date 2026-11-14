@@ -101,7 +101,7 @@ namespace engine
 		}
 		//首次：正常加载后登记（失败不入缓存）
 		Mesh_Handle 句柄 = 0;
-		if (!renderer.mesh_load_obj(句柄, path))
+		if (!renderer.resource().mesh_load_obj(句柄, path))
 			return false;
 		缓存条目 entry;
 		entry.handle = 句柄;
@@ -132,11 +132,11 @@ namespace engine
 			}
 			//归零：删条目后真正卸载
 			缓存.mesh.erase(it);
-			renderer.mesh_unload(handle);
+			renderer.resource().mesh_unload(handle);
 			return;
 		}
 		//未登记：按非共享资源处理（兼容混用）
-		renderer.mesh_unload(handle);
+		renderer.resource().mesh_unload(handle);
 	}
 
 	//共享加载纹理
@@ -156,7 +156,7 @@ namespace engine
 		}
 		//首次：正常加载后登记
 		uint64_t 句柄 = 0;
-		if (!renderer.texture_load_file(句柄, path))
+		if (!renderer.resource().texture_load_file(句柄, path))
 			return false;
 		缓存条目 entry;
 		entry.handle = 句柄;
@@ -186,11 +186,11 @@ namespace engine
 			}
 			//归零：删条目后真正卸载
 			缓存.texture.erase(it);
-			renderer.texture_unload(handle);
+			renderer.resource().texture_unload(handle);
 			return;
 		}
 		//未登记：按非共享资源处理
-		renderer.texture_unload(handle);
+		renderer.resource().texture_unload(handle);
 	}
 
 	//当前缓存条目数
@@ -260,13 +260,13 @@ namespace engine
 		if (state->data.sections.empty())
 		{
 			//无分段：按纯网格创建
-			if (!renderer.mesh_load(句柄, state->data.data))
+			if (!renderer.resource().mesh_load(句柄, state->data.data))
 				return false;
 		}
 		else
 		{
 			//有分段：逐段提交
-			if (!renderer.mesh_load_sections(句柄, state->data.data,
+			if (!renderer.resource().mesh_load_sections(句柄, state->data.data,
 				state->data.sections.data(), static_cast<uint32_t>(state->data.sections.size())))
 				return false;
 		}

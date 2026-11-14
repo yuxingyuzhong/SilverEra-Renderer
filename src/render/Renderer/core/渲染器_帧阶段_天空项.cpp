@@ -21,13 +21,13 @@ namespace engine
 		*/
 		if (sky_frame)
 		{
-			VkPipeline sky_pipeline_object = impl->pipeline.pipeline_by_handle_get(impl->sky_pipeline);
+			VkPipeline sky_pipeline_object = impl->pipeline.pipeline_by_handle_get(impl->resource_domain->state().sky_pipeline);
 			VkBuffer sky_mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize sky_mesh_index_offset = 0;
 			uint32_t sky_mesh_index_count = 0;
 			//若管线与全屏网格齐备
 			if (sky_pipeline_object != VK_NULL_HANDLE
-				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, sky_mesh_buffer,
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, sky_mesh_buffer,
 					sky_mesh_index_offset, sky_mesh_index_count))
 			{
 				//推送常量（16 浮点逆视图投影矩阵）
@@ -55,7 +55,7 @@ namespace engine
 				sky_item.push_constants = sky_push.data();
 				sky_item.push_constant_size = static_cast<uint32_t>(sizeof(float) * 16);
 				sky_item.cast_shadow = false;
-				sky_item.sample_count = impl->pipeline.pipeline_sample_count(impl->sky_pipeline);
+				sky_item.sample_count = impl->pipeline.pipeline_sample_count(impl->resource_domain->state().sky_pipeline);
 				impl->pending_items.push_back(sky_item);
 			}
 		}

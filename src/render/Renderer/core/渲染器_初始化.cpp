@@ -155,7 +155,7 @@ namespace engine
 			VkSampler sampler = VK_NULL_HANDLE;
 			if (!impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
 				shadow_depth_view, shadow_extent)
-				|| !impl->texture.texture_bind_get(impl->default_texture, default_view, sampler))
+				|| !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler))
 			{
 				logger.error("渲染器:: 阴影图绑定失败：资源查询失败");
 				self().shutdown();

@@ -43,15 +43,6 @@ namespace engine
 		//下一个计算管线句柄
 		uint64_t next_compute_pipeline_handle = 1;
 
-		//当前绘制所选管线句柄（0 = 默认场景管线）
-		uint64_t bound_pipeline_request = 0;
-
-		//网格模块
-		Mesh_Context mesh;
-
-		//纹理模块
-		Texture_Context texture;
-
 		//本帧渲染目标句柄（0 = 直接渲染到交换链）
 		uint64_t active_target = 0;
 
@@ -76,57 +67,5 @@ namespace engine
 		uint64_t scan_parallel_dispatches = 0;
 
 		uint64_t cache_parallel_dispatches = 0;
-
-		/*
-		当前材质贴图视图（第一百七十四轮）
-		依次为 法线 / 粗糙度 / 自发光 / 环境光遮蔽 / 金属度；无贴图时为内置默认白纹理视图。
-		*/
-		VkImageView material_views[5] = {};
-
-		//当前 3D LUT 纹理句柄（第一百四十四轮；0 = 未绑定）
-		uint64_t lut_texture = 0;
-
-		/*
-		逐物体反照率色调吸附状态（第六十九轮）
-		material_tint_set 之后，后续非文字网格绘制在推送常量中携带该色调（albedo × tint）；
-		material_tint_clear（或 material_bind_set 绑定无色调的材质）回落白色（画面不变）。
-		mesh_draw 显式给出的 color 形参优先于该吸附状态。
-		*/
-		bool material_tint_active = false;
-
-		//逐物体反照率色调（RGBA，各分量 0..1）
-		float material_tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-		//逐物体自发光强度（第七十轮；0 = 无自发光，恒生效，无需覆盖标志）
-		float material_emissive = 0.0f;
-
-		//逐物体法线强度（第一百二十四轮；0 = 不启用，随推送常量 offset 80 的 x 分量下发）
-		float material_normal_strength = 0.0f;
-
-		//逐物体贴图 UV 缩放（第一百七十一轮；默认 (1,1)，随推送常量 offset 96 的 xy 下发）
-		float material_uv_scale[2] = { 1.0f, 1.0f };
-
-		//逐物体贴图 UV 偏移（第一百七十一轮；默认 (0,0)，随推送常量 offset 96 的 zw 下发）
-		float material_uv_offset[2] = { 0.0f, 0.0f };
-
-		//逐物体贴图 UV 旋转（第一百八十三轮；默认 0，随推送常量 offset 80 的 w 下发）
-		float material_uv_rotation = 0.0f;
-
-		//逐物体 Alpha 裁剪阈值（第一百八十三轮；默认 0 = 关闭，随推送常量 offset 80 的 z 下发）
-		float material_alpha_cutoff = 0.0f;
-
-		//逐物体清漆强度与粗糙度（第二百三十三轮；默认 0 = 关闭，随推送常量 offset 112 的 xy 下发）
-		float material_clear_coat = 0.0f;
-
-		float material_clear_coat_roughness = 0.15f;
-
-		//顶点着色器模块句柄（销毁须先于着色器模块）
-		VkShaderModule vert_module = VK_NULL_HANDLE;
-
-		//片元着色器模块句柄（销毁须先于着色器模块）
-		VkShaderModule frag_module = VK_NULL_HANDLE;
-
-		//逐绘制项采样集批量写入的输入缓冲（第二百二十一轮；复用，避免每帧分配）
-		std::vector<Pipeline_Context::Draw_Set_Views> draw_set_inputs;
 	};
 }

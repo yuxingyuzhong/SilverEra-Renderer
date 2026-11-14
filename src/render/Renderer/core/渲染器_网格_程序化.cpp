@@ -95,10 +95,10 @@ namespace engine
 
 	//按程序化球体加载网格（第六十六轮新增）
 
-	bool Renderer_Mesh::mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks)
+	bool Render_Resource::mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f)
 			|| slices < 3 || slices > 128 || stacks < 2 || stacks > 64)
 		{
 			logger.warn("渲染器:: 球体参数非法（半径 {}、经度 {}、纬度 {}）", radius, slices, stacks);
@@ -106,30 +106,30 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::sphere_generate(radius, slices, stacks));
+		return mesh_load(handle_out, Mesh_Context::sphere_generate(radius, slices, stacks));
 	}
 
-	bool Renderer_Mesh::mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions)
+	bool Render_Resource::mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、细分次数在 0..4
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || subdivisions > 4)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || subdivisions > 4)
 		{
 			logger.warn("渲染器:: 正二十面体球参数非法（半径 {}、细分 {}）", radius, subdivisions);
 			handle_out = 0;
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::icosphere_generate(radius, subdivisions));
+		return mesh_load(handle_out, Mesh_Context::icosphere_generate(radius, subdivisions));
 	}
 
-	bool Renderer_Mesh::mesh_ground_grid_load(Mesh_Handle& handle_out, float width, float depth,
+	bool Render_Resource::mesh_ground_grid_load(Mesh_Handle& handle_out, float width, float depth,
 		uint32_t segments_x, uint32_t segments_z)
 	{
 		//顶点总数（分段乘积上限约 100 万，防止误传超大分段耗尽内存）
 		const uint64_t vertex_count = (static_cast<uint64_t>(segments_x) + 1)
 			* (static_cast<uint64_t>(segments_z) + 1);
 		//前置：已初始化、宽深为正（非数亦拒）、分段在 1..512 且顶点总数受限
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(depth > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(depth > 0.0f)
 			|| segments_x < 1 || segments_x > 512 || segments_z < 1 || segments_z > 512
 			|| vertex_count > (1ull << 20))
 		{
@@ -139,13 +139,13 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::ground_grid_generate(width, depth, segments_x, segments_z));
+		return mesh_load(handle_out, Mesh_Context::ground_grid_generate(width, depth, segments_x, segments_z));
 	}
 
-	bool Renderer_Mesh::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
+	bool Render_Resource::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
 		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
 			|| segments < 3 || segments > 128)
 		{
 			logger.warn("渲染器:: 圆柱参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
@@ -153,52 +153,52 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
+		return mesh_load(handle_out, Mesh_Context::cylinder_generate(radius, height, segments));
 	}
 
-	bool Renderer_Mesh::mesh_plane_load(Mesh_Handle& handle_out, float width, float height)
+	bool Render_Resource::mesh_plane_load(Mesh_Handle& handle_out, float width, float height)
 	{
 		//前置：已初始化、宽高为正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f))
+		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(height > 0.0f))
 		{
 			logger.warn("渲染器:: 平面参数非法（宽 {}、高 {}）", width, height);
 			handle_out = 0;
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
+		return mesh_load(handle_out, Mesh_Context::plane_generate(width, height));
 	}
 
-	bool Renderer_Mesh::mesh_triangle_load(Mesh_Handle& handle_out)
+	bool Render_Resource::mesh_triangle_load(Mesh_Handle& handle_out)
 	{
 		//前置：已初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.warn("渲染器:: 三角形加载失败：尚未初始化");
 			handle_out = 0;
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::triangle_generate());
+		return mesh_load(handle_out, Mesh_Context::triangle_generate());
 	}
 
-	bool Renderer_Mesh::mesh_cube_load(Mesh_Handle& handle_out, float half_extent)
+	bool Render_Resource::mesh_cube_load(Mesh_Handle& handle_out, float half_extent)
 	{
 		//前置：已初始化、半边长正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(half_extent > 0.0f))
+		if (owner->impl == nullptr || !owner->impl->initialized || !(half_extent > 0.0f))
 		{
 			logger.warn("渲染器:: 立方体参数非法（半边长 {}）", half_extent);
 			handle_out = 0;
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cube_generate(half_extent));
+		return mesh_load(handle_out, Mesh_Context::cube_generate(half_extent));
 	}
 
-	bool Renderer_Mesh::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
+	bool Render_Resource::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、分段在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f)
 			|| segments < 3 || segments > 256)
 		{
 			logger.warn("渲染器:: 圆盘参数非法（半径 {}、分段 {}）", radius, segments);
@@ -206,14 +206,14 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::disc_generate(radius, segments));
+		return mesh_load(handle_out, Mesh_Context::disc_generate(radius, segments));
 	}
 
-	bool Renderer_Mesh::mesh_grid_load(Mesh_Handle& handle_out, float width, float height,
+	bool Render_Resource::mesh_grid_load(Mesh_Handle& handle_out, float width, float height,
 		uint32_t columns, uint32_t rows)
 	{
 		//前置：已初始化、宽高为正（非数亦拒）、分段在区间内
-		if (impl == nullptr || !impl->initialized || !(width > 0.0f) || !(height > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(height > 0.0f)
 			|| columns < 1 || columns > 256 || rows < 1 || rows > 256)
 		{
 			logger.warn("渲染器:: 细分平面参数非法（宽 {}、高 {}、列 {}、行 {}）",
@@ -222,14 +222,14 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::grid_generate(width, height, columns, rows));
+		return mesh_load(handle_out, Mesh_Context::grid_generate(width, height, columns, rows));
 	}
 
-	bool Renderer_Mesh::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
+	bool Render_Resource::mesh_capsule_load(Mesh_Handle& handle_out, float radius, float height,
 		uint32_t segments, uint32_t rings)
 	{
 		//前置：已初始化、半径为正、中段高度非负（非数亦拒）、分段与纬圈在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height >= 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height >= 0.0f)
 			|| segments < 3 || segments > 128 || rings < 2 || rings > 64)
 		{
 			logger.warn("渲染器:: 胶囊参数非法（半径 {}、高度 {}、分段 {}、纬圈 {}）",
@@ -238,13 +238,13 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::capsule_generate(radius, height, segments, rings));
+		return mesh_load(handle_out, Mesh_Context::capsule_generate(radius, height, segments, rings));
 	}
 
-	bool Renderer_Mesh::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
+	bool Render_Resource::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
 		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (impl == nullptr || !impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
 			|| segments < 3 || segments > 128)
 		{
 			logger.warn("渲染器:: 圆锥参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
@@ -252,27 +252,27 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::cone_generate(radius, height, segments));
+		return mesh_load(handle_out, Mesh_Context::cone_generate(radius, height, segments));
 	}
 
-	bool Renderer_Mesh::mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height)
+	bool Render_Resource::mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height)
 	{
 		//前置：已初始化、底面半边长与高度为正（非数亦拒）
-		if (impl == nullptr || !impl->initialized || !(base_half > 0.0f) || !(height > 0.0f))
+		if (owner->impl == nullptr || !owner->impl->initialized || !(base_half > 0.0f) || !(height > 0.0f))
 		{
 			logger.warn("渲染器:: 四棱锥参数非法（底面半边长 {}、高度 {}）", base_half, height);
 			handle_out = 0;
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::pyramid_generate(base_half, height));
+		return mesh_load(handle_out, Mesh_Context::pyramid_generate(base_half, height));
 	}
 
-	bool Renderer_Mesh::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
+	bool Render_Resource::mesh_torus_load(Mesh_Handle& handle_out, float major_radius, float minor_radius,
 		uint32_t major_segments, uint32_t minor_segments)
 	{
 		//前置：已初始化、双半径为正（非数亦拒）、双分段在区间内
-		if (impl == nullptr || !impl->initialized || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
+		if (owner->impl == nullptr || !owner->impl->initialized || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
 			|| major_segments < 3 || major_segments > 128 || minor_segments < 3 || minor_segments > 128)
 		{
 			logger.warn("渲染器:: 圆环参数非法（环半径 {}、管半径 {}、环分段 {}、管分段 {}）",
@@ -281,7 +281,7 @@ namespace engine
 			return false;
 		}
 		//生成并复用既有加载路径
-		return self().mesh_load(handle_out, Mesh_Context::torus_generate(major_radius, minor_radius,
+		return mesh_load(handle_out, Mesh_Context::torus_generate(major_radius, minor_radius,
 			major_segments, minor_segments));
 	}
 }

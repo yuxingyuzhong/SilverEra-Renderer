@@ -82,20 +82,6 @@ namespace engine
 		//每帧槽实例缓冲容量（实例个数）
 		uint32_t instance_capacity = 256;
 
-		/*
-		逐物体 PBR 材质吸附状态（第六十八轮）
-		material_pbr_set 之后，后续 mesh_draw / mesh_draw_instanced 的实例属性携带该材质；
-		material_pbr_clear（或 material_bind_set 绑定无覆盖的材质）回落到场景 UBO 的全局 pbr_params。
-		*/
-		bool material_pbr_active = false;
-
-		/*
-		逐物体卡通参数吸附状态（第四百零八轮）
-		material_bind_set 绑定带 toon_override 的材质后，后续 mesh_draw / mesh_draw_instanced
-		的实例属性携带该组卡通参数；绑定 0 或带 toon_override = false 的材质时回落全局。
-		*/
-		bool material_toon_active = false;
-
 		//本帧待绘制的实例属性（列主序 16 浮点模型矩阵 ＋ 4 浮点材质 × 实例数；按登记顺序连续存放，一次写入帧槽实例缓冲）
 		std::vector<std::array<float, INSTANCE_FLOAT_COUNT>> pending_instances;
 	};

@@ -245,7 +245,7 @@ namespace engine
 		//默认采样器（与瓦片 0 共用）
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
+		impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler);
 		for (std::size_t tile = 0; tile < max_tiles; ++tile)
 		{
 			//已建立则跳过
@@ -298,7 +298,7 @@ namespace engine
 		//默认占位视图与采样器
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		impl->texture.texture_bind_get(impl->default_texture, default_view, sampler);
+		impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler);
 		//需要图集时按 4×2 创建（每瓦片 shadow_size 见方）
 		if (impl->spot_shadow_atlas_requested)
 		{

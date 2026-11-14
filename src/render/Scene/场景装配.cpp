@@ -28,10 +28,10 @@ namespace engine
 			//回退材质
 			for (const 材质库项& 库 : 材质表)
 				for (Material_Handle 句柄 : 库.handles)
-					renderer.material_unload(句柄);
+					renderer.resource().material_unload(句柄);
 			//回退网格
 			for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
-				renderer.mesh_unload(item.second);
+				renderer.resource().mesh_unload(item.second);
 			scene_out.meshes.clear();
 			scene_out.materials.clear();
 			scene_out.objects.clear();
@@ -58,7 +58,7 @@ namespace engine
 			for (const Scene_Mesh_Ref& ref : 清单.meshes)
 			{
 				Mesh_Handle 句柄 = 0;
-				if (!renderer.mesh_load_obj(句柄, 目录 + ref.path))
+				if (!renderer.resource().mesh_load_obj(句柄, 目录 + ref.path))
 				{
 					logger.warn("关卡装配:: 清单网格加载失败（{}），整体回退", ref.path);
 					//此时尚未建任何材质库
@@ -77,7 +77,7 @@ namespace engine
 			{
 				材质库项 项;
 				项.id = ref.id;
-				if (!renderer.material_load_mtl(项.handles, 目录 + ref.path, &项.names))
+				if (!renderer.resource().material_load_mtl(项.handles, 目录 + ref.path, &项.names))
 				{
 					logger.warn("关卡装配:: 清单材质库加载失败（{}），整体回退", ref.path);
 					资产回退(renderer, 网格表, 材质表, scene_out);
@@ -133,7 +133,7 @@ namespace engine
 				数据.clear_coat = 声明.clear_coat;
 				数据.clear_coat_roughness = 声明.clear_coat_roughness;
 				//实例数据校验（模板已登记 ＋ 覆盖值合法）
-				if (!renderer.material_instance_validate(数据))
+				if (!renderer.resource().material_instance_validate(数据))
 				{
 					logger.warn("关卡装配:: 材质实例 {} 数据非法，整体回退", 声明.实例名);
 					资产回退(renderer, 网格表, 材质表, scene_out);
@@ -256,10 +256,10 @@ namespace engine
 	{
 		//网格
 		for (Mesh_Handle 句柄 : scene.meshes)
-			renderer.mesh_unload(句柄);
+			renderer.resource().mesh_unload(句柄);
 		//材质
 		for (Material_Handle 句柄 : scene.materials)
-			renderer.material_unload(句柄);
+			renderer.resource().material_unload(句柄);
 		scene.meshes.clear();
 		scene.materials.clear();
 		scene.objects.clear();
@@ -299,7 +299,7 @@ namespace engine
 			const Material_Instance_Data* 实例指针 = nullptr;
 			if (!object.material_instances.empty() && object.material_instances.size() == object.materials.size())
 				实例指针 = object.material_instances.data();
-			if (renderer.mesh_draw_sections(object.mesh, transform, object.materials.data(),
+			if (renderer.resource().mesh_draw_sections(object.mesh, transform, object.materials.data(),
 				static_cast<uint32_t>(object.materials.size()), 实例指针))
 				登记数 += 1;
 		}

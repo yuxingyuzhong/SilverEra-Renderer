@@ -120,24 +120,6 @@ namespace engine
 		//并行派发按用途累计（第二百二十四轮；实例剔除 / 差异扫描 / 缓存回写）
 		uint64_t cull_parallel_dispatches = 0;
 
-		//逐物体材质粗糙度缩放（0.05..4）
-		float material_pbr_roughness = 1.0f;
-
-		//逐物体材质金属度（0..1）
-		float material_pbr_metallic = 0.0f;
-
-		//逐物体色阶数（0..8）
-		float material_toon_steps = 0.0f;
-
-		//逐物体边缘光强度（0..1）
-		float material_toon_rim = 0.0f;
-
-		//逐物体卡通高光阈值（0..1）
-		float material_toon_specular = 0.0f;
-
-		//逐物体卡通暗部色调（各分量 0..1；默认 (1,1,1) 不色偏；第四百零九轮）
-		float material_toon_tint[3] = { 1.0f, 1.0f, 1.0f };
-
 		//二次元风格化：色阶数（第一百七十四轮；0 = 关闭，1..8 = 量化档数）
 		uint32_t toon_steps = 0;
 

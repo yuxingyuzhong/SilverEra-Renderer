@@ -53,10 +53,11 @@ namespace engine
 		*/
 		if (impl->initialized)
 		{
-			//归还阴影管线
+			//归还阴影管线（资源域可能已随门面析构释放，此时随管线模块统一销毁）
 			if (impl->shadow_pipeline != 0)
 			{
-				self().pipeline_unload(impl->shadow_pipeline);
+				if (impl->resource_domain != nullptr)
+					impl->resource_domain->pipeline_unload(impl->shadow_pipeline);
 				impl->shadow_pipeline = 0;
 			}
 			//归还阴影目标
@@ -102,10 +103,12 @@ namespace engine
 		*/
 		if (impl->ui_domain != nullptr)
 			impl->ui_domain->shutdown();
-		//网格缓冲依赖内存模块，须先于 memory 销毁
-		impl->mesh.destroy();
-		//纹理依赖设备与内存，须先于两者销毁
-		impl->texture.destroy();
+		/*
+		资源域（网格 / 纹理 / 材质 / 管线）
+		网格 / 纹理依赖设备与内存，须先于两者销毁；域对象可能已随门面析构释放，故按实现体登记判断。
+		*/
+		if (impl->resource_domain != nullptr)
+			impl->resource_domain->shutdown();
 		//渲染目标依赖设备与内存，须先于两者销毁
 		impl->render_target.destroy();
 		impl->active_target = 0;
@@ -140,29 +143,6 @@ namespace engine
 		impl->cull_enabled = true;
 		//静态合批恢复默认（开启，第一百二十七轮）
 		impl->static_batching = true;
-		//逐物体 PBR 材质恢复默认（不覆盖全局，第六十八轮）
-		impl->material_pbr_active = false;
-		impl->material_pbr_roughness = 1.0f;
-		impl->material_pbr_metallic = 0.0f;
-		//逐物体卡通参数恢复默认（不覆盖全局，第四百零八轮）
-		impl->material_toon_active = false;
-		impl->material_toon_steps = 0.0f;
-		impl->material_toon_rim = 0.0f;
-		impl->material_toon_specular = 0.0f;
-		//逐物体暗部色调恢复默认（(1,1,1) 不色偏，第四百零九轮）
-		impl->material_toon_tint[0] = 1.0f;
-		impl->material_toon_tint[1] = 1.0f;
-		impl->material_toon_tint[2] = 1.0f;
-		//逐物体色调恢复默认（白色，第六十九轮）
-		impl->material_tint_active = false;
-		for (std::size_t index = 0; index < 4; ++index)
-			impl->material_tint[index] = 1.0f;
-		//逐物体自发光恢复默认（0，第七十轮）
-		impl->material_emissive = 0.0f;
-		impl->material_normal_strength = 0.0f;
-		//UV 旋转与 Alpha 裁剪恢复默认（0 = 不旋转 / 关闭；第一百八十三轮）
-		impl->material_uv_rotation = 0.0f;
-		impl->material_alpha_cutoff = 0.0f;
 		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
 		impl->light_direction[0] = 0.0f;
 		impl->light_direction[1] = 0.0f;
@@ -235,15 +215,6 @@ namespace engine
 		impl->cluster_destroy();
 		//图形 set0 簇数据缓冲与占位缓冲依赖内存模块，须先于 memory 销毁（第二百八十八轮）
 		impl->cluster_graphics_destroy();
-		//默认纹理句柄复位
-		impl->default_texture = 0;
-		//天空盒状态复位（第一百二十五轮；默认关闭、强度 0）
-		impl->sky_enabled = false;
-		impl->sky_texture = 0;
-		impl->default_sky_texture = 0;
-		impl->sky_pipeline = 0;
-		impl->sky_ambient = 0.0f;
-		impl->sky_specular = 0.0f;
 		//二次元风格化状态复位（第一百七十四轮；默认关闭）
 		impl->toon_steps = 0;
 		impl->toon_rim = 0.0f;
@@ -308,17 +279,6 @@ namespace engine
 		impl->compute_health_handle = 0;
 		//管线依赖设备与内存，须先于两者销毁
 		impl->pipeline.destroy();
-		//着色器模块须先于着色器上下文复位
-		if (impl->vert_module != VK_NULL_HANDLE)
-		{
-			impl->shader.module_destroy(impl->vert_module);
-			impl->vert_module = VK_NULL_HANDLE;
-		}
-		if (impl->frag_module != VK_NULL_HANDLE)
-		{
-			impl->shader.module_destroy(impl->frag_module);
-			impl->frag_module = VK_NULL_HANDLE;
-		}
 		//具名管线的着色器模块（须先于着色器上下文复位）
 		for (auto& record : impl->extra_pipelines)
 		{
@@ -330,10 +290,6 @@ namespace engine
 				impl->shader.module_destroy(record.frag_module);
 		}
 		impl->extra_pipelines.clear();
-		//材质记录与按档缓存的共享具名管线清空（具名管线已随 extra_pipelines 释放）
-		impl->materials.clear();
-		impl->material_pipelines.clear();
-		impl->bound_pipeline_request = 0;
 		impl->shader.destroy();
 		//交换链销毁连带销毁深度图像，须排在管线之后
 		impl->swapchain.destroy();

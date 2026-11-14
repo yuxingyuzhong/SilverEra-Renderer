@@ -95,7 +95,7 @@ namespace engine
 
 	//按程序化球体加载网格（第六十六轮新增）
 
-	bool Renderer_Mesh::mesh_counts(Mesh_Handle handle, uint32_t* vertex_count_out, uint32_t* index_count_out) const
+	bool Render_Resource::mesh_counts(Mesh_Handle handle, uint32_t* vertex_count_out, uint32_t* index_count_out) const
 	{
 		//出参先复位
 		if (vertex_count_out != nullptr)
@@ -103,12 +103,12 @@ namespace engine
 		if (index_count_out != nullptr)
 			*index_count_out = 0;
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//转交网格模块
 		uint32_t vertex_count = 0;
 		uint32_t index_count = 0;
-		if (!impl->mesh.mesh_counts_get(handle, vertex_count, index_count))
+		if (!state().mesh.mesh_counts_get(handle, vertex_count, index_count))
 			return false;
 		if (vertex_count_out != nullptr)
 			*vertex_count_out = vertex_count;
@@ -117,23 +117,23 @@ namespace engine
 		return true;
 	}
 
-	bool Renderer_Mesh::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
+	bool Render_Resource::mesh_load(Mesh_Handle& handle_out, const Mesh_Data& data)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 网格加载失败：尚未初始化");
 			return false;
 		}
 		//转交网格模块创建顶点 / 索引缓冲（无分段）
-		return impl->mesh.mesh_create(handle_out, data);
+		return state().mesh.mesh_create(handle_out, data);
 	}
 
-	bool Renderer_Mesh::mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
+	bool Render_Resource::mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
 		const Mesh_Section* sections, uint32_t count)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 网格加载失败：尚未初始化");
 			return false;
@@ -147,15 +147,15 @@ namespace engine
 		}
 		//转交网格模块（分段校验在网格模块完成）
 		std::vector<Mesh_Section> 段(sections, sections + count);
-		return impl->mesh.mesh_create(handle_out, data, 段);
+		return state().mesh.mesh_create(handle_out, data, 段);
 	}
 
-	bool Renderer_Mesh::mesh_load_obj(Mesh_Handle& handle_out, const std::string& path)
+	bool Render_Resource::mesh_load_obj(Mesh_Handle& handle_out, const std::string& path)
 	{
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: OBJ 网格加载失败：尚未初始化");
 			return false;
@@ -165,17 +165,17 @@ namespace engine
 		if (!obj_mesh_load(path, file))
 			return false;
 		//按 usemtl 分段建立网格
-		return impl->mesh.mesh_create(handle_out, file.data, file.sections);
+		return state().mesh.mesh_create(handle_out, file.data, file.sections);
 	}
 
-	void Renderer_Mesh::mesh_unload(Mesh_Handle handle)
+	void Render_Resource::mesh_unload(Mesh_Handle handle)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//摘出网格缓冲（不立即销毁，避免销毁仍被在途命令缓冲引用的缓冲）
 		Mesh_Record record{};
-		if (!impl->mesh.mesh_detach(handle, record))
+		if (!state().mesh.mesh_detach(handle, record))
 			return;
 		//组装延迟条目（缓冲经内存模块归还）
 		Deferred_Entry entry{};
@@ -184,41 +184,41 @@ namespace engine
 		resource.buffer_allocation = record.allocation;
 		entry.memory_resources.push_back(resource);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
-		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
+		owner->impl->frame.deferred_push(std::move(entry), owner->impl->frame.in_flight_count_get() + 1);
 	}
 
-	bool Renderer_Mesh::mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const
+	bool Render_Resource::mesh_bounds(Mesh_Handle handle, float min_out[3], float max_out[3]) const
 	{
 		//未初始化或出参为空则拒绝
-		if (impl == nullptr || !impl->initialized || min_out == nullptr || max_out == nullptr)
+		if (owner->impl == nullptr || !owner->impl->initialized || min_out == nullptr || max_out == nullptr)
 			return false;
 		//转交网格模块（句柄无效时返回假，出参不变）
-		return impl->mesh.mesh_bounds_get(handle, min_out, max_out);
+		return state().mesh.mesh_bounds_get(handle, min_out, max_out);
 	}
 
-	bool Renderer_Mesh::mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
+	bool Render_Resource::mesh_update_vertices(Mesh_Handle handle, uint32_t first_vertex, uint32_t count,
 		const Vertex* vertices)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//先把在途帧等尽（避免改写仍被绘制命令读取的顶点缓冲）
-		if (!impl->frame.frames_wait())
+		if (!owner->impl->frame.frames_wait())
 			return false;
 		//转交网格模块（顶点区覆盖写入并保守扩张包围盒）
-		return impl->mesh.mesh_update_vertices(handle, first_vertex, count, vertices);
+		return state().mesh.mesh_update_vertices(handle, first_vertex, count, vertices);
 	}
 
-	bool Renderer_Mesh::mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
+	bool Render_Resource::mesh_update_indices(Mesh_Handle handle, uint32_t first_index, uint32_t count,
 		const uint32_t* indices)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//先把在途帧等尽（避免改写仍被绘制命令读取的索引缓冲）
-		if (!impl->frame.frames_wait())
+		if (!owner->impl->frame.frames_wait())
 			return false;
 		//转交网格模块（索引区覆盖写入并校验取值）
-		return impl->mesh.mesh_update_indices(handle, first_index, count, indices);
+		return state().mesh.mesh_update_indices(handle, first_index, count, indices);
 	}
 }

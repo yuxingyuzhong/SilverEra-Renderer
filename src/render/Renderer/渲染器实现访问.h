@@ -38,6 +38,9 @@ namespace engine
 		//粒子域（迁移期直接访问未迁出的实现体成员）
 		friend class Render_Particle;
 
+		//资源域（迁移期直接访问未迁出的实现体成员）
+		friend class Render_Resource;
+
 		//初始化阶段函数（自由函数形式；回调用到 impl，故授予访问权）
 		friend bool renderer_init_platform(Renderer*, Impl*, Renderer_Config&);
 		friend bool renderer_init_memory_swapchain(Renderer*, Impl*, Renderer_Config&);

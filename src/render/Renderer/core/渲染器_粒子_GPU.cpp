@@ -275,7 +275,7 @@ namespace engine
 		//单位四边形网格（XY 平面，边长 1）
 		if (self().particle().state().particle_quad_mesh == 0)
 		{
-			if (!self().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
+			if (!self().resource().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
 				return false;
 		}
 		//粒子管线（Alpha 混合，与场景管线共享布局与描述符集布局）
@@ -288,7 +288,7 @@ namespace engine
 			if (!impl->pipeline_load_ex(self().particle().state().particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv",
 				self().particle().state().particle_blend_mode, false, true, self().particle().state().particle_depth_write, false))
 			{
-				self().mesh_unload(self().particle().state().particle_quad_mesh);
+				self().resource().mesh_unload(self().particle().state().particle_quad_mesh);
 				self().particle().state().particle_quad_mesh = 0;
 				return false;
 			}
@@ -301,7 +301,7 @@ namespace engine
 		//单位四边形网格（与 CPU 路径共用）
 		if (self().particle().state().particle_quad_mesh == 0)
 		{
-			if (!self().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
+			if (!self().resource().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
 				return false;
 		}
 		//已就绪

@@ -126,7 +126,7 @@ namespace engine
 		impl->pending_items.reserve(impl->instance_capacity);
 		impl->pending_instances.reserve(impl->instance_capacity);
 		//逐绘制项采样集输入缓冲按预留上限预分配（第二百二十一轮，避免逐帧扩容）
-		impl->draw_set_inputs.reserve(Pipeline_Context::DRAW_SET_PER_SLOT);
+		impl->resource_domain->state().draw_set_inputs.reserve(Pipeline_Context::DRAW_SET_PER_SLOT);
 		//实例级剔除的筛选缓冲（第一百五十三轮；按实例上限预留，避免逐帧扩容）
 		impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(impl->instance_capacity) * 16);
 		impl->batch_scratch.reserve(impl->instance_capacity);
@@ -155,13 +155,13 @@ namespace engine
 		impl->shader.directory_set(effective.shader_dir);
 		//⑩ 加载顶点 / 片元着色器模块
 		//加载场景顶点着色器（顺带解析其声明的顶点输入位置，供管线裁剪属性）
-		if (!impl->shader.module_load(impl->vert_module, "场景.vert.spv", &impl->scene_input_locations))
+		if (!impl->shader.module_load(impl->resource_domain->state().vert_module, "场景.vert.spv", &impl->scene_input_locations))
 		{
 			logger.error("渲染器:: 顶点着色器加载失败");
 			owner->shutdown();
 			return false;
 		}
-		if (!impl->shader.module_load(impl->frag_module, "场景.frag.spv"))
+		if (!impl->shader.module_load(impl->resource_domain->state().frag_module, "场景.frag.spv"))
 		{
 			logger.error("渲染器:: 片元着色器加载失败");
 			owner->shutdown();

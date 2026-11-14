@@ -250,7 +250,7 @@ namespace engine
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
 		if (!impl->render_target.target_get(candidate, new_image, new_view, new_depth_view, new_extent)
-			|| !impl->texture.texture_bind_get(impl->default_texture, default_view, sampler))
+			|| !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
 			impl->render_target.target_destroy(candidate);

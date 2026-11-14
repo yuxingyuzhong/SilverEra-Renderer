@@ -53,7 +53,7 @@ namespace engine
 		//网格模块仍存活时归还粒子四边形网格
 		if (owner != nullptr && owner->impl != nullptr && state().particle_quad_mesh != 0)
 		{
-			owner->mesh_unload(state().particle_quad_mesh);
+			owner->resource().mesh_unload(state().particle_quad_mesh);
 			state().particle_quad_mesh = 0;
 		}
 		/*

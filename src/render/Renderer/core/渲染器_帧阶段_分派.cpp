@@ -73,14 +73,14 @@ namespace engine
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
 				&& impl->render_target.target_msaa_get(impl->ssaa_resolve_target, targets[1].msaa_color_image,
 					targets[1].msaa_color_view, targets[1].msaa_depth_view, targets[1].sample_count)
-				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//并行录制格式（第二百轮；SSAA 目标与交换链同格式）
 			targets[0].color_format = impl->swapchain.format_get();
 			targets[0].depth_format = impl->swapchain.depth_format_get();
 			//取共享采样器（用于写后处理采样集）
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler shared_sampler = VK_NULL_HANDLE;
-			if (ready && !impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+			if (ready && !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, shared_sampler))
 			{
 				logger.error("渲染器:: SSAA 失败：共享采样器不可用");
 				ready = false;
@@ -170,7 +170,7 @@ namespace engine
 				targets[0].color_view, targets[0].depth_view, targets[0].extent)
 				&& impl->render_target.target_msaa_get(impl->present_target, targets[0].msaa_color_image,
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
-				&& impl->mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//并行录制格式（第二百轮；场景目标与交换链同格式）
 			targets[0].color_format = impl->swapchain.format_get();
 			targets[0].depth_format = impl->swapchain.depth_format_get();
@@ -210,7 +210,7 @@ namespace engine
 			//取共享采样器（把「各级源」写入后处理采样集）
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler shared_sampler = VK_NULL_HANDLE;
-			if (ready && !impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+			if (ready && !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, shared_sampler))
 			{
 				logger.error("渲染器:: 后处理失败：共享采样器不可用");
 				ready = false;

@@ -19,7 +19,7 @@ namespace engine
 			//默认采样资源（回落用）
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler default_sampler = VK_NULL_HANDLE;
-			impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler);
+			impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, default_sampler);
 			//阴影图视图（未建立阴影目标时以默认白纹理占位）
 			VkImageView shadow_view = default_view;
 			if (impl->shadow_target != 0)
@@ -66,8 +66,8 @@ namespace engine
 			//天空盒立方体视图（未设置时用内置纯白立方体）
 			VkImageView sky_view = VK_NULL_HANDLE;
 			VkSampler sky_sampler = VK_NULL_HANDLE;
-			const uint64_t sky_texture = impl->sky_texture != 0 ? impl->sky_texture : impl->default_sky_texture;
-			impl->texture.texture_bind_get(sky_texture, sky_view, sky_sampler);
+			const uint64_t sky_texture = impl->resource_domain->state().sky_texture != 0 ? impl->resource_domain->state().sky_texture : impl->resource_domain->state().default_sky_texture;
+			impl->resource_domain->state().texture.texture_bind_get(sky_texture, sky_view, sky_sampler);
 			//写逐绘制项集前等尽在途帧（这些集会被下一轮同槽帧复用）
 			impl->frame.frames_wait();
 			//本帧逐绘制项集游标
@@ -76,7 +76,7 @@ namespace engine
 			第一遍：填装公共字段并收集采样快照（第二百二十一轮：批量写入）
 			条件与逐项写入完全一致（有采样快照且预留未用尽），只是把「写哪一条集」延后到一次批量提交。
 			*/
-			impl->draw_set_inputs.clear();
+			impl->resource_domain->state().draw_set_inputs.clear();
 			for (auto& item : impl->pending_items)
 			{
 				//本帧槽的实例缓冲（模型矩阵来源；不消费实例属性的项留空，第三百四十一轮）
@@ -107,14 +107,14 @@ namespace engine
 					//逐项场景深度（粒子软粒子：HiZ 历史视图；未提供时不写，回落反照率占位）
 					views.depth = item.draw_depth;
 					views.depth_sampler = item.draw_depth_sampler;
-					impl->draw_set_inputs.push_back(views);
+					impl->resource_domain->state().draw_set_inputs.push_back(views);
 					++draw_index;
 				}
 			}
 			//一次写入本帧全部逐绘制项采样集
-			const uint32_t draw_set_written = static_cast<uint32_t>(impl->draw_set_inputs.size());
+			const uint32_t draw_set_written = static_cast<uint32_t>(impl->resource_domain->state().draw_set_inputs.size());
 			if (draw_set_written > 0)
-				impl->pipeline.draw_sets_bind_batch(slot, impl->draw_set_inputs.data(), draw_set_written);
+				impl->pipeline.draw_sets_bind_batch(slot, impl->resource_domain->state().draw_set_inputs.data(), draw_set_written);
 			/*
 			第二遍：回填专属采样集句柄
 			收集顺序与逐项写入一致（同一批集下标），故只有前 draw_set_written 项使用专属集，其余回落共享集。

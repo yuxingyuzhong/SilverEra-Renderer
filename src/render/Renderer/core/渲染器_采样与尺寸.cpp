@@ -109,9 +109,9 @@ namespace engine
 		{
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler default_sampler = VK_NULL_HANDLE;
-			if (impl->texture.texture_bind_get(impl->default_texture, default_view, default_sampler))
+			if (impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, default_sampler))
 			{
-				impl->bound_view = default_view;
+				impl->resource_domain->state().bound_view = default_view;
 				for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
 					impl->pipeline.texture_bind(slot, default_sampler, default_view);
 			}

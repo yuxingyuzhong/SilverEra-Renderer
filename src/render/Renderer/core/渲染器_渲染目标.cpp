@@ -270,13 +270,13 @@ namespace engine
 		*/
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler shared_sampler = VK_NULL_HANDLE;
-		if (!impl->texture.texture_bind_get(impl->default_texture, default_view, shared_sampler))
+		if (!impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, shared_sampler))
 		{
 			logger.error("渲染器:: 渲染目标绑定失败：共享采样器不可用");
 			return;
 		}
 		//记录当前绑定视图（与纹理绑定共用同一语义；采样器状态切换后据此重写 set1）
-		impl->bound_view = color_view;
+		impl->resource_domain->state().bound_view = color_view;
 		/*
 		写满全部帧槽 set1 之前先等全部在途帧完成
 		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。

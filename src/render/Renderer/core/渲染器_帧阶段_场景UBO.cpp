@@ -200,9 +200,9 @@ namespace engine
 		268 = 启用（> 0.5 生效）、269 = 漫反射（环境）强度、270 = 镜面强度、271 保留；
 		未启用时着色器整段跳过，画面与引入前逐字节一致。
 		*/
-		scene_block[268] = impl->sky_enabled ? 1.0f : 0.0f;
-		scene_block[269] = impl->sky_ambient;
-		scene_block[270] = impl->sky_specular;
+		scene_block[268] = impl->resource_domain->state().sky_enabled ? 1.0f : 0.0f;
+		scene_block[269] = impl->resource_domain->state().sky_ambient;
+		scene_block[270] = impl->resource_domain->state().sky_specular;
 		//二次元风格化边缘光强度（第一百七十四轮；w 槽；0 = 关闭）
 		scene_block[271] = impl->toon_rim;
 		//二次元暗部色调蓝分量（第一百七十八轮；w 槽；与 266 / 267 共同构成 RGB）

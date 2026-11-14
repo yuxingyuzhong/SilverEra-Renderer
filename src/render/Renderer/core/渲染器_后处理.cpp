@@ -129,11 +129,11 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return;
 		//句柄 0 表示清除：改写为内置默认白纹理（2×2，使查找级原样输出）
-		const uint64_t target_handle = texture_handle == 0 ? impl->default_texture : texture_handle;
+		const uint64_t target_handle = texture_handle == 0 ? impl->resource_domain->state().default_texture : texture_handle;
 		//取目标纹理的视图与采样器（非零且未登记则告警并保持原绑定）
 		VkImageView view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (!impl->texture.texture_bind_get(target_handle, view, sampler))
+		if (!impl->resource_domain->state().texture.texture_bind_get(target_handle, view, sampler))
 		{
 			logger.warn("渲染器:: 查找表纹理句柄 {} 无效，绑定忽略", texture_handle);
 			return;
@@ -152,7 +152,7 @@ namespace engine
 					all_bound = false;
 		//全部写入成功才记录句柄（清除时记录 0）
 		if (all_bound)
-			impl->lut_texture = texture_handle == 0 ? 0 : texture_handle;
+			impl->resource_domain->state().lut_texture = texture_handle == 0 ? 0 : texture_handle;
 		logger.info("渲染器:: 3D LUT 绑定已更新（句柄 {}）；清除时为 0", texture_handle);
 	}
 
@@ -161,7 +161,7 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return 0;
-		return impl->lut_texture;
+		return impl->resource_domain->state().lut_texture;
 	}
 
 	void Renderer_Post::bloom_param_set(float threshold, float knee, float intensity)
