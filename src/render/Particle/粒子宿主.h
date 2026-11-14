@@ -22,9 +22,9 @@ namespace engine
 		explicit Particle_Host(Renderer& renderer) : 渲染器(renderer)
 		{
 			//池默认构造不分配空闲栈，须显式设定容量后才可发射
-			const uint32_t capacity = 渲染器.particle_capacity_get();
+			const uint32_t capacity = 渲染器.particle().particle_capacity_get();
 			池.capacity_set(capacity == 0 ? PARTICLE_CAPACITY_DEFAULT : capacity);
-			渲染器.particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
+			渲染器.particle().particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
 		}
 		/*
 		析构不解绑
@@ -43,17 +43,17 @@ namespace engine
 		bool capacity_set(uint32_t capacity)
 		{
 			//渲染器拒绝（未初始化等）
-			if (!渲染器.particle_capacity_set(capacity))
+			if (!渲染器.particle().particle_capacity_set(capacity))
 				return false;
-			池.capacity_set(渲染器.particle_capacity_get());
-			渲染器.particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
+			池.capacity_set(渲染器.particle().particle_capacity_get());
+			渲染器.particle().particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
 			return true;
 		}
 		//容量同步（外部已按渲染器钳制后的容量）
 		void capacity_sync(uint32_t capacity)
 		{
 			池.capacity_set(capacity);
-			渲染器.particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
+			渲染器.particle().particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
 		}
 		//当前池容量
 		uint32_t capacity_get(void) const
@@ -64,36 +64,36 @@ namespace engine
 		uint32_t emit(uint32_t count)
 		{
 			//渲染器关闭
-			if (!渲染器.particle_enable_get() || count == 0)
+			if (!渲染器.particle().particle_enable_get() || count == 0)
 				return 0;
-			const uint32_t spawned = 池.emit(渲染器.particle_emitter_get(), count);
+			const uint32_t spawned = 池.emit(渲染器.particle().particle_emitter_get(), count);
 			//出生计数上报（帧统计观测）
-			渲染器.particle_stats_add(spawned, 0);
+			渲染器.particle().particle_stats_add(spawned, 0);
 			return spawned;
 		}
 		//推进（渲染器关闭 / 步长非法时返回 0）
 		uint32_t step(float dt)
 		{
 			//渲染器关闭
-			if (!渲染器.particle_enable_get())
+			if (!渲染器.particle().particle_enable_get())
 				return 0;
 			//步长非法
 			if (!std::isfinite(dt) || dt <= 0.0f)
 				return 0;
-			const uint32_t died = 池.step(渲染器.particle_params_get(), dt);
+			const uint32_t died = 池.step(渲染器.particle().particle_params_get(), dt);
 			//死亡计数上报（帧统计观测）
-			渲染器.particle_stats_add(0, died);
+			渲染器.particle().particle_stats_add(0, died);
 			return died;
 		}
 		//当前活跃粒子数（常驻模式取 GPU 活跃计数；否则按池的活跃标记统计）
 		uint32_t active_count(void) const
 		{
 			//渲染器关闭
-			if (!渲染器.particle_enable_get())
+			if (!渲染器.particle().particle_enable_get())
 				return 0;
 			//常驻模式
-			if (渲染器.particle_resident_get())
-				return 渲染器.particle_gpu_active_count();
+			if (渲染器.particle().particle_resident_get())
+				return 渲染器.particle().particle_gpu_active_count();
 			//GPU 推进会直接改写活跃标记，故按标记统计而非池计数器
 			uint32_t count = 0;
 			const uint8_t* alive = 池.alive_get();
@@ -106,7 +106,7 @@ namespace engine
 		bool state_get(uint32_t index, Particle_State& state) const
 		{
 			//渲染器关闭
-			if (!渲染器.particle_enable_get())
+			if (!渲染器.particle().particle_enable_get())
 				return false;
 			//索引越界
 			if (index >= 池.capacity_get())
@@ -129,7 +129,7 @@ namespace engine
 		//重新绑定（池容量被外部改变后调用）
 		void bind(void)
 		{
-			渲染器.particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
+			渲染器.particle().particle_source_bind(池.data_get(), 池.alive_get(), 池.capacity_get());
 		}
 
 	private:

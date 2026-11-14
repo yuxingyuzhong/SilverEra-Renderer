@@ -87,14 +87,12 @@ namespace engine
 			impl->shadow_signature = 0;
 			impl->shadow_pass_count = 0;
 		}
-		//粒子 billboard 资源须先于帧 / 网格上下文销毁（第三百一十四轮）
-		if (impl->particle_quad_mesh != 0)
-		{
-			self().mesh_unload(impl->particle_quad_mesh);
-			impl->particle_quad_mesh = 0;
-		}
-		impl->particle_draw_pipeline = 0;
-		impl->particle_gpu_pipeline = 0;
+		/*
+		粒子 billboard 资源须先于帧 / 网格上下文销毁（第三百一十四轮）
+		域对象可能已随门面析构释放（见 Renderer 析构），故按实现体登记判断。
+		*/
+		if (impl->particle_domain != nullptr)
+			impl->particle_domain->shutdown();
 		impl->frame.destroy();
 		/*
 		原生 UI 与输入先于依赖模块销毁
@@ -289,18 +287,6 @@ namespace engine
 				impl->shader.module_destroy(record.module);
 		}
 		impl->compute_pipelines.clear();
-		//粒子 GPU 推进资源句柄随计算资源一并失效（第三百一十一轮；第三百二十七轮补常驻资源）
-		impl->particle_buffer_front = 0;
-		impl->particle_buffer_back = 0;
-		impl->particle_force_buffer = 0;
-		impl->particle_control_buffer = 0;
-		impl->particle_step_pipeline = 0;
-		impl->particle_emit_pipeline = 0;
-		impl->particle_resident_step_pipeline = 0;
-		impl->particle_buffer_capacity = 0;
-		impl->particle_control_bytes = 0;
-		impl->particle_resident_active = 0;
-		impl->particle_resident = false;
 		impl->gpu_cull_pipeline = 0;
 		//实例压缩管线句柄同样失效（第二百四十九轮）
 		impl->gpu_compact_pipeline = 0;

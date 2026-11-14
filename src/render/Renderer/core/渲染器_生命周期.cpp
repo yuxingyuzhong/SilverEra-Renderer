@@ -38,27 +38,36 @@ namespace engine
 		return *self_ptr;
 	}
 
-	//门面构造（绑定自身指针并创建界面域；实现体由共享基类构造）
+	//门面构造（绑定自身指针并创建界面域与粒子域；实现体由共享基类构造）
 	Renderer::Renderer(void)
-		: ui_domain(new(std::nothrow) Render_Ui(this))
+		: ui_domain(new(std::nothrow) Render_Ui(this)),
+		particle_domain(new(std::nothrow) Render_Particle(this))
 	{
 		self_ptr = this;
-		//登记界面域（关闭流程据此判断域对象是否仍可访问）
+		//登记域对象（关闭流程据此判断域对象是否仍可访问）
 		if (impl != nullptr)
+		{
 			impl->ui_domain = ui_domain.get();
+			impl->particle_domain = particle_domain.get();
+		}
 	}
 
 	/*
 	门面析构
-	界面域状态依赖实现体各模块（内存 / 网格 / 纹理），须在门面成员析构前关闭；
-	关闭后把实现体登记置空，基类析构的关闭流程据此跳过界面域。
+	域状态依赖实现体各模块（内存 / 网格 / 纹理），须在门面成员析构前关闭；
+	关闭后把实现体登记置空，基类析构的关闭流程据此跳过对应域。
 	*/
 	Renderer::~Renderer(void)
 	{
+		if (particle_domain != nullptr)
+			particle_domain->shutdown();
 		if (ui_domain != nullptr)
 			ui_domain->shutdown();
 		if (impl != nullptr)
+		{
+			impl->particle_domain = nullptr;
 			impl->ui_domain = nullptr;
+		}
 	}
 
 	//界面域
@@ -71,6 +80,18 @@ namespace engine
 	const Render_Ui& Renderer::ui(void) const
 	{
 		return *ui_domain;
+	}
+
+	//粒子域
+	Render_Particle& Renderer::particle(void)
+	{
+		return *particle_domain;
+	}
+
+	//粒子域（只读）
+	const Render_Particle& Renderer::particle(void) const
+	{
+		return *particle_domain;
 	}
 
 	//构造（不创建任何 GPU 资源）

@@ -1,16 +1,27 @@
 #pragma once
-//公共语义类型与共享实现体访问
-#include "渲染器实现访问.h"
+//公共语义类型与前置声明
+#include "渲染器类型.h"
 
 //游戏引擎命名空间
 namespace engine
 {
+	class Renderer;
+	struct Particle_Domain_State;
+
 	/*
-	渲染器能力接口：粒子
+	渲染器域：粒子
+	绘制数据源绑定 / 开关与容量 / 发射器与模拟参数 / GPU 推进与常驻 / billboard 与间接绘制 / 统计观测。
 	*/
-	class Renderer_Particle : public virtual Renderer_Impl_Holder
+	class Render_Particle
 	{
 	public:
+		explicit Render_Particle(Renderer* owner);
+		~Render_Particle(void);
+		//不可拷贝、不可移动
+		Render_Particle(const Render_Particle&) = delete;
+		Render_Particle& operator=(const Render_Particle&) = delete;
+
+		//=== 原粒子域接口方法（签名原样照抄）===
 		/*
 		绑定粒子绘制数据源
 		states / alive / capacity 由应用层持有（长度须一致）；states 与 alive 均可写
@@ -130,5 +141,20 @@ namespace engine
 		bool particle_indirect_command_get(uint32_t command_out[5]);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
+
+		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//初始化（原 renderer_init_services 中的粒子装配；资源全部惰性创建）
+		void init(const Renderer_Config& effective);
+		//关闭（原 shutdown 中粒子相关部分；幂等）
+		void shutdown(void);
+		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
+		Particle_Domain_State& state(void);
+		const Particle_Domain_State& state(void) const;
+
+	private:
+		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		Renderer* owner = nullptr;
+		//粒子域状态
+		std::unique_ptr<Particle_Domain_State> state_ptr;
 	};
 }

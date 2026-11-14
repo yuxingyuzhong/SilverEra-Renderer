@@ -27,35 +27,35 @@ namespace engine
 	*/
 	//粒子路径是否可用（第三百一十一轮：改由计算路径可用性决定）
 
-	bool Renderer_Particle::particle_supported(void) const
+	bool Render_Particle::particle_supported(void) const
 	{
-		return impl != nullptr && impl->initialized && self().compute_supported();
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized && owner->compute_supported();
 	}
 
-	bool Renderer_Particle::particle_enable_set(bool enabled)
+	bool Render_Particle::particle_enable_set(bool enabled)
 	{
 		//未初始化拒绝
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 粒子开关设置失败（未初始化）");
 			return false;
 		}
-		impl->particle_enabled = enabled;
+		state().particle_enabled = enabled;
 		return true;
 	}
 
-	bool Renderer_Particle::particle_enable_get(void) const
+	bool Render_Particle::particle_enable_get(void) const
 	{
 		//未初始化返回假
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		return impl->particle_enabled;
+		return state().particle_enabled;
 	}
 
-	bool Renderer_Particle::particle_capacity_set(uint32_t capacity)
+	bool Render_Particle::particle_capacity_set(uint32_t capacity)
 	{
 		//未初始化拒绝
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 		{
 			logger.error("渲染器:: 粒子容量设置失败（未初始化）");
 			return false;
@@ -66,48 +66,48 @@ namespace engine
 		//钳制上界
 		if (capacity > PARTICLE_CAPACITY_MAX)
 			capacity = PARTICLE_CAPACITY_MAX;
-		const uint32_t old_capacity = impl->particle_capacity;
-		impl->particle_capacity = capacity;
+		const uint32_t old_capacity = state().particle_capacity;
+		state().particle_capacity = capacity;
 		//容量实际变化时才等尽在途帧并释放旧尺寸 GPU 资源（同值重复设置为空操作）
-		if (old_capacity != impl->particle_capacity)
+		if (old_capacity != state().particle_capacity)
 		{
-			impl->frame.frames_wait();
-			self().particle_gpu_destroy();
+			owner->impl->frame.frames_wait();
+			owner->particle_gpu_destroy();
 		}
 		//重置发射器配置（旧发射器可能已超出新容量）
-		impl->particle_emitter_configured = false;
+		state().particle_emitter_configured = false;
 		return true;
 	}
 
-	uint32_t Renderer_Particle::particle_capacity_get(void) const
+	uint32_t Render_Particle::particle_capacity_get(void) const
 	{
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
-		return impl->particle_capacity;
+		return state().particle_capacity;
 	}
 
-	void Renderer_Particle::particle_source_bind(Particle_State* states, uint8_t* alive, uint32_t capacity)
+	void Render_Particle::particle_source_bind(Particle_State* states, uint8_t* alive, uint32_t capacity)
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->particle_states = states;
-		impl->particle_alive = alive;
-		impl->particle_source_capacity = (states == nullptr || alive == nullptr) ? 0u : capacity;
+		state().particle_states = states;
+		state().particle_alive = alive;
+		state().particle_source_capacity = (states == nullptr || alive == nullptr) ? 0u : capacity;
 	}
 
-	uint32_t Renderer_Particle::particle_source_capacity(void) const
+	uint32_t Render_Particle::particle_source_capacity(void) const
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
-		return impl->particle_source_capacity;
+		return state().particle_source_capacity;
 	}
 
-	bool Renderer_Particle::particle_emitter_set(const Particle_Emitter& emitter)
+	bool Render_Particle::particle_emitter_set(const Particle_Emitter& emitter)
 	{
 		//未初始化或未开启
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
 		{
 			logger.error("渲染器:: 粒子发射器设置失败（未初始化或未开启）");
 			return false;
@@ -118,32 +118,32 @@ namespace engine
 			logger.warn("渲染器:: 粒子发射器参数非法（已拒绝）");
 			return false;
 		}
-		impl->particle_emitter = emitter;
-		impl->particle_emitter_configured = true;
+		state().particle_emitter = emitter;
+		state().particle_emitter_configured = true;
 		return true;
 	}
 
-	Particle_Emitter Renderer_Particle::particle_emitter_get(void) const
+	Particle_Emitter Render_Particle::particle_emitter_get(void) const
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return Particle_Emitter{};
-		return impl->particle_emitter;
+		return state().particle_emitter;
 	}
 
-	void Renderer_Particle::particle_stats_add(uint32_t born, uint32_t died)
+	void Render_Particle::particle_stats_add(uint32_t born, uint32_t died)
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->particle_born_total += born;
-		impl->particle_died_total += died;
+		state().particle_born_total += born;
+		state().particle_died_total += died;
 	}
 
-	bool Renderer_Particle::particle_params_set(const Particle_Params& params)
+	bool Render_Particle::particle_params_set(const Particle_Params& params)
 	{
 		//未初始化或未开启
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
 		{
 			logger.error("渲染器:: 粒子参数设置失败（未初始化或未开启）");
 			return false;
@@ -154,15 +154,15 @@ namespace engine
 			logger.warn("渲染器:: 粒子参数非法（已拒绝）");
 			return false;
 		}
-		impl->particle_params = params;
+		state().particle_params = params;
 		return true;
 	}
 
-	Particle_Params Renderer_Particle::particle_params_get(void) const
+	Particle_Params Render_Particle::particle_params_get(void) const
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return Particle_Params{};
-		return impl->particle_params;
+		return state().particle_params;
 	}
 }

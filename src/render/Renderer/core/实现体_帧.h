@@ -51,15 +51,6 @@ namespace engine
 		uint32_t last_hiz_slot = 0;
 
 		/*
-		粒子 GPU 间接绘制（第三百四十二轮；阶段 D）
-		indirect_pipeline 为「Particle间接.comp」；indirect_buffers 为按帧槽划分的 20 字节命令缓冲
-		（STORAGE + INDIRECT，主机可见便于回读）；indirect_last_slot 为最近一次写入的帧槽。
-		*/
-		Compute_Pipeline_Handle particle_indirect_pipeline = 0;
-
-		uint32_t particle_indirect_last_slot = 0;
-
-		/*
 		反向外扩描边（第二百二十八轮）
 		width = 外扩宽度（世界单位；0 = 关闭），color = 描边色（RGB 0..1）；
 		outline_pipeline 为「剔除正面」的具名场景管线（登记失败时为 0，此时描边自动失效）；

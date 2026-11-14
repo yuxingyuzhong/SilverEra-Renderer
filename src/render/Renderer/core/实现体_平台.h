@@ -16,9 +16,6 @@ namespace engine
 		//设备是否支持间接绘制命令的 firstInstance 非零（第二百五十二轮；不支持时整轮回落逐项）
 		bool indirect_first_instance_supported = false;
 
-		//粒子 GPU 绘制管线（第三百四十一轮；不消费实例属性，按 gl_InstanceIndex 取紧凑索引）
-		uint64_t particle_gpu_pipeline = 0;
-
 		/*
 		最近一帧的即时观测（第一百三十二轮）
 		frame_culled_items 为「本帧已登记阶段」累计、在 frame_render 收尾时转存到 last_culled_items 并清零；

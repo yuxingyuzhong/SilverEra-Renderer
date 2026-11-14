@@ -5,6 +5,8 @@
 #include "渲染器实现访问.h"
 //界面域
 #include "渲染界面.h"
+//粒子域
+#include "渲染粒子.h"
 //各能力接口
 #include "渲染器_接口_核心.h"
 #include "渲染器_接口_计算.h"
@@ -15,7 +17,6 @@
 #include "渲染器_接口_管线.h"
 #include "渲染器_接口_后处理.h"
 #include "渲染器_接口_场景.h"
-#include "渲染器_接口_粒子.h"
 #include "渲染器_接口_光照.h"
 #include "渲染器_接口_风格.h"
 
@@ -40,7 +41,7 @@ namespace engine
 	class Renderer : public Renderer_Core, public Renderer_Compute, public Renderer_Output,
 		public Renderer_Mesh, public Renderer_Texture, public Renderer_Material,
 		public Renderer_Pipeline, public Renderer_Post,
-		public Renderer_Scene, public Renderer_Particle, public Renderer_Lighting,
+		public Renderer_Scene, public Renderer_Lighting,
 		public Renderer_Style
 	{
 	public:
@@ -53,8 +54,14 @@ namespace engine
 		Render_Ui& ui(void);
 		const Render_Ui& ui(void) const;
 
+		//粒子域
+		Render_Particle& particle(void);
+		const Render_Particle& particle(void) const;
+
 	private:
 		//界面域对象
 		std::unique_ptr<Render_Ui> ui_domain;
+		//粒子域对象
+		std::unique_ptr<Render_Particle> particle_domain;
 	};
 }

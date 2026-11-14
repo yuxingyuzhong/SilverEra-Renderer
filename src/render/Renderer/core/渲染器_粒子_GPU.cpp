@@ -33,12 +33,12 @@ namespace engine
 		if (impl == nullptr || !impl->initialized || !self().compute_supported())
 			return false;
 		//按 GPU 缓冲容量分配（容量为 0 视为不可用）
-		uint32_t capacity = impl->particle_capacity;
+		uint32_t capacity = self().particle().state().particle_capacity;
 		if (capacity == 0 || capacity > PARTICLE_CAPACITY_MAX)
 			return false;
 		//已按当前容量就绪
-		if (impl->particle_buffer_capacity == capacity && impl->particle_buffer_front != 0
-			&& impl->particle_buffer_back != 0 && impl->particle_step_pipeline != 0)
+		if (self().particle().state().particle_buffer_capacity == capacity && self().particle().state().particle_buffer_front != 0
+			&& self().particle().state().particle_buffer_back != 0 && self().particle().state().particle_step_pipeline != 0)
 			return true;
 		//容量变化：先释放旧资源
 		self().particle_gpu_destroy();
@@ -71,23 +71,23 @@ namespace engine
 				zero_command.data(), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 			//成功则登记句柄
 			if (indirect_created)
-				impl->particle_indirect_buffers.push_back(handle);
+				self().particle().state().particle_indirect_buffers.push_back(handle);
 		}
 		bool created = indirect_created
-			&& self().compute_buffer_load(impl->particle_buffer_front, bytes, zeros.data())
-			&& self().compute_buffer_load(impl->particle_buffer_back, bytes, zeros.data())
-			&& self().compute_buffer_load(impl->particle_force_buffer,
+			&& self().compute_buffer_load(self().particle().state().particle_buffer_front, bytes, zeros.data())
+			&& self().compute_buffer_load(self().particle().state().particle_buffer_back, bytes, zeros.data())
+			&& self().compute_buffer_load(self().particle().state().particle_force_buffer,
 				static_cast<uint32_t>(zero_forces.size()), zero_forces.data())
-			&& self().compute_buffer_load(impl->particle_control_buffer, control_bytes, zero_control.data())
-			&& self().compute_buffer_load(impl->particle_index_buffer, static_cast<uint32_t>(zero_indices.size()),
+			&& self().compute_buffer_load(self().particle().state().particle_control_buffer, control_bytes, zero_control.data())
+			&& self().compute_buffer_load(self().particle().state().particle_index_buffer, static_cast<uint32_t>(zero_indices.size()),
 				zero_indices.data())
-			&& self().compute_buffer_load(impl->particle_compact_count_buffer, static_cast<uint32_t>(sizeof(zero_count)),
+			&& self().compute_buffer_load(self().particle().state().particle_compact_count_buffer, static_cast<uint32_t>(sizeof(zero_count)),
 				&zero_count)
-			&& self().compute_pipeline_load(impl->particle_step_pipeline, "Particle推进.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_emit_pipeline, "Particle发射.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_resident_step_pipeline, "Particle常驻推进.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_compact_pipeline, "Particle紧凑.comp.spv")
-			&& self().compute_pipeline_load(impl->particle_indirect_pipeline, "Particle间接.comp.spv");
+			&& self().compute_pipeline_load(self().particle().state().particle_step_pipeline, "Particle推进.comp.spv")
+			&& self().compute_pipeline_load(self().particle().state().particle_emit_pipeline, "Particle发射.comp.spv")
+			&& self().compute_pipeline_load(self().particle().state().particle_resident_step_pipeline, "Particle常驻推进.comp.spv")
+			&& self().compute_pipeline_load(self().particle().state().particle_compact_pipeline, "Particle紧凑.comp.spv")
+			&& self().compute_pipeline_load(self().particle().state().particle_indirect_pipeline, "Particle间接.comp.spv");
 		//任一环节失败即整体回收
 		if (!created)
 		{
@@ -95,10 +95,10 @@ namespace engine
 			self().particle_gpu_destroy();
 			return false;
 		}
-		impl->particle_buffer_capacity = capacity;
-		impl->particle_control_bytes = control_bytes;
-		impl->particle_resident_active = 0;
-		impl->particle_indirect_written = false;
+		self().particle().state().particle_buffer_capacity = capacity;
+		self().particle().state().particle_control_bytes = control_bytes;
+		self().particle().state().particle_resident_active = 0;
+		self().particle().state().particle_indirect_written = false;
 		return true;
 	}
 
@@ -108,113 +108,113 @@ namespace engine
 		if (impl == nullptr)
 			return;
 		//双缓冲与推进管线移交门面卸载（计算上下文仍存活时才有效）
-		if (impl->particle_buffer_front != 0)
-			self().compute_buffer_unload(impl->particle_buffer_front);
-		if (impl->particle_buffer_back != 0)
-			self().compute_buffer_unload(impl->particle_buffer_back);
-		if (impl->particle_force_buffer != 0)
-			self().compute_buffer_unload(impl->particle_force_buffer);
-		if (impl->particle_control_buffer != 0)
-			self().compute_buffer_unload(impl->particle_control_buffer);
-		if (impl->particle_index_buffer != 0)
-			self().compute_buffer_unload(impl->particle_index_buffer);
-		if (impl->particle_compact_count_buffer != 0)
-			self().compute_buffer_unload(impl->particle_compact_count_buffer);
+		if (self().particle().state().particle_buffer_front != 0)
+			self().compute_buffer_unload(self().particle().state().particle_buffer_front);
+		if (self().particle().state().particle_buffer_back != 0)
+			self().compute_buffer_unload(self().particle().state().particle_buffer_back);
+		if (self().particle().state().particle_force_buffer != 0)
+			self().compute_buffer_unload(self().particle().state().particle_force_buffer);
+		if (self().particle().state().particle_control_buffer != 0)
+			self().compute_buffer_unload(self().particle().state().particle_control_buffer);
+		if (self().particle().state().particle_index_buffer != 0)
+			self().compute_buffer_unload(self().particle().state().particle_index_buffer);
+		if (self().particle().state().particle_compact_count_buffer != 0)
+			self().compute_buffer_unload(self().particle().state().particle_compact_count_buffer);
 		//间接命令缓冲（第三百四十二轮；按槽逐个卸载）
-		for (Compute_Buffer_Handle handle : impl->particle_indirect_buffers)
+		for (Compute_Buffer_Handle handle : self().particle().state().particle_indirect_buffers)
 			self().compute_buffer_unload(handle);
-		if (impl->particle_step_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_step_pipeline);
-		if (impl->particle_emit_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_emit_pipeline);
-		if (impl->particle_resident_step_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_resident_step_pipeline);
-		if (impl->particle_compact_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_compact_pipeline);
-		if (impl->particle_indirect_pipeline != 0)
-			self().compute_pipeline_unload(impl->particle_indirect_pipeline);
-		impl->particle_indirect_buffers.clear();
-		impl->particle_indirect_written = false;
-		impl->particle_indirect_last_slot = 0;
-		impl->particle_buffer_front = 0;
-		impl->particle_buffer_back = 0;
-		impl->particle_force_buffer = 0;
-		impl->particle_control_buffer = 0;
-		impl->particle_index_buffer = 0;
-		impl->particle_compact_count_buffer = 0;
-		impl->particle_step_pipeline = 0;
-		impl->particle_emit_pipeline = 0;
-		impl->particle_resident_step_pipeline = 0;
-		impl->particle_compact_pipeline = 0;
-		impl->particle_control_bytes = 0;
-		impl->particle_resident_active = 0;
-		impl->particle_compact_count = 0;
-		impl->particle_buffer_capacity = 0;
+		if (self().particle().state().particle_step_pipeline != 0)
+			self().compute_pipeline_unload(self().particle().state().particle_step_pipeline);
+		if (self().particle().state().particle_emit_pipeline != 0)
+			self().compute_pipeline_unload(self().particle().state().particle_emit_pipeline);
+		if (self().particle().state().particle_resident_step_pipeline != 0)
+			self().compute_pipeline_unload(self().particle().state().particle_resident_step_pipeline);
+		if (self().particle().state().particle_compact_pipeline != 0)
+			self().compute_pipeline_unload(self().particle().state().particle_compact_pipeline);
+		if (self().particle().state().particle_indirect_pipeline != 0)
+			self().compute_pipeline_unload(self().particle().state().particle_indirect_pipeline);
+		self().particle().state().particle_indirect_buffers.clear();
+		self().particle().state().particle_indirect_written = false;
+		self().particle().state().particle_indirect_last_slot = 0;
+		self().particle().state().particle_buffer_front = 0;
+		self().particle().state().particle_buffer_back = 0;
+		self().particle().state().particle_force_buffer = 0;
+		self().particle().state().particle_control_buffer = 0;
+		self().particle().state().particle_index_buffer = 0;
+		self().particle().state().particle_compact_count_buffer = 0;
+		self().particle().state().particle_step_pipeline = 0;
+		self().particle().state().particle_emit_pipeline = 0;
+		self().particle().state().particle_resident_step_pipeline = 0;
+		self().particle().state().particle_compact_pipeline = 0;
+		self().particle().state().particle_control_bytes = 0;
+		self().particle().state().particle_resident_active = 0;
+		self().particle().state().particle_compact_count = 0;
+		self().particle().state().particle_buffer_capacity = 0;
 	}
 
-	bool Renderer_Particle::particle_gpu_available(void)
+	bool Render_Particle::particle_gpu_available(void)
 	{
 		//未开启粒子或计算路径不可用
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !self().compute_supported())
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled || !owner->compute_supported())
 			return false;
-		return self().particle_gpu_ensure();
+		return owner->particle_gpu_ensure();
 	}
 
-	bool Renderer_Particle::particle_gpu_step(float dt)
+	bool Render_Particle::particle_gpu_step(float dt)
 	{
 		//资源未就绪
-		if (!self().particle_gpu_available())
+		if (!owner->particle().particle_gpu_available())
 			return false;
 		//未绑定数据源
-		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
-			|| impl->particle_source_capacity == 0)
+		if (state().particle_states == nullptr || state().particle_alive == nullptr
+			|| state().particle_source_capacity == 0)
 			return false;
 		//常驻模式下禁止同步链推进（会污染常驻状态；第三百二十八轮）
-		if (impl->particle_resident)
+		if (state().particle_resident)
 			return false;
 		//步长非法
 		if (!std::isfinite(dt) || dt <= 0.0f)
 			return false;
 		//本次推进的死亡计数先清零
-		impl->particle_gpu_died_last = 0;
+		state().particle_gpu_died_last = 0;
 		//GPU 同步链主机侧计时（第三百二十二轮）
 		const auto sim_begin = std::chrono::high_resolution_clock::now();
-		uint32_t capacity = impl->particle_buffer_capacity;
+		uint32_t capacity = state().particle_buffer_capacity;
 		//镜像容量须不小于推进容量
-		if (impl->particle_source_capacity < capacity)
+		if (state().particle_source_capacity < capacity)
 			return false;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
 		//上传当前镜像到前缓冲
-		if (!self().compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
+		if (!owner->compute_buffer_write(state().particle_buffer_front, state().particle_states, bytes))
 			return false;
 		//上传力场数组（仅上传前 force_count 项；第三百一十八轮）
-		if (impl->particle_params.force_count > 0)
+		if (state().particle_params.force_count > 0)
 		{
-			uint32_t force_bytes = impl->particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
-			if (!self().compute_buffer_write(impl->particle_force_buffer, impl->particle_params.forces, force_bytes))
+			uint32_t force_bytes = state().particle_params.force_count * static_cast<uint32_t>(PARTICLE_FORCE_STRIDE);
+			if (!owner->compute_buffer_write(state().particle_force_buffer, state().particle_params.forces, force_bytes))
 				return false;
 		}
 		//绑定前缓冲只读、后缓冲只写、力场数组只读
-		if (!self().compute_buffer_bind(impl->particle_buffer_front, 0))
+		if (!owner->compute_buffer_bind(state().particle_buffer_front, 0))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_buffer_back, 1))
+		if (!owner->compute_buffer_bind(state().particle_buffer_back, 1))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_force_buffer, 2))
+		if (!owner->compute_buffer_bind(state().particle_force_buffer, 2))
 			return false;
 		//推送常量：重力与步长、阻尼与容量与力场数、碰撞球、地面与材质（第三百一十九轮）
 		const float push[16] = {
-			impl->particle_params.gravity[0], impl->particle_params.gravity[1], impl->particle_params.gravity[2], dt,
-			impl->particle_params.damping, static_cast<float>(capacity),
-			static_cast<float>(impl->particle_params.force_count), 0.0f,
-			impl->particle_params.sphere_center[0], impl->particle_params.sphere_center[1],
-			impl->particle_params.sphere_center[2], impl->particle_params.sphere_radius,
-			impl->particle_params.floor_y, impl->particle_params.restitution, impl->particle_params.friction,
-			static_cast<float>(impl->particle_params.ground_enabled)
+			state().particle_params.gravity[0], state().particle_params.gravity[1], state().particle_params.gravity[2], dt,
+			state().particle_params.damping, static_cast<float>(capacity),
+			static_cast<float>(state().particle_params.force_count), 0.0f,
+			state().particle_params.sphere_center[0], state().particle_params.sphere_center[1],
+			state().particle_params.sphere_center[2], state().particle_params.sphere_radius,
+			state().particle_params.floor_y, state().particle_params.restitution, state().particle_params.friction,
+			static_cast<float>(state().particle_params.ground_enabled)
 		};
-		if (!self().compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
+		if (!owner->compute_dispatch(state().particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
 		//回读覆盖镜像（GPU 结果作为下一步的上传源）
-		if (!self().compute_buffer_read(impl->particle_buffer_back, impl->particle_states, bytes))
+		if (!owner->compute_buffer_read(state().particle_buffer_back, state().particle_states, bytes))
 			return false;
 		/*
 		生命周期同步（第三百一十三轮）
@@ -222,8 +222,8 @@ namespace engine
 		使下次上传的非活跃槽位保持「lifetime = 0」不变式（着色器据此原样写回）。
 		*/
 		uint32_t died = 0;
-		Particle_State* states = impl->particle_states;
-		uint8_t* alive = impl->particle_alive;
+		Particle_State* states = state().particle_states;
+		uint8_t* alive = state().particle_alive;
 		for (uint32_t index = 0; index < capacity; ++index)
 		{
 			//非活跃槽位保持零寿命不变式
@@ -240,56 +240,56 @@ namespace engine
 				++died;
 			}
 		}
-		impl->particle_gpu_died_last = died;
-		impl->particle_died_total += died;
+		state().particle_gpu_died_last = died;
+		state().particle_died_total += died;
 		//GPU 设备耗时（设备不支持时间戳时为 −1）
-		impl->particle_gpu_ms_last = impl->compute.timestamp_supported()
-			? impl->compute.stats_get().elapsed_ms : -1.0;
+		state().particle_gpu_ms_last = owner->impl->compute.timestamp_supported()
+			? owner->impl->compute.stats_get().elapsed_ms : -1.0;
 		//主机侧模拟耗时（含上传 / 调度 / 回读 + 镜像同步）
 		const auto sim_end = std::chrono::high_resolution_clock::now();
-		impl->particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
+		state().particle_sim_ms_last = std::chrono::duration<double, std::milli>(sim_end - sim_begin).count();
 		return true;
 	}
 
-	uint32_t Renderer_Particle::particle_gpu_died_last(void) const
+	uint32_t Render_Particle::particle_gpu_died_last(void) const
 	{
 		//未开启或未初始化
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
 			return 0;
-		return impl->particle_gpu_died_last;
+		return state().particle_gpu_died_last;
 	}
 
-	uint32_t Renderer_Particle::particle_gpu_active_count(void) const
+	uint32_t Render_Particle::particle_gpu_active_count(void) const
 	{
 		//未初始化 / 未开启常驻
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_resident)
 			return 0;
-		return impl->particle_resident_active;
+		return state().particle_resident_active;
 	}
 
 	bool Renderer_Compute::particle_draw_ensure(void)
 	{
 		//已就绪
-		if (impl->particle_quad_mesh != 0 && impl->particle_draw_pipeline != 0)
+		if (self().particle().state().particle_quad_mesh != 0 && self().particle().state().particle_draw_pipeline != 0)
 			return true;
 		//单位四边形网格（XY 平面，边长 1）
-		if (impl->particle_quad_mesh == 0)
+		if (self().particle().state().particle_quad_mesh == 0)
 		{
-			if (!self().mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
+			if (!self().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
 				return false;
 		}
 		//粒子管线（Alpha 混合，与场景管线共享布局与描述符集布局）
-		if (impl->particle_draw_pipeline == 0)
+		if (self().particle().state().particle_draw_pipeline == 0)
 		{
 			/*
 			粒子管线：关闭背面剔除（billboard 朝向由相机决定）、深度写入按门面开关；
 			混合档取粒子混合设置（默认 Alpha）。
 			*/
-			if (!impl->pipeline_load_ex(impl->particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv",
-				impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
+			if (!impl->pipeline_load_ex(self().particle().state().particle_draw_pipeline, "粒子.vert.spv", "粒子.frag.spv",
+				self().particle().state().particle_blend_mode, false, true, self().particle().state().particle_depth_write, false))
 			{
-				self().mesh_unload(impl->particle_quad_mesh);
-				impl->particle_quad_mesh = 0;
+				self().mesh_unload(self().particle().state().particle_quad_mesh);
+				self().particle().state().particle_quad_mesh = 0;
 				return false;
 			}
 		}
@@ -299,164 +299,164 @@ namespace engine
 	bool Renderer_Compute::particle_gpu_draw_ensure(void)
 	{
 		//单位四边形网格（与 CPU 路径共用）
-		if (impl->particle_quad_mesh == 0)
+		if (self().particle().state().particle_quad_mesh == 0)
 		{
-			if (!self().mesh_plane_load(impl->particle_quad_mesh, 1.0f, 1.0f))
+			if (!self().mesh_plane_load(self().particle().state().particle_quad_mesh, 1.0f, 1.0f))
 				return false;
 		}
 		//已就绪
-		if (impl->particle_gpu_pipeline != 0)
+		if (self().particle().state().particle_gpu_pipeline != 0)
 			return true;
 		//粒子 GPU 管线（关闭背面剔除、深度写入按门面开关、混合档取粒子设置）
-		if (!impl->pipeline_load_ex(impl->particle_gpu_pipeline, "粒子GPU.vert.spv", "粒子.frag.spv",
-			impl->particle_blend_mode, false, true, impl->particle_depth_write, false))
+		if (!impl->pipeline_load_ex(self().particle().state().particle_gpu_pipeline, "粒子GPU.vert.spv", "粒子.frag.spv",
+			self().particle().state().particle_blend_mode, false, true, self().particle().state().particle_depth_write, false))
 			return false;
 		return true;
 	}
 
-	uint64_t Renderer_Particle::particle_gpu_bytes(void) const
+	uint64_t Render_Particle::particle_gpu_bytes(void) const
 	{
 		//未初始化或资源未创建
-		if (impl == nullptr || !impl->initialized || impl->particle_buffer_capacity == 0
-			|| impl->particle_buffer_front == 0 || impl->particle_buffer_back == 0)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || state().particle_buffer_capacity == 0
+			|| state().particle_buffer_front == 0 || state().particle_buffer_back == 0)
 			return 0;
-		uint64_t buffers = static_cast<uint64_t>(impl->particle_buffer_capacity) * PARTICLE_STRIDE * 2u;
-		uint64_t forces = impl->particle_force_buffer != 0
+		uint64_t buffers = static_cast<uint64_t>(state().particle_buffer_capacity) * PARTICLE_STRIDE * 2u;
+		uint64_t forces = state().particle_force_buffer != 0
 			? static_cast<uint64_t>(PARTICLE_FORCE_MAX) * PARTICLE_FORCE_STRIDE : 0u;
-		uint64_t control = static_cast<uint64_t>(impl->particle_control_bytes);
+		uint64_t control = static_cast<uint64_t>(state().particle_control_bytes);
 		//紧凑索引与紧凑计数（第三百三十三轮）
-		uint64_t compact = impl->particle_index_buffer != 0
-			? static_cast<uint64_t>(impl->particle_buffer_capacity) * 4u + 4u : 0u;
+		uint64_t compact = state().particle_index_buffer != 0
+			? static_cast<uint64_t>(state().particle_buffer_capacity) * 4u + 4u : 0u;
 		//间接命令缓冲（第三百五十二轮；按帧槽各 20 B）
-		uint64_t indirect = static_cast<uint64_t>(impl->particle_indirect_buffers.size())
+		uint64_t indirect = static_cast<uint64_t>(state().particle_indirect_buffers.size())
 			* Renderer_Impl_Holder::Impl::INDIRECT_COMMAND_BYTES;
 		return buffers + forces + control + compact + indirect;
 	}
 
-	bool Renderer_Particle::particle_resident_set(bool enabled)
+	bool Render_Particle::particle_resident_set(bool enabled)
 	{
 		//未初始化 / 未开启粒子 / 计算不可用
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !self().compute_supported())
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled || !owner->compute_supported())
 			return false;
-		impl->particle_resident = enabled;
+		state().particle_resident = enabled;
 		//开启时同步一次计数缓存
-		if (enabled && self().particle_gpu_available())
+		if (enabled && owner->particle().particle_gpu_available())
 		{
 			uint32_t active = 0;
-			if (self().compute_buffer_read(impl->particle_control_buffer, &active, 4u, 4u))
-				impl->particle_resident_active = active;
+			if (owner->compute_buffer_read(state().particle_control_buffer, &active, 4u, 4u))
+				state().particle_resident_active = active;
 		}
 		return true;
 	}
 
-	bool Renderer_Particle::particle_resident_get(void) const
+	bool Render_Particle::particle_resident_get(void) const
 	{
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		return impl->particle_resident;
+		return state().particle_resident;
 	}
 
-	bool Renderer_Particle::particle_gpu_compact(void)
+	bool Render_Particle::particle_gpu_compact(void)
 	{
 		//前置条件
-		if (impl == nullptr || !impl->initialized || !impl->particle_enabled || !impl->particle_resident)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled || !state().particle_resident)
 			return false;
-		if (!self().particle_gpu_available())
+		if (!owner->particle().particle_gpu_available())
 			return false;
-		uint32_t capacity = impl->particle_buffer_capacity;
+		uint32_t capacity = state().particle_buffer_capacity;
 		if (capacity == 0)
 			return false;
 		//主机侧计时（第三百四十轮）
 		const auto compact_begin = std::chrono::high_resolution_clock::now();
 		//清零紧凑计数
 		uint32_t zero = 0;
-		if (!self().compute_buffer_write(impl->particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
+		if (!owner->compute_buffer_write(state().particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
 			return false;
 		//绑定：控制缓冲（位图）/ 紧凑索引 / 紧凑计数
-		if (!self().compute_buffer_bind(impl->particle_control_buffer, 0))
+		if (!owner->compute_buffer_bind(state().particle_control_buffer, 0))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_index_buffer, 1))
+		if (!owner->compute_buffer_bind(state().particle_index_buffer, 1))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_compact_count_buffer, 2))
+		if (!owner->compute_buffer_bind(state().particle_compact_count_buffer, 2))
 			return false;
 		const uint32_t push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
-		if (!self().compute_dispatch(impl->particle_compact_pipeline, capacity, 64u, push,
+		if (!owner->compute_dispatch(state().particle_compact_pipeline, capacity, 64u, push,
 			static_cast<uint32_t>(sizeof(push))))
 			return false;
 		//回读索引数（防御越界）
 		uint32_t count = 0;
-		if (!self().compute_buffer_read(impl->particle_compact_count_buffer, &count, static_cast<uint32_t>(sizeof(count))))
+		if (!owner->compute_buffer_read(state().particle_compact_count_buffer, &count, static_cast<uint32_t>(sizeof(count))))
 			return false;
 		if (count > capacity)
 			count = capacity;
-		impl->particle_compact_count = count;
+		state().particle_compact_count = count;
 		const auto compact_end = std::chrono::high_resolution_clock::now();
-		impl->particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
+		state().particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
 		return true;
 	}
 
-	uint32_t Renderer_Particle::particle_compact_count_get(void) const
+	uint32_t Render_Particle::particle_compact_count_get(void) const
 	{
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_resident)
 			return 0;
-		return impl->particle_compact_count;
+		return state().particle_compact_count;
 	}
 
-	uint32_t Renderer_Particle::particle_compact_indices_get(uint32_t* out, uint32_t max_count)
+	uint32_t Render_Particle::particle_compact_indices_get(uint32_t* out, uint32_t max_count)
 	{
 		if (out == nullptr || max_count == 0)
 			return 0;
-		if (impl == nullptr || !impl->initialized || !impl->particle_resident)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_resident)
 			return 0;
-		uint32_t count = impl->particle_compact_count;
+		uint32_t count = state().particle_compact_count;
 		if (count > max_count)
 			count = max_count;
 		if (count == 0)
 			return 0;
-		if (!self().compute_buffer_read(impl->particle_index_buffer, out, count * static_cast<uint32_t>(sizeof(uint32_t))))
+		if (!owner->compute_buffer_read(state().particle_index_buffer, out, count * static_cast<uint32_t>(sizeof(uint32_t))))
 			return 0;
 		return count;
 	}
 
-	bool Renderer_Particle::particle_gpu_probe(void)
+	bool Render_Particle::particle_gpu_probe(void)
 	{
 		//资源未就绪
-		if (!self().particle_gpu_available())
+		if (!owner->particle().particle_gpu_available())
 			return false;
 		//常驻模式下自检会覆盖常驻状态，直接拒绝（第三百二十八轮）
-		if (impl->particle_resident)
+		if (state().particle_resident)
 			return false;
 		//未绑定数据源
-		if (impl->particle_states == nullptr || impl->particle_alive == nullptr
-			|| impl->particle_source_capacity == 0)
+		if (state().particle_states == nullptr || state().particle_alive == nullptr
+			|| state().particle_source_capacity == 0)
 			return false;
-		uint32_t capacity = impl->particle_buffer_capacity;
+		uint32_t capacity = state().particle_buffer_capacity;
 		//镜像容量须不小于推进容量
-		if (impl->particle_source_capacity < capacity)
+		if (state().particle_source_capacity < capacity)
 			return false;
 		uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
 		//上传应用层状态到前缓冲
-		if (!self().compute_buffer_write(impl->particle_buffer_front, impl->particle_states, bytes))
+		if (!owner->compute_buffer_write(state().particle_buffer_front, state().particle_states, bytes))
 			return false;
 		//绑定前缓冲只读、后缓冲只写、力场数组只读（零力场）
-		if (!self().compute_buffer_bind(impl->particle_buffer_front, 0))
+		if (!owner->compute_buffer_bind(state().particle_buffer_front, 0))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_buffer_back, 1))
+		if (!owner->compute_buffer_bind(state().particle_buffer_back, 1))
 			return false;
-		if (!self().compute_buffer_bind(impl->particle_force_buffer, 2))
+		if (!owner->compute_buffer_bind(state().particle_force_buffer, 2))
 			return false;
 		//零步推送常量：重力为零、dt 为零、阻尼为 1（模拟为恒等变换；力场 / 碰撞球均关闭、地面不触发）
 		const float push[16] = { 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, static_cast<float>(capacity), 0.0f, 0.0f,
 			0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-		if (!self().compute_dispatch(impl->particle_step_pipeline, capacity, 64u, push, sizeof(push)))
+		if (!owner->compute_dispatch(state().particle_step_pipeline, capacity, 64u, push, sizeof(push)))
 			return false;
 		//回读后缓冲
 		std::vector<uint8_t> output(bytes, 0u);
-		if (!self().compute_buffer_read(impl->particle_buffer_back, output.data(), bytes))
+		if (!owner->compute_buffer_read(state().particle_buffer_back, output.data(), bytes))
 			return false;
 		//按活跃标记逐索引比对
-		const Particle_State* source = impl->particle_states;
-		const uint8_t* alive = impl->particle_alive;
+		const Particle_State* source = state().particle_states;
+		const uint8_t* alive = state().particle_alive;
 		for (uint32_t index = 0; index < capacity; ++index)
 		{
 			//跳过非活跃槽位

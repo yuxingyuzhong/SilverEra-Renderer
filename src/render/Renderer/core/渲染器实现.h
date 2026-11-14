@@ -59,6 +59,8 @@
 #include "实现体_状态.h"
 //界面域状态（从实现体迁出的界面成员）
 #include "界面域状态.h"
+//粒子域状态（从实现体迁出的粒子成员）
+#include "粒子域状态.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -124,6 +126,8 @@ namespace engine
 			VkFormat depth_format = VK_FORMAT_UNDEFINED, uint32_t sample_count = 0);
 		//界面域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
 		Render_Ui* ui_domain = nullptr;
+		//粒子域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
+		Render_Particle* particle_domain = nullptr;
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；

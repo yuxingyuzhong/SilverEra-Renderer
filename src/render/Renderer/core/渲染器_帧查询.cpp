@@ -192,22 +192,22 @@ namespace engine
 		//粒子模拟统计（第三百二十二轮；关闭时活跃与累计均为 0）
 		//常驻模式取 GPU 活跃计数（第三百四十轮）；否则按绑定的活跃标记统计（模拟归应用层）
 		uint32_t 活跃数 = 0;
-		if (impl->particle_enabled && !impl->particle_resident
-			&& impl->particle_alive != nullptr && impl->particle_source_capacity > 0)
+		if (self().particle().state().particle_enabled && !self().particle().state().particle_resident
+			&& self().particle().state().particle_alive != nullptr && self().particle().state().particle_source_capacity > 0)
 		{
-			for (uint32_t index = 0; index < impl->particle_source_capacity; ++index)
-				if (impl->particle_alive[index] != 0u)
+			for (uint32_t index = 0; index < self().particle().state().particle_source_capacity; ++index)
+				if (self().particle().state().particle_alive[index] != 0u)
 					活跃数 += 1;
 		}
-		stats.particle_active = impl->particle_enabled
-			? (impl->particle_resident ? impl->particle_resident_active : 活跃数) : 0u;
-		stats.particle_born_total = impl->particle_born_total;
-		stats.particle_died_total = impl->particle_died_total;
-		stats.particle_sim_ms = impl->particle_sim_ms_last;
-		stats.particle_gpu_ms = impl->particle_gpu_ms_last;
-		stats.particle_compact_ms = impl->particle_compact_ms_last;
+		stats.particle_active = self().particle().state().particle_enabled
+			? (self().particle().state().particle_resident ? self().particle().state().particle_resident_active : 活跃数) : 0u;
+		stats.particle_born_total = self().particle().state().particle_born_total;
+		stats.particle_died_total = self().particle().state().particle_died_total;
+		stats.particle_sim_ms = self().particle().state().particle_sim_ms_last;
+		stats.particle_gpu_ms = self().particle().state().particle_gpu_ms_last;
+		stats.particle_compact_ms = self().particle().state().particle_compact_ms_last;
 		//最近一次粒子绘制路径（第三百四十八轮；0 未登记 / 1 CPU / 2 GPU 直接 / 3 GPU 间接）
-		stats.particle_draw_path = impl->particle_draw_path_last;
+		stats.particle_draw_path = self().particle().state().particle_draw_path_last;
 		return stats;
 	}
 
