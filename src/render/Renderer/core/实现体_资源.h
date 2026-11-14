@@ -140,13 +140,6 @@ namespace engine
 		*/
 		std::vector<uint64_t> material_pipelines;
 
-		/*
-		原生 UI（保留模式控件树 + GPU 绘制）
-		input 为渲染层自持的帧输入聚合器；ui 为控件树与交互；ui_render 负责 UI 阶段的 GPU 绘制。
-		两个 UI 管线由 ui_pipeline_ensure 惰性登记，着色器模块随 extra_pipelines 统一销毁。
-		*/
-		Input_Aggregator input;
-
 		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
 		Render_Target_Context render_target;
 

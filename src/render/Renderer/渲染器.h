@@ -3,6 +3,8 @@
 #include "渲染器类型.h"
 //共享实现体持有基类
 #include "渲染器实现访问.h"
+//界面域
+#include "渲染界面.h"
 //各能力接口
 #include "渲染器_接口_核心.h"
 #include "渲染器_接口_计算.h"
@@ -12,12 +14,10 @@
 #include "渲染器_接口_材质.h"
 #include "渲染器_接口_管线.h"
 #include "渲染器_接口_后处理.h"
-#include "渲染器_接口_文字.h"
 #include "渲染器_接口_场景.h"
 #include "渲染器_接口_粒子.h"
 #include "渲染器_接口_光照.h"
 #include "渲染器_接口_风格.h"
-#include "渲染器_接口_界面.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -39,12 +39,22 @@ namespace engine
 	*/
 	class Renderer : public Renderer_Core, public Renderer_Compute, public Renderer_Output,
 		public Renderer_Mesh, public Renderer_Texture, public Renderer_Material,
-		public Renderer_Pipeline, public Renderer_Post, public Renderer_Text,
+		public Renderer_Pipeline, public Renderer_Post,
 		public Renderer_Scene, public Renderer_Particle, public Renderer_Lighting,
-		public Renderer_Style, public Renderer_Ui
+		public Renderer_Style
 	{
 	public:
 		//构造（绑定门面自身指针；实现体由共享基类创建）
 		Renderer(void);
+		//析构（域对象为不完整类型，须在 .cpp 定义）
+		~Renderer(void);
+
+		//界面域
+		Render_Ui& ui(void);
+		const Render_Ui& ui(void) const;
+
+	private:
+		//界面域对象
+		std::unique_ptr<Render_Ui> ui_domain;
 	};
 }

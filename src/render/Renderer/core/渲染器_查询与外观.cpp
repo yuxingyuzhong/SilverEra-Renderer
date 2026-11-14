@@ -46,7 +46,7 @@ namespace engine
 		counts.meshes = impl->mesh.mesh_count();
 		counts.textures = impl->texture.texture_count();
 		counts.pipelines = impl->pipeline.pipeline_count();
-		counts.fonts = impl->font.font_count();
+		counts.fonts = self().ui().state().font.font_count();
 		counts.render_targets = impl->render_target.target_count();
 		//材质按有效记录计
 		for (const Impl::Material_Record& record : impl->materials)
@@ -337,98 +337,5 @@ namespace engine
 				value = 1.0f;
 			impl->clear_color[index] = value;
 		}
-	}
-
-	//UI 通道
-	Ui_Channel_Context* Renderer_Ui::ui_channel(void)
-	{
-		//若实现体未分配
-		if (impl == nullptr)
-			return nullptr;
-		return &impl->ui_channel;
-	}
-
-	//原生 UI 上下文
-	Ui_Context* Renderer_Ui::ui_context(void)
-	{
-		//若实现体未分配或未初始化
-		if (impl == nullptr || !impl->initialized)
-			return nullptr;
-		return &impl->ui;
-	}
-
-	//帧输入聚合器
-	Input_Aggregator* Renderer_Ui::input_aggregator(void)
-	{
-		//若实现体未分配
-		if (impl == nullptr)
-			return nullptr;
-		return &impl->input;
-	}
-
-	//系统输入终端
-	Event_Terminal* Renderer_Ui::input_event_terminal(void)
-	{
-		//若实现体未分配
-		if (impl == nullptr)
-			return nullptr;
-		return &impl->ui_event.event_terminal;
-	}
-
-	//接入系统输入与 UI 事件
-	bool Renderer_Ui::input_system_attach(void)
-	{
-		//前置：实现体存在且已初始化
-		if (impl == nullptr || !impl->initialized)
-			return false;
-		//委托事件桥（登记订阅者 + 订阅焦点/文本/命令/文本语义）
-		return impl->ui_event.attach("Renderer_UI");
-	}
-
-	//退出系统输入与 UI 事件
-	void Renderer_Ui::input_system_detach(void)
-	{
-		//实现体缺失则忽略
-		if (impl == nullptr)
-			return;
-		impl->ui_event.detach();
-	}
-
-	//是否已接入系统输入
-	bool Renderer_Ui::input_system_attached(void) const
-	{
-		//实现体缺失或未接入
-		if (impl == nullptr)
-			return false;
-		return impl->ui_event.attached();
-	}
-
-	//取一条未消费的系统语义命令
-	bool Renderer_Ui::ui_command_pop(std::string& command)
-	{
-		//实现体缺失
-		if (impl == nullptr)
-			return false;
-		return impl->ui_event.command_pop(command);
-	}
-
-	//取一条未消费的系统文本语义
-	bool Renderer_Ui::ui_text_pop(std::string& text)
-	{
-		//实现体缺失
-		if (impl == nullptr)
-			return false;
-		return impl->ui_event.text_pop(text);
-	}
-
-	//取系统焦点状态（main / child / modal / text）
-	bool Renderer_Ui::ui_focus_state_get(std::string& main, std::string& child,
-		std::string& modal, bool& text) const
-	{
-		//实现体缺失
-		if (impl == nullptr)
-			return false;
-		impl->ui_event.focus_state_get(main, child, modal, text);
-		return true;
 	}
 }

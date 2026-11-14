@@ -56,76 +56,11 @@ namespace engine
 		//渲染目标默认采样数与交换链一致（离屏 / 后处理目标随 MSAA 建立多重采样附件）
 		impl->render_target.sample_count_set(impl->msaa_samples);
 		//⑰ 字体：记录纹理模块（字形图集经纹理模块上传与销毁）
-		if (!impl->font.build(impl->texture))
+		if (!owner->ui().state().font.build(impl->texture))
 		{
 			logger.error("渲染器:: 字体模块初始化失败");
 			owner->shutdown();
 			return false;
-		}
-		/*
-		文字绘制宿主绑定（第四十七轮下沉）
-		文字绘制子系统只持网格缓存与文字颜色；字形补烘之外的 Vulkan 侧动作
-		（管线登记、管线 / 纹理绑定、网格创建与归还、绘制项登记、目标尺寸查询）经本组回调转交本门面。
-		回调均为无捕获 lambda（转函数指针），以 this 作上下文；生命周期不超过 Renderer。
-		*/
-		{
-			Text_Host text_host{};
-			text_host.user = owner;
-			//确保文字管线就绪（懒登记：Alpha 混合档，与场景管线共享同一管线布局）
-			text_host.pipeline_ensure = [](void* user) -> uint64_t
-			{
-				Renderer* self = static_cast<Renderer*>(user);
-				//尚未初始化则无管线可登记
-				if (self->impl == nullptr || !self->impl->initialized)
-					return self->impl == nullptr ? 0 : self->impl->text.pipeline_get();
-				//已登记则直接返回
-				if (self->impl->text.pipeline_get() != 0)
-					return self->impl->text.pipeline_get();
-				uint64_t handle = 0;
-				//登记失败保持 0（文字覆盖率写入按配置决定；仅 MSAA > 1× 时生效）
-				if (!self->pipeline_load(handle, "文字.vert.spv", "文字.frag.spv", Blend_Mode::Alpha,
-					self->impl->config.text_alpha_to_coverage))
-					return 0;
-				self->impl->text.pipeline_set(handle);
-				return handle;
-			};
-			//绑定文字管线
-			text_host.pipeline_bind = [](void* user, uint64_t pipeline)
-			{
-				static_cast<Renderer*>(user)->pipeline_bind_set(pipeline);
-			};
-			//绑定字形图集纹理
-			text_host.texture_bind = [](void* user, uint64_t texture)
-			{
-				static_cast<Renderer*>(user)->texture_bind_set(texture);
-			};
-			//创建文字网格
-			text_host.mesh_create = [](void* user, Mesh_Handle& mesh, const Mesh_Data& data) -> bool
-			{
-				return static_cast<Renderer*>(user)->impl->mesh.mesh_create(mesh, data);
-			};
-			//归还文字网格（网格模块未就绪时只丢弃句柄）
-			text_host.mesh_destroy = [](void* user, Mesh_Handle mesh)
-			{
-				Renderer* self = static_cast<Renderer*>(user);
-				//若网格模块仍有效
-				if (self->impl != nullptr && self->impl->mesh.valid())
-					self->impl->mesh.mesh_destroy(mesh);
-			};
-			//登记文字绘制项
-			text_host.mesh_draw = [](void* user, Mesh_Handle mesh, const float* transform, const float* color) -> bool
-			{
-				return static_cast<Renderer*>(user)->mesh_draw(mesh, transform, color);
-			};
-			//取当前绘制目标尺寸（像素）
-			text_host.extent_get = [](void* user, float& width, float& height)
-			{
-				Renderer* self = static_cast<Renderer*>(user);
-				width = static_cast<float>(self->extent_width());
-				height = static_cast<float>(self->extent_height());
-			};
-			//绑定字体模块与宿主回调
-			impl->text.init(impl->font, text_host);
 		}
 		//⑱ 相机：设置宽高比（取当前交换链尺寸）
 		{

@@ -48,7 +48,7 @@ namespace engine
 		//② 平台：实例扩展清单
 		vector<const char*> instance_extensions;
 		//输入聚合器绑定平台窗口（文本输入启停需要）
-		impl->input.window_set(impl->platform.window_get());
+		owner->ui().state().input.window_set(impl->platform.window_get());
 		if (!impl->platform.instance_extensions_get(instance_extensions))
 		{
 			logger.error("渲染器:: 实例扩展清单获取失败");

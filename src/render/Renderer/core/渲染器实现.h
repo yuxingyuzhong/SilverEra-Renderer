@@ -57,6 +57,8 @@
 #include "实现体_场景.h"
 #include "实现体_子系统.h"
 #include "实现体_状态.h"
+//界面域状态（从实现体迁出的界面成员）
+#include "界面域状态.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -120,13 +122,8 @@ namespace engine
 			bool depth_write = true, bool cull_front = false,
 			bool depth_test = true, bool depth_format_override = false,
 			VkFormat depth_format = VK_FORMAT_UNDEFINED, uint32_t sample_count = 0);
-		//确保 UI 管线（纯色 / 文字）就绪（惰性登记；失败返回假且不留下半登记状态）
-		bool ui_pipeline_ensure(void);
-		/*
-		UI 阶段绘制入口（帧模块以 C 函数指针调用）
-		先绘制原生 UI，再把同一命令缓冲交给外部 UI 回调（ImGui 等平台后端），最后一个绘制者在最上层。
-		*/
-		static void ui_draw_entry(VkCommandBuffer command_buffer, void* user_data);
+		//界面域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
+		Render_Ui* ui_domain = nullptr;
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；

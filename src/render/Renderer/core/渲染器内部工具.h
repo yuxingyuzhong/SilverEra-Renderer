@@ -18,8 +18,8 @@ namespace engine
 	//聚光灯阴影图集切换（跨接口共用；实现在 渲染器_雾与阴影.cpp）
 	void spot_shadow_atlas_apply_impl(Renderer_Impl_Holder::Impl* impl);
 
-	//帧阶段：泵事件 + 本帧输入锁存与原生 UI 交互（实现在 渲染器_帧阶段.cpp）
-	void frame_stage_input_events(Renderer_Impl_Holder::Impl* impl);
+	//帧阶段：泵事件 + 本帧输入锁存与原生 UI 交互（实现在 渲染器_帧阶段_输入与矩阵.cpp）
+	void frame_stage_input_events(Renderer* owner, Renderer_Impl_Holder::Impl* impl);
 	//帧阶段：光源空间矩阵与级联拟合
 	void frame_stage_shadow_matrices(Renderer_Impl_Holder::Impl* impl);
 	//帧阶段：聚光阴影矩阵与瓦片选择（返回本帧是否存在有效聚光阴影）

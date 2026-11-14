@@ -14,8 +14,11 @@ namespace engine
 {
 	//帧阶段：泵事件 + 本帧输入锁存与原生 UI 交互
 
-	void frame_stage_input_events(Renderer_Impl_Holder::Impl* impl)
+	void frame_stage_input_events(Renderer* owner, Renderer_Impl_Holder::Impl* impl)
 	{
+		//门面或实现体缺失则跳过本阶段
+		if (owner == nullptr || impl == nullptr)
+			return;
 		//① 泵事件
 		impl->platform.events_pump();
 		/*
@@ -24,33 +27,35 @@ namespace engine
 		原生 UI 与外部 UI 共用同一 UI 阶段回调（见下方 ui_callback）。
 		*/
 		{
+			//界面域状态
+			Ui_State& ui_state = owner->ui().state();
 			//窗口客户区尺寸（UI 坐标与命中测试的基准）
 			uint32_t input_width = 0;
 			uint32_t input_height = 0;
 			impl->platform.window_size_get(input_width, input_height);
 			//锁存本帧输入（UI 不使用 dt，按 0 传）
-			impl->input.frame_advance(0.0, input_width, input_height, impl->platform.display_scale_get());
+			ui_state.input.frame_advance(0.0, input_width, input_height, impl->platform.display_scale_get());
 			/*
 			帧前准备：按上一帧系统焦点决定控件键盘总闸（不在 UI 主对象时不响应 Tab/回车），
 			并按系统文本模式决定本地拼接或系统回传落文本（必须在 frame_begin 之前）。
 			*/
-			impl->ui_event.text_route_prepare(impl->ui);
+			ui_state.ui_event.text_route_prepare(ui_state.ui);
 			//控件树消费本帧输入
-			impl->ui.frame_begin(impl->input.frame_get());
+			ui_state.ui.frame_begin(ui_state.input.frame_get());
 			//系统文本模式或 UI 文本框焦点都启停平台文本输入
-			impl->input.text_input_enable(impl->ui.text_focus_active() || impl->ui_event.system_text_mode());
+			ui_state.input.text_input_enable(ui_state.ui.text_focus_active() || ui_state.ui_event.system_text_mode());
 			/*
 			UI / 渲染层事件发布（已接入时）
 			Raw → 焦点系统；UI 命中 → MouseFocus；模态切换 → ModalPush/Pop；
 			系统文本模式下的文本框提交 → TextSession。
 			*/
-			impl->ui_event.frame_publish(impl->input.frame_get(), impl->ui);
+			ui_state.ui_event.frame_publish(ui_state.input.frame_get(), ui_state.ui);
 			/*
 			应用已收到的系统事件
 			FocusChanged → 控件系统焦点环；Command → 绑定控件激活；
 			Text → 焦点文本框落文本。放在发布之后，使同帧收发即时生效。
 			*/
-			impl->ui_event.frame_apply(impl->ui);
+			ui_state.ui_event.frame_apply(ui_state.ui);
 		}
 	}
 

@@ -105,58 +105,11 @@ namespace engine
 		return true;
 	}
 
-	bool Renderer_Impl_Holder::Impl::ui_pipeline_ensure(void)
-	{
-		//已尝试过则直接返回结果
-		if (ui_pipeline_ready)
-			return ui_solid_pipeline != 0 && ui_text_pipeline != 0;
-		ui_pipeline_ready = true;
-
-		//登记纯色管线
-		uint64_t solid = 0;
-		if (pipeline_load_ex(solid, "UI纯色.vert.spv", "UI纯色.frag.spv", Blend_Mode::Alpha,
-			false, true, false, false, false, true, VK_FORMAT_UNDEFINED, 1))
-			ui_solid_pipeline = solid;
-		else
-			logger.warn("渲染器:: UI 纯色管线登记失败（原生 UI 只绘制文字）");
-
-		//登记文字管线
-		uint64_t text = 0;
-		if (pipeline_load_ex(text, "UI文字.vert.spv", "UI文字.frag.spv", Blend_Mode::Alpha,
-			false, true, false, false, false, true, VK_FORMAT_UNDEFINED, 1))
-			ui_text_pipeline = text;
-		else
-			logger.warn("渲染器:: UI 文字管线登记失败（原生 UI 只绘制纯色）");
-
-		return ui_solid_pipeline != 0 && ui_text_pipeline != 0;
-	}
-
-	void Renderer_Impl_Holder::Impl::ui_draw_entry(VkCommandBuffer command_buffer, void* user_data)
-	{
-		//用户数据为本实现体
-		Impl* self = static_cast<Impl*>(user_data);
-		//空实现体直接返回
-		if (self == nullptr || command_buffer == VK_NULL_HANDLE)
-			return;
-		/*
-		原生 UI 绘制
-		目标尺寸取交换链尺寸：UI 阶段恒在最终呈现图像上绘制（SSAA / 后处理链均不吃 UI）。
-		*/
-		if (self->ui_render.valid())
-		{
-			const VkExtent2D extent = self->swapchain.extent_get();
-			const uint32_t slot = self->frame.slot_index_get();
-			self->ui_render.draw(self->ui, command_buffer, extent, slot);
-		}
-		//外部 UI 回调（未注册时为空操作）
-		if (const Frame_Ui_Callback* external = self->ui_channel.draw_callback_get())
-			external->fn(command_buffer, external->user_data);
-	}
-
 	void Renderer_Impl_Holder::Impl::outline_item_push(const Frame_Render_Item& item)
 	{
-		//描边关闭或管线未登记则空操作
-		if (outline_width <= 0.0f || outline_pipeline == 0 || in_text_draw)
+		//描边关闭、管线未登记或正在绘制文字则空操作
+		if (outline_width <= 0.0f || outline_pipeline == 0
+			|| (ui_domain != nullptr && ui_domain->state().in_text_draw))
 			return;
 		//推送块：x = 外扩宽度、yzw = 描边色（与后处理描边色共用 offset 112 槽位）
 		outline_push[0] = outline_width;

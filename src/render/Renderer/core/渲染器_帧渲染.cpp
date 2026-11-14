@@ -23,7 +23,17 @@
 
 namespace engine
 {
-
+	namespace
+	{
+		/*
+		UI 阶段绘制入口适配
+		帧模块回调的形参为 VkCommandBuffer；界面域公共头保持 Vulkan-free（形参用 void*），故在此转接。
+		*/
+		void ui_draw_entry_adapter(VkCommandBuffer command_buffer, void* user_data)
+		{
+			Render_Ui::ui_draw_entry(command_buffer, user_data);
+		}
+	}
 
 	//每帧推进（可选像素回读）
 	bool Renderer_Core::frame_render(uint8_t* readback_pixels, uint32_t readback_capacity,
@@ -39,11 +49,11 @@ namespace engine
 			*readback_height = 0;
 
 		//泵事件 + 本帧输入锁存与原生 UI 交互
-		frame_stage_input_events(impl.get());
+		frame_stage_input_events(self_ptr, impl.get());
 		//UI 阶段统一回调（原生 UI 先绘制，外部 UI 后绘制）
 		Frame_Ui_Callback ui_callback{};
-		ui_callback.fn = &Renderer_Impl_Holder::Impl::ui_draw_entry;
-		ui_callback.user_data = impl.get();
+		ui_callback.fn = &ui_draw_entry_adapter;
+		ui_callback.user_data = &self().ui();
 		/*
 		② 若窗口请求退出则交调用方收敛
 		③ 若窗口最小化则挂起本帧（避免 0×0 交换链；K7）
@@ -187,7 +197,7 @@ namespace engine
 		float view_proj[16] = {};
 		impl->camera.view_proj_get(view_proj);
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
-		impl->text.frame_begin(impl->config.frame_overlap);
+		self().ui().state().text.frame_begin(impl->config.frame_overlap);
 		//场景 UBO 组装与上传
 		if (!frame_stage_scene_ubo(impl.get(), slot, view_proj, spot_shadow_light_valid))
 			return false;

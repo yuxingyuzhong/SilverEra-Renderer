@@ -120,14 +120,6 @@ namespace engine
 		//并行派发按用途累计（第二百二十四轮；实例剔除 / 差异扫描 / 缓存回写）
 		uint64_t cull_parallel_dispatches = 0;
 
-		/*
-		文字描边参数（第一百四十轮；经推送常量 offset 80 下发）
-		text_outline_uv_width = 描边半宽（图集 UV；0 = 关闭），text_outline_color = 描边色（0..1）。
-		*/
-		float text_outline_uv_width = 0.0f;
-
-		float text_outline_color[3] = { 0.0f, 0.0f, 0.0f };
-
 		//逐物体材质粗糙度缩放（0.05..4）
 		float material_pbr_roughness = 1.0f;
 

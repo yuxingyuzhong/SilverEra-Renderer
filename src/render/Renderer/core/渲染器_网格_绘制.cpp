@@ -270,7 +270,7 @@ namespace engine
 		item.draw_ao = impl->material_views[3];
 		item.draw_metallic = impl->material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
-		item.cast_shadow = !impl->in_text_draw;
+		item.cast_shadow = !self().ui().state().in_text_draw;
 		//透明标记（第一百三十轮：文字等非不透明混合项不参与合批，避免混叠顺序改变）
 		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*
@@ -282,7 +282,7 @@ namespace engine
 		*/
 		const float* push_color = color;
 		//非文字且未显式给出颜色时，改用吸附色调或白色
-		if (push_color == nullptr && !impl->in_text_draw)
+		if (push_color == nullptr && !self().ui().state().in_text_draw)
 			push_color = impl->material_tint_active
 				? impl->material_tint
 				: WHITE_COLOR_RGBA;
@@ -304,12 +304,12 @@ namespace engine
 			x = 法线强度（0 = 不启用），y = 粗糙度贴图启用标志（贴图恒绑定，默认白纹理即恒等），zw 保留。
 			文字绘制时该 vec4 改作描边参数（第一百四十轮）：x = 描边半宽（UV）、yzw = 描边色。
 			*/
-			if (impl->in_text_draw)
+			if (self().ui().state().in_text_draw)
 			{
-				push[20] = impl->text_outline_uv_width;
-				push[21] = impl->text_outline_color[0];
-				push[22] = impl->text_outline_color[1];
-				push[23] = impl->text_outline_color[2];
+				push[20] = self().ui().state().text_outline_uv_width;
+				push[21] = self().ui().state().text_outline_color[0];
+				push[22] = self().ui().state().text_outline_color[1];
+				push[23] = self().ui().state().text_outline_color[2];
 			}
 			else
 			{
@@ -323,7 +323,7 @@ namespace engine
 			贴图 UV 变换（第一百七十一轮；offset 96 的 vec4）
 			xy = 缩放、zw = 偏移；文字绘制不采样材质贴图，保持恒等变换（1,1,0,0）。
 			*/
-			if (impl->in_text_draw)
+			if (self().ui().state().in_text_draw)
 			{
 				push[24] = 1.0f;
 				push[25] = 1.0f;
@@ -339,7 +339,7 @@ namespace engine
 			清漆层（第二百三十三轮；offset 112 的 vec4）
 			x = 清漆强度、y = 清漆粗糙度；文字绘制无材质语义，恒为零（关闭）。
 			*/
-			if (!impl->in_text_draw)
+			if (!self().ui().state().in_text_draw)
 			{
 				push[28] = impl->material_clear_coat;
 				push[29] = impl->material_clear_coat_roughness;
@@ -641,7 +641,7 @@ namespace engine
 		item.draw_ao = impl->material_views[3];
 		item.draw_metallic = impl->material_views[4];
 		//阴影投影标记（第五十二轮：文字绘制不参与投影）
-		item.cast_shadow = !impl->in_text_draw;
+		item.cast_shadow = !self().ui().state().in_text_draw;
 		//透明标记（第一百三十轮：非不透明混合项不参与合批）
 		item.transparent = impl->pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
 		/*

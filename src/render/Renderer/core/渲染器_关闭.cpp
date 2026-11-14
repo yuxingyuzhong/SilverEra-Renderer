@@ -100,21 +100,12 @@ namespace engine
 		原生 UI 与输入先于依赖模块销毁
 		ui_render 持有每帧槽缓冲（依赖内存模块）；ui / input 只持有主机侧状态，
 		但文本输入需在平台视频子系统仍存活时关闭。
+		域对象可能已随门面析构释放（见 Renderer 析构），故按实现体登记判断。
 		*/
-		impl->ui_render.shutdown();
-		impl->ui.shutdown();
-		impl->input.reset();
-		impl->ui_solid_pipeline = 0;
-		impl->ui_text_pipeline = 0;
-		impl->ui_pipeline_ready = false;
-		//退出系统输入（须在中转站仍存活时发送退出事件）
-		self().input_system_detach();
-		//文本网格缓存依赖网格模块，须先归还网格（含管线句柄与文字颜色复位）
-		impl->text.shutdown();
+		if (impl->ui_domain != nullptr)
+			impl->ui_domain->shutdown();
 		//网格缓冲依赖内存模块，须先于 memory 销毁
 		impl->mesh.destroy();
-		//字体图集纹理依赖纹理模块，须先归还
-		impl->font.destroy();
 		//纹理依赖设备与内存，须先于两者销毁
 		impl->texture.destroy();
 		//渲染目标依赖设备与内存，须先于两者销毁
@@ -374,7 +365,6 @@ namespace engine
 		impl->pending_items.clear();
 		impl->pending_instances.clear();
 		//复位状态
-		impl->ui_channel.destroy();
 		impl->frame_count = 0;
 		impl->initialized = false;
 	}
