@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -22,12 +22,180 @@
 
 namespace engine
 {
+	//填充初始化场景 UBO 的 980 浮点数据块
+	void Render_Scene::scene_initial_block_fill(float* out) const
+	{
+		if (out == nullptr)
+			return;
+		std::fill(out, out + 980, 0.0f);
+		(*state_ptr).camera.view_proj_get(out);
+		float camera_position[3] = {};
+		(*state_ptr).camera.position_get(camera_position);
+		out[16] = (*state_ptr).light_ambient;
+		out[17] = (*state_ptr).specular_intensity;
+		out[18] = (*state_ptr).specular_shininess;
+		out[19] = static_cast<float>((*state_ptr).point_light_count);
+		for (uint32_t component = 0; component < 3; ++component)
+		{
+			out[20 + component] = (*state_ptr).light_direction[component];
+			out[24 + component] = (*state_ptr).light_color[component];
+			out[28 + component] = camera_position[component];
+			out[160 + component] = (*state_ptr).fog_color[component];
+			out[168 + component] = (*state_ptr).ambient_color[component];
+			out[176 + component] = (*state_ptr).fill_direction[component];
+			out[180 + component] = (*state_ptr).fill_color[component];
+		}
+		out[23] = (*state_ptr).light_intensity;
+		out[27] = static_cast<float>((*state_ptr).attenuation_mode);
+		out[31] = (*state_ptr).directional_specular;
+		for (uint32_t light = 0; light < 8; ++light)
+		{
+			const std::size_t base = static_cast<std::size_t>(light) * 4;
+			const auto& source = (*state_ptr).point_lights[light];
+			for (uint32_t component = 0; component < 3; ++component)
+			{
+				out[32 + base + component] = source.position[component];
+				out[64 + base + component] = source.color[component];
+				out[96 + base + component] = source.spot_direction[component];
+			}
+			out[35 + base] = source.radius;
+			out[67 + base] = source.intensity;
+			out[99 + base] = source.is_spot ? 1.0f : 0.0f;
+			out[128 + base] = source.spot_inner_cos;
+			out[129 + base] = source.spot_outer_cos;
+			out[130 + base] = static_cast<float>(source.attenuation);
+		}
+		out[163] = (*state_ptr).fog_density;
+		out[164] = (*state_ptr).fog_start;
+		out[165] = (*state_ptr).fog_end;
+		out[166] = static_cast<float>((*state_ptr).fog_mode);
+		out[167] = (*state_ptr).fog_height_falloff;
+		for (uint32_t component = 0; component < 4; ++component)
+			out[172 + component] = (*state_ptr).ambient_ground[component];
+		out[179] = (*state_ptr).fill_intensity;
+		out[183] = (*state_ptr).fill_specular;
+		out[236] = 1.0f;
+		out[241] = 1.0f;
+	}
+
+	//填充逐帧场景块中的场景参数
+	void Render_Scene::scene_frame_block_fill(float* out, const float view_proj[16], bool spot_shadow_light_valid) const
+	{
+		if (out == nullptr || view_proj == nullptr)
+			return;
+		for (std::size_t index = 0; index < 16; ++index)
+			out[index] = view_proj[index];
+		out[16] = state_ptr->light_ambient;
+		out[17] = state_ptr->specular_intensity;
+		out[18] = state_ptr->specular_shininess;
+		out[19] = static_cast<float>(state_ptr->point_light_count);
+		for (std::size_t component = 0; component < 3; ++component)
+		{
+			out[20 + component] = state_ptr->light_direction[component];
+			out[24 + component] = state_ptr->light_color[component];
+			out[160 + component] = state_ptr->fog_color[component];
+			out[168 + component] = state_ptr->ambient_color[component];
+			out[176 + component] = state_ptr->fill_direction[component];
+			out[180 + component] = state_ptr->fill_color[component];
+		}
+		out[23] = state_ptr->light_intensity;
+		out[27] = static_cast<float>(state_ptr->attenuation_mode);
+		float camera_position[3] = {};
+		state_ptr->camera.position_get(camera_position);
+		for (std::size_t component = 0; component < 3; ++component)
+			out[28 + component] = camera_position[component];
+		out[31] = state_ptr->directional_specular;
+		//旧八槽与高八槽共用同一布局，高段按每组八盏光源排布
+		for (uint32_t light = 0; light < Scene_State::POINT_LIGHT_UBO_MAX; ++light)
+		{
+			const std::size_t position_base = light < 8
+				? 32 + static_cast<std::size_t>(light) * 4
+				: Device_State::SCENE_HIGH_SLOTS_BASE + static_cast<std::size_t>((light - 8) / 8) * Device_State::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - 8) % 8) * 4;
+			const auto& source = state_ptr->point_lights[light];
+			for (std::size_t component = 0; component < 3; ++component)
+			{
+				out[position_base + component] = source.position[component];
+				out[position_base + 32 + component] = source.color[component];
+			}
+			out[position_base + 3] = source.radius;
+			out[position_base + 35] = source.intensity;
+			const std::size_t spot_base = light < 8
+				? 96 + static_cast<std::size_t>(light) * 4
+				: Device_State::SCENE_HIGH_SLOTS_BASE + 64 + static_cast<std::size_t>((light - 8) / 8) * Device_State::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - 8) % 8) * 4;
+			for (std::size_t component = 0; component < 3; ++component)
+				out[spot_base + component] = source.spot_direction[component];
+			out[spot_base + 3] = source.is_spot ? 1.0f : 0.0f;
+			out[spot_base + 32] = source.spot_inner_cos;
+			out[spot_base + 33] = source.spot_outer_cos;
+			out[spot_base + 34] = static_cast<float>(source.attenuation);
+			out[spot_base + 35] = source.specular_scale;
+			const std::size_t shininess_offset = light < 8
+				? 184 + static_cast<std::size_t>(light) * 4
+				: Device_State::SCENE_HIGH_SLOTS_BASE + 128 + static_cast<std::size_t>((light - 8) / 8) * Device_State::SCENE_HIGH_GROUP_FLOATS
+					+ static_cast<std::size_t>((light - 8) % 8) * 4;
+			out[shininess_offset] = source.shininess;
+		}
+		out[163] = state_ptr->fog_density;
+		out[164] = state_ptr->fog_start;
+		out[165] = state_ptr->fog_end;
+		out[166] = static_cast<float>(state_ptr->fog_mode);
+		out[167] = state_ptr->fog_height_falloff;
+		for (std::size_t component = 0; component < 4; ++component)
+			out[172 + component] = state_ptr->ambient_ground[component];
+		out[179] = state_ptr->fill_intensity;
+		out[183] = state_ptr->fill_specular;
+		out[232] = (state_ptr->shadow_enabled || spot_shadow_light_valid) ? 1.0f : 0.0f;
+		out[233] = state_ptr->shadow_bias;
+		out[234] = static_cast<float>(state_ptr->shadow_size);
+		out[235] = state_ptr->shadow_softness;
+		out[236] = state_ptr->shadow_strength;
+		out[237] = state_ptr->exposure;
+		out[240] = state_ptr->pbr_enabled ? 1.0f : 0.0f;
+		out[241] = state_ptr->pbr_roughness;
+		out[242] = state_ptr->pbr_metallic;
+		out[243] = static_cast<float>(state_ptr->toon_steps);
+		out[260] = state_ptr->shadow_enabled ? static_cast<float>(state_ptr->cascade_count) : 0.0f;
+		out[261] = state_ptr->cascade_split_distance;
+		out[288] = state_ptr->cascade_split_distance * state_ptr->cascade_far_scale;
+		float clip_near = 0.0f;
+		float clip_far = 0.0f;
+		state_ptr->camera.clip_get(&clip_near, &clip_far);
+		out[264] = clip_near;
+		out[265] = clip_far;
+		for (std::size_t component = 0; component < 2; ++component)
+			out[266 + component] = state_ptr->toon_shadow_tint[component];
+		//蓝色分量位于第三级级联参数的 w 槽
+		out[291] = state_ptr->toon_shadow_tint[2];
+		out[268] = owner->resource().sky_enabled() ? 1.0f : 0.0f;
+		owner->resource().sky_params_get(&out[269], &out[270]);
+		out[271] = state_ptr->toon_rim;
+		out[292] = state_ptr->toon_specular;
+		out[293] = state_ptr->shadow_pcss_enabled ? 1.0f : 0.0f;
+		out[294] = state_ptr->shadow_pcss_search;
+		out[295] = state_ptr->shadow_pcss_max;
+		out[296] = owner->compute().cluster_enable_get() ? 1.0f : 0.0f;
+		uint32_t grid_x = 0;
+		uint32_t grid_y = 0;
+		uint32_t grid_z = 0;
+		owner->compute().cluster_grid_get(grid_x, grid_y, grid_z);
+		out[297] = static_cast<float>(grid_x);
+		out[298] = static_cast<float>(grid_y);
+		out[299] = static_cast<float>(grid_z);
+		out[301] = state_ptr->spot_shadow_softness;
+		out[302] = state_ptr->spot_shadow_strength;
+		out[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
+		out[456] = state_ptr->pbr_energy ? 1.0f : 0.0f;
+		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
+	}
+
 	//相机：设置位置
 
 	void Render_Scene::scene_apply(const Camera_Data& camera, const Light_Data& light, const Fog_Data& fog)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		/*
 		相机参数校验（处置 R-FACADE-10）
@@ -46,16 +214,16 @@ namespace engine
 			return;
 		}
 		//相机位置 / 注视点
-		state().camera.position_set(camera.position[0], camera.position[1], camera.position[2]);
-		state().camera.target_set(camera.target[0], camera.target[1], camera.target[2]);
+		(*state_ptr).camera.position_set(camera.position[0], camera.position[1], camera.position[2]);
+		(*state_ptr).camera.target_set(camera.target[0], camera.target[1], camera.target[2]);
 		//视场角与近远平面
-		state().camera.fov_set(camera.fov);
-		state().camera.near_far_set(camera.near_plane, camera.far_plane);
+		(*state_ptr).camera.fov_set(camera.fov);
+		(*state_ptr).camera.near_far_set(camera.near_plane, camera.far_plane);
 		//投影模式（正交 / 透视；高度合法性已在上方整体校验）
-		state().camera.ortho_set(camera.ortho, camera.ortho_height);
+		(*state_ptr).camera.ortho_set(camera.ortho, camera.ortho_height);
 		//上方向与宽高比覆盖（第一百八十六轮；非法值由各自入口归一）
-		state().camera.up_set(camera.up[0], camera.up[1], camera.up[2]);
-		state().camera.aspect_override_set(camera.aspect);
+		(*state_ptr).camera.up_set(camera.up[0], camera.up[1], camera.up[2]);
+		(*state_ptr).camera.aspect_override_set(camera.aspect);
 		//清屏色（统一走 clear_color_set：逐分量钳制到 [0,1]）
 		clear_color_set(camera.clear_color);
 		//光照（统一走 light_set：非法参数由后者整次拒绝）
@@ -66,9 +234,9 @@ namespace engine
 		候选集合 = 点光（先）＋ 聚光（后）的声明序列表，各组最多 32 条（与 Light_Data 数组容量一致）。
 		*/
 		light_select_set(static_cast<uint32_t>(light.light_select_mode), light.light_budget);
-		const uint32_t path_limit = owner->compute().state().cluster_enabled ? Scene_State::POINT_LIGHT_MAX : Scene_State::POINT_LIGHT_UBO_MAX;
-		const uint32_t light_budget = (state().light_budget > 0u && state().light_budget < path_limit)
-			? state().light_budget : path_limit;
+		const uint32_t path_limit = owner->compute().cluster_enable_get() ? Scene_State::POINT_LIGHT_MAX : Scene_State::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_budget = ((*state_ptr).light_budget > 0u && (*state_ptr).light_budget < path_limit)
+			? (*state_ptr).light_budget : path_limit;
 		//候选总数（点光在前、聚光在后；与登记顺序一致；第七百零一轮各组上限 16 → 32）
 		const uint32_t point_total = light.point_count < 32u ? light.point_count : 32u;
 		const uint32_t spot_total = light.spot_count < 32u ? light.spot_count : 32u;
@@ -81,11 +249,11 @@ namespace engine
 		for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
 			keep[candidate] = true;
 		//若重要性选择且候选数超过预算
-		if (state().light_select_mode == 1 && candidate_total > light_budget)
+		if ((*state_ptr).light_select_mode == 1 && candidate_total > light_budget)
 		{
 			//相机位置（评分距离基准）
 			float camera_position[3] = {};
-			state().camera.position_get(camera_position);
+			(*state_ptr).camera.position_get(camera_position);
 			//逐候选评分
 			float scores[64] = {};
 			for (uint32_t candidate = 0; candidate < candidate_total; ++candidate)
@@ -182,16 +350,16 @@ namespace engine
 					light.spot_attenuation[index], light.spot_specular[index], light.spot_shininess[index]);
 			}
 			//统计实际登记成功的光源数（失败项不计入）
-			if (state().point_light_count > light_registered)
-				light_registered = state().point_light_count;
+			if ((*state_ptr).point_light_count > light_registered)
+				light_registered = (*state_ptr).point_light_count;
 		}
 		/*
 		本轮淘汰数与截断标志（第六百四十五轮；A4）
 		淘汰数 = 候选总数 − 实际登记数；旧前向路径下确实有光源未登记时才置截断标志。
 		*/
-		state().light_dropped = candidate_total > state().point_light_count
-			? candidate_total - state().point_light_count : 0;
-		state().light_truncated = !owner->compute().state().cluster_enabled && state().light_dropped > 0;
+		(*state_ptr).light_dropped = candidate_total > (*state_ptr).point_light_count
+			? candidate_total - (*state_ptr).point_light_count : 0;
+		(*state_ptr).light_truncated = !owner->compute().cluster_enable_get() && (*state_ptr).light_dropped > 0;
 		specular_set(light.specular_intensity, light.specular_shininess);
 		//距离衰减模式（非法值由 light_attenuation_set 拒绝并保持当前模式）
 		light_attenuation_set(light.attenuation_mode);
@@ -225,9 +393,9 @@ namespace engine
 		仅在数值变化时才调用 setter：该 setter 会把阴影图标记为待重绘，
 		默认值与初始值相同 → 不触发，保持既有「静止场景复用」时序与画面逐字节不变。
 		*/
-		if (light.shadow_cascade_count != static_cast<int>(state().cascade_count)
-			|| light.shadow_cascade_far_scale != state().cascade_far_scale
-			|| light.shadow_cascade_split != state().cascade_split_distance)
+		if (light.shadow_cascade_count != static_cast<int>((*state_ptr).cascade_count)
+			|| light.shadow_cascade_far_scale != (*state_ptr).cascade_far_scale
+			|| light.shadow_cascade_split != (*state_ptr).cascade_split_distance)
 		{
 			//级联数以无符号位传入门面（非法值由 setter 整次忽略）
 			shadow_cascade_set(light.shadow_cascade_count < 0 ? 0u : static_cast<uint32_t>(light.shadow_cascade_count),
@@ -303,13 +471,13 @@ namespace engine
 				shadow_resolution_set(budget_side);
 		}
 		//聚光灯阴影开关（第四百七十四轮；第四百八十四轮起不再强制开启方向光阴影）
-		state().spot_shadow_enabled = light.spot_shadow_enabled != 0;
-		if (state().spot_shadow_enabled)
+		(*state_ptr).spot_shadow_enabled = light.spot_shadow_enabled != 0;
+		if ((*state_ptr).spot_shadow_enabled)
 		{
 			//借用 shadow_enable_set 的管线懒登记，登记后恢复方向光阴影开关原值
-			const bool directional_enabled = state().shadow_enabled;
+			const bool directional_enabled = (*state_ptr).shadow_enabled;
 			shadow_enable_set(true);
-			state().shadow_enabled = directional_enabled;
+			(*state_ptr).shadow_enabled = directional_enabled;
 		}
 		//聚光灯阴影独立质量参数（第四百七十六轮；非法值由 setter 整次忽略）
 		spot_shadow_params_set(light.spot_shadow_bias, light.spot_shadow_softness, light.spot_shadow_strength);
@@ -320,18 +488,18 @@ namespace engine
 		仅在开关值变化时调用 setter：该 setter 会把阴影图标记为待重绘，
 		默认（0 与初始 false 相同）不触发，保持既有重绘时序与画面逐字节不变。
 		*/
-		if (state().spot_shadow_bias_auto != (light.spot_shadow_bias_auto != 0))
+		if ((*state_ptr).spot_shadow_bias_auto != (light.spot_shadow_bias_auto != 0))
 			spot_shadow_bias_auto_set(light.spot_shadow_bias_auto != 0);
 		//多盏聚光灯阴影（第五百零七轮；前 4 盏各自投影，关闭时沿用单盏语义）
-		state().spot_shadow_all = light.spot_shadow_all != 0;
+		(*state_ptr).spot_shadow_all = light.spot_shadow_all != 0;
 		//逐盏聚光灯阴影开关（第六百四十八轮；按前向槽位 0..7，默认全开）
-		for (std::size_t index = 0; index < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++index)
-			state().spot_shadow_light_enabled[index] = light.spot_shadow_on[index] != 0;
+		for (std::size_t index = 0; index < Device_State::SPOT_SHADOW_TILES; ++index)
+			(*state_ptr).spot_shadow_light_enabled[index] = light.spot_shadow_on[index] != 0;
 		/*
 		聚光阴影图集（第六百七十轮；仅请求值变化时切换）
 		默认 0 不触发，保持既有绑定与阴影重绘时序，画面与引入前逐字节一致。
 		*/
-		if (state().spot_shadow_atlas_requested != (light.spot_shadow_atlas != 0))
+		if ((*state_ptr).spot_shadow_atlas_requested != (light.spot_shadow_atlas != 0))
 			spot_shadow_atlas_set(light.spot_shadow_atlas != 0);
 		/*
 		多盏瓦片按需建立（第五百零七轮；第五百一十一轮抽为共用方法；第五百一十三轮扩为 8 瓦片；
@@ -339,7 +507,7 @@ namespace engine
 		槽位可一一对应时瓦片号 = 光源槽位，故需建到最靠后的聚光灯槽位；否则按聚光灯数量建立（与旧口径一致）。
 		创建失败仅告警，该瓦片按「无聚光阴影」处理，不影响其余瓦片。
 		*/
-		if (state().spot_shadow_all)
+		if ((*state_ptr).spot_shadow_all)
 		{
 			/*
 			所需瓦片数（第六百四十四轮）
@@ -349,21 +517,21 @@ namespace engine
 			std::size_t tile_limit = 0;
 			bool slot_mapping = true;
 			std::size_t spot_total = 0;
-			for (std::size_t slot = 0; slot < state().point_light_count; ++slot)
+			for (std::size_t slot = 0; slot < (*state_ptr).point_light_count; ++slot)
 			{
 				//非聚光灯跳过
-				if (!state().point_lights[slot].is_spot)
+				if (!(*state_ptr).point_lights[slot].is_spot)
 					continue;
 				++spot_total;
-				if (slot >= Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)
+				if (slot >= Device_State::SPOT_SHADOW_TILES)
 					slot_mapping = false;
 				else
 					tile_limit = slot + 1;
 			}
 			//回落压缩口径：瓦片数 = 聚光灯数量（上限 8）
 			if (!slot_mapping)
-				tile_limit = spot_total < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES ? spot_total : Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES;
-			spot_shadow_tiles_ensure_impl(owner->impl.get(), tile_limit > 0 ? tile_limit : 1u);
+				tile_limit = spot_total < Device_State::SPOT_SHADOW_TILES ? spot_total : Device_State::SPOT_SHADOW_TILES;
+			owner->device().spot_shadow_tiles_ensure( tile_limit > 0 ? tile_limit : 1u);
 		}
 		//PBR-lite 镜面（第六十四轮；非法缩放由 setter 整次忽略）
 		pbr_enable_set(light.pbr_enabled != 0);
@@ -371,9 +539,9 @@ namespace engine
 		//PBR 金属度（第六十五轮；非法值由 setter 整次忽略）
 		pbr_metallic_set(light.pbr_metallic);
 		//PBR 掠射高光能量修正（第六百七十二轮；默认关闭）
-		state().pbr_energy = light.pbr_energy != 0;
+		(*state_ptr).pbr_energy = light.pbr_energy != 0;
 		//PBR 粗糙度绝对口径（第七百轮；默认关闭）
-		state().pbr_roughness_absolute = light.pbr_roughness_absolute != 0;
+		(*state_ptr).pbr_roughness_absolute = light.pbr_roughness_absolute != 0;
 		//二次元风格化（第一百七十四轮；非法参数由 setter 归一）
 		toon_set(light.toon_steps, light.toon_rim);
 		//二次元暗部色调（第一百七十八轮）
@@ -383,11 +551,11 @@ namespace engine
 		//反向外扩描边（第二百二十八轮；非法值由 setter 归一）
 		outline_set(light.outline_width, light.outline_color);
 		//若点光源数量超过上限则告警（声明顺序模式；重要性选择模式已主动择优，不再告警）
-		if (state().light_select_mode == 0 && light.point_count > Scene_State::POINT_LIGHT_UBO_MAX)
+		if ((*state_ptr).light_select_mode == 0 && light.point_count > Scene_State::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景点光源数量 {} 超过上限 {}，仅登记前 {} 盏",
 				light.point_count, Scene_State::POINT_LIGHT_UBO_MAX, Scene_State::POINT_LIGHT_UBO_MAX);
 		//若聚光灯数量超过上限则告警（点光源与聚光灯共用 32 盏上限）
-		if (state().light_select_mode == 0 && light.spot_count > Scene_State::POINT_LIGHT_UBO_MAX)
+		if ((*state_ptr).light_select_mode == 0 && light.spot_count > Scene_State::POINT_LIGHT_UBO_MAX)
 			logger.warn("渲染器:: 场景聚光灯数量 {} 超过上限 {}，仅登记前 {} 盏（与点光源共用上限）",
 				light.spot_count, Scene_State::POINT_LIGHT_UBO_MAX, Scene_State::POINT_LIGHT_UBO_MAX);
 	}
@@ -519,7 +687,7 @@ namespace engine
 		light.light_select_mode = scene.light_select_mode;
 		light.light_budget = scene.light_budget;
 		//逐盏聚光灯阴影开关（第六百四十八轮）
-		for (std::size_t index = 0; index < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++index)
+		for (std::size_t index = 0; index < Device_State::SPOT_SHADOW_TILES; ++index)
 			light.spot_shadow_on[index] = scene.spot_shadow_on[index];
 		//聚光阴影图集（第六百七十轮）
 		light.spot_shadow_atlas = scene.spot_shadow_atlas;

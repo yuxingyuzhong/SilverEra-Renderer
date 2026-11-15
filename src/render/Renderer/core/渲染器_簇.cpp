@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -25,46 +25,46 @@ namespace engine
 	bool Render_Compute::cluster_enable_set(bool enabled)
 	{
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
 		//关闭只置标志并清空观测值
 		if (!enabled)
 		{
-			state().cluster_enabled = false;
-			state().last_cluster_light_count = 0;
+			(*state_ptr).cluster_enabled = false;
+			(*state_ptr).last_cluster_light_count = 0;
 			return true;
 		}
 		//惰性构建资源
-		if (!owner->impl->cluster_ensure())
+		if (!owner->device().cluster_ensure())
 			return false;
-		state().cluster_enabled = true;
+		(*state_ptr).cluster_enabled = true;
 		return true;
 	}
 
 	bool Render_Compute::cluster_enable_get(void) const
 	{
-		return (owner != nullptr && owner->impl != nullptr) ? state().cluster_enabled : false;
+		return (owner != nullptr) ? (*state_ptr).cluster_enabled : false;
 	}
 
 	bool Render_Compute::cluster_supported(void) const
 	{
 		//未初始化或能力不足
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
-		return state().cluster_capable && state().compute.supported();
+		return (*state_ptr).cluster_capable && (*state_ptr).compute.supported();
 	}
 
 	uint32_t Render_Compute::cluster_light_count(void) const
 	{
-		return (owner != nullptr && owner->impl != nullptr) ? state().last_cluster_light_count : 0;
+		return (owner != nullptr) ? (*state_ptr).last_cluster_light_count : 0;
 	}
 
 	bool Render_Compute::cluster_grid_set(uint32_t x, uint32_t y, uint32_t z)
 	{
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
-		state().cluster_grid = cluster_grid_clamp(Cluster_Grid{ x, y, z });
+		(*state_ptr).cluster_grid = cluster_grid_clamp(Cluster_Grid{ x, y, z });
 		return true;
 	}
 
@@ -75,20 +75,20 @@ namespace engine
 		y_out = 0;
 		z_out = 0;
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
-		x_out = state().cluster_grid.x;
-		y_out = state().cluster_grid.y;
-		z_out = state().cluster_grid.z;
+		x_out = (*state_ptr).cluster_grid.x;
+		y_out = (*state_ptr).cluster_grid.y;
+		z_out = (*state_ptr).cluster_grid.z;
 		return true;
 	}
 
 	uint32_t Render_Compute::cluster_grid_cluster_count(void) const
 	{
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return 0;
-		return cluster_grid_clusters(state().cluster_grid);
+		return cluster_grid_clusters((*state_ptr).cluster_grid);
 	}
 
 	bool Render_Compute::cluster_counts_reference_ex(uint32_t* counts_out, uint32_t capacity, uint32_t* total_out) const
@@ -97,20 +97,20 @@ namespace engine
 		if (total_out != nullptr)
 			*total_out = 0;
 		//未初始化或出参为空
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || counts_out == nullptr)
+		if ((owner == nullptr) || !owner->device().valid() || counts_out == nullptr)
 			return false;
 		//分簇相机输入（当前相机与近远平面）
 		Cluster_Input input{};
-		owner->impl->scene_domain->state().camera.view_proj_get(input.view_proj);
-		owner->impl->scene_domain->state().camera.position_get(input.camera_position);
-		owner->impl->scene_domain->state().camera.fov_get(&input.fov);
-		input.aspect = owner->impl->scene_domain->state().camera.aspect_effective_get();
-		owner->impl->scene_domain->state().camera.clip_get(&input.near_plane, &input.far_plane);
+		owner->scene().camera_view_proj(input.view_proj);
+		owner->scene().camera_position_get(input.camera_position);
+		owner->scene().camera_fov_get(&input.fov);
+		input.aspect = owner->scene().camera_aspect_get();
+		owner->scene().camera_near_far_get(&input.near_plane, &input.far_plane);
 		//光源记录快照（容量上限内全部导出）
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
 		uint32_t count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		//调用 CPU 参考实现
-		uint32_t total = cluster_counts_reference(counts_out, capacity, state().cluster_grid,
+		uint32_t total = cluster_counts_reference(counts_out, capacity, (*state_ptr).cluster_grid,
 			records.data(), count, input);
 		//容量不足或入参非法
 		if (total == 0)
@@ -126,10 +126,10 @@ namespace engine
 		if (total_out != nullptr)
 			*total_out = 0;
 		//未初始化、不支持计算或出参为空
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported() || counts_out == nullptr)
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported() || counts_out == nullptr)
 			return false;
 		//网格总簇数
-		uint32_t total = cluster_grid_clusters(state().cluster_grid);
+		uint32_t total = cluster_grid_clusters((*state_ptr).cluster_grid);
 		if (total == 0)
 			return false;
 		//容量不足
@@ -152,7 +152,7 @@ namespace engine
 			return false;
 		}
 		//计数管线懒加载
-		if (state().cluster_count_pipeline == 0)
+		if ((*state_ptr).cluster_count_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster计数.comp.spv"))
@@ -161,7 +161,7 @@ namespace engine
 				compute_buffer_unload(light_handle);
 				return false;
 			}
-			state().cluster_count_pipeline = loaded;
+			(*state_ptr).cluster_count_pipeline = loaded;
 		}
 		//推送常量：视图投影（64）＋ 网格与记录数（16）＋ 相机位置（16）＋ 参数（16）
 		struct Cluster_Push
@@ -171,19 +171,19 @@ namespace engine
 			float camera_position[4];
 			float params[4];
 		} push{};
-		owner->impl->scene_domain->state().camera.view_proj_get(push.view_proj);
-		push.grid[0] = state().cluster_grid.x;
-		push.grid[1] = state().cluster_grid.y;
-		push.grid[2] = state().cluster_grid.z;
+		owner->scene().camera_view_proj(push.view_proj);
+		push.grid[0] = (*state_ptr).cluster_grid.x;
+		push.grid[1] = (*state_ptr).cluster_grid.y;
+		push.grid[2] = (*state_ptr).cluster_grid.z;
 		push.grid[3] = count;
-		owner->impl->scene_domain->state().camera.position_get(push.camera_position);
-		owner->impl->scene_domain->state().camera.fov_get(&push.params[0]);
-		push.params[1] = owner->impl->scene_domain->state().camera.aspect_effective_get();
-		owner->impl->scene_domain->state().camera.clip_get(&push.params[2], &push.params[3]);
+		owner->scene().camera_position_get(push.camera_position);
+		owner->scene().camera_fov_get(&push.params[0]);
+		push.params[1] = owner->scene().camera_aspect_get();
+		owner->scene().camera_near_far_get(&push.params[2], &push.params[3]);
 		//绑定 → 调度（每记录一线程） → 回读逐簇计数
 		bool ok = compute_buffer_bind(light_handle, 0)
 			&& compute_buffer_bind(count_handle, 1)
-			&& compute_dispatch(state().cluster_count_pipeline, count, 64, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_dispatch((*state_ptr).cluster_count_pipeline, count, 64, &push, static_cast<uint32_t>(sizeof(push)))
 			&& compute_buffer_read(count_handle, counts_out, total * static_cast<uint32_t>(sizeof(uint32_t)), 0);
 		compute_buffer_unload(count_handle);
 		compute_buffer_unload(light_handle);
@@ -200,7 +200,7 @@ namespace engine
 		if (block_count_out != nullptr)
 			*block_count_out = 0;
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
 		uint32_t blocks = cluster_prefix_block_scan(prefix_out, block_totals_out, block_capacity, counts, count);
 		//入参非法或容量不足
@@ -218,7 +218,7 @@ namespace engine
 		if (block_count_out != nullptr)
 			*block_count_out = 0;
 		//未初始化、不支持计算或入参非法
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported() || counts == nullptr
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported() || counts == nullptr
 			|| prefix_out == nullptr || block_totals_out == nullptr || count == 0)
 			return false;
 		//块数与容量
@@ -244,7 +244,7 @@ namespace engine
 			return false;
 		}
 		//扫描管线懒加载
-		if (state().cluster_scan_pipeline == 0)
+		if ((*state_ptr).cluster_scan_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster块内扫描.comp.spv"))
@@ -254,7 +254,7 @@ namespace engine
 				compute_buffer_unload(counts_handle);
 				return false;
 			}
-			state().cluster_scan_pipeline = loaded;
+			(*state_ptr).cluster_scan_pipeline = loaded;
 		}
 		//推送常量：元素总数
 		uint32_t push_count = count;
@@ -262,7 +262,7 @@ namespace engine
 		bool ok = compute_buffer_bind(counts_handle, 0)
 			&& compute_buffer_bind(prefix_handle, 1)
 			&& compute_buffer_bind(totals_handle, 2)
-			&& compute_dispatch(state().cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
+			&& compute_dispatch((*state_ptr).cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
 				&push_count, static_cast<uint32_t>(sizeof(push_count)))
 			&& compute_buffer_read(prefix_handle, prefix_out,
 				count * static_cast<uint32_t>(sizeof(uint32_t)), 0)
@@ -280,7 +280,7 @@ namespace engine
 	bool Render_Compute::cluster_prefix_scan_cpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out) const
 	{
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return false;
 		return cluster_prefix_scan(prefix_out, counts, count) != 0;
 	}
@@ -288,7 +288,7 @@ namespace engine
 	bool Render_Compute::cluster_prefix_scan_gpu(const uint32_t* counts, uint32_t count, uint32_t* prefix_out)
 	{
 		//未初始化、不支持计算或入参非法
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported() || counts == nullptr
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported() || counts == nullptr
 			|| prefix_out == nullptr || count == 0)
 			return false;
 		//块数
@@ -321,7 +321,7 @@ namespace engine
 			return false;
 		}
 		//三条管线懒加载（块内扫描 / 块间偏移 / 偏移合成）
-		if (state().cluster_scan_pipeline == 0)
+		if ((*state_ptr).cluster_scan_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster块内扫描.comp.spv"))
@@ -329,9 +329,9 @@ namespace engine
 				cleanup();
 				return false;
 			}
-			state().cluster_scan_pipeline = loaded;
+			(*state_ptr).cluster_scan_pipeline = loaded;
 		}
-		if (state().cluster_block_offset_pipeline == 0)
+		if ((*state_ptr).cluster_block_offset_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster块间扫描.comp.spv"))
@@ -339,9 +339,9 @@ namespace engine
 				cleanup();
 				return false;
 			}
-			state().cluster_block_offset_pipeline = loaded;
+			(*state_ptr).cluster_block_offset_pipeline = loaded;
 		}
-		if (state().cluster_offset_apply_pipeline == 0)
+		if ((*state_ptr).cluster_offset_apply_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster块偏移合成.comp.spv"))
@@ -349,27 +349,27 @@ namespace engine
 				cleanup();
 				return false;
 			}
-			state().cluster_offset_apply_pipeline = loaded;
+			(*state_ptr).cluster_offset_apply_pipeline = loaded;
 		}
 		//第一步：块内扫描（计数 → 块内前缀 ＋ 块总和）
 		uint32_t push_count = count;
 		bool ok = compute_buffer_bind(counts_handle, 0)
 			&& compute_buffer_bind(prefix_handle, 1)
 			&& compute_buffer_bind(totals_handle, 2)
-			&& compute_dispatch(state().cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
+			&& compute_dispatch((*state_ptr).cluster_scan_pipeline, count, CLUSTER_SCAN_BLOCK,
 				&push_count, static_cast<uint32_t>(sizeof(push_count)));
 		//第二步：块总和串行扫描 → 块排他偏移（单线程）
 		uint32_t push_blocks = blocks;
 		if (ok)
 			ok = compute_buffer_bind(totals_handle, 0)
 				&& compute_buffer_bind(offsets_handle, 1)
-				&& compute_dispatch(state().cluster_block_offset_pipeline, 1, 1,
+				&& compute_dispatch((*state_ptr).cluster_block_offset_pipeline, 1, 1,
 					&push_blocks, static_cast<uint32_t>(sizeof(push_blocks)));
 		//第三步：逐元素叠加块偏移
 		if (ok)
 			ok = compute_buffer_bind(prefix_handle, 0)
 				&& compute_buffer_bind(offsets_handle, 1)
-				&& compute_dispatch(state().cluster_offset_apply_pipeline, count, CLUSTER_SCAN_BLOCK,
+				&& compute_dispatch((*state_ptr).cluster_offset_apply_pipeline, count, CLUSTER_SCAN_BLOCK,
 					&push_count, static_cast<uint32_t>(sizeof(push_count)));
 		//回读全量前缀和
 		if (ok)
@@ -386,7 +386,7 @@ namespace engine
 		if (entries_out != nullptr)
 			*entries_out = 0;
 		//未初始化或入参非法
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || list_out == nullptr || offsets_out == nullptr
+		if ((owner == nullptr) || !owner->device().valid() || list_out == nullptr || offsets_out == nullptr
 			|| counts == nullptr || cluster_total == 0)
 			return false;
 		//排他偏移与总条目
@@ -399,17 +399,17 @@ namespace engine
 			cursor[cluster] = offsets_out[cluster];
 		//分簇相机输入
 		Cluster_Input input{};
-		owner->impl->scene_domain->state().camera.view_proj_get(input.view_proj);
-		owner->impl->scene_domain->state().camera.position_get(input.camera_position);
-		owner->impl->scene_domain->state().camera.fov_get(&input.fov);
-		input.aspect = owner->impl->scene_domain->state().camera.aspect_effective_get();
-		owner->impl->scene_domain->state().camera.clip_get(&input.near_plane, &input.far_plane);
+		owner->scene().camera_view_proj(input.view_proj);
+		owner->scene().camera_position_get(input.camera_position);
+		owner->scene().camera_fov_get(&input.fov);
+		input.aspect = owner->scene().camera_aspect_get();
+		owner->scene().camera_near_far_get(&input.near_plane, &input.far_plane);
 		//光源记录快照
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
 		uint32_t count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		//调用 CPU 参考
 		uint32_t written = cluster_list_reference(list_out, capacity, cursor.data(), counts, cluster_total,
-			state().cluster_grid, records.data(), count, input);
+			(*state_ptr).cluster_grid, records.data(), count, input);
 		if (written == 0)
 			return false;
 		if (entries_out != nullptr)
@@ -424,7 +424,7 @@ namespace engine
 		if (entries_out != nullptr)
 			*entries_out = 0;
 		//未初始化、不支持计算或入参非法
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported() || list_out == nullptr
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported() || list_out == nullptr
 			|| offsets_out == nullptr || counts == nullptr || cluster_total == 0)
 			return false;
 		//总条目与容量
@@ -474,7 +474,7 @@ namespace engine
 			return false;
 		}
 		//列表写入管线懒加载
-		if (state().cluster_list_pipeline == 0)
+		if ((*state_ptr).cluster_list_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "Cluster列表写入.comp.spv"))
@@ -482,7 +482,7 @@ namespace engine
 				cleanup();
 				return false;
 			}
-			state().cluster_list_pipeline = loaded;
+			(*state_ptr).cluster_list_pipeline = loaded;
 		}
 		//推送常量：视图投影 ＋ 网格 ＋ 相机位置 ＋ 参数 ＋ 光源记录数（116 字节）
 		struct Cluster_List_Push
@@ -493,22 +493,22 @@ namespace engine
 			float params[4];
 			uint32_t light_count;
 		} push{};
-		owner->impl->scene_domain->state().camera.view_proj_get(push.view_proj);
-		push.grid[0] = state().cluster_grid.x;
-		push.grid[1] = state().cluster_grid.y;
-		push.grid[2] = state().cluster_grid.z;
+		owner->scene().camera_view_proj(push.view_proj);
+		push.grid[0] = (*state_ptr).cluster_grid.x;
+		push.grid[1] = (*state_ptr).cluster_grid.y;
+		push.grid[2] = (*state_ptr).cluster_grid.z;
 		push.grid[3] = cluster_total;
-		owner->impl->scene_domain->state().camera.position_get(push.camera_position);
-		owner->impl->scene_domain->state().camera.fov_get(&push.params[0]);
-		push.params[1] = owner->impl->scene_domain->state().camera.aspect_effective_get();
-		owner->impl->scene_domain->state().camera.clip_get(&push.params[2], &push.params[3]);
+		owner->scene().camera_position_get(push.camera_position);
+		owner->scene().camera_fov_get(&push.params[0]);
+		push.params[1] = owner->scene().camera_aspect_get();
+		owner->scene().camera_near_far_get(&push.params[2], &push.params[3]);
 		push.light_count = light_count;
 		//绑定 → 调度（每记录一线程） → 回读列表
 		bool ok = compute_buffer_bind(light_handle, 0)
 			&& compute_buffer_bind(counts_handle, 1)
 			&& compute_buffer_bind(cursor_handle, 2)
 			&& compute_buffer_bind(list_handle, 3)
-			&& compute_dispatch(state().cluster_list_pipeline, light_count, 64, &push,
+			&& compute_dispatch((*state_ptr).cluster_list_pipeline, light_count, 64, &push,
 				static_cast<uint32_t>(sizeof(push)))
 			&& compute_buffer_read(list_handle, list_out,
 				entries * static_cast<uint32_t>(sizeof(uint32_t)), 0);
@@ -525,11 +525,11 @@ namespace engine
 		if (entries_out != nullptr)
 			*entries_out = 0;
 		//未初始化或入参非法
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || counts_out == nullptr || offsets_out == nullptr
+		if ((owner == nullptr) || !owner->device().valid() || counts_out == nullptr || offsets_out == nullptr
 			|| list_out == nullptr)
 			return false;
 		//网格总簇数与容量
-		uint32_t total = cluster_grid_clusters(state().cluster_grid);
+		uint32_t total = cluster_grid_clusters((*state_ptr).cluster_grid);
 		if (total == 0 || cluster_capacity < total)
 			return false;
 		//计时起点
@@ -556,8 +556,8 @@ namespace engine
 			return false;
 		//计时终点与观测更新
 		const auto end = std::chrono::high_resolution_clock::now();
-		state().last_cluster_entries = entries;
-		state().last_cluster_build_ms = std::chrono::duration<double, std::milli>(end - begin).count();
+		(*state_ptr).last_cluster_entries = entries;
+		(*state_ptr).last_cluster_build_ms = std::chrono::duration<double, std::milli>(end - begin).count();
 		if (entries_out != nullptr)
 			*entries_out = entries;
 		return true;
@@ -565,11 +565,89 @@ namespace engine
 
 	uint32_t Render_Compute::cluster_entries_get(void) const
 	{
-		return (owner != nullptr && owner->impl != nullptr) ? state().last_cluster_entries : 0;
+		return (owner != nullptr) ? (*state_ptr).last_cluster_entries : 0;
 	}
 
 	double Render_Compute::cluster_build_ms_get(void) const
 	{
-		return (owner != nullptr && owner->impl != nullptr) ? state().last_cluster_build_ms : 0.0;
+		return (owner != nullptr) ? (*state_ptr).last_cluster_build_ms : 0.0;
 	}
+	bool Render_Compute::cluster_frame_update(uint32_t slot, uint64_t frame_count)
+	{
+		/*
+		⑤a 光源记录上传（第二百六十六轮；仅 Cluster 开启时）
+		该帧槽上一轮已提交完成，可安全覆盖前 count × 80 字节；记录数为 267 起分簇的输入。
+		*/
+		if (state_ptr->cluster_enabled && cluster_resources_ensure())
+		{
+			//本帧记录数（含主方向光与补光；按容量截断）
+			uint32_t record_count = (*owner).scene().light_record_count();
+			if (record_count > LIGHT_RECORD_CAPACITY)
+				record_count = LIGHT_RECORD_CAPACITY;
+			//组装缓冲按记录数调整后导出快照
+			state_ptr->light_records_scratch.resize(record_count == 0 ? 1u : record_count);
+			uint32_t written = (*owner).scene().light_records_get(state_ptr->light_records_scratch.data(), record_count);
+			//写入该帧槽缓冲（仅写入有效记录区间）
+			if (written != 0
+				&& !core->memory.buffer_write(state_ptr->light_buffers[slot], state_ptr->light_allocations[slot],
+					state_ptr->light_records_scratch.data(),
+					static_cast<VkDeviceSize>(written) * LIGHT_RECORD_BYTES, 0))
+			{
+				logger.error("渲染器:: 光源记录上传失败（帧槽 {}）", slot);
+				return false;
+			}
+			state_ptr->last_cluster_light_count = written;
+		}
+		else
+			state_ptr->last_cluster_light_count = 0;
+		/*
+		⑤b 簇数据整备（第二百七十三轮；仅 Cluster 开启时）
+		每帧重建计数 / 偏移 / 列表并写入观测；关闭时观测清零、零分配（画面路径不受影响）。
+		*/
+		if (state_ptr->cluster_enabled && cluster_resources_ensure())
+		{
+			//网格总簇数与光源记录数（列表容量上界 = 簇数 × 记录数）
+			uint32_t cluster_total = cluster_grid_clusters(state_ptr->cluster_grid);
+			uint32_t light_records = (*owner).scene().light_record_count();
+			uint32_t list_capacity = cluster_total * light_records;
+			state_ptr->cluster_counts_scratch.resize(cluster_total);
+			state_ptr->cluster_offsets_scratch.resize(cluster_total);
+			state_ptr->cluster_list_scratch.resize(list_capacity);
+			uint32_t entries = 0;
+			//整备（当前 ≤8 盏规模下 CPU 远快于 GPU 同步回读，帧内默认走 CPU；见 276 轮性能对照）
+			if (!cluster_data_build(state_ptr->cluster_counts_scratch.data(), state_ptr->cluster_offsets_scratch.data(),
+				state_ptr->cluster_list_scratch.data(), cluster_total, list_capacity, &entries, false))
+				logger.warn("渲染器:: 簇数据整备失败（帧 {}）", frame_count);
+			else
+			{
+				/*
+				图形 set0 簇数据上传（第二百八十八轮）
+				计数与偏移按簇数整块上传、列表按条目数上传；缓冲容量不足时由 ensure 先等尽在途帧再重建。
+				*/
+				if (!cluster_graphics_resources_ensure(cluster_total, list_capacity))
+					logger.warn("渲染器:: 簇数据缓冲就绪失败（帧 {}）", frame_count);
+				else if (!core->memory.buffer_write(state_ptr->cluster_counts_buffers[slot],
+					state_ptr->cluster_counts_allocations[slot], state_ptr->cluster_counts_scratch.data(),
+					static_cast<VkDeviceSize>(cluster_total) * 4, 0)
+					|| !core->memory.buffer_write(state_ptr->cluster_offsets_buffers[slot],
+					state_ptr->cluster_offsets_allocations[slot], state_ptr->cluster_offsets_scratch.data(),
+					static_cast<VkDeviceSize>(cluster_total) * 4, 0)
+					|| !core->memory.buffer_write(state_ptr->cluster_list_buffers[slot],
+					state_ptr->cluster_list_allocations[slot], state_ptr->cluster_list_scratch.data(),
+					static_cast<VkDeviceSize>(entries) * 4, 0))
+					logger.warn("渲染器:: 簇数据上传失败（帧 {}）", frame_count);
+				else
+					state_ptr->last_cluster_gpu_bytes = cluster_total * 8 + entries * 4;
+			}
+		}
+		else
+		{
+			//关闭时观测清零
+			state_ptr->last_cluster_entries = 0;
+			state_ptr->last_cluster_build_ms = 0.0;
+			state_ptr->last_cluster_gpu_bytes = 0;
+		}
+		return true;
+	}
+
 }

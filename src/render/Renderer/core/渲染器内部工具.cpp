@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
 #include "渲染器内部工具.h"
-#include "渲染器实现.h"
+#include "渲染器内部状态.h"
 
 namespace engine
 {

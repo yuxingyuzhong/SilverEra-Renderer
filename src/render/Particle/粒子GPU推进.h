@@ -9,5 +9,5 @@ GPU 粒子推进（渲染层；2026-11-07 自 EngineSystem 归位）
 粒子常驻推进的**模拟语义**（发射循环、环形写指针、活跃位图、死亡结算、紧凑索引）与计算原语
 （compute_pipeline_load / compute_buffer_bind / compute_dispatch / compute_buffer_read 等）
 同属渲染层，故整体归本层。入口在 `engine::particle_gpu` 命名空间，
-声明见渲染器公共头（friend 授权访问私有实现，现已为层内授权）。
+声明见渲染器类型公共头，实现经六域公共接口协作。
 */

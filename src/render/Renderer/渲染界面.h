@@ -5,6 +5,7 @@
 //游戏引擎命名空间
 namespace engine
 {
+	struct Render_Core_Context;
 	class Renderer;
 	struct Ui_State;
 
@@ -15,7 +16,7 @@ namespace engine
 	class Render_Ui
 	{
 	public:
-		explicit Render_Ui(Renderer* owner);
+		Render_Ui(Renderer* owner, const Render_Core_Context& core_context);
 		~Render_Ui(void);
 		//不可拷贝、不可移动
 		Render_Ui(const Render_Ui&) = delete;
@@ -76,22 +77,31 @@ namespace engine
 		//当前文本网格缓存条目数（未初始化返回 0）
 		uint32_t text_cache_size(void) const;
 
-		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//=== 域生命周期与层内成员窄接口 ===
 		//初始化（原 renderer_init_ui + 文字宿主装配）
 		void init(const Renderer_Config& effective);
 		//关闭（原 shutdown 中界面相关部分）
 		void shutdown(void);
-		//确保 UI 管线就绪（原 Impl::ui_pipeline_ensure）
+		//确保 UI 管线就绪
 		bool ui_pipeline_ensure(void);
-		//UI 阶段绘制入口（原 Impl::ui_draw_entry；command_buffer 用 void* 以免公共头引入 Vulkan）
+		//UI 阶段绘制入口（command_buffer 用 void* 以免公共头引入 Vulkan）
 		static void ui_draw_entry(void* command_buffer, void* user_data);
-		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
-		Ui_State& state(void);
-		const Ui_State& state(void) const;
-
+		//当前是否处于文字绘制过程
+		bool text_drawing(void) const;
+		//文字推送块描边参数（半宽与 RGB）
+		void text_outline_get(float out[4]) const;
+		//推进一帧输入、原生 UI 交互与系统事件路由
+		void input_frame_advance(uint32_t width, uint32_t height, float display_scale);
+		//推进文字帧时钟并回收无在途引用的文字网格
+		void text_frame_advance(uint32_t frame_overlap);
+		//平台窗口与字体资源装配
+		void input_window_bind(void* window);
+		bool font_resource_build(void);
+		uint64_t font_resource_count(void) const;
 	private:
-		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		//门面自身（跨域语义调用）
 		Renderer* owner = nullptr;
+		const Render_Core_Context* core = nullptr;
 		//界面域状态
 		std::unique_ptr<Ui_State> state_ptr;
 	};

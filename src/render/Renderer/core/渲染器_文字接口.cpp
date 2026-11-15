@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 
@@ -13,25 +13,25 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 加载字体失败：尚未初始化");
 			return false;
 		}
 		//转交字体模块（光栅化字形并打包图集）
-		return state().font.font_load_file(handle_out, path, pixel_height);
+		return (*state_ptr).font.font_load_file(handle_out, path, pixel_height);
 	}
 
 	//卸载字体
 	void Render_Ui::font_unload(uint64_t handle)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//先清除该字体的文本网格缓存（网格模块就绪时归还网格）
-		state().text.font_meshes_destroy(handle);
+		(*state_ptr).text.font_meshes_destroy(handle);
 		//归还字体（含图集纹理）
-		state().font.font_destroy(handle);
+		(*state_ptr).font.font_destroy(handle);
 	}
 
 	//绘制文本（默认单行左对齐布局）
@@ -50,10 +50,10 @@ namespace engine
 		if (height_out != nullptr)
 			*height_out = 0.0f;
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//取字体记录（只读）
-		const Font_Record* record = state().font.font_get(font);
+		const Font_Record* record = (*state_ptr).font.font_get(font);
 		if (record == nullptr)
 			return false;
 		//像素度量（整型）
@@ -74,14 +74,14 @@ namespace engine
 		const Text_Layout& layout)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//标记进入文字绘制（第五十二轮：文字网格不参与阴影投影）
-		state().in_text_draw = true;
+		(*state_ptr).in_text_draw = true;
 		//转发文字绘制子系统
-		const bool drawn = state().text.draw_layout(font, text, pixel_x, pixel_y, layout);
+		const bool drawn = (*state_ptr).text.draw_layout(font, text, pixel_x, pixel_y, layout);
 		//恢复场景绘制标记
-		state().in_text_draw = false;
+		(*state_ptr).in_text_draw = false;
 		return drawn;
 	}
 
@@ -89,24 +89,24 @@ namespace engine
 	void Render_Ui::text_color_set(const float color[4])
 	{
 		//未初始化或出参为空则静默返回
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
 			return;
 		//转发文字绘制子系统（逐分量钳制）
-		state().text.color_set(color);
+		(*state_ptr).text.color_set(color);
 	}
 
 	//设置文字描边
 	void Render_Ui::text_outline_set(float uv_width, const float color[3])
 	{
 		//未初始化或颜色为空则静默返回
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
 			return;
 		//半宽按 0..0.05 钳制（负值 / 非数归 0，避免无意义的大范围采样）
 		if (!(uv_width > 0.0f))
 			uv_width = 0.0f;
 		if (uv_width > 0.05f)
 			uv_width = 0.05f;
-		state().text_outline_uv_width = uv_width;
+		(*state_ptr).text_outline_uv_width = uv_width;
 		//描边色逐分量钳制到 0..1
 		for (std::size_t index = 0; index < 3; ++index)
 		{
@@ -116,7 +116,7 @@ namespace engine
 				value = 0.0f;
 			if (value > 1.0f)
 				value = 1.0f;
-			state().text_outline_color[index] = value;
+			(*state_ptr).text_outline_color[index] = value;
 		}
 	}
 
@@ -124,53 +124,53 @@ namespace engine
 	uint64_t Render_Ui::font_skipped_codepoints(uint64_t font) const
 	{
 		//未初始化则视为 0
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().font.font_skipped_codepoints_get(font);
+		return (*state_ptr).font.font_skipped_codepoints_get(font);
 	}
 
 	//文字网格缓存命中次数
 	uint64_t Render_Ui::text_cache_hits(void) const
 	{
 		//未初始化则视为 0
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().text.mesh_cache_hits();
+		return (*state_ptr).text.mesh_cache_hits();
 	}
 
 	//文本网格缓存条目上限设置
 	void Render_Ui::text_cache_capacity_set(uint32_t capacity)
 	{
 		//未初始化则静默返回
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
-		state().text.mesh_cache_capacity_set(capacity);
+		(*state_ptr).text.mesh_cache_capacity_set(capacity);
 	}
 
 	//文本网格缓存条目上限
 	uint32_t Render_Ui::text_cache_capacity(void) const
 	{
 		//未初始化则视为 0
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().text.mesh_cache_capacity();
+		return (*state_ptr).text.mesh_cache_capacity();
 	}
 
 	//当前文本网格缓存条目数
 	uint32_t Render_Ui::text_cache_size(void) const
 	{
 		//未初始化则视为 0
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().text.mesh_cache_size();
+		return (*state_ptr).text.mesh_cache_size();
 	}
 
 	//文字网格缓存未命中次数
 	uint64_t Render_Ui::text_cache_misses(void) const
 	{
 		//未初始化则视为 0
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().text.mesh_cache_misses();
+		return (*state_ptr).text.mesh_cache_misses();
 	}
 }

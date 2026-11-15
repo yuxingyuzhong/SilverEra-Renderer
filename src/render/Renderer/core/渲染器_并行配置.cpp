@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -24,85 +24,71 @@ namespace engine
 
 	void Render_Device::cull_enabled_set(bool enabled)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
-		impl->cull_enabled = enabled;
+		state_ptr->cull_enabled = enabled;
 	}
 
 	bool Render_Device::cull_enabled(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（开启）
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return true;
-		return impl->cull_enabled;
+		return state_ptr->cull_enabled;
 	}
 
 	void Render_Device::static_batching_set(bool enabled)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
-		impl->static_batching = enabled;
+		state_ptr->static_batching = enabled;
 	}
 
 	bool Render_Device::static_batching(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（开启）
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return true;
-		return impl->static_batching;
+		return state_ptr->static_batching;
 	}
 
 	void Render_Device::render_threads_set(uint32_t count)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//线程数钳到 0..64
 		if (count > 64)
 			count = 64;
 		//同值重复设置为空操作
-		if (count == impl->thread_pool.thread_count_get())
+		if (count == state_ptr->thread_pool.thread_count_get())
 			return;
 		//先回收旧线程，再按新数量启动
-		impl->thread_pool.threads_stop();
-		impl->render_threads = 0;
-		if (count > 0 && !impl->thread_pool.threads_start(count))
+		state_ptr->thread_pool.threads_stop();
+		state_ptr->render_threads = 0;
+		if (count > 0 && !state_ptr->thread_pool.threads_start(count))
 		{
 			logger.warn("渲染器:: 渲染工作线程切换失败，保持单线程");
 			return;
 		}
-		impl->render_threads = impl->thread_pool.thread_count_get();
-		logger.info("渲染器:: 渲染工作线程已设为 {}", impl->render_threads);
+		state_ptr->render_threads = state_ptr->thread_pool.thread_count_get();
+		logger.info("渲染器:: 渲染工作线程已设为 {}", state_ptr->render_threads);
 	}
 
 	uint32_t Render_Device::render_threads(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（0 = 单线程）
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
-		return impl->thread_pool.thread_count_get();
+		return state_ptr->thread_pool.thread_count_get();
 	}
 
 	void Render_Device::cull_parallel_min_instances_set(uint32_t count)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//钳到 1..65536
 		if (count < 1)
@@ -110,28 +96,24 @@ namespace engine
 		if (count > 65536)
 			count = 65536;
 		//同值重复设置为空操作
-		if (impl->cull_parallel_min_instances == count)
+		if (state_ptr->cull_parallel_min_instances == count)
 			return;
-		impl->cull_parallel_min_instances = count;
+		state_ptr->cull_parallel_min_instances = count;
 		logger.info("渲染器:: 实例剔除并行阈值已设为 {}", count);
 	}
 
 	uint32_t Render_Device::cull_parallel_min_instances(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回 0
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
-		return static_cast<uint32_t>(impl->cull_parallel_min_instances);
+		return static_cast<uint32_t>(state_ptr->cull_parallel_min_instances);
 	}
 
 	void Render_Device::instance_scan_parallel_min_set(uint32_t count)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//钳到 1..65536
 		if (count < 1)
@@ -139,19 +121,17 @@ namespace engine
 		if (count > 65536)
 			count = 65536;
 		//同值重复设置为空操作
-		if (impl->instance_scan_parallel_min == count)
+		if (state_ptr->instance_scan_parallel_min == count)
 			return;
-		impl->instance_scan_parallel_min = count;
+		state_ptr->instance_scan_parallel_min = count;
 		logger.info("渲染器:: 实例扫描并行阈值已设为 {}", count);
 	}
 
 	uint32_t Render_Device::instance_scan_parallel_min(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回 0
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
-		return static_cast<uint32_t>(impl->instance_scan_parallel_min);
+		return static_cast<uint32_t>(state_ptr->instance_scan_parallel_min);
 	}
 }

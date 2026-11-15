@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -24,36 +24,32 @@ namespace engine
 
 	bool Render_Resource::render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 创建渲染目标失败：尚未初始化");
 			return false;
 		}
 		//转交渲染目标模块（颜色 / 深度格式取当前交换链格式）
-		return owner->impl->resource_domain->state().render_target.target_create(handle_out, width, height,
-			impl->swapchain.format_get(), impl->swapchain.depth_format_get());
+		return (*state_ptr).render_target.target_create(handle_out, width, height,
+			core->swapchain.format_get(), core->swapchain.depth_format_get());
 	}
 
 	bool Render_Resource::render_target_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参先复位
 		if (width_out != nullptr)
 			*width_out = 0;
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//转交渲染目标模块取尺寸
 		VkExtent2D extent{};
-		if (!owner->impl->resource_domain->state().render_target.target_extent_get(handle, extent))
+		if (!(*state_ptr).render_target.target_extent_get(handle, extent))
 			return false;
 		if (width_out != nullptr)
 			*width_out = extent.width;
@@ -65,101 +61,74 @@ namespace engine
 	bool Render_Resource::render_target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽，避免与该目标的写入 / 采样冲突
-		if (!impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交渲染目标模块（同步拷贝并读回）
-		return owner->impl->resource_domain->state().render_target.target_readback(handle, pixels, capacity, width_out, height_out);
+		return (*state_ptr).render_target.target_readback(handle, pixels, capacity, width_out, height_out);
 	}
 
 	bool Render_Resource::render_target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
 		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽，避免与该目标的写入 / 采样冲突
-		if (!impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交渲染目标模块（子区域同步拷贝）
-		return owner->impl->resource_domain->state().render_target.target_readback_region(handle, x, y, region_width, region_height,
+		return (*state_ptr).render_target.target_readback_region(handle, x, y, region_width, region_height,
 			pixels, capacity, width_out, height_out);
 	}
 
 	bool Render_Resource::render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽，避免与该目标的写入冲突
-		if (!impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交渲染目标模块（深度同步拷贝）
-		return owner->impl->resource_domain->state().render_target.target_readback_depth(handle, values, capacity, width_out, height_out);
+		return (*state_ptr).render_target.target_readback_depth(handle, values, capacity, width_out, height_out);
 	}
 
 	bool Render_Resource::render_target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
 		uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参先归零
 		if (width_out != nullptr)
 			*width_out = 0;
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽，避免与该目标的写入冲突
-		if (!impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交渲染目标模块（深度子区域同步拷贝）
-		return owner->impl->resource_domain->state().render_target.target_readback_depth_region(handle, x, y, region_width, region_height,
+		return (*state_ptr).render_target.target_readback_depth_region(handle, x, y, region_width, region_height,
 			values, capacity, width_out, height_out);
 	}
 
 	void Render_Resource::render_target_destroy(uint64_t handle)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
-		//若销毁的是当前设定的本帧渲染目标则先回落交换链路径
-		if (owner->impl->device_domain->state().active_target == handle)
-			owner->impl->device_domain->state().active_target = 0;
-		//若销毁的是当前设定的同帧后处理呈现目标则一并回落并清空目标组
-		if (owner->impl->device_domain->state().present_target == handle)
-		{
-			owner->impl->device_domain->state().present_target = 0;
-			owner->impl->device_domain->state().present_extra.clear();
-		}
-		//若销毁的是目标组中的额外中间目标则从组内摘除（链长 ≥ 2 将因此回落单级路径）
-		for (std::size_t index = 0; index < owner->impl->device_domain->state().present_extra.size(); ++index)
-		{
-			//命中即原地摘除并结束（句柄唯一）
-			if (owner->impl->device_domain->state().present_extra[index] == handle)
-			{
-				owner->impl->device_domain->state().present_extra.erase(owner->impl->device_domain->state().present_extra.begin() + static_cast<std::ptrdiff_t>(index));
-				break;
-			}
-		}
+		//先解除设备帧路径对目标的全部引用
+		owner->device().render_target_references_release(handle);
 		//摘出颜色 / 深度图像与视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
 		Render_Target_Record record{};
-		if (!owner->impl->resource_domain->state().render_target.target_detach(handle, record))
+		if (!(*state_ptr).render_target.target_detach(handle, record))
 			return;
 		//组装延迟条目（颜色与深度各一条内存资源）
 		Deferred_Entry entry{};
@@ -185,52 +154,68 @@ namespace engine
 		msaa_depth.view = record.msaa_depth_view;
 		entry.memory_resources.push_back(msaa_depth);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
-		impl->frame.deferred_push(std::move(entry), impl->frame.in_flight_count_get() + 1);
+		core->frame.deferred_push(std::move(entry), core->frame.in_flight_count_get() + 1);
+	}
+
+	void Render_Device::render_target_references_release(uint64_t handle)
+	{
+		//当前场景目标命中时回落交换链
+		if (state_ptr->active_target == handle)
+			state_ptr->active_target = 0;
+		//同帧呈现首目标命中时清空完整目标组
+		if (state_ptr->present_target == handle)
+		{
+			state_ptr->present_target = 0;
+			state_ptr->present_extra.clear();
+			return;
+		}
+		//额外目标命中时只摘除该级
+		for (std::size_t index = 0; index < state_ptr->present_extra.size(); ++index)
+		{
+			if (state_ptr->present_extra[index] != handle)
+				continue;
+			state_ptr->present_extra.erase(state_ptr->present_extra.begin() + static_cast<std::ptrdiff_t>(index));
+			break;
+		}
 	}
 
 	void Render_Device::render_target_set(uint64_t handle)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//句柄非零且未登记则回落交换链路径并告警
-		if (handle != 0 && !owner->impl->resource_domain->state().render_target.target_valid(handle))
+		if (handle != 0 && !owner->resource().render_target_valid(handle))
 		{
 			logger.warn("渲染器:: 渲染目标句柄 {} 无效，回落交换链路径", handle);
-			owner->impl->device_domain->state().active_target = 0;
+			state_ptr->active_target = 0;
 			return;
 		}
-		owner->impl->device_domain->state().active_target = handle;
+		state_ptr->active_target = handle;
 	}
 
 	void Render_Device::render_target_present_set(uint64_t handle)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//句柄非零且未登记则关闭该路径并告警
-		if (handle != 0 && !owner->impl->resource_domain->state().render_target.target_valid(handle))
+		if (handle != 0 && !owner->resource().render_target_valid(handle))
 		{
 			logger.warn("渲染器:: 渲染目标句柄 {} 无效，关闭同帧后处理呈现路径", handle);
-			owner->impl->device_domain->state().present_target = 0;
-			owner->impl->device_domain->state().present_extra.clear();
+			state_ptr->present_target = 0;
+			state_ptr->present_extra.clear();
 			return;
 		}
-		owner->impl->device_domain->state().present_target = handle;
+		state_ptr->present_target = handle;
 		//目标组重置为「仅该目标」（多级链须改用 render_target_present_chain_set）
-		owner->impl->device_domain->state().present_extra.clear();
+		state_ptr->present_extra.clear();
 	}
 
 	bool Render_Device::render_target_present_chain_set(const uint64_t* handles, uint32_t count)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 		{
 			logger.error("渲染器:: 后处理目标组设置失败：尚未初始化");
 			return false;
@@ -238,8 +223,8 @@ namespace engine
 		//若为清除目标组（关闭同帧后处理呈现路径）
 		if (count == 0)
 		{
-			owner->impl->device_domain->state().present_target = 0;
-			owner->impl->device_domain->state().present_extra.clear();
+			state_ptr->present_target = 0;
+			state_ptr->present_extra.clear();
 			logger.info("渲染器:: 后处理目标组已清除");
 			return true;
 		}
@@ -254,25 +239,23 @@ namespace engine
 		for (uint32_t each = 0; each < count; ++each)
 		{
 			//若某句柄未登记则整组拒绝（保持原目标组不变）
-			if (!owner->impl->resource_domain->state().render_target.target_valid(handles[each]))
+			if (!owner->resource().render_target_valid(handles[each]))
 			{
 				logger.error("渲染器:: 后处理目标组设置失败：第 {} 个句柄 {} 未登记", each, handles[each]);
 				return false;
 			}
 		}
 		//写入目标组（首项为场景目标，其余为额外中间目标）
-		owner->impl->device_domain->state().present_target = handles[0];
-		owner->impl->device_domain->state().present_extra.assign(handles + 1, handles + count);
+		state_ptr->present_target = handles[0];
+		state_ptr->present_extra.assign(handles + 1, handles + count);
 		logger.info("渲染器:: 后处理目标组已设置（{} 个）", count);
 		return true;
 	}
 
 	void Render_Resource::texture_bind_target(uint64_t handle)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//取目标颜色图像与视图
 		VkImage color_image = VK_NULL_HANDLE;
@@ -280,7 +263,7 @@ namespace engine
 		VkImageView depth_view = VK_NULL_HANDLE;
 		VkExtent2D extent = { 0, 0 };
 		//句柄无效则静默返回（保持原绑定）
-		if (!owner->impl->resource_domain->state().render_target.target_get(handle, color_image, color_view, depth_view, extent))
+		if (!(*state_ptr).render_target.target_get(handle, color_image, color_view, depth_view, extent))
 		{
 			logger.warn("渲染器:: 渲染目标句柄 {} 无效，纹理绑定忽略", handle);
 			return;
@@ -292,21 +275,21 @@ namespace engine
 		*/
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler shared_sampler = VK_NULL_HANDLE;
-		if (!impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, shared_sampler))
+		if (!(*state_ptr).texture.texture_bind_get((*state_ptr).default_texture, default_view, shared_sampler))
 		{
 			logger.error("渲染器:: 渲染目标绑定失败：共享采样器不可用");
 			return;
 		}
 		//记录当前绑定视图（与纹理绑定共用同一语义；采样器状态切换后据此重写 set1）
-		impl->resource_domain->state().bound_view = color_view;
+		(*state_ptr).bound_view = color_view;
 		/*
 		写满全部帧槽 set1 之前先等全部在途帧完成
 		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
 		*/
-		impl->frame.frames_wait();
+		core->frame.frames_wait();
 		//把目标颜色视图写入所有帧槽 set1（长命资源，一次写满全部槽）
-		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-			impl->pipeline.texture_bind(slot, shared_sampler, color_view);
+		for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+			(*state_ptr).pipeline.texture_bind(slot, shared_sampler, color_view);
 		logger.info("渲染器:: 渲染目标已绑定为当前纹理（句柄 {}）", handle);
 	}
 }

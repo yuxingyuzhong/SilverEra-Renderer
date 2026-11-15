@@ -1,11 +1,11 @@
 #pragma once
-//依赖：core/渲染器实现.h 已提供模块类型
+//依赖：渲染器内部状态.h 已提供模块类型
 
 //游戏引擎命名空间
 namespace engine
 {
 	/*
-	粒子域状态（从 Impl 迁出的成员，名字保持不变以减少改写）
+	粒子域状态
 	门面只保留域对象指针；粒子绘制源 / GPU 缓冲 / 绘制资源 / 统计全部收拢在此。
 	*/
 	struct Particle_Domain_State

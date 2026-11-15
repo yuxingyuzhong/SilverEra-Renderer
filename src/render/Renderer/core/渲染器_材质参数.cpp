@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -25,7 +25,7 @@ namespace engine
 	bool Render_Resource::material_pbr_set(float roughness, float metallic)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 设置逐物体材质失败：尚未初始化");
 			return false;
@@ -42,51 +42,51 @@ namespace engine
 			return false;
 		}
 		//写入吸附状态
-		state().material_pbr_active = true;
-		state().material_pbr_roughness = roughness;
-		state().material_pbr_metallic = metallic;
+		(*state_ptr).material_pbr_active = true;
+		(*state_ptr).material_pbr_roughness = roughness;
+		(*state_ptr).material_pbr_metallic = metallic;
 		return true;
 	}
 
 	void Render_Resource::material_pbr_clear(void)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//回落全局参数
-		state().material_pbr_active = false;
-		state().material_pbr_roughness = 1.0f;
-		state().material_pbr_metallic = 0.0f;
+		(*state_ptr).material_pbr_active = false;
+		(*state_ptr).material_pbr_roughness = 1.0f;
+		(*state_ptr).material_pbr_metallic = 0.0f;
 	}
 
 	bool Render_Resource::material_pbr_active(void) const
 	{
 		//未初始化视为未启用
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
-		return state().material_pbr_active;
+		return (*state_ptr).material_pbr_active;
 	}
 
 	float Render_Resource::material_pbr_roughness(void) const
 	{
 		//未初始化返回默认 1
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 1.0f;
-		return state().material_pbr_roughness;
+		return (*state_ptr).material_pbr_roughness;
 	}
 
 	float Render_Resource::material_pbr_metallic(void) const
 	{
 		//未初始化返回默认 0
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0.0f;
-		return state().material_pbr_metallic;
+		return (*state_ptr).material_pbr_metallic;
 	}
 
 	bool Render_Resource::material_clear_coat_set(float strength, float roughness)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 设置逐物体清漆层失败：尚未初始化");
 			return false;
@@ -103,49 +103,49 @@ namespace engine
 			return false;
 		}
 		//写入吸附状态
-		state().material_clear_coat = strength;
-		state().material_clear_coat_roughness = roughness;
+		(*state_ptr).material_clear_coat = strength;
+		(*state_ptr).material_clear_coat_roughness = roughness;
 		return true;
 	}
 
 	void Render_Resource::material_clear_coat_clear(void)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//回落清漆关闭
-		state().material_clear_coat = 0.0f;
-		state().material_clear_coat_roughness = 0.15f;
+		(*state_ptr).material_clear_coat = 0.0f;
+		(*state_ptr).material_clear_coat_roughness = 0.15f;
 	}
 
 	bool Render_Resource::material_clear_coat_active(void) const
 	{
 		//未初始化视为未启用
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
-		return state().material_clear_coat > 0.0f;
+		return (*state_ptr).material_clear_coat > 0.0f;
 	}
 
 	float Render_Resource::material_clear_coat_strength(void) const
 	{
 		//未初始化返回默认 0
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0.0f;
-		return state().material_clear_coat;
+		return (*state_ptr).material_clear_coat;
 	}
 
 	float Render_Resource::material_clear_coat_roughness(void) const
 	{
 		//未初始化返回默认 0.15
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0.15f;
-		return state().material_clear_coat_roughness;
+		return (*state_ptr).material_clear_coat_roughness;
 	}
 
 	bool Render_Resource::material_tint_set(float red, float green, float blue, float alpha)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 设置逐物体色调失败：尚未初始化");
 			return false;
@@ -158,31 +158,31 @@ namespace engine
 			return false;
 		}
 		//写入吸附状态
-		state().material_tint_active = true;
-		state().material_tint[0] = red;
-		state().material_tint[1] = green;
-		state().material_tint[2] = blue;
-		state().material_tint[3] = alpha;
+		(*state_ptr).material_tint_active = true;
+		(*state_ptr).material_tint[0] = red;
+		(*state_ptr).material_tint[1] = green;
+		(*state_ptr).material_tint[2] = blue;
+		(*state_ptr).material_tint[3] = alpha;
 		return true;
 	}
 
 	void Render_Resource::material_tint_clear(void)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//回落白色（画面与未设置时一致）
-		state().material_tint_active = false;
+		(*state_ptr).material_tint_active = false;
 		for (std::size_t index = 0; index < 4; ++index)
-			state().material_tint[index] = 1.0f;
+			(*state_ptr).material_tint[index] = 1.0f;
 	}
 
 	bool Render_Resource::material_tint_active(void) const
 	{
 		//未初始化视为未启用
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
-		return state().material_tint_active;
+		return (*state_ptr).material_tint_active;
 	}
 
 	void Render_Resource::material_tint_get(float out[4]) const
@@ -191,20 +191,20 @@ namespace engine
 		if (out == nullptr)
 			return;
 		//未初始化返回白色
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			for (std::size_t index = 0; index < 4; ++index)
 				out[index] = 1.0f;
 			return;
 		}
 		for (std::size_t index = 0; index < 4; ++index)
-			out[index] = state().material_tint[index];
+			out[index] = (*state_ptr).material_tint[index];
 	}
 
 	bool Render_Resource::material_emissive_set(float emissive)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 设置自发光失败：尚未初始化");
 			return false;
@@ -215,24 +215,24 @@ namespace engine
 			logger.warn("渲染器:: 自发光 {} 越界（合法域 [0, 8]），已忽略", emissive);
 			return false;
 		}
-		state().material_emissive = emissive;
+		(*state_ptr).material_emissive = emissive;
 		return true;
 	}
 
 	void Render_Resource::material_emissive_clear(void)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
-		state().material_emissive = 0.0f;
-		state().material_normal_strength = 0.0f;
+		(*state_ptr).material_emissive = 0.0f;
+		(*state_ptr).material_normal_strength = 0.0f;
 	}
 
 	float Render_Resource::material_emissive(void) const
 	{
 		//未初始化返回默认 0
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0.0f;
-		return state().material_emissive;
+		return (*state_ptr).material_emissive;
 	}
 }

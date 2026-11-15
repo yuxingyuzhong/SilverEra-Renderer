@@ -38,12 +38,13 @@ namespace engine
 	//事件终端（完整定义见 EngineFoundation 的事件终端头）
 	class Event_Terminal;
 
-	//渲染器前置声明（供下方层内 GPU 粒子推进入口引用）
+	//渲染器与核心模块窄上下文前置声明
 	class Renderer;
+	struct Render_Core_Context;
 
 	/*
 	层内 GPU 粒子推进（模拟语义与计算原语同归本层）
-	实现位于 src/render/Particle/粒子GPU推进.cpp，经 friend 访问渲染器私有实现。
+	实现位于 src/render/Particle/粒子GPU推进.cpp，经六域公共接口协作。
 	*/
 	namespace particle_gpu
 	{
@@ -422,6 +423,54 @@ namespace engine
 		uint32_t render_targets = 0;
 		//材质数
 		uint32_t materials = 0;
+	};
+
+	//渲染目标原生附件快照（uint64_t 承载原生句柄，保持公共头 Vulkan-free）
+	struct Render_Target_Native_Info
+	{
+		uint64_t color_image = 0;
+		uint64_t color_view = 0;
+		uint64_t depth_image = 0;
+		uint64_t depth_view = 0;
+		uint64_t msaa_color_image = 0;
+		uint64_t msaa_color_view = 0;
+		uint64_t msaa_depth_image = 0;
+		uint64_t msaa_depth_view = 0;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		uint32_t sample_count = 1;
+	};
+
+	//单批实例登记所需的材质值快照
+	struct Instance_Material_Values
+	{
+		bool pbr_active = false;
+		float pbr_roughness = 1.0f;
+		float pbr_metallic = 0.0f;
+		float emissive = 0.0f;
+		bool toon_active = false;
+		float toon_steps = 0.0f;
+		float toon_rim = 0.0f;
+		float toon_specular = 0.0f;
+		float toon_tint[3] = { 1.0f, 1.0f, 1.0f };
+	};
+
+	//按帧阴影矩阵与逐瓦片参数值快照
+	struct Scene_Shadow_Frame
+	{
+		float light_view_proj[16] = {};
+		float light_view_proj_far[16] = {};
+		float light_view_proj_far2[16] = {};
+		float cascade_depth_span[3] = {};
+		float shadow_texel_world = 0.0f;
+		float cascade_blend_effective = 0.0f;
+		float spot_view_proj_tiles[8][16] = {};
+		float spot_shadow_spans[8] = {};
+		float spot_shadow_bias_tiles[8] = {};
+		float spot_shadow_softness_tiles[8] = {};
+		float spot_shadow_strength_tiles[8] = {};
+		float spot_shadow_slot_tiles[32] = {};
+		uint32_t spot_shadow_tiles = 0;
 	};
 
 	/*

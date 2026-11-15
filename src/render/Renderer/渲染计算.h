@@ -5,6 +5,7 @@
 //游戏引擎命名空间
 namespace engine
 {
+	struct Render_Core_Context;
 	class Renderer;
 	struct Compute_State;
 
@@ -16,7 +17,7 @@ namespace engine
 	class Render_Compute
 	{
 	public:
-		explicit Render_Compute(Renderer* owner);
+		Render_Compute(Renderer* owner, const Render_Core_Context& core_context);
 		~Render_Compute(void);
 		//不可拷贝、不可移动
 		Render_Compute(const Render_Compute&) = delete;
@@ -80,6 +81,12 @@ namespace engine
 		取本帧槽 HiZ 历史视图与最近邻采样器的原生句柄（uint64_t）；参数档位为 0 / HiZ 未启用 / 该槽历史未就绪时返回假。
 		*/
 		bool particle_depth_source(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const;
+		//一次提交内完成粒子紧凑索引与间接命令生成，并回读、钳制紧凑计数
+		bool particle_indirect_commands_build(Compute_Buffer_Handle control_buffer,
+			Compute_Buffer_Handle index_buffer, Compute_Buffer_Handle compact_count_buffer,
+			Compute_Pipeline_Handle compact_pipeline, Compute_Pipeline_Handle indirect_pipeline,
+			uint64_t command_buffer_native, uint32_t capacity, uint32_t quad_index_count,
+			uint32_t& count_out);
 		/*
 		GPU 回读通道（第二百四十四轮）
 		在一次性命令缓冲内：计算→传输屏障 → `vkCmdCopyBuffer` 到暂存 → 传输→主机屏障 → 围栏等待 → 映射读回。
@@ -126,6 +133,8 @@ namespace engine
 		//GPU 剔除开关（默认关；为真且计算可用时实例化绘制走 GPU 压缩）
 		void gpu_cull_enable_set(bool enabled);
 		bool gpu_cull_enable_get(void) const;
+		//按帧上传光源记录并整备、上传 Cluster 图形数据
+		bool cluster_frame_update(uint32_t slot, uint64_t frame_count);
 		/*
 		Hi-Z 开关与资源状态（第二百五十三轮）
 		hiz_enable_set(true) 在计算路径可用时惰性创建深度历史 ＋ 金字塔资源，失败返回假且开关保持关闭；
@@ -149,6 +158,10 @@ namespace engine
 		未启用 Hi-Z / 资源未建 / 该槽无历史时返回假且出参归零。
 		*/
 		bool hiz_history_sample_get(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const;
+		//场景退场时生成当前帧槽 Hi-Z 历史与金字塔
+		bool hiz_frame_ready(void) const;
+		void hiz_post_scene(void* command_buffer, uint64_t depth_image, uint64_t depth_view,
+			uint32_t width, uint32_t height, uint32_t slot);
 		/*
 		Cluster 光照开关与资源状态（第二百六十六轮）
 		cluster_enable_set(true) 在计算路径可用时惰性创建每帧槽光源记录 SSBO，失败返回假且开关保持关闭；
@@ -234,18 +247,33 @@ namespace engine
 		bool compute_dispatch(Compute_Pipeline_Handle pipeline, uint32_t elements, uint32_t local_size,
 			const void* push_data = nullptr, uint32_t push_size = 0);
 
-		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//=== 域生命周期与层内成员窄接口 ===
 		//初始化（原 renderer_init_graphics 中能力探测 / 上下文构建 / 健康检查管线登记部分）
 		bool init(const Renderer_Config& effective);
 		//关闭（原 shutdown 中计算相关部分；幂等）
 		void shutdown(void);
-		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
-		Compute_State& state(void);
-		const Compute_State& state(void) const;
-
+		//重置并填充计算相关的帧统计
+		void frame_stats_reset(void);
+		void frame_stats_fill(Frame_Stats& stats) const;
+		//设备域专用的原生计算缓冲操作
+		bool compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data,
+			uint32_t extra_usage);
+		uint64_t compute_buffer_native(uint64_t handle) const;
+		//初始化后的计算选项与 Cluster 能力配置
+		void options_apply(bool gpu_cull_enabled, const uint32_t cluster_grid[3]);
+		//Hi-Z 与 Cluster 资源生命周期（原生格式以无 Vulkan 标量承载）
+		void hiz_swapchain_rebuild(uint32_t width, uint32_t height, uint32_t depth_format);
+		bool hiz_resources_ensure(uint32_t width, uint32_t height, uint32_t depth_format);
+		bool cluster_resources_ensure(void);
+		void cluster_resources_destroy(void);
+		bool cluster_placeholder_resource_ensure(void);
+		uint64_t cluster_placeholder_native(void) const;
+		bool cluster_graphics_resources_ensure(uint32_t cluster_total, uint32_t list_capacity);
+		void cluster_graphics_resources_destroy(void);
 	private:
-		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		//门面自身（跨域语义调用）
 		Renderer* owner = nullptr;
+		const Render_Core_Context* core = nullptr;
 		//计算域状态
 		std::unique_ptr<Compute_State> state_ptr;
 	};

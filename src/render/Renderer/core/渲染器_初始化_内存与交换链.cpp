@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -36,21 +36,21 @@ namespace engine
 	//初始化（任一环节失败即逆序回退）
 
 	//初始化阶段：VMA 分配器 / 交换链 / 在途帧数钳制
-	bool renderer_init_memory_swapchain(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective)
+	bool renderer_init_memory_swapchain(Renderer* owner, Device_State& state, Renderer_Config& effective)
 	{
 		//⑥ 内存：VMA 分配器
-		if (!impl->memory.build(impl->device.instance_get(), impl->device.physical_device_get(),
-			impl->device.device_get(), impl->device.graphics_family_get(), impl->device.graphics_queue_get()))
+		if (!state.memory.build(state.device.instance_get(), state.device.physical_device_get(),
+			state.device.device_get(), state.device.graphics_family_get(), state.device.graphics_queue_get()))
 		{
 			logger.error("渲染器:: 内存初始化失败");
-			owner->shutdown();
+			owner->device().shutdown();
 			return false;
 		}
 
 		//取窗口客户区实际尺寸（HiDPI 下可能与配置不同）
 		uint32_t swapchain_width = 0;
 		uint32_t swapchain_height = 0;
-		impl->platform.window_size_get(swapchain_width, swapchain_height);
+		state.platform.window_size_get(swapchain_width, swapchain_height);
 		//若窗口尺寸不可用则回退配置值
 		if (swapchain_width == 0 || swapchain_height == 0)
 		{
@@ -58,13 +58,13 @@ namespace engine
 			swapchain_height = effective.height;
 		}
 		//⑦ 交换链（深度图像依赖内存模块，故传入 memory；首次建链固定单采样，待格式确定后再择定 MSAA）
-		impl->swapchain.sample_count_set(1);
-		if (!impl->swapchain.build(impl->device.physical_device_get(), impl->memory, impl->device.device_get(),
-			impl->platform.surface_get(), impl->device.graphics_family_get(), impl->device.present_family_get(),
+		state.swapchain.sample_count_set(1);
+		if (!state.swapchain.build(state.device.physical_device_get(), state.memory, state.device.device_get(),
+			state.platform.surface_get(), state.device.graphics_family_get(), state.device.present_family_get(),
 			swapchain_width, swapchain_height, effective.vsync))
 		{
 			logger.error("渲染器:: 交换链创建失败");
-			owner->shutdown();
+			owner->device().shutdown();
 			return false;
 		}
 		/*
@@ -78,34 +78,34 @@ namespace engine
 			if (requested_samples != 2 && requested_samples != 4 && requested_samples != 8)
 				requested_samples = 1;
 			//按设备支持钳制
-			uint32_t chosen_samples = msaa_supported_max(impl->device.physical_device_get(),
-				impl->swapchain.format_get(), impl->swapchain.depth_format_get(), requested_samples);
+			uint32_t chosen_samples = msaa_supported_max(state.device.physical_device_get(),
+				state.swapchain.format_get(), state.swapchain.depth_format_get(), requested_samples);
 			//请求未被完全满足时告警
 			if (requested_samples > 1 && chosen_samples < requested_samples)
 				logger.warn("渲染器:: 请求 MSAA {}× 不被支持，降级为 {}×", requested_samples, chosen_samples);
 			//若启用 MSAA：重建交换链以建立多重采样附件
 			if (chosen_samples > 1)
 			{
-				impl->swapchain.sample_count_set(chosen_samples);
-				impl->swapchain.destroy();
-				if (!impl->swapchain.build(impl->device.physical_device_get(), impl->memory, impl->device.device_get(),
-					impl->platform.surface_get(), impl->device.graphics_family_get(), impl->device.present_family_get(),
+				state.swapchain.sample_count_set(chosen_samples);
+				state.swapchain.destroy();
+				if (!state.swapchain.build(state.device.physical_device_get(), state.memory, state.device.device_get(),
+					state.platform.surface_get(), state.device.graphics_family_get(), state.device.present_family_get(),
 					swapchain_width, swapchain_height, effective.vsync))
 				{
 					logger.error("渲染器:: 交换链 MSAA 附件创建失败");
-					owner->shutdown();
+					owner->device().shutdown();
 					return false;
 				}
 			}
-			impl->msaa_samples = impl->swapchain.sample_count_get();
-			logger.info("渲染器:: MSAA 采样数 {}", impl->msaa_samples);
+			state.msaa_samples = state.swapchain.sample_count_get();
+			logger.info("渲染器:: MSAA 采样数 {}", state.msaa_samples);
 		}
 		/*
 		钳制在途帧数
 		图像可用信号量属「每交换链图像」（数量 = 交换链图像数），帧模块按该池轮转取用；
 		仅当在途帧数不超过信号量数时，「先等帧栅栏」才能保证被取用的信号量已在前一次被消费（K13）。
 		*/
-		uint32_t image_available_count = impl->swapchain.image_available_count_get();
+		uint32_t image_available_count = state.swapchain.image_available_count_get();
 		//若在途帧数超过图像可用信号量数则下调并告警
 		if (image_available_count > 0 && effective.frame_overlap > image_available_count)
 		{

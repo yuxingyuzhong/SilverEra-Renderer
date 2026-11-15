@@ -1,5 +1,5 @@
 #pragma once
-#include "渲染器实现.h"
+#include "渲染器内部状态.h"
 //内部工具与帧阶段声明
 #include "渲染器内部工具.h"
 

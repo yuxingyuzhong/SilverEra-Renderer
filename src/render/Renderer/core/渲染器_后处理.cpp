@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -24,10 +24,8 @@ namespace engine
 
 	bool Render_Device::post_chain_set(const uint64_t* handles, uint32_t count)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 		{
 			logger.error("渲染器:: 后处理链设置失败：尚未初始化");
 			return false;
@@ -35,13 +33,13 @@ namespace engine
 		//若为清除链
 		if (count == 0)
 		{
-			state().post_chain.clear();
+			(*state_ptr).post_chain.clear();
 			//链已清空 → 逐级专设参数与描边色一并失效
 			for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
 			{
-				state().post_stage_param_valid[stage] = false;
-				state().post_stage_color_valid[stage] = false;
-				state().post_stage_extra_valid[stage] = false;
+				(*state_ptr).post_stage_param_valid[stage] = false;
+				(*state_ptr).post_stage_color_valid[stage] = false;
+				(*state_ptr).post_stage_extra_valid[stage] = false;
 			}
 
 			logger.info("渲染器:: 后处理链已清除（回落单级默认后处理）");
@@ -67,20 +65,20 @@ namespace engine
 		for (uint32_t index = 0; index < count; ++index)
 		{
 			//若该级句柄未登记
-			if (!impl->pipeline.pipeline_has(handles[index]))
+			if (!owner->resource().pipeline_valid(handles[index]))
 			{
 				logger.error("渲染器:: 后处理链设置失败：第 {} 级句柄 {} 未登记", index, handles[index]);
 				return false;
 			}
 		}
 		//写入链（保持各句柄的登记顺序不变）
-		state().post_chain.assign(handles, handles + count);
+		(*state_ptr).post_chain.assign(handles, handles + count);
 		//链已变 → 逐级专设参数与描边色失效（旧下标对应旧级序）
 		for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
 		{
-			state().post_stage_param_valid[stage] = false;
-			state().post_stage_color_valid[stage] = false;
-				state().post_stage_extra_valid[stage] = false;
+			(*state_ptr).post_stage_param_valid[stage] = false;
+			(*state_ptr).post_stage_color_valid[stage] = false;
+				(*state_ptr).post_stage_extra_valid[stage] = false;
 		}
 
 		logger.info("渲染器:: 后处理链已设置（{} 级）", count);
@@ -89,99 +87,63 @@ namespace engine
 
 	uint32_t Render_Device::post_chain_count(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则视为空链
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
-		return static_cast<uint32_t>(state().post_chain.size());
+		return static_cast<uint32_t>((*state_ptr).post_chain.size());
 	}
 
 	uint32_t Render_Device::post_chain_get(uint64_t* out, uint32_t capacity) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参为空 / 未初始化 / 未设链则返回 0
-		if (out == nullptr || impl == nullptr || !impl->initialized)
+		if (out == nullptr || state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
 		//实际写入级数 = min(链级数, 容量)
-		uint32_t count = static_cast<uint32_t>(state().post_chain.size());
+		uint32_t count = static_cast<uint32_t>((*state_ptr).post_chain.size());
 		if (count > capacity)
 			count = capacity;
 		//按当前级序逐级写出（级序可能因管线卸载而压缩）
 		for (uint32_t index = 0; index < count; ++index)
-			out[index] = state().post_chain[index];
+			out[index] = (*state_ptr).post_chain[index];
 		return count;
 	}
 
 	uint32_t Render_Device::post_chain_sample_counts(uint32_t* out, uint32_t capacity) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参为空 / 容量为零 / 未初始化则返回 0
-		if (out == nullptr || capacity == 0 || impl == nullptr || !impl->initialized)
+		if (out == nullptr || capacity == 0 || state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
 		//实际写入级数 = min(链级数, 容量)
-		uint32_t count = static_cast<uint32_t>(state().post_chain.size());
+		uint32_t count = static_cast<uint32_t>((*state_ptr).post_chain.size());
 		if (count > capacity)
 			count = capacity;
 		//逐级查询管线采样数
 		for (uint32_t index = 0; index < count; ++index)
-			out[index] = impl->pipeline.pipeline_sample_count(state().post_chain[index]);
+			out[index] = owner->resource().pipeline_sample_count((*state_ptr).post_chain[index]);
 		return count;
 	}
 
 	void Render_Device::post_lut_bind(uint64_t texture_handle)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
-		//句柄 0 表示清除：改写为内置默认白纹理（2×2，使查找级原样输出）
-		const uint64_t target_handle = texture_handle == 0 ? impl->resource_domain->state().default_texture : texture_handle;
-		//取目标纹理的视图与采样器（非零且未登记则告警并保持原绑定）
-		VkImageView view = VK_NULL_HANDLE;
-		VkSampler sampler = VK_NULL_HANDLE;
-		if (!impl->resource_domain->state().texture.texture_bind_get(target_handle, view, sampler))
-		{
-			logger.warn("渲染器:: 查找表纹理句柄 {} 无效，绑定忽略", texture_handle);
-			return;
-		}
-		/*
-		写满全部帧槽的全部后处理描述符集之前先等全部在途帧完成
-		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
-		*/
-		impl->frame.frames_wait();
-		//逐帧槽逐后处理集写入 binding 3（长命资源，一次写满全部槽）
-		bool all_bound = true;
-		for (uint32_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-			for (uint32_t index = 0; index < Pipeline_Context::POST_SET_PER_SLOT; ++index)
-				//任一集写入失败即记为不完整
-				if (!impl->pipeline.post_lut_bind(slot, sampler, view, index))
-					all_bound = false;
-		//全部写入成功才记录句柄（清除时记录 0）
-		if (all_bound)
-			impl->resource_domain->state().lut_texture = texture_handle == 0 ? 0 : texture_handle;
-		logger.info("渲染器:: 3D LUT 绑定已更新（句柄 {}）；清除时为 0", texture_handle);
+		//转交资源域完成纹理解析、逐槽绑定与句柄记录
+		owner->resource().post_lut_bind(texture_handle, state_ptr->config.frame_overlap);
 	}
 
 	uint64_t Render_Device::post_lut_get(void) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return 0;
-		return impl->resource_domain->state().lut_texture;
+		return owner->resource().post_lut_get();
 	}
 
 	void Render_Device::bloom_param_set(float threshold, float knee, float intensity)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//参数校验：阈值须正、软膝非负且小于阈值、强度须为有限正值
 		bool valid = (threshold > 0.0f) && (knee >= 0.0f) && (knee < threshold)
@@ -193,23 +155,21 @@ namespace engine
 				threshold, knee, intensity);
 			return;
 		}
-		state().bloom_param[0] = threshold;
-		state().bloom_param[1] = knee;
-		state().bloom_param[2] = intensity;
+		(*state_ptr).bloom_param[0] = threshold;
+		(*state_ptr).bloom_param[1] = knee;
+		(*state_ptr).bloom_param[2] = intensity;
 	}
 
 	void Render_Device::post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级泛光参数设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		/*
@@ -226,25 +186,23 @@ namespace engine
 				stage, threshold, knee, intensity);
 			return;
 		}
-		state().post_stage_param[stage][0] = threshold;
-		state().post_stage_param[stage][1] = knee;
-		state().post_stage_param[stage][2] = intensity;
-		state().post_stage_param[stage][3] = 0.0f;
-		state().post_stage_param_valid[stage] = true;
+		(*state_ptr).post_stage_param[stage][0] = threshold;
+		(*state_ptr).post_stage_param[stage][1] = knee;
+		(*state_ptr).post_stage_param[stage][2] = intensity;
+		(*state_ptr).post_stage_param[stage][3] = 0.0f;
+		(*state_ptr).post_stage_param_valid[stage] = true;
 	}
 
 	void Render_Device::post_stage_param4_set(uint32_t stage, float x, float y, float z, float w)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		/*
@@ -265,25 +223,23 @@ namespace engine
 				stage, x, y, z, w);
 			return;
 		}
-		state().post_stage_param[stage][0] = x;
-		state().post_stage_param[stage][1] = y;
-		state().post_stage_param[stage][2] = z;
-		state().post_stage_param[stage][3] = w;
-		state().post_stage_param_valid[stage] = true;
+		(*state_ptr).post_stage_param[stage][0] = x;
+		(*state_ptr).post_stage_param[stage][1] = y;
+		(*state_ptr).post_stage_param[stage][2] = z;
+		(*state_ptr).post_stage_param[stage][3] = w;
+		(*state_ptr).post_stage_param_valid[stage] = true;
 	}
 
 	void Render_Device::post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级通用四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		//非有限值整次忽略（保持原值）
@@ -295,25 +251,23 @@ namespace engine
 			logger.warn("渲染器:: 逐级通用四参含非有限值（级 {}），整次忽略", stage);
 			return;
 		}
-		state().post_stage_param[stage][0] = x;
-		state().post_stage_param[stage][1] = y;
-		state().post_stage_param[stage][2] = z;
-		state().post_stage_param[stage][3] = w;
-		state().post_stage_param_valid[stage] = true;
+		(*state_ptr).post_stage_param[stage][0] = x;
+		(*state_ptr).post_stage_param[stage][1] = y;
+		(*state_ptr).post_stage_param[stage][2] = z;
+		(*state_ptr).post_stage_param[stage][3] = w;
+		(*state_ptr).post_stage_param_valid[stage] = true;
 	}
 
 	void Render_Device::post_stage_color_set(uint32_t stage, float r, float g, float b)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级描边色设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		//逐分量归一：非有限值按 0（黑），否则钳到 [0, 1]
@@ -321,25 +275,23 @@ namespace engine
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			float value = std::isfinite(channels[index]) ? channels[index] : 0.0f;
-			state().post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+			(*state_ptr).post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
 		}
 		//第四分量保留（恒 0）
-		state().post_stage_color[stage][3] = 0.0f;
-		state().post_stage_color_valid[stage] = true;
+		(*state_ptr).post_stage_color[stage][3] = 0.0f;
+		(*state_ptr).post_stage_color_valid[stage] = true;
 	}
 
 	void Render_Device::post_stage_color4_set(uint32_t stage, float r, float g, float b, float a)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级四分量色设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		//逐分量归一：非有限值按 0，否则钳到 [0, 1]
@@ -347,29 +299,27 @@ namespace engine
 		for (std::size_t index = 0; index < 4; ++index)
 		{
 			float value = std::isfinite(channels[index]) ? channels[index] : 0.0f;
-			state().post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+			(*state_ptr).post_stage_color[stage][index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
 		}
-		state().post_stage_color_valid[stage] = true;
+		(*state_ptr).post_stage_color_valid[stage] = true;
 	}
 
 	void Render_Device::post_stage_extra_set(uint32_t stage, float x, float y, float z, float w)
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (state_ptr == nullptr || !state_ptr->initialized)
 			return;
 		//设备推送块上限不足：该组不可用
-		if (!state().post_extra_supported)
+		if (!(*state_ptr).post_extra_supported)
 		{
 			logger.warn("渲染器:: 逐级额外四参被拒绝：设备推送块上限不足 144 字节");
 			return;
 		}
 		//级序须落在当前链内（链外下标无意义）
-		if (stage >= state().post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
 		{
 			logger.warn("渲染器:: 逐级额外四参设置被忽略：级序 {} 不在当前链内（链长 {}）",
-				stage, static_cast<uint32_t>(state().post_chain.size()));
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
 			return;
 		}
 		//非有限值整次忽略（保持原值）
@@ -379,17 +329,15 @@ namespace engine
 			logger.warn("渲染器:: 逐级额外四参含非有限值（级 {}），整次忽略", stage);
 			return;
 		}
-		state().post_stage_extra[stage][0] = x;
-		state().post_stage_extra[stage][1] = y;
-		state().post_stage_extra[stage][2] = z;
-		state().post_stage_extra[stage][3] = w;
-		state().post_stage_extra_valid[stage] = true;
+		(*state_ptr).post_stage_extra[stage][0] = x;
+		(*state_ptr).post_stage_extra[stage][1] = y;
+		(*state_ptr).post_stage_extra[stage][2] = z;
+		(*state_ptr).post_stage_extra[stage][3] = w;
+		(*state_ptr).post_stage_extra_valid[stage] = true;
 	}
 
 	uint32_t Render_Device::post_stage_param_get(uint32_t stage, float out[4]) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参为空则无内容可写
 		if (out == nullptr)
 			return 0;
@@ -397,27 +345,25 @@ namespace engine
 		for (std::size_t each = 0; each < 4; ++each)
 			out[each] = 0.0f;
 		//未初始化 / 级序不在链内 / 该级未设专设值 → 0
-		if (impl == nullptr || !impl->initialized || stage >= state().post_chain.size()
-			|| stage >= POST_CHAIN_MAX_STAGES || !state().post_stage_param_valid[stage])
+		if (state_ptr == nullptr || !state_ptr->initialized || stage >= (*state_ptr).post_chain.size()
+			|| stage >= POST_CHAIN_MAX_STAGES || !(*state_ptr).post_stage_param_valid[stage])
 			return 0;
 		//写出该级专设值
 		for (std::size_t each = 0; each < 4; ++each)
-			out[each] = state().post_stage_param[stage][each];
+			out[each] = (*state_ptr).post_stage_param[stage][each];
 		return 1;
 	}
 
 	uint32_t Render_Device::post_chain_params_get(float* out, uint32_t capacity) const
 	{
-		//实现体（未迁成员经此访问）
-		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//出参为空或容量不足一级则无内容可写
 		if (out == nullptr || capacity < 4)
 			return 0;
 		//实际可写的级数（受链级数与容量共同限制）
 		uint32_t stages = capacity / 4;
 		//未初始化时链为空
-		uint32_t chain_size = (impl == nullptr || !impl->initialized)
-			? 0u : static_cast<uint32_t>(state().post_chain.size());
+		uint32_t chain_size = (state_ptr == nullptr || !state_ptr->initialized)
+			? 0u : static_cast<uint32_t>((*state_ptr).post_chain.size());
 		if (chain_size > POST_CHAIN_MAX_STAGES)
 			chain_size = POST_CHAIN_MAX_STAGES;
 		if (stages > chain_size)
@@ -426,9 +372,9 @@ namespace engine
 		for (uint32_t stage = 0; stage < stages; ++stage)
 		{
 			//该级是否设过专设值
-			bool valid = state().post_stage_param_valid[stage];
+			bool valid = (*state_ptr).post_stage_param_valid[stage];
 			for (uint32_t each = 0; each < 4; ++each)
-				out[stage * 4 + each] = valid ? state().post_stage_param[stage][each] : 0.0f;
+				out[stage * 4 + each] = valid ? (*state_ptr).post_stage_param[stage][each] : 0.0f;
 		}
 		return stages;
 	}

@@ -1,5 +1,5 @@
 #pragma once
-//公共语义类型与前置声明
+//公共语义类型
 #include "渲染器类型.h"
 
 //游戏引擎命名空间
@@ -7,90 +7,154 @@ namespace engine
 {
 	class Renderer;
 	struct Device_State;
+	struct Render_Core_Context;
+	struct Frame_Dispatch_Input;
+	struct Frame_Render_Item;
 
-	/*
-	渲染器域：设备
-	离屏目标选择、同帧后处理呈现、后处理链参数与主机侧并行配置。
-	*/
+	//设备域（核心模块、帧编排、离屏目标、输出与后处理）
 	class Render_Device
 	{
 	public:
 		explicit Render_Device(Renderer* owner);
 		~Render_Device(void);
-		//不可拷贝、不可移动
 		Render_Device(const Render_Device&) = delete;
 		Render_Device& operator=(const Render_Device&) = delete;
 
-		//设置本帧渲染目标（0 = 交换链）
-		void render_target_set(uint64_t handle);
-		//设置本帧同帧后处理呈现目标（0 = 关闭）
-		void render_target_present_set(uint64_t handle);
-		//设置同帧后处理链目标组
-		bool render_target_present_chain_set(const uint64_t* handles, uint32_t count);
+		bool init(const Renderer_Config& config);
+		void shutdown(void);
+		bool valid(void) const;
+		bool frame_render(uint8_t* readback_pixels = nullptr, uint32_t readback_capacity = 0,
+			uint32_t* readback_width = nullptr, uint32_t* readback_height = nullptr);
+		bool close_requested(void) const;
+		uint64_t frame_count(void) const;
+		Frame_Stats frame_stats_get(void) const;
+		void frame_wait_idle(void);
+		void frame_stats_reset(void);
+		Renderer_Resource_Counts resource_counts(void) const;
+		uint64_t scene_upload_bytes(void) const;
+		uint64_t instance_upload_bytes(void) const;
+		bool shadow_readback(uint8_t* pixels, uint32_t capacity, uint32_t* width_out, uint32_t* height_out);
+		void light_fill_set(const float direction[3], const float color[3], float intensity, float specular = 1.0f);
 
-		//设置后处理链
+		void ssaa_factor_set(uint32_t factor);
+		uint32_t ssaa_factor(void) const;
+		void msaa_samples_set(uint32_t samples);
+		uint32_t msaa_samples(void) const;
+		void msaa_depth_resolve_set(bool enabled);
+		bool msaa_depth_resolve(void) const;
+		uint32_t msaa_max_samples(void) const;
+		bool sampler_anisotropy_supported(void) const;
+		float sampler_max_anisotropy(void) const;
+		float sampler_max_lod_bias(void) const;
+		uint32_t extent_width(void) const;
+		uint32_t extent_height(void) const;
+		bool window_size_set(uint32_t width, uint32_t height);
+		bool window_fullscreen_set(bool fullscreen);
+		bool window_fullscreen(void) const;
+		float display_scale(void) const;
+
+		void render_target_set(uint64_t handle);
+		void render_target_present_set(uint64_t handle);
+		bool render_target_present_chain_set(const uint64_t* handles, uint32_t count);
 		bool post_chain_set(const uint64_t* handles, uint32_t count);
-		//读取当前后处理链级数
 		uint32_t post_chain_count(void) const;
-		//读回当前后处理链各级管线句柄
 		uint32_t post_chain_get(uint64_t* out, uint32_t capacity) const;
-		//读取当前链各级管线的实际采样数
 		uint32_t post_chain_sample_counts(uint32_t* out, uint32_t capacity) const;
-		//绑定 3D LUT 纹理（0 = 清除）
 		void post_lut_bind(uint64_t texture_handle);
-		//当前 3D LUT 句柄
 		uint64_t post_lut_get(void) const;
-		//设置全局泛光参数
 		void bloom_param_set(float threshold, float knee, float intensity);
-		//设置逐级后处理参数
 		void post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity);
-		//读取逐级后处理专设参数
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
-		//设置逐级调色四参
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
-		//设置逐级通用四参
 		void post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w);
-		//设置逐级三分量颜色
 		void post_stage_color_set(uint32_t stage, float r, float g, float b);
-		//设置逐级四分量颜色
 		void post_stage_color4_set(uint32_t stage, float r, float g, float b, float a);
-		//设置逐级额外四参
 		void post_stage_extra_set(uint32_t stage, float x, float y, float z, float w);
-		//批量读回当前链各级专设参数
 		uint32_t post_chain_params_get(float* out, uint32_t capacity) const;
 
-		//启用或关闭视锥剔除
 		void cull_enabled_set(bool enabled);
-		//查询视锥剔除是否启用
 		bool cull_enabled(void) const;
-		//启用或关闭静态合批
 		void static_batching_set(bool enabled);
-		//查询静态合批是否启用
 		bool static_batching(void) const;
-		//设置渲染工作线程数
 		void render_threads_set(uint32_t count);
-		//查询当前渲染工作线程数
 		uint32_t render_threads(void) const;
-		//设置实例级剔除并行阈值
 		void cull_parallel_min_instances_set(uint32_t count);
-		//查询实例级剔除并行阈值
 		uint32_t cull_parallel_min_instances(void) const;
-		//设置实例扫描并行阈值
 		void instance_scan_parallel_min_set(uint32_t count);
-		//查询实例扫描并行阈值
 		uint32_t instance_scan_parallel_min(void) const;
 
-		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
-		//关闭（只复位设备域状态，不销毁其他域资源）
-		void shutdown(void);
-		//迁移期：状态直取（供帧模块过渡）
-		Device_State& state(void);
-		const Device_State& state(void) const;
+		bool hiz_ensure(void);
+		bool cluster_ensure(void);
+		void cluster_destroy(void);
+		bool cluster_placeholder_ensure(void);
+		bool cluster_graphics_ensure(uint32_t cluster_total, uint32_t list_capacity);
+		void cluster_graphics_destroy(void);
+		bool compute_buffer_create_usage(Compute_Buffer_Handle& handle_out, uint32_t size, const void* data,
+			uint32_t extra_usage);
+		uint64_t compute_buffer_native(uint64_t handle) const;
+		void outline_item_push(const Frame_Render_Item& item);
+		void spot_shadow_tiles_ensure(std::size_t max_tiles);
+		void spot_shadow_atlas_apply(void);
+		bool spot_shadow_atlas_active(void) const;
+		void shadow_invalidate(void);
+		void shadow_bias_tiles_get(float out[8]) const;
+		void indirect_first_instance_supported_set(bool supported);
+		//资源管线卸载后摘除后处理引用并清除逐级参数
+		bool pipeline_unloaded(uint64_t handle, std::size_t& remaining_stages);
+		//解除设备帧路径对一个即将销毁渲染目标的全部引用
+		void render_target_references_release(uint64_t handle);
+		//当前方向光阴影目标句柄
+		uint64_t shadow_target_handle(void) const;
+		//阴影管线与目标组的值快照和整体替换
+		uint64_t shadow_pipeline_handle(void) const;
+		void shadow_pipeline_set(uint64_t handle);
+		void shadow_targets_get(uint64_t& directional, uint64_t spot_targets[8]) const;
+		void shadow_targets_replace(uint64_t directional, const uint64_t spot_targets[8]);
+		uint64_t shadow_pass_total(void) const;
+		//网格实例剔除、容量检查与材质实例追加
+		bool mesh_single_prepare(const float* transform, bool bounds_valid,
+			const float bounds_min[3], const float bounds_max[3], const Instance_Material_Values& material,
+			bool& registered, uint64_t& instance_offset);
+		bool mesh_instances_prepare(const float* transforms, uint32_t count, bool bounds_valid,
+			const float bounds_min[3], const float bounds_max[3], const Instance_Material_Values& material,
+			uint32_t& visible_count, uint64_t& instance_offset);
+		//复制推送块并登记网格或粒子绘制项
+		void mesh_item_push(Frame_Render_Item item, const std::array<float, 32>* push_constants);
+		void particle_item_push(Frame_Render_Item item, const std::array<float, 32>& push_constants);
+		std::size_t frame_item_count(void) const;
+		std::size_t frame_push_count(void) const;
+		bool particle_item_finish(std::size_t items_before, std::size_t push_before,
+			uint64_t default_view, uint64_t default_sampler, uint64_t depth_view,
+			uint64_t depth_sampler, float soft_range);
+		//逐帧槽绑定粒子场景、状态与紧凑索引缓冲
+		bool particle_scene_buffers_bind(uint64_t state_buffer, uint64_t index_buffer);
+
+		//其余域创建时注入的窄核心上下文
+		Render_Core_Context* core_context(void);
 
 	private:
-		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		void frame_stage_input_events(Renderer* owner, Device_State& state);
+		void frame_stage_shadow_matrices(Renderer* owner, Device_State& state);
+		bool frame_stage_spot_shadow_matrices(Renderer* owner, Device_State& state);
+		void frame_stage_descriptor_sets(Renderer* owner, Device_State& state, uint32_t slot);
+		bool frame_stage_instance_buffers(Renderer* owner, Device_State& state, uint32_t slot);
+		bool frame_stage_shadow_pass(Renderer* owner, Device_State& state, bool spot_shadow_light_valid);
+		bool frame_stage_scene_ubo(Renderer* owner, Device_State& state, uint32_t slot,
+			const float view_proj[16], bool spot_shadow_light_valid);
+		void frame_stage_sky_item(Renderer* owner, Device_State& state, uint32_t slot,
+			const float view_proj[16], uint64_t sky_instance_offset, bool sky_frame);
+		bool frame_stage_dispatch(Renderer* owner, Device_State& state, const Frame_Dispatch_Input& input);
+		void output_reset(void);
+		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
+		bool post_mesh_ensure(void);
+		bool post_pipeline_ensure(void);
+		bool post_resources_ensure(void);
+		bool ssaa_pipeline_ensure(void);
+		bool sky_pipeline_ensure(void);
+		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
+
 		Renderer* owner = nullptr;
-		//设备域状态
 		std::unique_ptr<Device_State> state_ptr;
+		std::unique_ptr<Render_Core_Context> core_context_ptr;
 	};
 }

@@ -1,7 +1,7 @@
 #include "../局部命名空间使用.h"
-//实现体定义（提供 Vulkan / 模块类型）
-#include "渲染器实现.h"
-//阶段函数声明
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
+//帧内部辅助类型与函数
 #include "渲染器内部工具.h"
 //帧内共享辅助（合批 / 阴影签名）
 #include "渲染器_帧内部.h"
@@ -14,7 +14,7 @@ namespace engine
 {
 	//帧阶段：泵事件 + 本帧输入锁存与原生 UI 交互
 
-	bool frame_stage_shadow_pass(Renderer_Impl_Holder::Impl* impl, bool spot_shadow_light_valid)
+	bool Render_Device::frame_stage_shadow_pass(Renderer* owner, Device_State& state, bool spot_shadow_light_valid)
 	{
 		/*
 		⑤b 阴影 pass（第五十二轮；第五十五轮按需重绘）
@@ -24,49 +24,49 @@ namespace engine
 		若本帧输入签名与上一帧完全一致则跳过整个 pass（阴影图原样复用），静态场景省一次离屏提交与等待。
 		*/
 		//本帧阴影 pass 计数清零（第六百四十七轮；重绘路径内重新累计）
-		impl->last_shadow_passes = 0;
-		impl->last_spot_shadow_passes = 0;
+		state.last_shadow_passes = 0;
+		state.last_spot_shadow_passes = 0;
 		//本帧阴影提交次数归零（第六百六十五轮；C2 基线）
-		impl->last_shadow_submits = 0;
-		if ((impl->scene_domain->state().shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
-			&& impl->shadow_target != 0 && !impl->pending_items.empty())
+		state.last_shadow_submits = 0;
+		if ((owner->scene().shadow_enabled() || spot_shadow_light_valid) && state.shadow_pipeline != 0
+			&& state.shadow_target != 0 && !state.pending_items.empty())
 		{
 			//本帧参与投影的项数
 			std::size_t shadow_item_count = 0;
-			for (const auto& item : impl->pending_items)
+			for (const auto& item : state.pending_items)
 			{
 				//跳过文字等非投影项
 				if (item.cast_shadow)
 					++shadow_item_count;
 			}
 			//本帧阴影输入签名（只混参与投影的实例矩阵；第六百四十四轮）
-			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
-				impl->light_view_proj_far, impl->light_view_proj_far2, &impl->spot_view_proj_tiles[0][0],
-				impl->pending_items, impl->pending_instances,
-				shadow_item_count, impl->scene_domain->state().shadow_size, impl->scene_domain->state().cascade_count);
+			uint64_t shadow_signature = shadow_signature_build(state.light_view_proj,
+				state.light_view_proj_far, state.light_view_proj_far2, &state.spot_view_proj_tiles[0][0],
+				state.pending_items, state.pending_instances,
+				shadow_item_count, owner->scene().shadow_resolution(), owner->scene().shadow_cascade_count());
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
-			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
+			if (shadow_item_count != 0 && state.shadow_pass_ready && state.shadow_signature == shadow_signature)
 			{
 				//阴影图复用，主 pass 直接采样
-				++impl->shadow_reuses;
-				impl->shadow_last_redrawn = 0;
+				++state.shadow_reuses;
+				state.shadow_last_redrawn = 0;
 			}
 			else if (shadow_item_count != 0)
 			{
 				//阴影 pass 使用的帧槽（render_to_target 内部同样推进帧计数）
-				uint32_t shadow_slot = impl->frame.slot_index_get();
+				uint32_t shadow_slot = state.frame.slot_index_get();
 				//等待该槽上一轮提交完成，再写实例缓冲
-				if (!impl->frame.slot_wait())
+				if (!state.frame.slot_wait())
 				{
 					logger.error("渲染器:: 阴影 pass 等待帧槽失败");
 					return false;
 				}
 				//写入该槽实例缓冲（与主 pass 使用同一批模型矩阵）
-				if (!impl->pending_instances.empty())
+				if (!state.pending_instances.empty())
 				{
-					VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(impl->pending_instances.size()) * INSTANCE_STRIDE_BYTES;
-					if (!impl->memory.buffer_write(impl->instance_buffers[shadow_slot],
-						impl->instance_allocations[shadow_slot], impl->pending_instances.data(), instance_bytes, 0))
+					VkDeviceSize instance_bytes = static_cast<VkDeviceSize>(state.pending_instances.size()) * INSTANCE_STRIDE_BYTES;
+					if (!state.memory.buffer_write(state.instance_buffers[shadow_slot],
+						state.instance_allocations[shadow_slot], state.pending_instances.data(), instance_bytes, 0))
 					{
 						logger.error("渲染器:: 阴影 pass 实例缓冲写入失败");
 						return false;
@@ -76,19 +76,19 @@ namespace engine
 					阴影 pass 直接整块写入该槽缓冲，绕过了按需写入的缓存；
 					主 pass 之后若复用该槽，须以完整写入重建缓存，避免按旧缓存跳过必要更新。
 					*/
-					if (impl->instance_block_cached.size() > shadow_slot)
-						impl->instance_block_cached[shadow_slot] = 0;
+					if (state.instance_block_cached.size() > shadow_slot)
+						state.instance_block_cached[shadow_slot] = 0;
 					//累计阴影 pass 的实例上传字节
-					impl->instance_upload_bytes += static_cast<uint64_t>(instance_bytes);
+					state.instance_upload_bytes += static_cast<uint64_t>(instance_bytes);
 				}
 				//组装阴影绘制项（仅投影几何；改用阴影管线并以推送常量下发光源空间矩阵）
 				//阴影列表复用缓冲（第一百八十二轮；避免逐帧新建向量）
-				std::vector<Frame_Render_Item>& shadow_items = impl->shadow_items_scratch;
+				std::vector<Frame_Render_Item>& shadow_items = state.shadow_items_scratch;
 				shadow_items.clear();
 				shadow_items.reserve(shadow_item_count);
-				VkPipeline shadow_pipeline = impl->pipeline.pipeline_by_handle_get(impl->shadow_pipeline);
-				VkPipelineLayout shadow_layout = impl->pipeline.layout_get();
-				for (const auto& item : impl->pending_items)
+				VkPipeline shadow_pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get(state.shadow_pipeline));
+				VkPipelineLayout shadow_layout = reinterpret_cast<VkPipelineLayout>(owner->resource().pipeline_layout_native());
+				for (const auto& item : state.pending_items)
 				{
 					//文字等非投影项跳过
 					if (!item.cast_shadow)
@@ -102,19 +102,18 @@ namespace engine
 					若此处不指定，顶点属性 binding 1（实例模型矩阵）无缓冲，实例矩阵退化会让
 					所有几何塌到原点、阴影图只剩一点，表现为整幅画面全遮蔽。
 					*/
-					copy.instance_buffer = impl->instance_buffers[shadow_slot];
+					copy.instance_buffer = state.instance_buffers[shadow_slot];
 					copy.scene_set = VK_NULL_HANDLE;
 					copy.sampler_set = VK_NULL_HANDLE;
 					copy.descriptor_set_count = 0;
-					copy.push_constants = impl->light_view_proj;
+					copy.push_constants = state.light_view_proj;
 					copy.push_constant_size = 64;
 					copy.push_constant_offset = 0;
 					shadow_items.push_back(copy);
 				}
 				//阴影目标附件
 				Frame_Render_Target shadow_target{};
-				if (!impl->resource_domain->state().render_target.target_get(impl->shadow_target, shadow_target.color_image,
-					shadow_target.color_view, shadow_target.depth_view, shadow_target.extent))
+				if (!owner->resource().render_target_frame_get(state.shadow_target, shadow_target))
 				{
 					logger.error("渲染器:: 阴影目标附件查询失败");
 					return false;
@@ -125,7 +124,7 @@ namespace engine
 				故此处补齐（阴影颜色恒为 RGBA8 UNORM，深度取交换链深度格式，恒单采样）。
 				*/
 				shadow_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
-				shadow_target.depth_format = impl->swapchain.depth_format_get();
+				shadow_target.depth_format = state.swapchain.depth_format_get();
 				shadow_target.sample_count = 1;
 				//阴影图清空为全 0（打包深度 0 = 最远）
 				const float shadow_clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -134,18 +133,18 @@ namespace engine
 				单级：整幅目标一次绘制，行为与引入级联前逐字节一致；
 				双级：目标沿 X 切成左右两片，各占「边长的一半」，第 1 片先清屏整幅、第 2 片以「保留」写入。
 				*/
-				uint32_t cascade_total = impl->scene_domain->state().cascade_count == 3 ? 3u : (impl->scene_domain->state().cascade_count == 2 ? 2u : 1u);
-				uint32_t tile_size = cascade_total > 1 ? (impl->scene_domain->state().shadow_size / cascade_total) : impl->scene_domain->state().shadow_size;
+				uint32_t cascade_total = owner->scene().shadow_cascade_count() == 3 ? 3u : (owner->scene().shadow_cascade_count() == 2 ? 2u : 1u);
+				uint32_t tile_size = cascade_total > 1 ? (owner->scene().shadow_resolution() / cascade_total) : owner->scene().shadow_resolution();
 				/*
 				阴影列表合批（第一百二十九轮；第二百一十七轮移到分片循环外）
 				各分片的投影项完全相同、仅推送常量（光源矩阵）不同，而合批判据只比较项内静态字段
 				与推送常量的**内容**；此处各类项尚未改写的推送常量完全一致，故合批结果与逐片合批等价，
 				单级 / 多级级联下都只需合并一次，省去重复扫描。
 				*/
-				if (impl->static_batching)
-					impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
+				if (state.static_batching)
+					state.frame_merged_items += batch_adjacent_items(shadow_items, state.batch_scratch);
 				//方向光阴影关闭（仅聚光阴影）时跳过级联 pass，保留方向光图原样（第四百八十四轮）
-				const uint32_t directional_cascade_total = impl->scene_domain->state().shadow_enabled ? cascade_total : 0u;
+				const uint32_t directional_cascade_total = owner->scene().shadow_enabled() ? cascade_total : 0u;
 				/*
 				批量提交规划（第六百六十九轮；C2）
 				先统计本帧阴影段数（级联 ＋ 有效聚光瓦片）；开启且段数 > 1 时收集目标 / 矩阵 / 清屏标志，
@@ -153,20 +152,20 @@ namespace engine
 				*/
 				uint32_t spot_tile_total = 0;
 				//图集实际生效时瓦片是否可渲染不再取决于独立目标是否存在
-				const bool spot_atlas_active = impl->spot_shadow_atlas && impl->spot_shadow_atlas_target != 0;
+				const bool spot_atlas_active = state.spot_shadow_atlas && state.spot_shadow_atlas_target != 0;
 				if (spot_shadow_light_valid)
 				{
-					for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
-						if (impl->spot_shadow_spans[tile] > 0.0f
-							&& (spot_atlas_active || impl->spot_shadow_targets[tile] != 0))
+					for (std::size_t tile = 0; tile < Device_State::SPOT_SHADOW_TILES; ++tile)
+						if (state.spot_shadow_spans[tile] > 0.0f
+							&& (spot_atlas_active || state.spot_shadow_targets[tile] != 0))
 							++spot_tile_total;
 				}
-				const bool batch_path = impl->scene_domain->state().shadow_batch_submit
+				const bool batch_path = owner->scene().shadow_batch_submit()
 					&& (directional_cascade_total + spot_tile_total) > 1;
 				//批量段表（级联上限 3 ＋ 聚光瓦片 8）
-				Frame_Render_Target batch_targets[3 + Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES] = {};
-				const float* batch_matrices[3 + Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES] = {};
-				bool batch_clear[3 + Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES] = {};
+				Frame_Render_Target batch_targets[3 + Device_State::SPOT_SHADOW_TILES] = {};
+				const float* batch_matrices[3 + Device_State::SPOT_SHADOW_TILES] = {};
+				bool batch_clear[3 + Device_State::SPOT_SHADOW_TILES] = {};
 				uint32_t batch_count = 0;
 				for (uint32_t cascade = 0; cascade < directional_cascade_total; ++cascade)
 				{
@@ -179,8 +178,8 @@ namespace engine
 						cascade_target.viewport_rect.extent = { tile_size, tile_size };
 					}
 					//本片使用的光源空间矩阵
-					const float* cascade_matrix = cascade == 0 ? impl->light_view_proj
-						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
+					const float* cascade_matrix = cascade == 0 ? state.light_view_proj
+						: (cascade == 1 ? state.light_view_proj_far : state.light_view_proj_far2);
 					//第 1 片负责清屏，后续片保留已有内容
 					const float* cascade_clear = cascade == 0 ? shadow_clear : nullptr;
 					if (batch_path)
@@ -194,14 +193,14 @@ namespace engine
 					{
 						for (auto& shadow_item : shadow_items)
 							shadow_item.push_constants = cascade_matrix;
-						if (!impl->frame.render_to_target(cascade_target, shadow_items.data(),
+						if (!state.frame.render_to_target(cascade_target, shadow_items.data(),
 							static_cast<uint32_t>(shadow_items.size()), cascade_clear, nullptr, nullptr, true))
 						{
 							logger.error("渲染器:: 阴影 pass 提交失败（级联 {}）", cascade);
 							return false;
 						}
 						//累计本帧阴影提交次数（第六百六十五轮；现口径一片一次）
-						++impl->last_shadow_submits;
+						++state.last_shadow_submits;
 					}
 				}
 				/*
@@ -220,38 +219,36 @@ namespace engine
 				Frame_Render_Target atlas_target{};
 				if (spot_atlas_active)
 				{
-					if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_atlas_target, atlas_target.color_image,
-						atlas_target.color_view, atlas_target.depth_view, atlas_target.extent))
+					if (!owner->resource().render_target_frame_get(state.spot_shadow_atlas_target, atlas_target))
 					{
 						logger.error("渲染器:: 聚光阴影图集附件查询失败");
 						return false;
 					}
 					atlas_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
-					atlas_target.depth_format = impl->swapchain.depth_format_get();
+					atlas_target.depth_format = state.swapchain.depth_format_get();
 					atlas_target.sample_count = 1;
 				}
 				if (spot_shadow_light_valid)
 				{
-					for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
+					for (std::size_t tile = 0; tile < Device_State::SPOT_SHADOW_TILES; ++tile)
 					{
 						//该瓦片无有效聚光灯则跳过
-						if (impl->spot_shadow_spans[tile] <= 0.0f)
+						if (state.spot_shadow_spans[tile] <= 0.0f)
 							continue;
 						//图集未生效且该瓦片目标缺失则跳过
-						if (!spot_atlas_active && impl->spot_shadow_targets[tile] == 0)
+						if (!spot_atlas_active && state.spot_shadow_targets[tile] == 0)
 							continue;
 						Frame_Render_Target spot_target{};
 						if (spot_atlas_active)
 						{
 							//复用图集目标并收缩到本瓦片小格（渲染区同步收缩，逐片独立清屏）
 							spot_target = atlas_target;
-							spot_target.viewport_rect.offset = { static_cast<int32_t>((tile % 4) * impl->scene_domain->state().shadow_size),
-								static_cast<int32_t>((tile / 4) * impl->scene_domain->state().shadow_size) };
-							spot_target.viewport_rect.extent = { impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size };
+							spot_target.viewport_rect.offset = { static_cast<int32_t>((tile % 4) * state.owner->scene().shadow_resolution()),
+								static_cast<int32_t>((tile / 4) * state.owner->scene().shadow_resolution()) };
+							spot_target.viewport_rect.extent = { state.owner->scene().shadow_resolution(), state.owner->scene().shadow_resolution() };
 							spot_target.render_area_from_viewport = true;
 						}
-						else if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
-							spot_target.color_view, spot_target.depth_view, spot_target.extent))
+						else if (!state.owner->resource().render_target_frame_get(state.spot_shadow_targets[tile], spot_target))
 						{
 							logger.error("渲染器:: 聚光灯阴影目标附件查询失败（瓦片 {}）", tile);
 							return false;
@@ -259,7 +256,7 @@ namespace engine
 						else
 						{
 							spot_target.color_format = VK_FORMAT_R8G8B8A8_UNORM;
-							spot_target.depth_format = impl->swapchain.depth_format_get();
+							spot_target.depth_format = state.swapchain.depth_format_get();
 							spot_target.sample_count = 1;
 						}
 						//本段清屏标志（图集逐瓦片独立清屏；独立图恒清）
@@ -267,22 +264,22 @@ namespace engine
 						if (batch_path)
 						{
 							batch_targets[batch_count] = spot_target;
-							batch_matrices[batch_count] = impl->spot_view_proj_tiles[tile];
+							batch_matrices[batch_count] = state.spot_view_proj_tiles[tile];
 							batch_clear[batch_count] = spot_clear != nullptr;
 							++batch_count;
 						}
 						else
 						{
 							for (auto& shadow_item : shadow_items)
-								shadow_item.push_constants = impl->spot_view_proj_tiles[tile];
-							if (!impl->frame.render_to_target(spot_target, shadow_items.data(),
+								shadow_item.push_constants = state.spot_view_proj_tiles[tile];
+							if (!state.frame.render_to_target(spot_target, shadow_items.data(),
 								static_cast<uint32_t>(shadow_items.size()), spot_clear, nullptr, nullptr, true))
 							{
 								logger.error("渲染器:: 聚光灯阴影 pass 提交失败（瓦片 {}）", tile);
 								return false;
 							}
 							//累计本帧阴影提交次数（第六百六十五轮；现口径一瓦片一次）
-							++impl->last_shadow_submits;
+							++state.last_shadow_submits;
 						}
 						//图集段已逐片清屏（无需首段整图清屏标记）
 						++spot_passes;
@@ -294,35 +291,35 @@ namespace engine
 				*/
 				if (batch_path)
 				{
-					if (!impl->frame.render_to_targets_batch(batch_targets, batch_matrices, batch_count,
+					if (!state.frame.render_to_targets_batch(batch_targets, batch_matrices, batch_count,
 						shadow_items.data(), static_cast<uint32_t>(shadow_items.size()), shadow_clear, batch_clear, true))
 					{
 						logger.error("渲染器:: 阴影批量提交失败（{} 段）", batch_count);
 						return false;
 					}
-					impl->last_shadow_submits = 1;
+					state.last_shadow_submits = 1;
 				}
 				//等尽在途帧：确保阴影图写入完成后再由主 pass 采样
-				if (!impl->frame.frames_wait())
+				if (!state.frame.frames_wait())
 				{
 					logger.error("渲染器:: 阴影 pass 等待完成失败");
 					return false;
 				}
 				//记录本帧阴影 pass 数（方向光级联 ＋ 聚光瓦片；第六百四十七轮）
-				impl->last_shadow_passes = directional_cascade_total + spot_passes;
-				impl->last_spot_shadow_passes = spot_passes;
+				state.last_shadow_passes = directional_cascade_total + spot_passes;
+				state.last_spot_shadow_passes = spot_passes;
 				//记录阴影 pass 的并行段数（最后一次分片录制的结果；第二百一十二轮）
-				impl->last_shadow_parallel_segments = impl->frame.last_parallel_segments_get();
+				state.last_shadow_parallel_segments = state.frame.last_parallel_segments_get();
 				//读回阴影 pass 的 GPU 耗时（第一百二十八轮；此时该提交已完成）
-				impl->shadow_gpu_ms = impl->frame.shadow_gpu_ms_read();
+				state.shadow_gpu_ms = state.frame.shadow_gpu_ms_read();
 				//记录本帧签名并标记阴影图可复用
-				impl->shadow_signature = shadow_signature;
-				impl->shadow_pass_ready = true;
-				++impl->shadow_pass_count;
+				state.shadow_signature = shadow_signature;
+				state.shadow_pass_ready = true;
+				++state.shadow_pass_count;
 				//重绘观测（第一百四十五轮）
-				++impl->shadow_redraws;
-				impl->last_shadow_items = static_cast<uint32_t>(shadow_item_count);
-				impl->shadow_last_redrawn = 1;
+				++state.shadow_redraws;
+				state.last_shadow_items = static_cast<uint32_t>(shadow_item_count);
+				state.shadow_last_redrawn = 1;
 			}
 		}
 		return true;
@@ -333,31 +330,40 @@ namespace engine
 	把当帧场景深度经深度拷贝 compute 写入当前帧槽历史，并逐级生成金字塔；
 	调用入口在帧模块的场景动态渲染通道之外，进入 / 退出时深度均为深度附件布局。
 	*/
-	void Renderer_Impl_Holder::Impl::hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+	bool Render_Compute::hiz_frame_ready(void) const
+	{
+		return state_ptr != nullptr && state_ptr->hiz_enabled && state_ptr->hiz.valid();
+	}
+
+	void Render_Compute::hiz_post_scene(void* command_buffer, uint64_t depth_image, uint64_t depth_view,
+		uint32_t width, uint32_t height, uint32_t slot)
+	{
+		if (!hiz_frame_ready() || state_ptr->hiz_depth_copy_pipeline == 0 || state_ptr->hiz_downsample_pipeline == 0)
+			return;
+		if (state_ptr->hiz.width_get() != width || state_ptr->hiz.height_get() != height)
+			return;
+		if (!state_ptr->hiz.pyramid_generate(static_cast<VkCommandBuffer>(command_buffer), slot,
+			reinterpret_cast<VkImage>(depth_image), reinterpret_cast<VkImageView>(depth_view),
+			state_ptr->hiz_depth_copy_pipeline, state_ptr->hiz_downsample_pipeline))
+			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
+		else
+			state_ptr->last_hiz_slot = slot;
+	}
+
+	void Device_State::hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
 		VkExtent2D extent, void* user_data)
 	{
-		//用户数据为本实现体
-		Renderer_Impl_Holder::Impl* self = static_cast<Renderer_Impl_Holder::Impl*>(user_data);
+		//用户数据为设备域状态
+		Device_State* self = static_cast<Device_State*>(user_data);
 		//用户数据缺失（不应发生）
 		if (self == nullptr)
 			return;
-		//计算域状态（域对象尚未登记时为空）
-		Compute_State* compute_state = self->compute_domain != nullptr ? &self->compute_domain->state() : nullptr;
-		//未启用、资源缺失或管线未就绪时跳过
-		if (compute_state == nullptr || !compute_state->hiz_enabled || !compute_state->hiz.valid()
-			|| compute_state->hiz_depth_copy_pipeline == 0 || compute_state->hiz_downsample_pipeline == 0)
+		//域对象尚未登记时跳过
+		if (self->owner == nullptr)
 			return;
-		//尺寸与资源不一致（交换链刚重建）时跳过本帧
-		if (compute_state->hiz.width_get() != extent.width || compute_state->hiz.height_get() != extent.height)
-			return;
-		//当前帧槽
-		const uint32_t slot = self->frame.slot_index_get();
-		//录制深度拷贝与逐级降采样（失败仅告警，不影响出帧）
-		if (!compute_state->hiz.pyramid_generate(command_buffer, slot, depth_image, depth_view,
-			compute_state->hiz_depth_copy_pipeline, compute_state->hiz_downsample_pipeline))
-			logger.warn("渲染器:: Hi-Z 金字塔生成失败（帧槽 {}）", slot);
-		else
-			//记录最近生成完成的帧槽（第二百五十六轮：剔除读取该槽上一帧金字塔）
-			self->last_hiz_slot = slot;
+		//转交计算域生成当前帧槽深度历史与金字塔
+		self->owner->compute().hiz_post_scene(static_cast<void*>(command_buffer),
+			reinterpret_cast<uint64_t>(depth_image), reinterpret_cast<uint64_t>(depth_view),
+			extent.width, extent.height, self->frame.slot_index_get());
 	}
 }

@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -30,81 +30,81 @@ namespace engine
 	bool Render_Particle::particle_blend_set(Blend_Mode mode)
 	{
 		//未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled)
 			return false;
 		//仅接受两个半透明档
 		if (mode != Blend_Mode::Alpha && mode != Blend_Mode::Additive)
 			return false;
 		//同值重复设置为空操作
-		if (state().particle_blend_mode == mode)
+		if ((*state_ptr).particle_blend_mode == mode)
 			return true;
-		state().particle_blend_mode = mode;
+		(*state_ptr).particle_blend_mode = mode;
 		//释放旧管线，下次绘制按新档重建（含 GPU 绘制管线；第三百四十一轮）
-		if (state().particle_draw_pipeline != 0)
+		if ((*state_ptr).particle_draw_pipeline != 0)
 		{
-			owner->resource().pipeline_unload(state().particle_draw_pipeline);
-			state().particle_draw_pipeline = 0;
+			owner->resource().pipeline_unload((*state_ptr).particle_draw_pipeline);
+			(*state_ptr).particle_draw_pipeline = 0;
 		}
-		if (state().particle_gpu_pipeline != 0)
+		if ((*state_ptr).particle_gpu_pipeline != 0)
 		{
-			owner->resource().pipeline_unload(state().particle_gpu_pipeline);
-			state().particle_gpu_pipeline = 0;
+			owner->resource().pipeline_unload((*state_ptr).particle_gpu_pipeline);
+			(*state_ptr).particle_gpu_pipeline = 0;
 		}
 		return true;
 	}
 
 	Blend_Mode Render_Particle::particle_blend_get(void) const
 	{
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return Blend_Mode::Alpha;
-		return state().particle_blend_mode;
+		return (*state_ptr).particle_blend_mode;
 	}
 
 	bool Render_Particle::particle_depth_write_set(bool enabled)
 	{
 		//未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled)
 			return false;
 		//同值重复设置为空操作
-		if (state().particle_depth_write == enabled)
+		if ((*state_ptr).particle_depth_write == enabled)
 			return true;
-		state().particle_depth_write = enabled;
+		(*state_ptr).particle_depth_write = enabled;
 		//释放旧管线，下次绘制按新设置重建（含 GPU 绘制管线；第三百四十一轮）
-		if (state().particle_draw_pipeline != 0)
+		if ((*state_ptr).particle_draw_pipeline != 0)
 		{
-			owner->resource().pipeline_unload(state().particle_draw_pipeline);
-			state().particle_draw_pipeline = 0;
+			owner->resource().pipeline_unload((*state_ptr).particle_draw_pipeline);
+			(*state_ptr).particle_draw_pipeline = 0;
 		}
-		if (state().particle_gpu_pipeline != 0)
+		if ((*state_ptr).particle_gpu_pipeline != 0)
 		{
-			owner->resource().pipeline_unload(state().particle_gpu_pipeline);
-			state().particle_gpu_pipeline = 0;
+			owner->resource().pipeline_unload((*state_ptr).particle_gpu_pipeline);
+			(*state_ptr).particle_gpu_pipeline = 0;
 		}
 		return true;
 	}
 
 	bool Render_Particle::particle_depth_write_get(void) const
 	{
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
-		return state().particle_depth_write;
+		return (*state_ptr).particle_depth_write;
 	}
 
 	bool Render_Particle::particle_sort_buckets_set(uint32_t buckets)
 	{
 		//未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled)
 			return false;
 		//钳制到 [0, 16]（0 = 关闭）
-		state().particle_sort_buckets = buckets > 16u ? 16u : buckets;
+		(*state_ptr).particle_sort_buckets = buckets > 16u ? 16u : buckets;
 		return true;
 	}
 
 	uint32_t Render_Particle::particle_sort_buckets_get(void) const
 	{
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().particle_sort_buckets;
+		return (*state_ptr).particle_sort_buckets;
 	}
 
 	bool Render_Compute::particle_depth_source(uint32_t slot, uint64_t& view_out, uint64_t& sampler_out) const
@@ -113,11 +113,11 @@ namespace engine
 		view_out = 0;
 		sampler_out = 0;
 		//档位关闭 / HiZ 未启用 / 资源未建 / 该槽无历史
-		if ((owner == nullptr || owner->impl == nullptr) || owner->particle().state().particle_params.soft_depth_range <= 0.0f
-			|| !state().hiz_enabled || !state().hiz.valid() || !state().hiz.history_valid(slot))
+		if ((owner == nullptr) || owner->particle().particle_params_get().soft_depth_range <= 0.0f
+			|| !(*state_ptr).hiz_enabled || !(*state_ptr).hiz.valid() || !(*state_ptr).hiz.history_valid(slot))
 			return false;
-		VkImageView history_view = state().hiz.depth_history_view(slot);
-		VkSampler depth_sampler = state().hiz.depth_sampler_get();
+		VkImageView history_view = (*state_ptr).hiz.depth_history_view(slot);
+		VkSampler depth_sampler = (*state_ptr).hiz.depth_sampler_get();
 		//句柄齐备才算成功
 		if (history_view == VK_NULL_HANDLE || depth_sampler == VK_NULL_HANDLE)
 			return false;
@@ -128,7 +128,7 @@ namespace engine
 
 	void Render_Compute::particle_style_push_fill(std::array<float, 32>& push) const
 	{
-		const Particle_Params& params = owner->particle().state().particle_params;
+		const Particle_Params params = owner->particle().particle_params_get();
 		//颜色覆盖开关（0 = 片元着色器回落内置曲线）
 		push[24] = params.color_enabled ? 1.0f : 0.0f;
 		//软边宽度（0 = 片元着色器回落 0.65 内半径）
@@ -142,32 +142,111 @@ namespace engine
 		}
 	}
 
+	//一次提交内完成粒子紧凑索引与间接命令生成
+	bool Render_Compute::particle_indirect_commands_build(Compute_Buffer_Handle control_buffer,
+		Compute_Buffer_Handle index_buffer, Compute_Buffer_Handle compact_count_buffer,
+		Compute_Pipeline_Handle compact_pipeline, Compute_Pipeline_Handle indirect_pipeline,
+		uint64_t command_buffer_native, uint32_t capacity, uint32_t quad_index_count,
+		uint32_t& count_out)
+	{
+		//清零紧凑计数
+		uint32_t zero = 0;
+		if (!compute_buffer_write(compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
+			return false;
+		/*
+		两次调度用不同的计算描述符集槽：槽 0 紧凑，槽 1 写命令。
+		描述符集在提交前全部写好，录制时只切槽，避免同集重写影响前一次调度。
+		*/
+		const uint32_t previous_slot = state_ptr->compute.slot_get();
+		if (!state_ptr->compute.slot_set(0))
+			return false;
+		if (!compute_buffer_bind(control_buffer, 0)
+			|| !compute_buffer_bind(index_buffer, 1)
+			|| !compute_buffer_bind(compact_count_buffer, 2))
+			return false;
+		//槽 1：紧凑计数（只读）/ 该槽命令缓冲（只写）
+		VkBuffer count_buffer = reinterpret_cast<VkBuffer>(compute_buffer_native(compact_count_buffer));
+		VkBuffer command_buffer = reinterpret_cast<VkBuffer>(command_buffer_native);
+		if (!state_ptr->compute.storage_bind(1, 0, count_buffer, 0, static_cast<VkDeviceSize>(sizeof(uint32_t)))
+			|| !state_ptr->compute.storage_bind(1, 1, command_buffer, 0,
+				static_cast<VkDeviceSize>(Device_State::INDIRECT_COMMAND_BYTES)))
+			return false;
+		//两次调度各自的计算上下文句柄
+		uint64_t compact_context = 0;
+		uint64_t indirect_context = 0;
+		for (const Compute_Pipeline_Record& record : state_ptr->compute_pipelines)
+		{
+			if (record.handle == compact_pipeline)
+				compact_context = record.context_handle;
+			else if (record.handle == indirect_pipeline)
+				indirect_context = record.context_handle;
+		}
+		if (compact_context == 0 || indirect_context == 0)
+			return false;
+		const uint32_t compact_push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
+		const uint32_t indirect_push[4] = { quad_index_count, 0u, 0u, 0u };
+		const bool dispatched = state_ptr->compute.single_submit([&](VkCommandBuffer command) -> bool
+		{
+			if (!state_ptr->compute.timestamp_begin(command))
+				return false;
+			//切到槽 0 并录制第一次调度：活跃位图 → 紧凑索引 ＋ 计数
+			if (!state_ptr->compute.slot_set(0))
+				return false;
+			if (!state_ptr->compute.dispatch_ceil(command, compact_context, capacity, 64u,
+				compact_push, static_cast<uint32_t>(sizeof(compact_push))))
+				return false;
+			if (!state_ptr->compute.barrier(command, Compute_Barrier::ComputeToCompute))
+				return false;
+			//切到槽 1 并录制第二次调度：紧凑计数 → 间接命令（单线程）
+			if (!state_ptr->compute.slot_set(1))
+				return false;
+			if (!state_ptr->compute.dispatch_ceil(command, indirect_context, 1u, 1u,
+				indirect_push, static_cast<uint32_t>(sizeof(indirect_push))))
+				return false;
+			return state_ptr->compute.barrier(command, Compute_Barrier::ComputeToHost);
+		});
+		//恢复调用前的计算帧槽
+		state_ptr->compute.slot_set(previous_slot);
+		//围栏等待之后读回计时（不支持时间戳时为空操作）
+		if (dispatched)
+			state_ptr->compute.timestamp_refresh();
+		//回读索引数（防御越界）
+		uint32_t count = 0;
+		if (!dispatched || !compute_buffer_read(compact_count_buffer, &count,
+			static_cast<uint32_t>(sizeof(count))))
+			return false;
+		if (count > capacity)
+			count = capacity;
+		count_out = count;
+		return true;
+	}
+
 	bool Render_Particle::particle_draw(float size)
 	{
 		//未开启粒子或未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled)
 			return false;
 		//尺寸非法
 		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
 			return false;
 		//未绑定数据源
-		if (state().particle_states == nullptr || state().particle_alive == nullptr
-			|| state().particle_source_capacity == 0)
+		if ((*state_ptr).particle_states == nullptr || (*state_ptr).particle_alive == nullptr
+			|| (*state_ptr).particle_source_capacity == 0)
 			return false;
-		uint32_t capacity = state().particle_source_capacity;
-		const Particle_State* states = state().particle_states;
-		const uint8_t* alive = state().particle_alive;
+		uint32_t capacity = (*state_ptr).particle_source_capacity;
+		const Particle_State* states = (*state_ptr).particle_states;
+		const uint8_t* alive = (*state_ptr).particle_alive;
 		/*
 		常驻模式绘制（第三百三十轮）
 		回读活跃位图与状态缓冲后按位图展开活跃标记；容量上限 65536（百万级整缓冲回读不可接受，
 		大容量绘制留待间接绘制路径）。回读失败时不登记绘制项。
-		临时数组取自 Impl 复用缓冲（第三百六十四轮；每帧 clear 后重填，语义与局部 vector 一致）。
+		临时数组取自粒子域复用缓冲（第三百六十四轮；每帧 clear 后重填，语义与局部 vector 一致）。
 		*/
-		std::vector<uint8_t>& resident_bitmap = state().particle_draw_resident_bitmap;
-		std::vector<Particle_State>& resident_states = state().particle_draw_resident_states;
-		std::vector<uint8_t>& resident_alive = state().particle_draw_resident_alive;
+		std::vector<uint8_t>& resident_bitmap = (*state_ptr).particle_draw_resident_bitmap;
+		std::vector<Particle_State>& resident_states = (*state_ptr).particle_draw_resident_states;
+		std::vector<uint8_t>& resident_alive = (*state_ptr).particle_draw_resident_alive;
 		resident_bitmap.clear();
-		if (state().particle_resident)
+		if ((*state_ptr).particle_resident)
 		{
 			//大容量 / 资源未就绪
 			if (capacity > 65536u || !owner->particle().particle_gpu_available())
@@ -176,10 +255,10 @@ namespace engine
 			resident_bitmap.resize(static_cast<std::size_t>(words) * 4u, 0u);
 			resident_states.resize(capacity);
 			//位图位于控制缓冲偏移 8
-			if (!owner->compute().compute_buffer_read(state().particle_control_buffer, resident_bitmap.data(), words * 4u, 8u))
+			if (!owner->compute().compute_buffer_read((*state_ptr).particle_control_buffer, resident_bitmap.data(), words * 4u, 8u))
 				return false;
 			uint32_t bytes = capacity * static_cast<uint32_t>(PARTICLE_STRIDE);
-			if (!owner->compute().compute_buffer_read(state().particle_buffer_front, resident_states.data(), bytes))
+			if (!owner->compute().compute_buffer_read((*state_ptr).particle_buffer_front, resident_states.data(), bytes))
 				return false;
 			//按位展开活跃标记
 			resident_alive.assign(capacity, 0u);
@@ -206,7 +285,7 @@ namespace engine
 			return false;
 		//相机世界位置（billboard 朝向基准）
 		float camera[3] = {};
-		owner->impl->scene_domain->state().camera.position_get(camera);
+		owner->scene().camera_position_get(camera);
 		//单粒子模型矩阵构造（列主序 16 浮点；billboard 基 ＋ 年龄收缩尺寸）
 		auto build_matrix = [&](const Particle_State& state, float* matrix)
 		{
@@ -267,9 +346,9 @@ namespace engine
 		深度分桶近似排序（第三百一十七轮；0 = 关闭）
 		关闭时按池索引顺序单次实例化；开启时按视线距离分桶、桶间由远及近各登记一次实例化绘制。
 		*/
-		uint32_t buckets = state().particle_sort_buckets;
+		uint32_t buckets = (*state_ptr).particle_sort_buckets;
 		//视线深度临时数组（第三百六十四轮；仅分桶需要时填充）
-		std::vector<float>& depths = state().particle_draw_depths;
+		std::vector<float>& depths = (*state_ptr).particle_draw_depths;
 		float min_depth = 0.0f;
 		float max_depth = 0.0f;
 		if (buckets > 0)
@@ -303,25 +382,23 @@ namespace engine
 			}
 		}
 		//切换粒子管线登记实例化绘制
-		uint64_t previous_pipeline = owner->impl->resource_domain->state().bound_pipeline_request;
-		owner->resource().pipeline_bind_set(state().particle_draw_pipeline);
+		uint64_t previous_pipeline = owner->resource().pipeline_bound_handle();
+		owner->resource().pipeline_bind_set((*state_ptr).particle_draw_pipeline);
 		/*
 		软粒子深度源（第三百六十六轮）
 		本帧槽 HiZ 历史（约两帧前的场景深度）；未启用 / 未就绪时档位清零，画面回落旧行为。
 		*/
 		uint64_t depth_view_handle = 0;
 		uint64_t depth_sampler_handle = 0;
-		const bool depth_bound = owner->compute().particle_depth_source(owner->impl->frame.slot_index_get(),
+		const bool depth_bound = owner->compute().particle_depth_source(core->frame.slot_index_get(),
 			depth_view_handle, depth_sampler_handle);
-		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
-		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
 		//本次绘制推送的深度档位（未绑定深度时为 0）
-		const float soft_range = depth_bound ? state().particle_params.soft_depth_range : 0.0f;
+		const float soft_range = depth_bound ? (*state_ptr).particle_params.soft_depth_range : 0.0f;
 		bool drawn = false;
 		//分桶关闭：单次实例化（池索引顺序）
 		if (buckets == 0)
 		{
-			std::vector<float>& transforms = state().particle_draw_transforms;
+			std::vector<float>& transforms = (*state_ptr).particle_draw_transforms;
 			transforms.assign(static_cast<std::size_t>(alive_count) * 16, 0.0f);
 			uint32_t written = 0;
 			for (uint32_t index = 0; index < capacity; ++index)
@@ -333,37 +410,24 @@ namespace engine
 				++written;
 			}
 			//登记前的计数（用于判定本批是否真的产生了绘制项）
-			const std::size_t items_before = owner->impl->pending_items.size();
-			const std::size_t push_before = owner->impl->pending_push_constants.size();
-			drawn = owner->resource().mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
+			const std::size_t items_before = owner->device().frame_item_count();
+			const std::size_t push_before = owner->device().frame_push_count();
+			drawn = owner->resource().mesh_draw_instanced((*state_ptr).particle_quad_mesh, transforms.data(), written);
 			/*
 			刚登记项为粒子实例化项
 			关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮）；
 			整批被剔除时不会产生新绘制项，此时不改写任何块。
 			*/
-			if (drawn && owner->impl->pending_items.size() > items_before
-				&& owner->impl->pending_push_constants.size() > push_before)
+			if (drawn && owner->device().frame_item_count() > items_before
+				&& owner->device().frame_push_count() > push_before)
 			{
-				owner->impl->pending_items.back().cast_shadow = false;
-				owner->compute().particle_style_push_fill(owner->impl->pending_push_constants.back());
-				//软粒子：挂历史深度视图并写深度档位（未绑定时为 0）
-				owner->impl->pending_items.back().draw_depth = depth_view;
-				owner->impl->pending_items.back().draw_depth_sampler = depth_sampler;
-				owner->impl->pending_push_constants.back()[28] = soft_range;
-				/*
-				专属采样集（第三百六十六轮）
-				粒子片元静态声明 set1 binding 2，共享采样器集未写该绑定，故必须落一条专属集；
-				调用方若未绑定纹理，则以默认白纹理补齐（binding 0/2 均不被粒子片元采样）。
-				*/
-				if (owner->impl->pending_items.back().draw_albedo == VK_NULL_HANDLE
-					|| owner->impl->pending_items.back().draw_sampler == VK_NULL_HANDLE)
-				{
-					VkImageView default_view = VK_NULL_HANDLE;
-					VkSampler default_sampler = VK_NULL_HANDLE;
-					owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
-					owner->impl->pending_items.back().draw_albedo = default_view;
-					owner->impl->pending_items.back().draw_sampler = default_sampler;
-				}
+				//软粒子与专属采样集所需的默认白纹理值快照
+				uint64_t default_view = 0;
+				uint64_t default_sampler = 0;
+				owner->resource().default_texture_native_get(default_view, default_sampler);
+				//由设备域仅修改刚登记的粒子项及其推送块
+				owner->device().particle_item_finish(items_before, push_before, default_view, default_sampler,
+					depth_view_handle, depth_sampler_handle, soft_range);
 			}
 		}
 		else
@@ -389,7 +453,7 @@ namespace engine
 				//空桶跳过
 				if (bucket_count == 0)
 					continue;
-				std::vector<float>& transforms = state().particle_draw_transforms;
+				std::vector<float>& transforms = (*state_ptr).particle_draw_transforms;
 				transforms.assign(static_cast<std::size_t>(bucket_count) * 16, 0.0f);
 				uint32_t written = 0;
 				for (uint32_t index = 0; index < capacity; ++index)
@@ -407,32 +471,23 @@ namespace engine
 					++written;
 				}
 				//登记前的计数（用于判定本桶是否真的产生了绘制项）
-				const std::size_t items_before = owner->impl->pending_items.size();
-				const std::size_t push_before = owner->impl->pending_push_constants.size();
-				bool registered = owner->resource().mesh_draw_instanced(state().particle_quad_mesh, transforms.data(), written);
+				const std::size_t items_before = owner->device().frame_item_count();
+				const std::size_t push_before = owner->device().frame_push_count();
+				bool registered = owner->resource().mesh_draw_instanced((*state_ptr).particle_quad_mesh, transforms.data(), written);
 				/*
 				刚登记项为粒子实例化项
 				关闭阴影视图投影，并写入颜色覆盖推送（第三百五十四轮；每桶一次）。
 				*/
-				if (registered && owner->impl->pending_items.size() > items_before
-					&& owner->impl->pending_push_constants.size() > push_before)
+				if (registered && owner->device().frame_item_count() > items_before
+					&& owner->device().frame_push_count() > push_before)
 				{
-					owner->impl->pending_items.back().cast_shadow = false;
-					owner->compute().particle_style_push_fill(owner->impl->pending_push_constants.back());
-					//软粒子：每桶同样挂历史深度并写档位
-					owner->impl->pending_items.back().draw_depth = depth_view;
-					owner->impl->pending_items.back().draw_depth_sampler = depth_sampler;
-					owner->impl->pending_push_constants.back()[28] = soft_range;
-					//专属采样集（同单次分支：共享集未写 binding 2）
-					if (owner->impl->pending_items.back().draw_albedo == VK_NULL_HANDLE
-						|| owner->impl->pending_items.back().draw_sampler == VK_NULL_HANDLE)
-					{
-						VkImageView default_view = VK_NULL_HANDLE;
-						VkSampler default_sampler = VK_NULL_HANDLE;
-						owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
-						owner->impl->pending_items.back().draw_albedo = default_view;
-						owner->impl->pending_items.back().draw_sampler = default_sampler;
-					}
+					//软粒子与专属采样集所需的默认白纹理值快照
+					uint64_t default_view = 0;
+					uint64_t default_sampler = 0;
+					owner->resource().default_texture_native_get(default_view, default_sampler);
+					//每桶仅修改本桶刚登记的粒子项及其推送块
+					owner->device().particle_item_finish(items_before, push_before, default_view, default_sampler,
+						depth_view_handle, depth_sampler_handle, soft_range);
 				}
 				drawn = drawn || registered;
 			}
@@ -441,14 +496,14 @@ namespace engine
 		owner->resource().pipeline_bind_set(previous_pipeline);
 		//登记路径观测（第三百四十八轮；1 = CPU 参考）
 		if (drawn)
-			state().particle_draw_path_last = 1;
+			(*state_ptr).particle_draw_path_last = 1;
 		return drawn;
 	}
 
 	bool Render_Particle::particle_gpu_draw(float size)
 	{
 		//前置条件
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled || !state().particle_resident)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled || !(*state_ptr).particle_resident)
 			return false;
 		//尺寸非法
 		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
@@ -461,34 +516,34 @@ namespace engine
 		//每帧前置：紧凑索引
 		if (!owner->particle().particle_gpu_compact())
 			return false;
-		uint32_t count = state().particle_compact_count;
+		uint32_t count = (*state_ptr).particle_compact_count;
 		//无活跃粒子不登记绘制项
 		if (count == 0)
 			return false;
 		//状态与索引的原生缓冲
-		VkBuffer state_buffer = owner->impl->compute_buffer_native(state().particle_buffer_front);
-		VkBuffer index_buffer = owner->impl->compute_buffer_native(state().particle_index_buffer);
+		VkBuffer state_buffer = reinterpret_cast<VkBuffer>(owner->device().compute_buffer_native((*state_ptr).particle_buffer_front));
+		VkBuffer index_buffer = reinterpret_cast<VkBuffer>(owner->device().compute_buffer_native((*state_ptr).particle_index_buffer));
 		if (state_buffer == VK_NULL_HANDLE || index_buffer == VK_NULL_HANDLE)
 			return false;
 		//逐帧槽刷新粒子专用集（front 在常驻推进后会交换）
-		for (uint32_t slot = 0; slot < owner->impl->scene_ubos.size(); ++slot)
-			if (!owner->impl->pipeline.particle_buffers_bind(slot, owner->impl->scene_ubos[slot], state_buffer, index_buffer))
-				return false;
+		if (!owner->device().particle_scene_buffers_bind(reinterpret_cast<uint64_t>(state_buffer),
+			reinterpret_cast<uint64_t>(index_buffer)))
+			return false;
 		//四边形网格记录（顶点与索引共用一个缓冲）
-		VkBuffer quad_buffer = VK_NULL_HANDLE;
-		VkDeviceSize quad_index_offset = 0;
+		uint64_t quad_buffer = 0;
+		uint64_t quad_index_offset = 0;
 		uint32_t quad_index_count = 0;
-		if (!owner->impl->resource_domain->state().mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+		if (!owner->resource().mesh_native_get((*state_ptr).particle_quad_mesh, quad_buffer,
+			quad_index_offset, quad_index_count))
 			return false;
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
-		owner->impl->scene_domain->state().camera.position_get(camera);
+		owner->scene().camera_position_get(camera);
 		/*
 		推送块（128 B）
 		首位 = 相机位置 ＋ 四边形世界边长；64 / 80 / 96 为颜色覆盖（第三百五十四轮），其余留零。
 		*/
-		owner->impl->pending_push_constants.emplace_back();
-		std::array<float, 32>& push = owner->impl->pending_push_constants.back();
+		std::array<float, 32> push{};
 		push.fill(0.0f);
 		push[0] = camera[0];
 		push[1] = camera[1];
@@ -502,16 +557,16 @@ namespace engine
 		*/
 		uint64_t depth_view_handle = 0;
 		uint64_t depth_sampler_handle = 0;
-		const bool depth_bound = owner->compute().particle_depth_source(owner->impl->frame.slot_index_get(),
+		const bool depth_bound = owner->compute().particle_depth_source(core->frame.slot_index_get(),
 			depth_view_handle, depth_sampler_handle);
 		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
 		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
 		//未绑定深度时档位为 0（画面回落旧行为）
-		push[28] = depth_bound ? state().particle_params.soft_depth_range : 0.0f;
+		push[28] = depth_bound ? (*state_ptr).particle_params.soft_depth_range : 0.0f;
 		//组装绘制项（管线延迟到 frame_render 才绑定；此处只登记状态）
 		Frame_Render_Item item{};
-		item.pipeline = owner->impl->pipeline.pipeline_by_handle_get(state().particle_gpu_pipeline);
-		item.layout = owner->impl->pipeline.layout_get();
+		item.pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get((*state_ptr).particle_gpu_pipeline));
+		item.layout = reinterpret_cast<VkPipelineLayout>(owner->resource().pipeline_layout_native());
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
 		item.descriptor_set_count = 2;
@@ -521,16 +576,16 @@ namespace engine
 		历史深度仅在可用时挂上（未挂时 binding 2 回落反照率占位，档位为 0 不采样）。
 		*/
 		{
-			VkImageView default_view = VK_NULL_HANDLE;
-			VkSampler default_sampler = VK_NULL_HANDLE;
-			owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
-			item.draw_albedo = default_view;
-			item.draw_sampler = default_sampler;
+			uint64_t default_view = 0;
+			uint64_t default_sampler = 0;
+			owner->resource().default_texture_native_get(default_view, default_sampler);
+			item.draw_albedo = reinterpret_cast<VkImageView>(default_view);
+			item.draw_sampler = reinterpret_cast<VkSampler>(default_sampler);
 			item.draw_depth = depth_view;
 			item.draw_depth_sampler = depth_sampler;
 		}
-		item.vertex_buffer = quad_buffer;
-		item.index_buffer = quad_buffer;
+		item.vertex_buffer = reinterpret_cast<VkBuffer>(quad_buffer);
+		item.index_buffer = reinterpret_cast<VkBuffer>(quad_buffer);
 		item.index_offset = quad_index_offset;
 		item.index_count = quad_index_count;
 		//不消费实例属性（第三百四十一轮）
@@ -544,18 +599,18 @@ namespace engine
 		//粒子不参与阴影视图投影
 		item.cast_shadow = false;
 		//透明标记（非不透明混合项不参与合批）
-		item.transparent = state().particle_blend_mode != Blend_Mode::Opaque;
-		//登记待绘制项
-		owner->impl->pending_items.push_back(item);
+		item.transparent = (*state_ptr).particle_blend_mode != Blend_Mode::Opaque;
+		//复制推送块并登记待绘制项
+		owner->device().particle_item_push(item, push);
 		//登记路径观测（第三百四十八轮；2 = GPU 直接绘制）
-		state().particle_draw_path_last = 2;
+		(*state_ptr).particle_draw_path_last = 2;
 		return true;
 	}
 
 	bool Render_Particle::particle_indirect_draw(float size)
 	{
 		//前置条件
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_enabled || !state().particle_resident)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_enabled || !(*state_ptr).particle_resident)
 			return false;
 		//尺寸非法
 		if (!std::isfinite(size) || size <= 0.0f || size > 1e3f)
@@ -566,20 +621,21 @@ namespace engine
 		if (!owner->compute().particle_gpu_draw_ensure())
 			return false;
 		//本帧槽与对应命令缓冲
-		uint32_t slot = owner->impl->frame.slot_index_get();
-		if (slot >= state().particle_indirect_buffers.size())
+		uint32_t slot = core->frame.slot_index_get();
+		if (slot >= (*state_ptr).particle_indirect_buffers.size())
 			return false;
 		//等待该槽上一轮帧完成（其间接命令不再被读取）
-		if (!owner->impl->frame.slot_wait())
+		if (!core->frame.slot_wait())
 			return false;
 		//四边形网格记录（索引数写入命令）
-		VkBuffer quad_buffer = VK_NULL_HANDLE;
-		VkDeviceSize quad_index_offset = 0;
+		uint64_t quad_buffer = 0;
+		uint64_t quad_index_offset = 0;
 		uint32_t quad_index_count = 0;
-		if (!owner->impl->resource_domain->state().mesh.mesh_record_get(state().particle_quad_mesh, quad_buffer, quad_index_offset, quad_index_count))
+		if (!owner->resource().mesh_native_get((*state_ptr).particle_quad_mesh, quad_buffer,
+			quad_index_offset, quad_index_count))
 			return false;
 		//命令缓冲原生句柄
-		VkBuffer command_buffer = owner->impl->compute_buffer_native(state().particle_indirect_buffers[slot]);
+		VkBuffer command_buffer = reinterpret_cast<VkBuffer>(owner->device().compute_buffer_native((*state_ptr).particle_indirect_buffers[slot]));
 		if (command_buffer == VK_NULL_HANDLE)
 			return false;
 		/*
@@ -588,100 +644,35 @@ namespace engine
 		此前为「紧凑一次提交 ＋ 写命令一次提交」，每帧多一次提交与围栏等待（约 20–40 µs）。
 		*/
 		const auto compact_begin = std::chrono::high_resolution_clock::now();
-		uint32_t capacity = state().particle_buffer_capacity;
-		//清零紧凑计数
-		uint32_t zero = 0;
-		if (!owner->compute().compute_buffer_write(state().particle_compact_count_buffer, &zero, static_cast<uint32_t>(sizeof(zero))))
-			return false;
-		/*
-		两次调度用**不同的计算描述符集槽**（第三百四十九轮）
-		描述符集内容在提交时读取、而非录制时快照，故同一次提交内切换绑定必须换集：
-		槽 0 = 紧凑（控制 / 索引 / 计数），槽 1 = 写命令（计数 / 命令缓冲）；
-		两个集的绑定都在提交前写好，录制时只切槽。
-		*/
-		const uint32_t previous_slot = owner->compute().state().compute.slot_get();
-		if (!owner->compute().state().compute.slot_set(0))
-			return false;
-		if (!owner->compute().compute_buffer_bind(state().particle_control_buffer, 0)
-			|| !owner->compute().compute_buffer_bind(state().particle_index_buffer, 1)
-			|| !owner->compute().compute_buffer_bind(state().particle_compact_count_buffer, 2))
-			return false;
-		//槽 1：紧凑计数（只读）/ 该槽命令缓冲（只写）
-		VkBuffer count_buffer = owner->impl->compute_buffer_native(state().particle_compact_count_buffer);
-		if (!owner->compute().state().compute.storage_bind(1, 0, count_buffer, 0, static_cast<VkDeviceSize>(sizeof(uint32_t)))
-			|| !owner->compute().state().compute.storage_bind(1, 1, command_buffer, 0,
-				static_cast<VkDeviceSize>(Renderer_Impl_Holder::Impl::INDIRECT_COMMAND_BYTES)))
-			return false;
-		//两次调度各自的计算上下文句柄
-		uint64_t compact_context = 0;
-		uint64_t indirect_context = 0;
-		for (const Compute_Pipeline_Record& record : owner->compute().state().compute_pipelines)
-		{
-			if (record.handle == state().particle_compact_pipeline)
-				compact_context = record.context_handle;
-			//写命令管线句柄
-			else if (record.handle == state().particle_indirect_pipeline)
-				indirect_context = record.context_handle;
-		}
-		if (compact_context == 0 || indirect_context == 0)
-			return false;
-		const uint32_t compact_push[4] = { capacity, (capacity + 31u) / 32u, 0u, 0u };
-		const uint32_t indirect_push[4] = { quad_index_count, 0u, 0u, 0u };
-		const bool dispatched = owner->compute().state().compute.single_submit([&](VkCommandBuffer command) -> bool
-		{
-			if (!owner->compute().state().compute.timestamp_begin(command))
-				return false;
-			//切到槽 0 并录制第一次调度：活跃位图 → 紧凑索引 ＋ 计数
-			if (!owner->compute().state().compute.slot_set(0))
-				return false;
-			if (!owner->compute().state().compute.dispatch_ceil(command, compact_context, capacity, 64u,
-				compact_push, static_cast<uint32_t>(sizeof(compact_push))))
-				return false;
-			if (!owner->compute().state().compute.barrier(command, Compute_Barrier::ComputeToCompute))
-				return false;
-			//切到槽 1 并录制第二次调度：紧凑计数 → 间接命令（单线程）
-			if (!owner->compute().state().compute.slot_set(1))
-				return false;
-			if (!owner->compute().state().compute.dispatch_ceil(command, indirect_context, 1u, 1u,
-				indirect_push, static_cast<uint32_t>(sizeof(indirect_push))))
-				return false;
-			return owner->compute().state().compute.barrier(command, Compute_Barrier::ComputeToHost);
-		});
-		//恢复调用前的计算帧槽
-		owner->compute().state().compute.slot_set(previous_slot);
-		//围栏等待之后读回计时（不支持时间戳时为空操作）
-		if (dispatched)
-			owner->compute().state().compute.timestamp_refresh();
-		//回读索引数（防御越界）
+		uint32_t capacity = (*state_ptr).particle_buffer_capacity;
+		//计算域完成双槽绑定、单次提交、槽位恢复、时间戳与计数回读
 		uint32_t count = 0;
-		if (!dispatched || !owner->compute().compute_buffer_read(state().particle_compact_count_buffer, &count,
-			static_cast<uint32_t>(sizeof(count))))
+		if (!owner->compute().particle_indirect_commands_build((*state_ptr).particle_control_buffer,
+			(*state_ptr).particle_index_buffer, (*state_ptr).particle_compact_count_buffer,
+			(*state_ptr).particle_compact_pipeline, (*state_ptr).particle_indirect_pipeline,
+			reinterpret_cast<uint64_t>(command_buffer), capacity, quad_index_count, count))
 			return false;
-		if (count > capacity)
-			count = capacity;
-		state().particle_compact_count = count;
+		(*state_ptr).particle_compact_count = count;
 		const auto compact_end = std::chrono::high_resolution_clock::now();
-		state().particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
+		(*state_ptr).particle_compact_ms_last = std::chrono::duration<double, std::milli>(compact_end - compact_begin).count();
 		//无活跃粒子不登记绘制项
 		if (count == 0)
 			return false;
-		state().particle_indirect_last_slot = slot;
-		state().particle_indirect_written = true;
+		(*state_ptr).particle_indirect_last_slot = slot;
+		(*state_ptr).particle_indirect_written = true;
 		//状态与索引的原生缓冲（逐帧槽刷新粒子专用集：front 在常驻推进后会交换）
-		VkBuffer state_buffer = owner->impl->compute_buffer_native(state().particle_buffer_front);
-		VkBuffer index_buffer = owner->impl->compute_buffer_native(state().particle_index_buffer);
+		VkBuffer state_buffer = reinterpret_cast<VkBuffer>(owner->device().compute_buffer_native((*state_ptr).particle_buffer_front));
+		VkBuffer index_buffer = reinterpret_cast<VkBuffer>(owner->device().compute_buffer_native((*state_ptr).particle_index_buffer));
 		if (state_buffer == VK_NULL_HANDLE || index_buffer == VK_NULL_HANDLE)
 			return false;
-		for (uint32_t frame_slot = 0; frame_slot < owner->impl->scene_ubos.size(); ++frame_slot)
-			if (!owner->impl->pipeline.particle_buffers_bind(frame_slot, owner->impl->scene_ubos[frame_slot],
-				state_buffer, index_buffer))
-				return false;
+		if (!owner->device().particle_scene_buffers_bind(reinterpret_cast<uint64_t>(state_buffer),
+			reinterpret_cast<uint64_t>(index_buffer)))
+			return false;
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
-		owner->impl->scene_domain->state().camera.position_get(camera);
+		owner->scene().camera_position_get(camera);
 		//推送块（128 B；首位 = 相机位置 ＋ 四边形世界边长，64 / 80 / 96 为颜色覆盖，其余留零）
-		owner->impl->pending_push_constants.emplace_back();
-		std::array<float, 32>& push_spatial = owner->impl->pending_push_constants.back();
+		std::array<float, 32> push_spatial{};
 		push_spatial.fill(0.0f);
 		push_spatial[0] = camera[0];
 		push_spatial[1] = camera[1];
@@ -695,32 +686,32 @@ namespace engine
 		*/
 		uint64_t depth_view_handle = 0;
 		uint64_t depth_sampler_handle = 0;
-		const bool depth_bound = owner->compute().particle_depth_source(owner->impl->frame.slot_index_get(),
+		const bool depth_bound = owner->compute().particle_depth_source(core->frame.slot_index_get(),
 			depth_view_handle, depth_sampler_handle);
 		VkImageView depth_view = depth_bound ? reinterpret_cast<VkImageView>(depth_view_handle) : VK_NULL_HANDLE;
 		VkSampler depth_sampler = depth_bound ? reinterpret_cast<VkSampler>(depth_sampler_handle) : VK_NULL_HANDLE;
 		//未绑定深度时档位为 0（画面回落旧行为）
-		push_spatial[28] = depth_bound ? state().particle_params.soft_depth_range : 0.0f;
+		push_spatial[28] = depth_bound ? (*state_ptr).particle_params.soft_depth_range : 0.0f;
 		//组装绘制项（实例数取自命令，instance_count 仅用于统计口径）
 		Frame_Render_Item item{};
-		item.pipeline = owner->impl->pipeline.pipeline_by_handle_get(state().particle_gpu_pipeline);
-		item.layout = owner->impl->pipeline.layout_get();
+		item.pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get((*state_ptr).particle_gpu_pipeline));
+		item.layout = reinterpret_cast<VkPipelineLayout>(owner->resource().pipeline_layout_native());
 		item.descriptor_set_count = 2;
 		/*
 		专属采样集（第三百六十六轮；与 GPU 直接路径同口径）
 		粒子片元静态声明 set1 binding 2，以默认白纹理补齐快照，历史深度仅在可用时挂上。
 		*/
 		{
-			VkImageView default_view = VK_NULL_HANDLE;
-			VkSampler default_sampler = VK_NULL_HANDLE;
-			owner->impl->resource_domain->state().texture.texture_bind_get(owner->impl->resource_domain->state().default_texture, default_view, default_sampler);
-			item.draw_albedo = default_view;
-			item.draw_sampler = default_sampler;
+			uint64_t default_view = 0;
+			uint64_t default_sampler = 0;
+			owner->resource().default_texture_native_get(default_view, default_sampler);
+			item.draw_albedo = reinterpret_cast<VkImageView>(default_view);
+			item.draw_sampler = reinterpret_cast<VkSampler>(default_sampler);
 			item.draw_depth = depth_view;
 			item.draw_depth_sampler = depth_sampler;
 		}
-		item.vertex_buffer = quad_buffer;
-		item.index_buffer = quad_buffer;
+		item.vertex_buffer = reinterpret_cast<VkBuffer>(quad_buffer);
+		item.index_buffer = reinterpret_cast<VkBuffer>(quad_buffer);
 		item.index_offset = quad_index_offset;
 		item.index_count = quad_index_count;
 		item.instance_input = false;
@@ -734,11 +725,11 @@ namespace engine
 		//粒子不参与阴影视图投影
 		item.cast_shadow = false;
 		//透明标记（非不透明混合项不参与合批）
-		item.transparent = state().particle_blend_mode != Blend_Mode::Opaque;
-		//登记待绘制项
-		owner->impl->pending_items.push_back(item);
+		item.transparent = (*state_ptr).particle_blend_mode != Blend_Mode::Opaque;
+		//复制推送块并登记待绘制项
+		owner->device().particle_item_push(item, push_spatial);
 		//登记路径观测（第三百四十八轮；3 = GPU 间接绘制）
-		state().particle_draw_path_last = 3;
+		(*state_ptr).particle_draw_path_last = 3;
 		return true;
 	}
 
@@ -748,13 +739,13 @@ namespace engine
 		if (command_out == nullptr)
 			return false;
 		//未初始化 / 未开启常驻 / 尚未写入
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !state().particle_resident || !state().particle_indirect_written)
+		if (owner == nullptr || !owner->device().valid() || !(*state_ptr).particle_resident || !(*state_ptr).particle_indirect_written)
 			return false;
 		//最近一次写入的帧槽
-		uint32_t slot = state().particle_indirect_last_slot;
-		if (slot >= state().particle_indirect_buffers.size())
+		uint32_t slot = (*state_ptr).particle_indirect_last_slot;
+		if (slot >= (*state_ptr).particle_indirect_buffers.size())
 			return false;
-		return owner->compute().compute_buffer_read(state().particle_indirect_buffers[slot], command_out,
+		return owner->compute().compute_buffer_read((*state_ptr).particle_indirect_buffers[slot], command_out,
 			static_cast<uint32_t>(sizeof(uint32_t) * 5u));
 	}
 }

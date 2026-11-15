@@ -1,5 +1,5 @@
 #pragma once
-//依赖：core/渲染器实现.h 已提供模块类型
+//依赖：渲染器内部状态.h 已提供模块类型
 
 //游戏引擎命名空间
 namespace engine
@@ -66,9 +66,27 @@ namespace engine
 		bool valid = false;
 	};
 
-	//资源域状态（从 Impl 迁出的成员，名字保持不变以减少改写）
+
+	//具名管线记录（着色器模块所有权归资源域）
+	struct Extra_Pipeline_Record
+	{
+		uint64_t handle = 0;
+		VkShaderModule vert_module = VK_NULL_HANDLE;
+		VkShaderModule frag_module = VK_NULL_HANDLE;
+	};
+
+	//资源域状态
 	struct Resource_State
 	{
+		//着色器模块
+		Shader_Context shader;
+		//图形管线模块
+		Pipeline_Context pipeline;
+		//具名管线集合
+		std::vector<Extra_Pipeline_Record> extra_pipelines;
+		//当前混合档
+		Blend_Mode blend_mode = Blend_Mode::Opaque;
+
 		//网格模块
 		Mesh_Context mesh;
 

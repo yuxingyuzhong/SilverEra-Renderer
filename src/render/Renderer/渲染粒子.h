@@ -5,6 +5,7 @@
 //游戏引擎命名空间
 namespace engine
 {
+	struct Render_Core_Context;
 	class Renderer;
 	struct Particle_Domain_State;
 
@@ -15,7 +16,7 @@ namespace engine
 	class Render_Particle
 	{
 	public:
-		explicit Render_Particle(Renderer* owner);
+		Render_Particle(Renderer* owner, const Render_Core_Context& core_context);
 		~Render_Particle(void);
 		//不可拷贝、不可移动
 		Render_Particle(const Render_Particle&) = delete;
@@ -141,19 +142,26 @@ namespace engine
 		bool particle_indirect_command_get(uint32_t command_out[5]);
 		//GPU 推进自检（上传当前 CPU 状态 → 零步推进 → 回读比对；仅验证调度通路与拷贝语义）
 		bool particle_gpu_probe(void);
+		//常驻 GPU 发射与推进（供层内模拟入口调用）
+		uint32_t particle_gpu_emit_resident(uint32_t count);
+		bool particle_gpu_step_resident(float dt);
 
-		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//=== 域生命周期与层内成员窄接口 ===
 		//初始化（原 renderer_init_services 中的粒子装配；资源全部惰性创建）
 		void init(const Renderer_Config& effective);
 		//关闭（原 shutdown 中粒子相关部分；幂等）
 		void shutdown(void);
-		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
-		Particle_Domain_State& state(void);
-		const Particle_Domain_State& state(void) const;
-
+		//填充粒子相关的只读帧统计
+		void frame_stats_fill(Frame_Stats& stats) const;
+		//粒子域持有的 GPU 资源生命周期（计算域旧入口仅作语义转发）
+		bool particle_gpu_resources_ensure(void);
+		void particle_gpu_resources_destroy(void);
+		bool particle_draw_resources_ensure(void);
+		bool particle_gpu_draw_resources_ensure(void);
 	private:
-		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		//门面自身（跨域语义调用）
 		Renderer* owner = nullptr;
+		const Render_Core_Context* core = nullptr;
 		//粒子域状态
 		std::unique_ptr<Particle_Domain_State> state_ptr;
 	};

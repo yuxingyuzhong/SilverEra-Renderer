@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -30,7 +30,7 @@ namespace engine
 		if (names_out != nullptr)
 			names_out->clear();
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: MTL 材质加载失败：尚未初始化");
 			return false;
@@ -134,10 +134,10 @@ namespace engine
 	bool Render_Resource::material_instance_validate(const Material_Instance_Data& data) const
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//模板句柄须为已登记材质
-		if (data.模板 == 0 || data.模板 > state().materials.size() || !state().materials[data.模板 - 1].valid)
+		if (data.模板 == 0 || data.模板 > (*state_ptr).materials.size() || !(*state_ptr).materials[data.模板 - 1].valid)
 			return false;
 		//覆盖底色：四分量有限且落在 [0,1]
 		if (data.use_tint)
@@ -189,7 +189,7 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 材质登记失败：尚未初始化");
 			return false;
@@ -321,13 +321,13 @@ namespace engine
 			*/
 			std::size_t index = static_cast<std::size_t>(data.blend) * 8
 				+ (data.depth_write ? 0 : 4) + (data.alpha_to_coverage ? 2 : 0) + (data.double_sided ? 1 : 0);
-			std::vector<uint64_t>& table = state().material_pipelines;
+			std::vector<uint64_t>& table = (*state_ptr).material_pipelines;
 			if (table.size() <= index)
 				table.resize(index + 1, 0);
 			//该组合尚未登记则以默认场景着色器对登记一条（此后同组合材质共享之）
 			if (table[index] == 0)
 			{
-				if (!owner->impl->pipeline_load_ex(table[index], "场景.vert.spv", "场景.frag.spv",
+				if (!owner->resource().pipeline_load_ex(table[index], "场景.vert.spv", "场景.frag.spv",
 					data.blend, data.alpha_to_coverage, data.double_sided, data.depth_write))
 				{
 					logger.error("渲染器:: 材质登记失败：具名管线登记失败");
@@ -341,12 +341,12 @@ namespace engine
 		record.valid = true;
 		//分配句柄：优先复用第一个空槽，否则追加
 		Material_Handle handle = 0;
-		for (std::size_t index = 0; index < state().materials.size(); ++index)
+		for (std::size_t index = 0; index < (*state_ptr).materials.size(); ++index)
 		{
 			//若该槽已空
-			if (!state().materials[index].valid)
+			if (!(*state_ptr).materials[index].valid)
 			{
-				state().materials[index] = record;
+				(*state_ptr).materials[index] = record;
 				handle = static_cast<Material_Handle>(index) + 1;
 				break;
 			}
@@ -354,8 +354,8 @@ namespace engine
 		//若无空槽则追加
 		if (handle == 0)
 		{
-			state().materials.push_back(record);
-			handle = static_cast<Material_Handle>(state().materials.size());
+			(*state_ptr).materials.push_back(record);
+			handle = static_cast<Material_Handle>((*state_ptr).materials.size());
 		}
 		//写出句柄
 		handle_out = handle;
@@ -366,13 +366,13 @@ namespace engine
 	void Render_Resource::material_unload(Material_Handle handle)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//句柄为零或越界即视为无需卸载（幂等）
-		if (handle == 0 || handle > state().materials.size())
+		if (handle == 0 || handle > (*state_ptr).materials.size())
 			return;
 		//取目标记录
-		Material_Record& record = state().materials[handle - 1];
+		Material_Record& record = (*state_ptr).materials[handle - 1];
 		//已空则忽略
 		if (!record.valid)
 			return;
@@ -384,7 +384,7 @@ namespace engine
 	void Render_Resource::material_bind_set(Material_Handle handle)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//句柄为零则回落「默认场景管线 ＋ 内置默认白纹理」并清除逐物体 PBR 覆盖
 		if (handle == 0)
@@ -394,28 +394,28 @@ namespace engine
 			material_pbr_clear();
 			material_tint_clear();
 			material_emissive_clear();
-			state().material_normal_strength = 0.0f;
-			state().material_uv_scale[0] = 1.0f;
-			state().material_uv_scale[1] = 1.0f;
-			state().material_uv_offset[0] = 0.0f;
-			state().material_uv_offset[1] = 0.0f;
-			state().material_uv_rotation = 0.0f;
-			state().material_alpha_cutoff = 0.0f;
-			state().material_clear_coat = 0.0f;
-			state().material_clear_coat_roughness = 0.15f;
+			(*state_ptr).material_normal_strength = 0.0f;
+			(*state_ptr).material_uv_scale[0] = 1.0f;
+			(*state_ptr).material_uv_scale[1] = 1.0f;
+			(*state_ptr).material_uv_offset[0] = 0.0f;
+			(*state_ptr).material_uv_offset[1] = 0.0f;
+			(*state_ptr).material_uv_rotation = 0.0f;
+			(*state_ptr).material_alpha_cutoff = 0.0f;
+			(*state_ptr).material_clear_coat = 0.0f;
+			(*state_ptr).material_clear_coat_roughness = 0.15f;
 			//清除逐物体卡通覆盖（第四百零八轮）
-			state().material_toon_active = false;
-			state().material_toon_steps = 0.0f;
-			state().material_toon_rim = 0.0f;
-			state().material_toon_specular = 0.0f;
+			(*state_ptr).material_toon_active = false;
+			(*state_ptr).material_toon_steps = 0.0f;
+			(*state_ptr).material_toon_rim = 0.0f;
+			(*state_ptr).material_toon_specular = 0.0f;
 			//清除逐物体暗部色调（第四百零九轮；回落 (1,1,1) 不色偏）
-			state().material_toon_tint[0] = 1.0f;
-			state().material_toon_tint[1] = 1.0f;
-			state().material_toon_tint[2] = 1.0f;
+			(*state_ptr).material_toon_tint[0] = 1.0f;
+			(*state_ptr).material_toon_tint[1] = 1.0f;
+			(*state_ptr).material_toon_tint[2] = 1.0f;
 			return;
 		}
 		//句柄无效则回落默认并告警
-		if (handle > state().materials.size() || !state().materials[handle - 1].valid)
+		if (handle > (*state_ptr).materials.size() || !(*state_ptr).materials[handle - 1].valid)
 		{
 			logger.warn("渲染器:: 材质句柄 {} 无效，回落默认管线与默认纹理", handle);
 			pipeline_bind_set(0);
@@ -423,28 +423,28 @@ namespace engine
 			material_pbr_clear();
 			material_tint_clear();
 			material_emissive_clear();
-			state().material_normal_strength = 0.0f;
-			state().material_uv_scale[0] = 1.0f;
-			state().material_uv_scale[1] = 1.0f;
-			state().material_uv_offset[0] = 0.0f;
-			state().material_uv_offset[1] = 0.0f;
-			state().material_uv_rotation = 0.0f;
-			state().material_alpha_cutoff = 0.0f;
-			state().material_clear_coat = 0.0f;
-			state().material_clear_coat_roughness = 0.15f;
+			(*state_ptr).material_normal_strength = 0.0f;
+			(*state_ptr).material_uv_scale[0] = 1.0f;
+			(*state_ptr).material_uv_scale[1] = 1.0f;
+			(*state_ptr).material_uv_offset[0] = 0.0f;
+			(*state_ptr).material_uv_offset[1] = 0.0f;
+			(*state_ptr).material_uv_rotation = 0.0f;
+			(*state_ptr).material_alpha_cutoff = 0.0f;
+			(*state_ptr).material_clear_coat = 0.0f;
+			(*state_ptr).material_clear_coat_roughness = 0.15f;
 			//清除逐物体卡通覆盖（第四百零八轮）
-			state().material_toon_active = false;
-			state().material_toon_steps = 0.0f;
-			state().material_toon_rim = 0.0f;
-			state().material_toon_specular = 0.0f;
+			(*state_ptr).material_toon_active = false;
+			(*state_ptr).material_toon_steps = 0.0f;
+			(*state_ptr).material_toon_rim = 0.0f;
+			(*state_ptr).material_toon_specular = 0.0f;
 			//清除逐物体暗部色调（第四百零九轮；回落 (1,1,1) 不色偏）
-			state().material_toon_tint[0] = 1.0f;
-			state().material_toon_tint[1] = 1.0f;
-			state().material_toon_tint[2] = 1.0f;
+			(*state_ptr).material_toon_tint[0] = 1.0f;
+			(*state_ptr).material_toon_tint[1] = 1.0f;
+			(*state_ptr).material_toon_tint[2] = 1.0f;
 			return;
 		}
 		//取目标记录
-		const Material_Record& record = state().materials[handle - 1];
+		const Material_Record& record = (*state_ptr).materials[handle - 1];
 		//绑定材质管线与纹理（管线句柄未登记 / 纹理句柄无效时各自内部回落默认）
 		pipeline_bind_set(record.pipeline);
 		texture_bind_set(record.texture);
@@ -453,12 +453,12 @@ namespace engine
 		法线 / 粗糙度贴图无效或未配置时回落内置默认白纹理（采样为 (1,1,1)，画面不变）；
 		法线强度经推送常量 offset 80 的 x 分量下发给场景片元。
 		*/
-		state().material_normal_strength = record.normal_strength;
+		(*state_ptr).material_normal_strength = record.normal_strength;
 		{
 			//默认白纹理（兜底视图与采样器）
 			VkImageView white_view = VK_NULL_HANDLE;
 			VkSampler white_sampler = VK_NULL_HANDLE;
-			state().texture.texture_bind_get(state().default_texture, white_view, white_sampler);
+			(*state_ptr).texture.texture_bind_get((*state_ptr).default_texture, white_view, white_sampler);
 			/*
 			材质贴图采样器（第一百七十轮）
 			纹理模块全部纹理共用同一采样器，故五个贴图只取用这一个采样器。
@@ -467,23 +467,23 @@ namespace engine
 			//法线贴图（无效则用默认白纹理）
 			VkImageView normal_view = white_view;
 			if (record.normal_texture != 0)
-				state().texture.texture_bind_get(record.normal_texture, normal_view, material_sampler);
+				(*state_ptr).texture.texture_bind_get(record.normal_texture, normal_view, material_sampler);
 			//粗糙度贴图（无效则用默认白纹理）
 			VkImageView roughness_view = white_view;
 			if (record.roughness_texture != 0)
-				state().texture.texture_bind_get(record.roughness_texture, roughness_view, material_sampler);
+				(*state_ptr).texture.texture_bind_get(record.roughness_texture, roughness_view, material_sampler);
 			//自发光颜色贴图（第一百六十八轮；无效则用默认白纹理）
 			VkImageView emissive_view = white_view;
 			if (record.emissive_texture != 0)
-				state().texture.texture_bind_get(record.emissive_texture, emissive_view, material_sampler);
+				(*state_ptr).texture.texture_bind_get(record.emissive_texture, emissive_view, material_sampler);
 			//环境光遮蔽贴图（第一百六十九轮；无效则用默认白纹理）
 			VkImageView ao_view = white_view;
 			if (record.ao_texture != 0)
-				state().texture.texture_bind_get(record.ao_texture, ao_view, material_sampler);
+				(*state_ptr).texture.texture_bind_get(record.ao_texture, ao_view, material_sampler);
 			//金属度贴图（第一百六十九轮；无效则用默认白纹理）
 			VkImageView metallic_view = white_view;
 			if (record.metallic_texture != 0)
-				state().texture.texture_bind_get(record.metallic_texture, metallic_view, material_sampler);
+				(*state_ptr).texture.texture_bind_get(record.metallic_texture, metallic_view, material_sampler);
 			/*
 			一次性写入全部材质贴图（第一百七十轮）
 			任一视图取用失败则整次跳过，避免把空句柄写进描述符集。
@@ -491,51 +491,51 @@ namespace engine
 			if (normal_view != VK_NULL_HANDLE && roughness_view != VK_NULL_HANDLE
 				&& emissive_view != VK_NULL_HANDLE && ao_view != VK_NULL_HANDLE && metallic_view != VK_NULL_HANDLE)
 			{
-				for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
-					owner->impl->pipeline.material_textures_bind(slot, material_sampler,
+				for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+					(*state_ptr).pipeline.material_textures_bind(slot, material_sampler,
 						normal_view, roughness_view, emissive_view, ao_view, metallic_view);
 				//同步材质贴图状态（逐绘制项采样集按该快照写入）
-				state().material_views[0] = normal_view;
-				state().material_views[1] = roughness_view;
-				state().material_views[2] = emissive_view;
-				state().material_views[3] = ao_view;
-				state().material_views[4] = metallic_view;
+				(*state_ptr).material_views[0] = normal_view;
+				(*state_ptr).material_views[1] = roughness_view;
+				(*state_ptr).material_views[2] = emissive_view;
+				(*state_ptr).material_views[3] = ao_view;
+				(*state_ptr).material_views[4] = metallic_view;
 			}
 		}
 		//按记录的 PBR 覆盖标志设置 / 清除逐物体材质（第六十八轮）
 		if (record.pbr_override)
-			state().material_pbr_active = true;
+			(*state_ptr).material_pbr_active = true;
 		else
-			state().material_pbr_active = false;
-		state().material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
-		state().material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
+			(*state_ptr).material_pbr_active = false;
+		(*state_ptr).material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
+		(*state_ptr).material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
 		//按记录的卡通覆盖标志同步逐物体卡通参数（第四百零八轮；无覆盖时三项清零即回落全局）
-		state().material_toon_active = record.toon_override;
-		state().material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;
-		state().material_toon_rim = record.toon_override ? record.toon_rim : 0.0f;
-		state().material_toon_specular = record.toon_override ? record.toon_specular : 0.0f;
+		(*state_ptr).material_toon_active = record.toon_override;
+		(*state_ptr).material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;
+		(*state_ptr).material_toon_rim = record.toon_override ? record.toon_rim : 0.0f;
+		(*state_ptr).material_toon_specular = record.toon_override ? record.toon_specular : 0.0f;
 		//逐物体暗部色调（第四百零九轮；无覆盖时回落 (1,1,1) 不色偏）
 		for (std::size_t index = 0; index < 3; ++index)
-			state().material_toon_tint[index] = record.toon_override ? record.toon_shadow_tint[index] : 1.0f;
+			(*state_ptr).material_toon_tint[index] = record.toon_override ? record.toon_shadow_tint[index] : 1.0f;
 		//按记录同步逐物体色调（第六十九轮）
-		state().material_tint_active = record.tint_override;
+		(*state_ptr).material_tint_active = record.tint_override;
 		for (std::size_t index = 0; index < 4; ++index)
-			state().material_tint[index] = record.tint_override ? record.tint[index] : 1.0f;
+			(*state_ptr).material_tint[index] = record.tint_override ? record.tint[index] : 1.0f;
 		//同步逐物体自发光（第七十轮）
-		state().material_emissive = record.emissive;
+		(*state_ptr).material_emissive = record.emissive;
 		//同步贴图 UV 变换（第一百七十一轮；材质默认 (1,1)/(0,0) 即恒等）
 		for (std::size_t index = 0; index < 2; ++index)
 		{
-			state().material_uv_scale[index] = record.uv_scale[index];
-			state().material_uv_offset[index] = record.uv_offset[index];
+			(*state_ptr).material_uv_scale[index] = record.uv_scale[index];
+			(*state_ptr).material_uv_offset[index] = record.uv_offset[index];
 		}
 		//同步 UV 旋转与 Alpha 裁剪（第一百八十三轮；默认 0 即关闭）
-		state().material_uv_rotation = record.uv_rotation;
-		state().material_alpha_cutoff = record.alpha_cutoff;
+		(*state_ptr).material_uv_rotation = record.uv_rotation;
+		(*state_ptr).material_alpha_cutoff = record.alpha_cutoff;
 		//同步清漆层（第二百三十三轮；默认 0 即关闭；强度钳 [0,1]、粗糙度钳 [0.03,1]）
 		float coat = std::isfinite(record.clear_coat) ? record.clear_coat : 0.0f;
-		state().material_clear_coat = coat > 1.0f ? 1.0f : (coat > 0.0f ? coat : 0.0f);
+		(*state_ptr).material_clear_coat = coat > 1.0f ? 1.0f : (coat > 0.0f ? coat : 0.0f);
 		float coat_roughness = std::isfinite(record.clear_coat_roughness) ? record.clear_coat_roughness : 0.15f;
-		state().material_clear_coat_roughness = coat_roughness < 0.03f ? 0.03f : (coat_roughness > 1.0f ? 1.0f : coat_roughness);
+		(*state_ptr).material_clear_coat_roughness = coat_roughness < 0.03f ? 0.03f : (coat_roughness > 1.0f ? 1.0f : coat_roughness);
 	}
 }

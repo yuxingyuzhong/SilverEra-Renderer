@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -98,7 +98,7 @@ namespace engine
 	bool Render_Resource::mesh_sphere_load(Mesh_Handle& handle_out, float radius, uint32_t slices, uint32_t stacks)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、分段数在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f)
 			|| slices < 3 || slices > 128 || stacks < 2 || stacks > 64)
 		{
 			logger.warn("渲染器:: 球体参数非法（半径 {}、经度 {}、纬度 {}）", radius, slices, stacks);
@@ -112,7 +112,7 @@ namespace engine
 	bool Render_Resource::mesh_icosphere_load(Mesh_Handle& handle_out, float radius, uint32_t subdivisions)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、细分次数在 0..4
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || subdivisions > 4)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f) || subdivisions > 4)
 		{
 			logger.warn("渲染器:: 正二十面体球参数非法（半径 {}、细分 {}）", radius, subdivisions);
 			handle_out = 0;
@@ -129,7 +129,7 @@ namespace engine
 		const uint64_t vertex_count = (static_cast<uint64_t>(segments_x) + 1)
 			* (static_cast<uint64_t>(segments_z) + 1);
 		//前置：已初始化、宽深为正（非数亦拒）、分段在 1..512 且顶点总数受限
-		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(depth > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(width > 0.0f) || !(depth > 0.0f)
 			|| segments_x < 1 || segments_x > 512 || segments_z < 1 || segments_z > 512
 			|| vertex_count > (1ull << 20))
 		{
@@ -145,7 +145,7 @@ namespace engine
 	bool Render_Resource::mesh_cylinder_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
 		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f) || !(height > 0.0f)
 			|| segments < 3 || segments > 128)
 		{
 			logger.warn("渲染器:: 圆柱参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
@@ -159,7 +159,7 @@ namespace engine
 	bool Render_Resource::mesh_plane_load(Mesh_Handle& handle_out, float width, float height)
 	{
 		//前置：已初始化、宽高为正（非数亦拒）
-		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(height > 0.0f))
+		if (owner == nullptr || !owner->device().valid() || !(width > 0.0f) || !(height > 0.0f))
 		{
 			logger.warn("渲染器:: 平面参数非法（宽 {}、高 {}）", width, height);
 			handle_out = 0;
@@ -172,7 +172,7 @@ namespace engine
 	bool Render_Resource::mesh_triangle_load(Mesh_Handle& handle_out)
 	{
 		//前置：已初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.warn("渲染器:: 三角形加载失败：尚未初始化");
 			handle_out = 0;
@@ -185,7 +185,7 @@ namespace engine
 	bool Render_Resource::mesh_cube_load(Mesh_Handle& handle_out, float half_extent)
 	{
 		//前置：已初始化、半边长正（非数亦拒）
-		if (owner->impl == nullptr || !owner->impl->initialized || !(half_extent > 0.0f))
+		if (owner == nullptr || !owner->device().valid() || !(half_extent > 0.0f))
 		{
 			logger.warn("渲染器:: 立方体参数非法（半边长 {}）", half_extent);
 			handle_out = 0;
@@ -198,7 +198,7 @@ namespace engine
 	bool Render_Resource::mesh_disc_load(Mesh_Handle& handle_out, float radius, uint32_t segments)
 	{
 		//前置：已初始化、半径为正（非数亦拒）、分段在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f)
 			|| segments < 3 || segments > 256)
 		{
 			logger.warn("渲染器:: 圆盘参数非法（半径 {}、分段 {}）", radius, segments);
@@ -213,7 +213,7 @@ namespace engine
 		uint32_t columns, uint32_t rows)
 	{
 		//前置：已初始化、宽高为正（非数亦拒）、分段在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(width > 0.0f) || !(height > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(width > 0.0f) || !(height > 0.0f)
 			|| columns < 1 || columns > 256 || rows < 1 || rows > 256)
 		{
 			logger.warn("渲染器:: 细分平面参数非法（宽 {}、高 {}、列 {}、行 {}）",
@@ -229,7 +229,7 @@ namespace engine
 		uint32_t segments, uint32_t rings)
 	{
 		//前置：已初始化、半径为正、中段高度非负（非数亦拒）、分段与纬圈在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height >= 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f) || !(height >= 0.0f)
 			|| segments < 3 || segments > 128 || rings < 2 || rings > 64)
 		{
 			logger.warn("渲染器:: 胶囊参数非法（半径 {}、高度 {}、分段 {}、纬圈 {}）",
@@ -244,7 +244,7 @@ namespace engine
 	bool Render_Resource::mesh_cone_load(Mesh_Handle& handle_out, float radius, float height, uint32_t segments)
 	{
 		//前置：已初始化、半径与高度为正（非数亦拒）、分段数在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(radius > 0.0f) || !(height > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(radius > 0.0f) || !(height > 0.0f)
 			|| segments < 3 || segments > 128)
 		{
 			logger.warn("渲染器:: 圆锥参数非法（半径 {}、高度 {}、分段 {}）", radius, height, segments);
@@ -258,7 +258,7 @@ namespace engine
 	bool Render_Resource::mesh_pyramid_load(Mesh_Handle& handle_out, float base_half, float height)
 	{
 		//前置：已初始化、底面半边长与高度为正（非数亦拒）
-		if (owner->impl == nullptr || !owner->impl->initialized || !(base_half > 0.0f) || !(height > 0.0f))
+		if (owner == nullptr || !owner->device().valid() || !(base_half > 0.0f) || !(height > 0.0f))
 		{
 			logger.warn("渲染器:: 四棱锥参数非法（底面半边长 {}、高度 {}）", base_half, height);
 			handle_out = 0;
@@ -272,7 +272,7 @@ namespace engine
 		uint32_t major_segments, uint32_t minor_segments)
 	{
 		//前置：已初始化、双半径为正（非数亦拒）、双分段在区间内
-		if (owner->impl == nullptr || !owner->impl->initialized || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
+		if (owner == nullptr || !owner->device().valid() || !(major_radius > 0.0f) || !(minor_radius > 0.0f)
 			|| major_segments < 3 || major_segments > 128 || minor_segments < 3 || minor_segments > 128)
 		{
 			logger.warn("渲染器:: 圆环参数非法（环半径 {}、管半径 {}、环分段 {}、管分段 {}）",

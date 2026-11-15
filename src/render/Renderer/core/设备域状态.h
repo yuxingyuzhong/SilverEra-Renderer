@@ -1,12 +1,75 @@
 #pragma once
-//依赖：core/渲染器实现.h 已提供模块类型与后处理常量
+//核心模块与生效配置
+#include "渲染上下文.h"
+//帧录制与阴影分组状态
+#include "帧录制状态.h"
+#include "阴影域状态.h"
+//后处理常量所需管线类型
+#include "Engine/EngineRenderer/src/render/Pipeline/管线.h"
 
 //游戏引擎命名空间
 namespace engine
 {
-	//设备域状态（从 Impl 迁出的渲染目标选择、后处理与超采样成员）
-	struct Device_State
+	//后处理链级数上限
+	inline constexpr uint32_t POST_CHAIN_MAX_STAGES = 8;
+	//呈现目标上限
+	inline constexpr uint32_t PRESENT_TARGET_MAX = Pipeline_Context::POST_SET_PER_SLOT;
+
+	//设备域独占状态（核心模块、生效配置、输出状态，以及帧录制和阴影分组）
+	struct Device_State : public Device_Frame_State, public Device_Shadow_State
 	{
+		Renderer* owner = nullptr;
+		using Point_Light = Scene_State::Point_Light;
+		static constexpr uint32_t POINT_LIGHT_UBO_MAX = Scene_State::POINT_LIGHT_UBO_MAX;
+		static constexpr uint32_t POINT_LIGHT_MAX = Scene_State::POINT_LIGHT_MAX;
+
+		bool swapchain_rebuild_deferred(uint32_t width, uint32_t height);
+		bool hiz_ensure(void);
+		bool cluster_ensure(void);
+		void cluster_destroy(void);
+		bool cluster_placeholder_ensure(void);
+		bool cluster_graphics_ensure(uint32_t cluster_total, uint32_t list_capacity);
+		void cluster_graphics_destroy(void);
+		static void hiz_post_scene_entry(VkCommandBuffer command_buffer, VkImage depth_image, VkImageView depth_view,
+			VkExtent2D extent, void* user_data);
+		void outline_item_push(const Frame_Render_Item& item);
+		bool post_mesh_ensure(void);
+		bool post_pipeline_ensure(void);
+		bool post_resources_ensure(void);
+		bool post_sets_bind(const VkImageView* views, uint32_t count, VkSampler sampler,
+			VkImageView depth_view = VK_NULL_HANDLE);
+		bool ssaa_pipeline_ensure(void);
+		bool sky_pipeline_ensure(void);
+		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
+		void ssaa_targets_destroy(void);
+
+		//平台模块
+		Platform_Context platform;
+		//设备模块
+		Device_Context device;
+		//内存模块
+		Memory_Context memory;
+		//交换链模块
+		Swapchain_Context swapchain;
+		//帧模块
+		Frame_Context frame;
+		//生效配置
+		Renderer_Config config;
+		//是否已初始化
+		bool initialized = false;
+		//设备是否支持间接绘制命令的 firstInstance 非零
+		bool indirect_first_instance_supported = false;
+		//当前 MSAA 采样数（1 = 关闭）
+		uint32_t msaa_samples = 1;
+		//MSAA 深度解析开关
+		bool msaa_depth_resolve = true;
+		//本帧实际生效的级联接缝淡化比例
+		float cascade_blend_effective = 0.0f;
+		//自校准偏置的参考锥远平面
+		static constexpr float SPOT_BIAS_REFERENCE_SPAN = 9.0f;
+		//各片光源空间深度跨度
+		float cascade_depth_span[3] = { 59.0f, 59.0f, 59.0f };
+
 		//本帧渲染目标句柄（0 = 直接渲染到交换链）
 		uint64_t active_target = 0;
 

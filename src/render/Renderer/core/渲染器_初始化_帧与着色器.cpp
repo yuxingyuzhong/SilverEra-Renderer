@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -36,7 +36,7 @@ namespace engine
 	//初始化（任一环节失败即逆序回退）
 
 	//初始化阶段：帧 / 着色器模块 / 描述符布局与管线
-	bool renderer_init_frame_shader_pipeline(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective)
+	bool renderer_init_frame_shader_pipeline(Renderer* owner, Device_State& state, Renderer_Config& effective)
 	{
 		//⑧ 帧（像素回读缓冲依赖内存模块，故传入 memory）
 		/*
@@ -51,27 +51,27 @@ namespace engine
 				instance_capacity = 16;
 			if (instance_capacity > 1048576)
 				instance_capacity = 1048576;
-			impl->instance_capacity = instance_capacity;
+			state.instance_capacity = instance_capacity;
 			/*
 			实例登记缓冲预保留（第一百九十四轮，优化）
 			pending_items 已在下方按实例容量预留（第一百三十六轮）；此处补 pending_instances 的同类预留，
 			避免帧循环内首次扩容（行为不变）。
 			*/
-			impl->pending_instances.reserve(impl->instance_capacity);
+			state.pending_instances.reserve(state.instance_capacity);
 			//掩码缓冲按容量预留（避免逐次调用分配）
-			impl->instanced_cull_mask.reserve(instance_capacity);
-			impl->instance_changed_mask.reserve(instance_capacity);
+			state.instanced_cull_mask.reserve(instance_capacity);
+			state.instance_changed_mask.reserve(instance_capacity);
 			//线程数归一
 			uint32_t render_threads = effective.render_threads;
 			if (render_threads > 64)
 				render_threads = 64;
 			//启动工作线程（0 = 单线程）
-			if (render_threads > 0 && !impl->thread_pool.threads_start(render_threads))
+			if (render_threads > 0 && !state.thread_pool.threads_start(render_threads))
 			{
 				logger.warn("渲染器:: 渲染工作线程启动失败，回落为单线程");
 				render_threads = 0;
 			}
-			impl->render_threads = render_threads;
+			state.render_threads = render_threads;
 			/*
 			实例剔除并行阈值（第二百二十二轮；钳 1..65536）
 			默认 256 与引入该配置前一致；调低可让小批量实例也走并行，调高则更保守。
@@ -81,7 +81,7 @@ namespace engine
 				cull_parallel_min = 1;
 			if (cull_parallel_min > 65536)
 				cull_parallel_min = 65536;
-			impl->cull_parallel_min_instances = cull_parallel_min;
+			state.cull_parallel_min_instances = cull_parallel_min;
 			/*
 			差异扫描 / 缓存回写并行阈值（第二百二十六轮；钳 1..65536）
 			默认 512 与引入该配置前一致。
@@ -91,7 +91,7 @@ namespace engine
 				scan_parallel_min = 1;
 			if (scan_parallel_min > 65536)
 				scan_parallel_min = 65536;
-			impl->instance_scan_parallel_min = scan_parallel_min;
+			state.instance_scan_parallel_min = scan_parallel_min;
 			/*
 			并行录制最小项数（第二百零二轮；钳到 2..4096）
 			线程数为 0 时该值无作用（始终单线程）。
@@ -101,9 +101,9 @@ namespace engine
 				parallel_min_items = 2;
 			if (parallel_min_items > 4096)
 				parallel_min_items = 4096;
-			impl->parallel_min_items = parallel_min_items;
+			state.parallel_min_items = parallel_min_items;
 			//把阈值同步给帧模块（第二百零二轮）
-			impl->frame.parallel_min_items_set(parallel_min_items);
+			state.frame.parallel_min_items_set(parallel_min_items);
 			/*
 			并行段数上限（第二百零三轮；钳到 2..32）
 			段数 = min(线程数, 上限, 项数 / 16)。
@@ -113,84 +113,71 @@ namespace engine
 				parallel_max_segments = 2;
 			if (parallel_max_segments > 32)
 				parallel_max_segments = 32;
-			impl->parallel_max_segments = parallel_max_segments;
-			impl->frame.parallel_max_segments_set(parallel_max_segments);
+			state.parallel_max_segments = parallel_max_segments;
+			state.frame.parallel_max_segments_set(parallel_max_segments);
 			//把线程池交给帧模块（第一百九十七轮：场景 pass 次级缓冲并行录制；空 / 0 线程时退回单线程）
-			impl->frame.thread_pool_set(&impl->thread_pool);
+			state.frame.thread_pool_set(&state.thread_pool);
 			logger.info("渲染器:: 渲染工作线程 {}（每帧实例容量 {}）", render_threads, instance_capacity);
 		}
 		/*
 		预留帧内待绘制项与实例存储容量（第一百三十六轮）
 		容量取自实例上限，避免逐帧扩容；仅在初始化时执行一次。
 		*/
-		impl->pending_items.reserve(impl->instance_capacity);
-		impl->pending_instances.reserve(impl->instance_capacity);
+		state.pending_items.reserve(state.instance_capacity);
+		state.pending_instances.reserve(state.instance_capacity);
 		//逐绘制项采样集输入缓冲按预留上限预分配（第二百二十一轮，避免逐帧扩容）
-		impl->resource_domain->state().draw_set_inputs.reserve(Pipeline_Context::DRAW_SET_PER_SLOT);
+		owner->resource().frame_inputs_reserve();
 		//实例级剔除的筛选缓冲（第一百五十三轮；按实例上限预留，避免逐帧扩容）
-		impl->instanced_cull_scratch.reserve(static_cast<std::size_t>(impl->instance_capacity) * 16);
-		impl->batch_scratch.reserve(impl->instance_capacity);
+		state.instanced_cull_scratch.reserve(static_cast<std::size_t>(state.instance_capacity) * 16);
+		state.batch_scratch.reserve(state.instance_capacity);
 		//阴影列表与后处理绘制项的复用缓冲（第一百八十二轮；避免逐帧堆分配）
-		impl->shadow_items_scratch.reserve(64);
-		impl->device_domain->state().post_items_scratch.reserve(POST_CHAIN_MAX_STAGES + 2);
+		state.shadow_items_scratch.reserve(64);
+		state.post_items_scratch.reserve(POST_CHAIN_MAX_STAGES + 2);
 		//后处理级管线序列复用缓冲（第一百八十七轮）
-		impl->device_domain->state().post_stage_pipelines_scratch.reserve(POST_CHAIN_MAX_STAGES + 1);
+		state.post_stage_pipelines_scratch.reserve(POST_CHAIN_MAX_STAGES + 1);
 
-		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
-			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
-			impl->device.present_family_get(), impl->device.present_queue_get(),
-			impl->swapchain, impl->memory, effective.frame_overlap))
+		if (!state.frame.build(state.device.device_get(), state.device.physical_device_get(),
+			state.device.graphics_family_get(), state.device.graphics_queue_get(),
+			state.device.present_family_get(), state.device.present_queue_get(),
+			state.swapchain, state.memory, effective.frame_overlap))
 		{
 			logger.error("渲染器:: 帧基础设施创建失败");
-			owner->shutdown();
+			owner->device().shutdown();
 			return false;
 		}
-		//⑨ 着色器：记录逻辑设备与着色器目录
-		if (!impl->shader.build(impl->device.device_get()))
+		//⑨ / ⑩ 着色器宿主与默认场景着色器模块
+		if (!owner->resource().scene_shaders_load(effective.shader_dir, state.scene_input_locations))
 		{
-			logger.error("渲染器:: 着色器模块初始化失败");
-			owner->shutdown();
-			return false;
-		}
-		impl->shader.directory_set(effective.shader_dir);
-		//⑩ 加载顶点 / 片元着色器模块
-		//加载场景顶点着色器（顺带解析其声明的顶点输入位置，供管线裁剪属性）
-		if (!impl->shader.module_load(impl->resource_domain->state().vert_module, "场景.vert.spv", &impl->scene_input_locations))
-		{
-			logger.error("渲染器:: 顶点着色器加载失败");
-			owner->shutdown();
-			return false;
-		}
-		if (!impl->shader.module_load(impl->resource_domain->state().frag_module, "场景.frag.spv"))
-		{
-			logger.error("渲染器:: 片元着色器加载失败");
-			owner->shutdown();
+			logger.error("渲染器:: 场景着色器初始化失败");
+			owner->device().shutdown();
 			return false;
 		}
 		//⑪ 管线：描述符布局 / 管线布局 / 描述符池与每帧槽描述符集
 		{
 			Pipeline_Config pipeline_config{};
-			pipeline_config.color_format = impl->swapchain.format_get();
-			pipeline_config.depth_format = impl->swapchain.depth_format_get();
+			pipeline_config.color_format = state.swapchain.format_get();
+			pipeline_config.depth_format = state.swapchain.depth_format_get();
 			pipeline_config.frame_overlap = effective.frame_overlap;
-			pipeline_config.sample_count = impl->msaa_samples;
+			pipeline_config.sample_count = state.msaa_samples;
 			/*
 			推送常量块上限探测（第四百零一轮）
 			Vulkan 保底 128 字节；桌面常见 256。本层把后处理第四组（offset 128..143）做成「有则用、无则降级」，
 			故先取物理设备上限：≥ 144 用 144 并开放 post_stage_extra_set，否则维持 128 并拒绝该接口。
 			*/
 			VkPhysicalDeviceProperties device_props{};
-			vkGetPhysicalDeviceProperties(impl->device.physical_device_get(), &device_props);
-			impl->device_domain->state().post_extra_supported = device_props.limits.maxPushConstantsSize >= 144;
-			pipeline_config.max_push_constant_size = impl->device_domain->state().post_extra_supported ? 144 : 128;
-			impl->frame.post_extra_enabled = impl->device_domain->state().post_extra_supported;
-			if (!impl->device_domain->state().post_extra_supported)
+			vkGetPhysicalDeviceProperties(state.device.physical_device_get(), &device_props);
+			state.post_extra_supported = device_props.limits.maxPushConstantsSize >= 144;
+			pipeline_config.max_push_constant_size = state.post_extra_supported ? 144 : 128;
+			state.frame.post_extra_enabled = state.post_extra_supported;
+			if (!state.post_extra_supported)
 				logger.warn("渲染器:: 设备推送常量上限 {} 字节不足 144，后处理逐级 extra 参数已禁用",
 					device_props.limits.maxPushConstantsSize);
-			if (!impl->pipeline.build(impl->device.device_get(), pipeline_config))
+			if (!owner->resource().scene_pipeline_infrastructure_build(
+				static_cast<uint32_t>(state.swapchain.format_get()), static_cast<uint32_t>(state.swapchain.depth_format_get()),
+				effective.frame_overlap, state.msaa_samples, pipeline_config.max_push_constant_size))
 			{
 				logger.error("渲染器:: 管线基础设施创建失败");
-				owner->shutdown();
+				owner->device().shutdown();
 				return false;
 			}
 		}
@@ -211,7 +198,7 @@ namespace engine
 					cache_stream.seekg(0);
 					cache_stream.read(reinterpret_cast<char*>(cache_bytes.data()), cache_size);
 					if (!cache_bytes.empty())
-						impl->pipeline.cache_set(cache_bytes.data(), cache_bytes.size());
+						owner->resource().pipeline_cache_set(cache_bytes.data(), cache_bytes.size());
 				}
 				cache_stream.close();
 			}

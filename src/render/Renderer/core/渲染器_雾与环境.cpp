@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -27,7 +27,7 @@ namespace engine
 	void Render_Scene::fog_set(const float color[3], float density, float start, float end)
 	{
 		//若尚未初始化或颜色指针为空
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
 			return;
 		/*
 		参数校验（取反比较使 NaN 判非法）
@@ -47,18 +47,18 @@ namespace engine
 			return;
 		}
 		for (std::size_t index = 0; index < 3; ++index)
-			state().fog_color[index] = color[index];
-		state().fog_density = density;
-		state().fog_start = start;
-		state().fog_end = end;
+			(*state_ptr).fog_color[index] = color[index];
+		(*state_ptr).fog_density = density;
+		(*state_ptr).fog_start = start;
+		(*state_ptr).fog_end = end;
 		//切回线性区间模式（第一百四十三轮）
-		state().fog_mode = 0;
+		(*state_ptr).fog_mode = 0;
 	}
 
 	void Render_Scene::fog_exp2_set(const float color[3], float density, float start)
 	{
 		//若尚未初始化或颜色指针为空
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
 			return;
 		/*
 		参数校验（取反比较使 NaN 判非法）
@@ -78,25 +78,25 @@ namespace engine
 			return;
 		}
 		for (std::size_t index = 0; index < 3; ++index)
-			state().fog_color[index] = color[index];
-		state().fog_density = density;
-		state().fog_start = start;
+			(*state_ptr).fog_color[index] = color[index];
+		(*state_ptr).fog_density = density;
+		(*state_ptr).fog_start = start;
 		//切到指数平方模式
-		state().fog_mode = 1;
+		(*state_ptr).fog_mode = 1;
 	}
 
 	uint32_t Render_Scene::fog_mode_get(void) const
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().fog_mode;
+		return (*state_ptr).fog_mode;
 	}
 
 	void Render_Scene::fog_height_set(float falloff)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//系数须在 [0, 10]（取反比较使 NaN 判非法）
 		if (!(falloff >= 0.0f && falloff <= 10.0f))
@@ -104,22 +104,22 @@ namespace engine
 			logger.warn("渲染器:: 雾高度衰减系数非法（{}），整次忽略", falloff);
 			return;
 		}
-		state().fog_height_falloff = falloff;
+		(*state_ptr).fog_height_falloff = falloff;
 	}
 
 	void Render_Scene::fog_clear(void)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//密度归零即关闭（颜色与区间保持既有值，便于再次开启）
-		state().fog_density = 0.0f;
+		(*state_ptr).fog_density = 0.0f;
 	}
 
 	void Render_Scene::ambient_color_set(const float color[3])
 	{
 		//若尚未初始化或颜色指针为空
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
 			return;
 		//颜色各分量须落在 [0,1]（取反比较使 NaN 判非法）
 		for (std::size_t index = 0; index < 3; ++index)
@@ -130,13 +130,13 @@ namespace engine
 				return;
 			}
 		for (std::size_t index = 0; index < 3; ++index)
-			state().ambient_color[index] = color[index];
+			(*state_ptr).ambient_color[index] = color[index];
 	}
 
 	void Render_Scene::ambient_ground_set(const float ground_color[3], float hemisphere)
 	{
 		//若尚未初始化或颜色指针为空
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || ground_color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || ground_color == nullptr)
 			return;
 		//颜色各分量须落在 [0,1]（取反比较使 NaN 判非法）
 		for (std::size_t index = 0; index < 3; ++index)
@@ -155,14 +155,20 @@ namespace engine
 			blend = 1.0f;
 		//写入地面颜色与混合强度
 		for (std::size_t index = 0; index < 3; ++index)
-			state().ambient_ground[index] = ground_color[index];
-		state().ambient_ground[3] = blend;
+			(*state_ptr).ambient_ground[index] = ground_color[index];
+		(*state_ptr).ambient_ground[3] = blend;
 	}
 
-	void Renderer_Core::light_fill_set(const float direction[3], const float color[3], float intensity, float specular)
+	void Render_Device::light_fill_set(const float direction[3], const float color[3], float intensity, float specular)
+	{
+		//转发场景域补光语义
+		owner->scene().light_fill_set(direction, color, intensity, specular);
+	}
+
+	void Render_Scene::light_fill_set(const float direction[3], const float color[3], float intensity, float specular)
 	{
 		//若尚未初始化或任一指针为空
-		if (impl == nullptr || !impl->initialized || direction == nullptr || color == nullptr)
+		if (owner == nullptr || !owner->device().valid() || direction == nullptr || color == nullptr)
 			return;
 		/*
 		参数校验（口径同 light_set）
@@ -185,17 +191,17 @@ namespace engine
 		float inverse_length = 1.0f / std::sqrt(length_squared);
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			self().scene().state().fill_direction[index] = direction[index] * inverse_length;
-			self().scene().state().fill_color[index] = color[index];
+			(*state_ptr).fill_direction[index] = direction[index] * inverse_length;
+			(*state_ptr).fill_color[index] = color[index];
 		}
-		self().scene().state().fill_intensity = intensity;
-		self().scene().state().fill_specular = specular;
+		(*state_ptr).fill_intensity = intensity;
+		(*state_ptr).fill_specular = specular;
 	}
 
 	void Render_Scene::directional_specular_set(float scale)
 	{
 		//若尚未初始化
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//缩放须落在 0..100（取反比较使 NaN 判非法）
 		if (!(scale >= 0.0f && scale <= 100.0f))
@@ -203,20 +209,20 @@ namespace engine
 			logger.warn("渲染器:: 方向光高光缩放非法（{}），整次忽略", scale);
 			return;
 		}
-		state().directional_specular = scale;
+		(*state_ptr).directional_specular = scale;
 	}
 
 	bool Render_Scene::exposure_set(float ev)
 	{
 		//若尚未初始化或值非有限
-		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || !std::isfinite(ev))
+		if (owner == nullptr || !owner->device().valid() || !std::isfinite(ev))
 			return false;
-		state().exposure = ev < -4.0f ? -4.0f : (ev > 4.0f ? 4.0f : ev);
+		(*state_ptr).exposure = ev < -4.0f ? -4.0f : (ev > 4.0f ? 4.0f : ev);
 		return true;
 	}
 
 	float Render_Scene::exposure_get(void) const
 	{
-		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().exposure : 0.0f;
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).exposure : 0.0f;
 	}
 }

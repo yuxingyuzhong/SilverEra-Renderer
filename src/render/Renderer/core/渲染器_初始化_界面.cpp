@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //初始化阶段函数声明
@@ -10,10 +10,10 @@
 namespace engine
 {
 	//初始化阶段：UI 通道 / 事件桥接 / 原生 UI（实现见 渲染器_界面.cpp）
-	bool renderer_init_ui(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective)
+	bool renderer_init_ui(Renderer* owner, Device_State& state, Renderer_Config& effective)
 	{
-		//实现体或门面缺失则无法装配
-		if (owner == nullptr || impl == nullptr)
+		//门面缺失则无法装配
+		if (owner == nullptr)
 			return false;
 		//转交界面域
 		owner->ui().init(effective);

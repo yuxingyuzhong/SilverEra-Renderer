@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -26,7 +26,7 @@ namespace engine
 		const float local_min[3], const float local_max[3], uint32_t* mask_out)
 	{
 		//未初始化或不支持计算路径
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported())
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported())
 			return false;
 		//入参非法
 		if (transforms == nullptr || mask_out == nullptr || count == 0
@@ -34,7 +34,7 @@ namespace engine
 			return false;
 		//当前视图 × 投影 → 六平面
 		float view_proj[16] = {};
-		owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
+		owner->scene().camera_view_proj(view_proj);
 		Frustum_Planes planes;
 		if (!frustum_planes_extract(planes, view_proj))
 			return false;
@@ -64,7 +64,7 @@ namespace engine
 			return false;
 		}
 		//剔除管线懒加载
-		if (state().gpu_cull_pipeline == 0)
+		if ((*state_ptr).gpu_cull_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "视锥剔除.comp.spv"))
@@ -73,7 +73,7 @@ namespace engine
 				compute_buffer_unload(sphere_handle);
 				return false;
 			}
-			state().gpu_cull_pipeline = loaded;
+			(*state_ptr).gpu_cull_pipeline = loaded;
 		}
 		//推送常量：六平面（96 字节）＋ 球数（4 字节）
 		struct Cull_Push
@@ -88,7 +88,7 @@ namespace engine
 		//绑定 → 调度 → 回读
 		bool ok = compute_buffer_bind(sphere_handle, 0)
 			&& compute_buffer_bind(mask_handle, 1)
-			&& compute_dispatch(state().gpu_cull_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_dispatch((*state_ptr).gpu_cull_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
 			&& compute_buffer_read(mask_handle, mask_out, count * static_cast<uint32_t>(sizeof(uint32_t)), 0);
 		compute_buffer_unload(mask_handle);
 		compute_buffer_unload(sphere_handle);
@@ -98,14 +98,14 @@ namespace engine
 	void Render_Compute::gpu_cull_enable_set(bool enabled)
 	{
 		//未初始化时静默忽略
-		if ((owner == nullptr || owner->impl == nullptr))
+		if ((owner == nullptr))
 			return;
-		state().gpu_cull_enabled = enabled;
+		(*state_ptr).gpu_cull_enabled = enabled;
 	}
 
 	bool Render_Compute::gpu_cull_enable_get(void) const
 	{
-		return owner != nullptr && owner->impl != nullptr && state().gpu_cull_enabled;
+		return owner != nullptr && (*state_ptr).gpu_cull_enabled;
 	}
 
 	bool Render_Compute::gpu_instance_compact(const float* transforms, uint32_t count,
@@ -123,7 +123,7 @@ namespace engine
 		float max_distance, bool backface, float* matrices_out, uint32_t* visible_out)
 	{
 		//未初始化或不支持计算
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported())
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported())
 			return false;
 		//入参非法
 		if (transforms == nullptr || matrices_out == nullptr || visible_out == nullptr || count == 0
@@ -132,7 +132,7 @@ namespace engine
 		*visible_out = 0;
 		//当前视图 × 投影（与 CPU 剔除同一矩阵）
 		float view_proj[16] = {};
-		owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
+		owner->scene().camera_view_proj(view_proj);
 		//四个缓冲：源矩阵 / 压缩输出 / 原子计数 / 剔除参数
 		const uint32_t matrix_bytes = count * static_cast<uint32_t>(sizeof(float)) * 16u;
 		Compute_Buffer_Handle transform_handle = 0;
@@ -175,23 +175,23 @@ namespace engine
 		需开关开启、资源就绪、最近生成槽的金字塔有效且完整链视图非空；
 		首帧（尚无生成）自动跳过，保持与引入前逐字节一致。
 		*/
-		const bool occlusion_enabled = state().hiz_enabled && state().hiz.valid()
-			&& state().hiz.history_valid(owner->impl->last_hiz_slot)
-			&& state().hiz.pyramid_full_view(owner->impl->last_hiz_slot) != VK_NULL_HANDLE
-			&& state().hiz.depth_sampler_get() != VK_NULL_HANDLE;
+		const bool occlusion_enabled = (*state_ptr).hiz_enabled && (*state_ptr).hiz.valid()
+			&& (*state_ptr).hiz.history_valid((*state_ptr).last_hiz_slot)
+			&& (*state_ptr).hiz.pyramid_full_view((*state_ptr).last_hiz_slot) != VK_NULL_HANDLE
+			&& (*state_ptr).hiz.depth_sampler_get() != VK_NULL_HANDLE;
 		if (occlusion_enabled)
 		{
-			params.hi_z[0] = static_cast<float>(state().hiz.width_get());
-			params.hi_z[1] = static_cast<float>(state().hiz.height_get());
-			params.hi_z[2] = static_cast<float>(state().hiz.level_count());
+			params.hi_z[0] = static_cast<float>((*state_ptr).hiz.width_get());
+			params.hi_z[1] = static_cast<float>((*state_ptr).hiz.height_get());
+			params.hi_z[2] = static_cast<float>((*state_ptr).hiz.level_count());
 			params.hi_z[3] = 1.0f;
 		}
 		//遮挡开启时把计算帧槽切到「最近生成槽」并把金字塔绑到采样器位
 		if (occlusion_enabled)
 		{
-			state().compute.slot_set(owner->impl->last_hiz_slot);
-			state().compute.sampler_bind(owner->impl->last_hiz_slot, state().hiz.depth_sampler_get(),
-				state().hiz.pyramid_full_view(owner->impl->last_hiz_slot));
+			(*state_ptr).compute.slot_set((*state_ptr).last_hiz_slot);
+			(*state_ptr).compute.sampler_bind((*state_ptr).last_hiz_slot, (*state_ptr).hiz.depth_sampler_get(),
+				(*state_ptr).hiz.pyramid_full_view((*state_ptr).last_hiz_slot));
 		}
 		if (!compute_buffer_load(params_handle, static_cast<uint32_t>(sizeof(params)), &params))
 		{
@@ -201,7 +201,7 @@ namespace engine
 			return false;
 		}
 		//压缩管线懒加载
-		if (state().gpu_compact_pipeline == 0)
+		if ((*state_ptr).gpu_compact_pipeline == 0)
 		{
 			Compute_Pipeline_Handle loaded = 0;
 			if (!compute_pipeline_load(loaded, "实例压缩.comp.spv"))
@@ -212,7 +212,7 @@ namespace engine
 				compute_buffer_unload(transform_handle);
 				return false;
 			}
-			state().gpu_compact_pipeline = loaded;
+			(*state_ptr).gpu_compact_pipeline = loaded;
 		}
 		//推送常量：视图投影（64）＋ 局部界（32）＋ 实例数（4）
 		struct Compact_Push
@@ -237,14 +237,14 @@ namespace engine
 			&& compute_buffer_bind(compact_handle, 1)
 			&& compute_buffer_bind(counter_handle, 2)
 			&& compute_buffer_bind(params_handle, 3)
-			&& compute_dispatch(state().gpu_compact_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
+			&& compute_dispatch((*state_ptr).gpu_compact_pipeline, count, 256, &push, static_cast<uint32_t>(sizeof(push)))
 			&& compute_buffer_read(counter_handle, counters, static_cast<uint32_t>(sizeof(counters)), 0);
 		//可见数与遮挡剔除数（后者仅在 Hi-Z 启用时非零）
 		if (ok)
 		{
 			*visible_out = static_cast<uint32_t>(counters[0]);
 			occluded = static_cast<uint32_t>(counters[1]);
-			state().last_gpu_occluded = occluded;
+			(*state_ptr).last_gpu_occluded = occluded;
 		}
 		//读取压缩后的矩阵（仅可见前缀）
 		if (ok && *visible_out > 0)
@@ -253,9 +253,9 @@ namespace engine
 		//记录 GPU 剔除耗时（计算时间戳；不支持时间戳时保持 −1 语义在统计侧）
 		if (ok)
 		{
-			state().last_gpu_cull_ms = state().compute.stats_get().elapsed_ms;
+			(*state_ptr).last_gpu_cull_ms = (*state_ptr).compute.stats_get().elapsed_ms;
 			//累计 GPU 派发次数（第二百五十一轮）
-			++state().gpu_cull_dispatches;
+			++(*state_ptr).gpu_cull_dispatches;
 		}
 		compute_buffer_unload(params_handle);
 		compute_buffer_unload(counter_handle);
@@ -269,46 +269,47 @@ namespace engine
 		//失败路径一律复位句柄（与材质句柄约定一致）
 		handle_out = 0;
 		//未初始化或不支持计算
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported() || shader_name.empty())
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported() || shader_name.empty())
 			return false;
-		VkShaderModule module = VK_NULL_HANDLE;
+		uint64_t module_native = 0;
 		//加载 SPIR-V 模块
-		if (!owner->impl->shader.module_load(module, shader_name))
+		if (!owner->resource().shader_module_load(module_native, shader_name))
 		{
 			logger.error("渲染器:: 计算着色器加载失败：{}", shader_name);
 			return false;
 		}
+		VkShaderModule module = reinterpret_cast<VkShaderModule>(module_native);
 		uint64_t context_handle = 0;
 		//登记计算管线（失败则回收模块）
-		if (!state().compute.pipeline_register(context_handle, module))
+		if (!(*state_ptr).compute.pipeline_register(context_handle, module))
 		{
 			logger.error("渲染器:: 计算管线登记失败：{}", shader_name);
-			owner->impl->shader.module_destroy(module);
+			owner->resource().shader_module_destroy(reinterpret_cast<uint64_t>(module));
 			return false;
 		}
 		Compute_Pipeline_Record record;
-		record.handle = state().next_compute_pipeline_handle++;
+		record.handle = (*state_ptr).next_compute_pipeline_handle++;
 		record.context_handle = context_handle;
 		record.module = module;
 		handle_out = record.handle;
-		state().compute_pipelines.push_back(record);
+		(*state_ptr).compute_pipelines.push_back(record);
 		return true;
 	}
 
 	void Render_Compute::compute_pipeline_unload(Compute_Pipeline_Handle handle)
 	{
 		//未初始化
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized)
+		if ((owner == nullptr) || !owner->device().valid())
 			return;
-		for (std::size_t index = 0; index < state().compute_pipelines.size(); ++index)
+		for (std::size_t index = 0; index < (*state_ptr).compute_pipelines.size(); ++index)
 		{
 			//命中即销毁管线与模块并移出列表
-			if (state().compute_pipelines[index].handle == handle)
+			if ((*state_ptr).compute_pipelines[index].handle == handle)
 			{
-				state().compute.pipeline_release(state().compute_pipelines[index].context_handle);
-				if (state().compute_pipelines[index].module != VK_NULL_HANDLE)
-					owner->impl->shader.module_destroy(state().compute_pipelines[index].module);
-				state().compute_pipelines.erase(state().compute_pipelines.begin() + static_cast<std::ptrdiff_t>(index));
+				(*state_ptr).compute.pipeline_release((*state_ptr).compute_pipelines[index].context_handle);
+				if ((*state_ptr).compute_pipelines[index].module != VK_NULL_HANDLE)
+					owner->resource().shader_module_destroy(reinterpret_cast<uint64_t>((*state_ptr).compute_pipelines[index].module));
+				(*state_ptr).compute_pipelines.erase((*state_ptr).compute_pipelines.begin() + static_cast<std::ptrdiff_t>(index));
 				return;
 			}
 		}
@@ -317,13 +318,13 @@ namespace engine
 	bool Render_Compute::compute_buffer_bind(Compute_Buffer_Handle buffer, uint32_t binding)
 	{
 		//未初始化或 binding 越界
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || binding >= COMPUTE_BINDING_MAX)
+		if ((owner == nullptr) || !owner->device().valid() || binding >= COMPUTE_BINDING_MAX)
 			return false;
-		for (Compute_Buffer_Record& record : state().compute_buffers)
+		for (Compute_Buffer_Record& record : (*state_ptr).compute_buffers)
 		{
 			//命中缓冲即写入描述符（整段绑定）
 			if (record.handle == buffer)
-				return state().compute.storage_bind(state().compute.slot_get(), binding, record.buffer, 0, record.size);
+				return (*state_ptr).compute.storage_bind((*state_ptr).compute.slot_get(), binding, record.buffer, 0, record.size);
 		}
 		return false;
 	}
@@ -332,7 +333,7 @@ namespace engine
 		const void* push_data, uint32_t push_size)
 	{
 		//未初始化或不支持计算
-		if ((owner == nullptr || owner->impl == nullptr) || !owner->impl->initialized || !compute_supported())
+		if ((owner == nullptr) || !owner->device().valid() || !compute_supported())
 			return false;
 		//空元素数视为无需调度
 		if (elements == 0)
@@ -341,7 +342,7 @@ namespace engine
 		if (local_size == 0)
 			return false;
 		uint64_t context_handle = 0;
-		for (Compute_Pipeline_Record& record : state().compute_pipelines)
+		for (Compute_Pipeline_Record& record : (*state_ptr).compute_pipelines)
 		{
 			//命中门面句柄
 			if (record.handle == pipeline)
@@ -354,19 +355,19 @@ namespace engine
 		if (context_handle == 0)
 			return false;
 		//一次性提交：起时间戳 → 调度 → 计算→主机屏障 → 止时间戳（返回即可读回）
-		bool dispatched = state().compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
+		bool dispatched = (*state_ptr).compute.single_submit([&](VkCommandBuffer command_buffer) -> bool
 		{
-			if (!state().compute.timestamp_begin(command_buffer))
+			if (!(*state_ptr).compute.timestamp_begin(command_buffer))
 				return false;
-			if (!state().compute.dispatch_ceil(command_buffer, context_handle, elements, local_size, push_data, push_size))
+			if (!(*state_ptr).compute.dispatch_ceil(command_buffer, context_handle, elements, local_size, push_data, push_size))
 				return false;
-			if (!state().compute.barrier(command_buffer, Compute_Barrier::ComputeToHost))
+			if (!(*state_ptr).compute.barrier(command_buffer, Compute_Barrier::ComputeToHost))
 				return false;
-			return state().compute.timestamp_end(command_buffer);
+			return (*state_ptr).compute.timestamp_end(command_buffer);
 		});
 		//围栏等待之后读回计时（不支持时间戳时为空操作）
 		if (dispatched)
-			state().compute.timestamp_refresh();
+			(*state_ptr).compute.timestamp_refresh();
 		return dispatched;
 	}
 }

@@ -1,5 +1,5 @@
 #pragma once
-//依赖：core/渲染器实现.h 已在本头之前提供模块类型与常量
+//依赖：渲染器内部状态.h 已提供模块类型与常量
 
 //游戏引擎命名空间
 namespace engine
@@ -93,7 +93,7 @@ namespace engine
 		float toon_rim = 0.0f;
 		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 		float toon_specular = 0.0f;
-		//反向外扩描边用户参数（管线与逐帧推送块仍留实现体）
+		//反向外扩描边用户参数（管线与逐帧推送块由设备域持有）
 		float outline_width = 0.0f;
 		float outline_color[3] = { 0.0f, 0.0f, 0.0f };
 
@@ -133,7 +133,7 @@ namespace engine
 		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 		float spot_shadow_priority[32] = {};
-		//图集请求配置（实际目标与生效状态仍留实现体）
+		//图集请求配置（实际目标与生效状态由设备域持有）
 		bool spot_shadow_atlas_requested = false;
 	};
 }

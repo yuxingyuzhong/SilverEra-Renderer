@@ -5,6 +5,7 @@
 //游戏引擎命名空间
 namespace engine
 {
+	struct Render_Core_Context;
 	class Renderer;
 	struct Scene_State;
 
@@ -15,7 +16,7 @@ namespace engine
 	class Render_Scene
 	{
 	public:
-		explicit Render_Scene(Renderer* owner);
+		Render_Scene(Renderer* owner, const Render_Core_Context& core_context);
 		~Render_Scene(void);
 		//不可拷贝、不可移动
 		Render_Scene(const Render_Scene&) = delete;
@@ -52,6 +53,8 @@ namespace engine
 		bool camera_aabb_visible(const float min[3], const float max[3]) const;
 		//导出相机「视图 × 投影」矩阵
 		bool camera_view_proj(float out[16]) const;
+		//导出相机近远平面
+		bool camera_near_far_get(float* near_out, float* far_out) const;
 
 		//应用场景描述（相机与清屏色）
 		void scene_apply(const Scene_Data& scene);
@@ -59,8 +62,16 @@ namespace engine
 		void scene_apply(const Camera_Data& camera, const Light_Data& light, const Fog_Data& fog);
 		//设置清屏色（RGBA）
 		void clear_color_set(const float color[4]);
+		//读取清屏色值快照
+		void clear_color_get(float out[4]) const;
 		//设置方向光与环境光
 		void light_set(const float direction[3], const float color[3], float intensity, float ambient);
+		//设置补光（设备域生命周期接口的场景实现）
+		void light_fill_set(const float direction[3], const float color[3], float intensity, float specular = 1.0f);
+		//初始化或交换链重建后刷新实际宽高比（不覆盖用户宽高比）
+		void camera_aspect_refresh(float aspect);
+		//导出相机世界位置
+		void camera_position_get(float out[3]) const;
 		//设置点光源
 		void light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient);
 		//追加一个点光源
@@ -186,12 +197,27 @@ namespace engine
 		void shadow_cascade_set(uint32_t count, float far_scale, float split_distance);
 		//当前级联配置
 		void shadow_cascade_get(uint32_t* count_out, float* far_scale_out, float* split_distance_out) const;
+		//当前级联数量
+		uint32_t shadow_cascade_count(void) const;
 		//级联接缝淡化
 		void shadow_cascade_blend_set(float blend);
 		//当前级联接缝淡化比例
 		float shadow_cascade_blend(void) const;
 		//累计实际执行的阴影 pass 次数
 		uint64_t shadow_pass_count(void) const;
+		//关闭流程清除聚光图集用户请求
+		void spot_shadow_atlas_request_clear(void);
+		//读取聚光图集用户请求（不代表实际生效状态）
+		bool spot_shadow_atlas_requested(void) const;
+		//填充场景相关的只读帧统计
+		void frame_stats_fill(Frame_Stats& stats) const;
+		//填充初始化场景 UBO 的 980 浮点数据块
+		void scene_initial_block_fill(float* out) const;
+		//填充逐帧场景块中由场景域拥有的字段及跨域只读参数
+		void scene_frame_block_fill(float* out, const float view_proj[16], bool spot_shadow_light_valid) const;
+		//构建方向光与聚光灯的按帧阴影矩阵值快照
+		void directional_shadow_frame_build(Scene_Shadow_Frame& frame) const;
+		bool spot_shadow_frame_build(Scene_Shadow_Frame& frame) const;
 
 		//=== 原风格域接口方法（签名原样照抄）===
 		//PBR-lite 镜面开关
@@ -237,16 +263,13 @@ namespace engine
 		//读取当前描边色
 		void outline_color(float out[3]) const;
 
-		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
+		//=== 域生命周期与层内成员窄接口 ===
 		//关闭（复位场景域状态；幂等）
 		void shutdown(void);
-		//迁移期：状态直取（供帧模块过渡；阶段 8 改为语义方法）
-		Scene_State& state(void);
-		const Scene_State& state(void) const;
-
 	private:
-		//门面自身（迁移期用于调用尚未迁出的门面方法与 impl）
+		//门面自身（跨域语义调用）
 		Renderer* owner = nullptr;
+		const Render_Core_Context* core = nullptr;
 		//场景域状态
 		std::unique_ptr<Scene_State> state_ptr;
 	};

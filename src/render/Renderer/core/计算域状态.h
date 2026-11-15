@@ -1,5 +1,5 @@
 #pragma once
-//依赖：core/渲染器实现.h 已提供模块类型
+//依赖：渲染器内部状态.h 已提供模块类型
 
 //游戏引擎命名空间
 namespace engine
@@ -37,18 +37,72 @@ namespace engine
 		VkShaderModule module = VK_NULL_HANDLE;
 	};
 
+
+	//Cluster 帧内资源与整备暂存（由计算域独占持有）
+	struct Cluster_Frame_State
+	{
+		std::vector<VkBuffer> light_buffers;
+		std::vector<VmaAllocation> light_allocations;
+		//光源记录组装缓冲
+		std::vector<Light_Record> light_records_scratch;
+
+		/*
+		帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
+		*/
+		std::vector<uint32_t> cluster_counts_scratch;
+
+		std::vector<uint32_t> cluster_offsets_scratch;
+
+		std::vector<uint32_t> cluster_list_scratch;
+
+		/*
+		图形 set0 的簇数据存储缓冲（第二百八十八轮；按帧槽持有）
+		binding 2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表；仅 Cluster 开启时惰性构建，
+		列表按条目数增长重建（计数 / 偏移容量 = 簇数）。
+		*/
+		std::vector<VkBuffer> cluster_counts_buffers;
+
+		std::vector<VmaAllocation> cluster_counts_allocations;
+
+		std::vector<VkBuffer> cluster_offsets_buffers;
+
+		std::vector<VmaAllocation> cluster_offsets_allocations;
+
+		std::vector<VkBuffer> cluster_list_buffers;
+
+		std::vector<VmaAllocation> cluster_list_allocations;
+
+		//已建容量（簇数 / 列表条目数）；增长时才重建
+		uint32_t cluster_counts_capacity = 0;
+
+		uint32_t cluster_list_capacity = 0;
+
+		//Cluster 关闭时的占位存储缓冲（set0 binding 1..4 共用；第二百八十八轮）
+		VkBuffer cluster_placeholder_buffer = VK_NULL_HANDLE;
+
+		VmaAllocation cluster_placeholder_allocation = VK_NULL_HANDLE;
+
+		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
+		uint32_t last_cluster_gpu_bytes = 0;
+
+
+	};
+
 	/*
-	计算域状态（从 Impl 迁出的成员，名字保持不变以减少改写）
+	计算域状态
 	门面只保留域对象指针；计算上下文 / 缓冲与管线登记 / GPU 剔除与压缩 /
 	Hi-Z 深度历史与金字塔 / 分簇光照与簇数据整备全部收拢在此。
 	*/
-	struct Compute_State
+	struct Compute_State : public Cluster_Frame_State
 	{
 		/*
 		计算管线上下文（第二百四十一轮）
 		设备不支持计算路径时 supported() 为假，但初始化不失败；此时全部 GPU 路径保持关闭。
 		*/
 		Compute_Context compute;
+
+		//最近一次完成金字塔生成的帧槽
+		uint32_t last_hiz_slot = 0;
 
 		//计算健康检查管线句柄（内置自检；0 = 未登记）
 		uint64_t compute_health_handle = 0;

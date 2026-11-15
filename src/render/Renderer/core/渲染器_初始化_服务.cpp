@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -36,28 +36,28 @@ namespace engine
 	//初始化（任一环节失败即逆序回退）
 
 	//初始化阶段：网格 / 渲染目标 / 字体 / 相机
-	bool renderer_init_services(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective)
+	bool renderer_init_services(Renderer* owner, Device_State& state, Renderer_Config& effective)
 	{
 		//⑮ 网格：记录内存模块
-		if (!impl->resource_domain->state().mesh.build(impl->memory))
+		if (!owner->resource().mesh_resource_build())
 		{
 			logger.error("渲染器:: 网格模块初始化失败");
-			owner->shutdown();
+			owner->device().shutdown();
 			return false;
 		}
 		//⑰ 字体：记录纹理模块（字形图集经纹理模块上传与销毁）
-		if (!owner->ui().state().font.build(impl->resource_domain->state().texture))
+		if (!owner->ui().font_resource_build())
 		{
 			logger.error("渲染器:: 字体模块初始化失败");
-			owner->shutdown();
+			owner->device().shutdown();
 			return false;
 		}
 		//⑱ 相机：设置宽高比（取当前交换链尺寸）
 		{
-			VkExtent2D extent = impl->swapchain.extent_get();
+			VkExtent2D extent = state.swapchain.extent_get();
 			//尺寸有效时刷新宽高比
 			if (extent.width != 0 && extent.height != 0)
-				impl->scene_domain->state().camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+				owner->scene().camera_aspect_refresh(static_cast<float>(extent.width) / static_cast<float>(extent.height));
 		}
 		//⑲ 粒子域：缓冲 / 管线 / 四边形网格全部惰性创建，此处只走域入口（保持域装配顺序）
 		owner->particle().init(effective);

@@ -1,11 +1,12 @@
 #pragma once
-//依赖：core/渲染器实现.h 已在本头之前提供模块类型
+//阴影目标与帧项语义类型
+#include "Engine/EngineRenderer/src/render/Frame/帧上下文.h"
 
 //游戏引擎命名空间
 namespace engine
 {
-	//渲染器实现体子结构：资源
-	struct Renderer_Impl_资源
+	//设备域阴影资源与帧内诊断状态
+	struct Device_Shadow_State
 	{
 		/*
 		阴影 pass 诊断（第六百四十七轮；A4 补齐）
@@ -20,45 +21,6 @@ namespace engine
 
 		//最近一次阴影重绘的命令缓冲提交次数（第六百六十五轮；C2 基线，现口径等于片数）
 		uint32_t last_shadow_submits = 0;
-
-		/*
-		帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
-		*/
-		std::vector<uint32_t> cluster_counts_scratch;
-
-		std::vector<uint32_t> cluster_offsets_scratch;
-
-		std::vector<uint32_t> cluster_list_scratch;
-
-		/*
-		图形 set0 的簇数据存储缓冲（第二百八十八轮；按帧槽持有）
-		binding 2 = 逐簇计数、3 = 逐簇排他偏移、4 = 光源列表；仅 Cluster 开启时惰性构建，
-		列表按条目数增长重建（计数 / 偏移容量 = 簇数）。
-		*/
-		std::vector<VkBuffer> cluster_counts_buffers;
-
-		std::vector<VmaAllocation> cluster_counts_allocations;
-
-		std::vector<VkBuffer> cluster_offsets_buffers;
-
-		std::vector<VmaAllocation> cluster_offsets_allocations;
-
-		std::vector<VkBuffer> cluster_list_buffers;
-
-		std::vector<VmaAllocation> cluster_list_allocations;
-
-		//已建容量（簇数 / 列表条目数）；增长时才重建
-		uint32_t cluster_counts_capacity = 0;
-
-		uint32_t cluster_list_capacity = 0;
-
-		//Cluster 关闭时的占位存储缓冲（set0 binding 1..4 共用；第二百八十八轮）
-		VkBuffer cluster_placeholder_buffer = VK_NULL_HANDLE;
-
-		VmaAllocation cluster_placeholder_allocation = VK_NULL_HANDLE;
-
-		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
-		uint32_t last_cluster_gpu_bytes = 0;
 
 		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
 		static constexpr uint32_t SHADOW_SIZE = 1024;

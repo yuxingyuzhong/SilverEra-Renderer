@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -32,16 +32,16 @@ namespace engine
 	}
 
 	//初始化（任一环节失败即逆序回退）
-	bool Renderer_Core::init(const Renderer_Config& config)
+	bool Render_Device::init(const Renderer_Config& config)
 	{
-		//若实现体未分配成功
-		if (impl == nullptr)
+		//若设备域状态未分配成功
+		if (state_ptr == nullptr)
 		{
-			logger.error("渲染器:: 实现体分配失败");
+			logger.error("渲染器:: 设备域状态分配失败");
 			return false;
 		}
 		//若已初始化
-		if (impl->initialized)
+		if (state_ptr->initialized)
 		{
 			logger.warn("渲染器:: 已初始化，忽略重复 init");
 			return true;
@@ -67,145 +67,118 @@ namespace engine
 #endif
 
 		//① 平台 / 实例 / 设备 / 表面
-		if (!renderer_init_platform(self_ptr, impl.get(), effective))
+		if (!renderer_init_platform(owner, *state_ptr, effective))
 			return false;
 		//⑥ 内存 / 交换链 / 在途帧数钳制
-		if (!renderer_init_memory_swapchain(self_ptr, impl.get(), effective))
+		if (!renderer_init_memory_swapchain(owner, *state_ptr, effective))
 			return false;
 		//⑧ 帧 / 着色器 / 描述符布局与管线
-		if (!renderer_init_frame_shader_pipeline(self_ptr, impl.get(), effective))
+		if (!renderer_init_frame_shader_pipeline(owner, *state_ptr, effective))
 			return false;
 		//⑫ 管线 / 描述符 / 采样 / 粒子 / 文字 / 阴影 / 后处理 / 天空 / 阴影资源
-		if (!renderer_init_graphics(self_ptr, impl.get(), effective))
+		if (!renderer_init_graphics(owner, *state_ptr, effective))
 			return false;
 		//⑮ 网格 / 渲染目标 / 字体 / 相机
-		if (!renderer_init_services(self_ptr, impl.get(), effective))
+		if (!renderer_init_services(owner, *state_ptr, effective))
 			return false;
 
 		//⑲ UI 通道 / 事件桥接 / 原生 UI
-		if (!renderer_init_ui(self_ptr, impl.get(), effective))
+		if (!renderer_init_ui(owner, *state_ptr, effective))
 			return false;
 
 		//记录配置并标记初始化完成
-		impl->config = effective;
+		state_ptr->config = effective;
 		//静态合批开关（第一百二十七轮；默认开启）
-		impl->static_batching = effective.static_batching;
+		state_ptr->static_batching = effective.static_batching;
 		//GPU 剔除开关（第二百四十九轮；默认关闭）
-		impl->compute_domain->state().gpu_cull_enabled = effective.gpu_cull_enable;
 		//间接绘制开关（第二百五十二轮；默认关闭）
-		impl->gpu_indirect_enabled = effective.gpu_indirect_enable;
+		state_ptr->gpu_indirect_enabled = effective.gpu_indirect_enable;
 		/*
 		Hi-Z 开关（第二百五十三 / 二百五十四轮）
 		真正的启用（构建资源 ＋ 懒加载生成管线）放在 initialized 置真之后，以便复用门面启用路径。
 		*/
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
-		impl->device_domain->state().ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
-		impl->device_domain->state().ssaa_extent_failed = false;
+		state_ptr->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
+		state_ptr->ssaa_extent_failed = false;
 		//记录生效的 MSAA 采样数（已按设备支持钳制）
-		impl->config.msaa_samples = impl->msaa_samples;
+		state_ptr->config.msaa_samples = state_ptr->msaa_samples;
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
-		impl->msaa_depth_resolve = effective.msaa_depth_resolve;
-		/*
-		Cluster 光照能力探测（第二百六十六轮）
-		与 Hi-Z 同口径：计算路径可用即具备；每帧槽光源记录 SSBO 在启用时惰性构建。
-		*/
-		impl->compute_domain->state().cluster_capable = impl->compute_domain->state().compute.supported();
-		//分簇网格按配置钳制（第二百六十七轮；默认 16 × 9 × 24）
-		impl->compute_domain->state().cluster_grid = cluster_grid_clamp(Cluster_Grid{ effective.cluster_grid[0],
-			effective.cluster_grid[1], effective.cluster_grid[2] });
-		impl->initialized = true;
+		state_ptr->msaa_depth_resolve = effective.msaa_depth_resolve;
+		//Cluster 能力与初始分簇网格由计算域承接（初始化 guard 尚未置位）
+		owner->compute().options_apply(effective.gpu_cull_enable, effective.cluster_grid);
+		state_ptr->initialized = true;
 		/*
 		Hi-Z 启用（第二百五十三 / 二百五十四轮）
 		配置为真时构建资源并懒加载生成管线；失败仅告警、开关保持关闭，默认路径不受影响。
 		*/
-		if (effective.hiz_enable && !self().compute().hiz_enable_set(true))
+		if (effective.hiz_enable && !(*owner).compute().hiz_enable_set(true))
 			logger.warn("渲染器:: Hi-Z 启用失败（开关保持关闭）");
 		/*
 		Cluster 光照启用（第二百六十六轮）
 		配置为真时构建每帧槽光源记录 SSBO；失败仅告警、开关保持关闭。
 		*/
-		if (effective.cluster_enable && !self().compute().cluster_enable_set(true))
+		if (effective.cluster_enable && !(*owner).compute().cluster_enable_set(true))
 			logger.warn("渲染器:: Cluster 光照启用失败（开关保持关闭）");
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
-		阴影目标（颜色存打包深度，边长取 impl->scene_domain->state().shadow_size）＋ 阴影管线（与场景管线共享管线布局，
+		阴影目标（颜色存打包深度，边长取场景域阴影分辨率）＋ 阴影管线（与场景管线共享管线布局，
 		光源空间矩阵经推送常量下发）；并把阴影图写入各帧槽场景采样集的 binding 1。
 		默认关闭，故不改变既有画面。
 		*/
 		{
-			/*
-			① 阴影目标（边长取配置值，颜色存打包深度）
-			颜色格式固定 R8G8B8A8_UNORM（第五十四轮修正）：交换链优先 sRGB，若沿用其格式，
-			打包深度的字节会被 sRGB 编码 / 解码破坏，导致片元读回深度失真并误判为全遮蔽（自阴影全黑）。
-			*/
-			//阴影目标固定单采样（第九十六轮；与阴影管线一致，不随 MSAA 变化）
-			if (!impl->resource_domain->state().render_target.target_create(impl->shadow_target, impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size,
-				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			const uint32_t shadow_size = owner->scene().shadow_resolution();
+			const uint32_t depth_format = static_cast<uint32_t>(state_ptr->swapchain.depth_format_get());
+			if (!owner->resource().render_target_create_format(state_ptr->shadow_target, shadow_size, shadow_size,
+				static_cast<uint32_t>(VK_FORMAT_R8G8B8A8_UNORM), depth_format, 1))
 			{
 				logger.error("渲染器:: 阴影目标创建失败");
-				self().shutdown();
+				(*owner).shutdown();
 				return false;
 			}
-			//② 把阴影图写入各帧槽场景采样集的 binding 1（管线在首次开启阴影时懒登记）
-			VkImage shadow_image = VK_NULL_HANDLE;
-			VkImageView shadow_view = VK_NULL_HANDLE;
-			VkImageView shadow_depth_view = VK_NULL_HANDLE;
-			VkExtent2D shadow_extent{};
-			VkImageView default_view = VK_NULL_HANDLE;
-			VkSampler sampler = VK_NULL_HANDLE;
-			if (!impl->resource_domain->state().render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
-				shadow_depth_view, shadow_extent)
-				|| !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler))
+			Render_Target_Native_Info shadow_info{};
+			uint64_t default_view = 0;
+			uint64_t sampler = 0;
+			if (!owner->resource().render_target_native_get(state_ptr->shadow_target, shadow_info)
+				|| !owner->resource().texture_native_get(owner->resource().default_texture_handle(), default_view, sampler))
 			{
 				logger.error("渲染器:: 阴影图绑定失败：资源查询失败");
-				self().shutdown();
+				(*owner).shutdown();
 				return false;
 			}
-			for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-				//把阴影图写入该帧槽场景采样集的 binding 1
-				if (!impl->pipeline.shadow_bind(static_cast<uint32_t>(slot), sampler, shadow_view))
+			for (std::size_t slot = 0; slot < state_ptr->config.frame_overlap; ++slot)
+				if (!owner->resource().scene_shadow_bind(static_cast<uint32_t>(slot), sampler, shadow_info.color_view))
 				{
 					logger.error("渲染器:: 阴影图绑定失败（帧槽 {}）", slot);
-					self().shutdown();
+					(*owner).shutdown();
 					return false;
 				}
-			/*
-			③ 聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张，按需建立）
-			瓦片 0 恒建（与旧单盏行为一致）；瓦片 1..3 仅在 spot_shadow_all 首次开启时按需创建，
-			避免未使用多盏时的显存与初始化开销。
-			*/
 			for (std::size_t tile = 0; tile < 1; ++tile)
 			{
-				if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size,
-					VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+				if (!owner->resource().render_target_create_format(state_ptr->spot_shadow_targets[tile], shadow_size, shadow_size,
+					static_cast<uint32_t>(VK_FORMAT_R8G8B8A8_UNORM), depth_format, 1))
 				{
 					logger.error("渲染器:: 聚光灯阴影目标创建失败（瓦片 {}）", tile);
-					self().shutdown();
+					(*owner).shutdown();
 					return false;
 				}
-				VkImage spot_shadow_image = VK_NULL_HANDLE;
-				VkImageView spot_shadow_view = VK_NULL_HANDLE;
-				VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
-				VkExtent2D spot_shadow_extent{};
-				if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image, spot_shadow_view,
-					spot_shadow_depth_view, spot_shadow_extent))
+				Render_Target_Native_Info spot_info{};
+				if (!owner->resource().render_target_native_get(state_ptr->spot_shadow_targets[tile], spot_info))
 				{
 					logger.error("渲染器:: 聚光灯阴影目标查询失败（瓦片 {}）", tile);
-					self().shutdown();
+					(*owner).shutdown();
 					return false;
 				}
-				for (std::size_t slot = 0; slot < impl->config.frame_overlap; ++slot)
-					//把该瓦片阴影图写入帧槽场景采样集 binding 9 的对应数组元素
-					if (!impl->pipeline.spot_shadow_bind(static_cast<uint32_t>(slot), sampler, spot_shadow_view,
+				for (std::size_t slot = 0; slot < state_ptr->config.frame_overlap; ++slot)
+					if (!owner->resource().scene_spot_shadow_bind(static_cast<uint32_t>(slot), sampler, spot_info.color_view,
 						static_cast<uint32_t>(tile)))
 					{
 						logger.error("渲染器:: 聚光灯阴影图绑定失败（帧槽 {}，瓦片 {}）", slot, tile);
-						self().shutdown();
+						(*owner).shutdown();
 						return false;
 					}
 			}
 		}
-		logger.info("渲染器:: 初始化完成（校验层 {}）", impl->device.validation_get() ? "开" : "关");
+		logger.info("渲染器:: 初始化完成（校验层 {}）", state_ptr->device.validation_get() ? "开" : "关");
 		return true;
 	}
 }

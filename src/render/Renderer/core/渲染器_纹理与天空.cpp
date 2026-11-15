@@ -1,6 +1,6 @@
 #include "../局部命名空间使用.h"
-//实现体定义（持有各模块实例）
-#include "渲染器实现.h"
+//六域完整状态与核心模块类型
+#include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
@@ -26,13 +26,13 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 从文件加载纹理失败：尚未初始化");
 			return false;
 		}
 		//转交纹理模块解码并创建资源
-		return state().texture.texture_create_from_file(handle_out, path);
+		return (*state_ptr).texture.texture_create_from_file(handle_out, path);
 	}
 
 	//纹理加载
@@ -41,13 +41,13 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 纹理加载失败：尚未初始化");
 			return false;
 		}
 		//转交纹理模块创建
-		return state().texture.texture_create_from_memory(handle_out, pixels, width, height);
+		return (*state_ptr).texture.texture_create_from_memory(handle_out, pixels, width, height);
 	}
 
 	//程序生成棋盘格纹理
@@ -56,13 +56,13 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 棋盘格纹理加载失败：尚未初始化");
 			return false;
 		}
 		//转交纹理模块生成
-		return state().texture.texture_create_checkerboard(handle_out, width, height, cell_size);
+		return (*state_ptr).texture.texture_create_checkerboard(handle_out, width, height, cell_size);
 	}
 
 	//程序生成恒等 3D LUT（第一百四十四轮；2D 条带布局）
@@ -71,7 +71,7 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 恒等查找表加载失败：尚未初始化");
 			return false;
@@ -113,7 +113,7 @@ namespace engine
 			}
 		}
 		//转交纹理模块上传
-		return state().texture.texture_create_from_memory(handle_out, pixels.data(), strip_width, strip_height);
+		return (*state_ptr).texture.texture_create_from_memory(handle_out, pixels.data(), strip_width, strip_height);
 	}
 
 	//从内存像素创建立方体贴图（第一百二十五轮；供天空盒与简易 IBL 使用）
@@ -122,49 +122,49 @@ namespace engine
 		//默认无有效句柄
 		handle_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 		{
 			logger.error("渲染器:: 立方体贴图加载失败：尚未初始化");
 			return false;
 		}
 		//转交纹理模块创建
-		return state().texture.texture_create_cube(handle_out, six_faces, width, height);
+		return (*state_ptr).texture.texture_create_cube(handle_out, six_faces, width, height);
 	}
 
 	//天空盒 / 简易 IBL 开关（第一百二十五轮）
 	void Render_Resource::sky_enable_set(bool enabled)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
-		state().sky_enabled = enabled;
+		(*state_ptr).sky_enabled = enabled;
 	}
 
 	//当前是否启用天空盒
 	bool Render_Resource::sky_enabled(void) const
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
-		return state().sky_enabled;
+		return (*state_ptr).sky_enabled;
 	}
 
 	//设置天空盒强度（负值按 0 处理）
 	void Render_Resource::sky_params_set(float ambient, float specular)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
-		state().sky_ambient = ambient > 0.0f ? ambient : 0.0f;
-		state().sky_specular = specular > 0.0f ? specular : 0.0f;
+		(*state_ptr).sky_ambient = ambient > 0.0f ? ambient : 0.0f;
+		(*state_ptr).sky_specular = specular > 0.0f ? specular : 0.0f;
 	}
 
 	//读取天空盒强度（出参可为空）
 	void Render_Resource::sky_params_get(float* ambient_out, float* specular_out) const
 	{
 		//未初始化时返回默认值（均为 0）
-		float ambient = owner->impl != nullptr && owner->impl->initialized ? state().sky_ambient : 0.0f;
-		float specular = owner->impl != nullptr && owner->impl->initialized ? state().sky_specular : 0.0f;
+		float ambient = owner != nullptr && owner->device().valid() ? (*state_ptr).sky_ambient : 0.0f;
+		float specular = owner != nullptr && owner->device().valid() ? (*state_ptr).sky_specular : 0.0f;
 		if (ambient_out != nullptr)
 			*ambient_out = ambient;
 		if (specular_out != nullptr)
@@ -175,54 +175,54 @@ namespace engine
 	void Render_Resource::sky_texture_set(uint64_t texture_handle)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//目标立方体（0 → 内置纯白立方体）
-		uint64_t target = texture_handle != 0 ? texture_handle : state().default_sky_texture;
+		uint64_t target = texture_handle != 0 ? texture_handle : (*state_ptr).default_sky_texture;
 		VkImageView view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (!state().texture.texture_bind_get(target, view, sampler))
+		if (!(*state_ptr).texture.texture_bind_get(target, view, sampler))
 		{
 			logger.error("渲染器:: 天空盒贴图绑定失败：立方体贴图句柄 {} 无效", texture_handle);
 			return;
 		}
 		//先等尽在途帧，避免重写仍被在途命令缓冲引用的描述符集
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return;
-		for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
+		for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
 			//把立方体贴图写入该帧槽场景采样集的 binding 5
-			if (!owner->impl->pipeline.sky_bind(slot, sampler, view))
+			if (!(*state_ptr).pipeline.sky_bind(slot, sampler, view))
 			{
 				logger.error("渲染器:: 天空盒贴图绑定失败（帧槽 {}）", slot);
 				return;
 			}
-		state().sky_texture = texture_handle;
+		(*state_ptr).sky_texture = texture_handle;
 	}
 
 	//当前天空盒立方体贴图句柄（0 = 内置纯白立方体）
 	uint64_t Render_Resource::sky_texture(void) const
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return 0;
-		return state().sky_texture;
+		return (*state_ptr).sky_texture;
 	}
 
 	//卸载纹理
 	void Render_Resource::texture_unload(uint64_t handle)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//摘出纹理图像与其视图（不立即销毁，避免销毁仍被在途命令缓冲 / 描述符集引用的资源）
 		Texture_Record record{};
-		if (!state().texture.texture_detach(handle, record))
+		if (!(*state_ptr).texture.texture_detach(handle, record))
 			return;
 		//若卸载的是当前绑定视图，则回落内置默认白纹理（避免采样器状态切换时写入已失效视图）
-		if (record.view == state().bound_view)
+		if (record.view == (*state_ptr).bound_view)
 			texture_bind_set(0);
 		//若卸载的是当前天空盒贴图，则回落内置纯白立方体（避免 binding 5 指向已失效视图）
-		if (handle != 0 && handle == state().sky_texture)
+		if (handle != 0 && handle == (*state_ptr).sky_texture)
 			sky_texture_set(0);
 		//组装延迟条目（图像与视图经内存模块归还）
 		Deferred_Entry entry{};
@@ -232,7 +232,7 @@ namespace engine
 		resource.view = record.view;
 		entry.memory_resources.push_back(resource);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
-		owner->impl->frame.deferred_push(std::move(entry), owner->impl->frame.in_flight_count_get() + 1);
+		core->frame.deferred_push(std::move(entry), core->frame.in_flight_count_get() + 1);
 	}
 
 	//读回纹理第 0 级像素
@@ -240,13 +240,13 @@ namespace engine
 		uint32_t* width_out, uint32_t* height_out)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽，避免与该纹理的采样冲突
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（内存模块同步读回）
-		return state().texture.texture_readback(handle, pixels, capacity, width_out, height_out);
+		return (*state_ptr).texture.texture_readback(handle, pixels, capacity, width_out, height_out);
 	}
 
 	//读回纹理第 0 级的指定子区域
@@ -255,13 +255,13 @@ namespace engine
 		uint32_t* width_out, uint32_t* height_out)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（子区域同步读回）
-		return state().texture.texture_readback_region(handle, x, y, region_width, region_height,
+		return (*state_ptr).texture.texture_readback_region(handle, x, y, region_width, region_height,
 			pixels, capacity, width_out, height_out);
 	}
 
@@ -270,13 +270,13 @@ namespace engine
 		uint32_t width, uint32_t height, const uint8_t* pixels)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽（避免改写仍在采样中的图像）
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（子区域同步上传）
-		return state().texture.texture_update_region(handle, x, y, width, height, pixels);
+		return (*state_ptr).texture.texture_update_region(handle, x, y, width, height, pixels);
 	}
 
 	//更新纹理指定级的子区域（第一百五十八轮）
@@ -284,13 +284,13 @@ namespace engine
 		uint32_t width, uint32_t height, const uint8_t* pixels)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽（避免改写仍在采样中的图像）
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（分级子区域同步上传）
-		return state().texture.texture_update_region_level(handle, level, x, y, width, height, pixels);
+		return (*state_ptr).texture.texture_update_region_level(handle, level, x, y, width, height, pixels);
 	}
 
 	//读回纹理指定级的子区域（第一百六十六轮）
@@ -304,13 +304,13 @@ namespace engine
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（该级子区域同步读回）
-		return state().texture.texture_readback_region_level(handle, level, x, y, region_width, region_height,
+		return (*state_ptr).texture.texture_readback_region_level(handle, level, x, y, region_width, region_height,
 			pixels, capacity, width_out, height_out);
 	}
 
@@ -324,13 +324,13 @@ namespace engine
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//先把在途帧等尽
-		if (!owner->impl->frame.frames_wait())
+		if (!core->frame.frames_wait())
 			return false;
 		//转交纹理模块（该级整幅同步读回）
-		return state().texture.texture_readback_level(handle, level, pixels, capacity, width_out, height_out);
+		return (*state_ptr).texture.texture_readback_level(handle, level, pixels, capacity, width_out, height_out);
 	}
 
 	//查询纹理 mip 级数（第一百六十二轮）
@@ -340,11 +340,11 @@ namespace engine
 		if (mip_levels_out != nullptr)
 			*mip_levels_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//转交纹理模块
 		uint32_t levels = 0;
-		if (!state().texture.texture_mip_levels_get(handle, levels))
+		if (!(*state_ptr).texture.texture_mip_levels_get(handle, levels))
 			return false;
 		if (mip_levels_out != nullptr)
 			*mip_levels_out = levels;
@@ -360,10 +360,10 @@ namespace engine
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//转交纹理模块（按级换算尺寸）
-		return state().texture.texture_size_level(handle, level, width_out, height_out);
+		return (*state_ptr).texture.texture_size_level(handle, level, width_out, height_out);
 	}
 
 	//查询纹理尺寸
@@ -375,12 +375,12 @@ namespace engine
 		if (height_out != nullptr)
 			*height_out = 0;
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return false;
 		//转交纹理模块取尺寸
 		uint32_t width = 0;
 		uint32_t height = 0;
-		if (!state().texture.texture_size_get(handle, width, height))
+		if (!(*state_ptr).texture.texture_size_get(handle, width, height))
 			return false;
 		if (width_out != nullptr)
 			*width_out = width;
@@ -393,34 +393,34 @@ namespace engine
 	void Render_Resource::texture_bind_set(uint64_t texture_handle)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		//句柄为零时回落内置默认白纹理
-		uint64_t target = texture_handle == 0 ? state().default_texture : texture_handle;
+		uint64_t target = texture_handle == 0 ? (*state_ptr).default_texture : texture_handle;
 		//取目标纹理的视图与采样器
 		VkImageView view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (!state().texture.texture_bind_get(target, view, sampler))
+		if (!(*state_ptr).texture.texture_bind_get(target, view, sampler))
 		{
 			//目标无效则回落默认白纹理
-			target = state().default_texture;
-			if (!state().texture.texture_bind_get(target, view, sampler))
+			target = (*state_ptr).default_texture;
+			if (!(*state_ptr).texture.texture_bind_get(target, view, sampler))
 			{
 				logger.error("渲染器:: 纹理绑定失败：默认白纹理不可用");
 				return;
 			}
 		}
 		//记录当前绑定视图与采样器（逐绘制项采样集按此快照写入）
-		state().bound_view = view;
-		state().bound_sampler = sampler;
+		(*state_ptr).bound_view = view;
+		(*state_ptr).bound_sampler = sampler;
 		/*
 		写满全部帧槽 set1 之前先等全部在途帧完成
 		描述符集被在途命令缓冲引用时更新会触发校验告警；等栅栏保证无命令缓冲在途。
 		*/
-		owner->impl->frame.frames_wait();
+		core->frame.frames_wait();
 		//把目标纹理写入所有帧槽 set1（长命资源，一次写满全部槽）
-		for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
-			owner->impl->pipeline.texture_bind(slot, sampler, view);
+		for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+			(*state_ptr).pipeline.texture_bind(slot, sampler, view);
 		/*
 		材质贴图回落（第一百二十四轮；第一百七十轮合并为一次批量写）
 		单独切换反照率时把 set1 binding 3 / 4 / 6 / 7 / 8 复位为内置默认白纹理，
@@ -429,13 +429,13 @@ namespace engine
 		{
 			VkImageView white_view = VK_NULL_HANDLE;
 			VkSampler white_sampler = VK_NULL_HANDLE;
-			if (state().texture.texture_bind_get(state().default_texture, white_view, white_sampler))
+			if ((*state_ptr).texture.texture_bind_get((*state_ptr).default_texture, white_view, white_sampler))
 			{
-				for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
-					owner->impl->pipeline.material_textures_bind(slot, white_sampler,
+				for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+					(*state_ptr).pipeline.material_textures_bind(slot, white_sampler,
 						white_view, white_view, white_view, white_view, white_view);
 				//材质贴图状态同步回落白纹理（逐绘制项采样集按该快照写入）
-				for (VkImageView& material_view : state().material_views)
+				for (VkImageView& material_view : (*state_ptr).material_views)
 					material_view = white_view;
 			}
 		}
@@ -445,7 +445,7 @@ namespace engine
 	void Render_Resource::texture_sampler_state_set(const Texture_Sampler_State& sampler_state)
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return;
 		/*
 		按设备能力归一各向异性
@@ -457,7 +457,7 @@ namespace engine
 		if (effective.anisotropy)
 		{
 			//若设备不支持该特性
-			if (!owner->impl->device.anisotropy_enabled_get())
+			if (!core->device.anisotropy_enabled_get())
 			{
 				logger.warn("渲染器:: 设备不支持采样器各向异性，本次请求已忽略");
 				effective.anisotropy = false;
@@ -466,7 +466,7 @@ namespace engine
 			else
 			{
 				//倍数钳到 [1, 设备上限]
-				float limit = owner->impl->device.max_anisotropy_get();
+				float limit = core->device.max_anisotropy_get();
 				if (effective.max_anisotropy > limit)
 					effective.max_anisotropy = limit;
 				if (effective.max_anisotropy < 1.0f)
@@ -479,7 +479,7 @@ namespace engine
 		*/
 		if (!(effective.lod_bias == effective.lod_bias))
 			effective.lod_bias = 0.0f;
-		float lod_bias_limit = owner->impl->device.max_sampler_lod_bias_get();
+		float lod_bias_limit = core->device.max_sampler_lod_bias_get();
 		if (effective.lod_bias < -lod_bias_limit)
 			effective.lod_bias = -lod_bias_limit;
 		if (effective.lod_bias > lod_bias_limit)
@@ -490,38 +490,36 @@ namespace engine
 		切换会销毁并重建共享采样器，故先等全部在途帧完成，避免销毁仍被在途描述符集引用的旧采样器。
 		重写以「当前绑定视图」为采样源（纹理与渲染目标共用该语义），未绑过任何源时回落内置默认白纹理。
 		*/
-		owner->impl->frame.frames_wait();
-		state().texture.sampler_state_set(effective);
+		core->frame.frames_wait();
+		(*state_ptr).texture.sampler_state_set(effective);
 		//取重建后的共享采样器
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (!state().texture.texture_bind_get(state().default_texture, default_view, sampler))
+		if (!(*state_ptr).texture.texture_bind_get((*state_ptr).default_texture, default_view, sampler))
 		{
 			logger.error("渲染器:: 采样器状态切换失败：共享采样器不可用");
 			return;
 		}
 		//当前绑定视图为空则回落内置默认白纹理视图
-		VkImageView view = state().bound_view != VK_NULL_HANDLE ? state().bound_view : default_view;
+		VkImageView view = (*state_ptr).bound_view != VK_NULL_HANDLE ? (*state_ptr).bound_view : default_view;
 		//记录当前绑定视图与重建后的共享采样器（逐绘制项集按此快照写入）
-		state().bound_view = view;
-		state().bound_sampler = sampler;
+		(*state_ptr).bound_view = view;
+		(*state_ptr).bound_sampler = sampler;
 		//以新采样器重写全部帧槽 set1（binding 0）
-		for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
-			owner->impl->pipeline.texture_bind(slot, sampler, view);
+		for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+			(*state_ptr).pipeline.texture_bind(slot, sampler, view);
 		/*
 		同步重写阴影采样器（set1 binding 1；第九十七轮）
 		旧共享采样器已销毁，若 binding 1 仍指向旧句柄，阴影绘制会触发「采样器已销毁」校验错误；
 		故在切换后把阴影图以新采样器重新写入各帧槽。
 		*/
-		if (owner->impl->shadow_target != 0)
+		const uint64_t shadow_target = owner->device().shadow_target_handle();
+		if (shadow_target != 0)
 		{
-			VkImage shadow_image = VK_NULL_HANDLE;
-			VkImageView shadow_view = VK_NULL_HANDLE;
-			VkImageView shadow_depth_view = VK_NULL_HANDLE;
-			VkExtent2D shadow_extent{};
-			if (owner->impl->resource_domain->state().render_target.target_get(owner->impl->shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent))
-				for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
-					owner->impl->pipeline.shadow_bind(slot, sampler, shadow_view);
+			Render_Target_Native_Info shadow_info{};
+			if (render_target_native_get(shadow_target, shadow_info))
+				for (uint32_t slot = 0; slot < core->config.frame_overlap; ++slot)
+					(*state_ptr).pipeline.shadow_bind(slot, sampler, reinterpret_cast<VkImageView>(shadow_info.color_view));
 		}
 	}
 
@@ -529,9 +527,9 @@ namespace engine
 	Texture_Sampler_State Render_Resource::texture_sampler_state_get(void) const
 	{
 		//若尚未初始化
-		if (owner->impl == nullptr || !owner->impl->initialized)
+		if (owner == nullptr || !owner->device().valid())
 			return Texture_Sampler_State{};
-		return state().texture.sampler_state_get();
+		return (*state_ptr).texture.sampler_state_get();
 	}
 
 }
