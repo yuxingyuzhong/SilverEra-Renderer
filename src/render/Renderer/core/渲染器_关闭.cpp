@@ -63,13 +63,15 @@ namespace engine
 			//归还阴影目标
 			if (impl->shadow_target != 0)
 			{
-				self().render_target_destroy(impl->shadow_target);
+				if (impl->resource_domain != nullptr)
+					impl->resource_domain->render_target_destroy(impl->shadow_target);
 				impl->shadow_target = 0;
 			}
 			//归还聚光阴影图集（第六百七十轮；须先于逐瓦片目标销毁）
 			if (impl->spot_shadow_atlas_target != 0)
 			{
-				self().render_target_destroy(impl->spot_shadow_atlas_target);
+				if (impl->resource_domain != nullptr)
+					impl->resource_domain->render_target_destroy(impl->spot_shadow_atlas_target);
 				impl->spot_shadow_atlas_target = 0;
 			}
 			impl->spot_shadow_atlas = false;
@@ -79,7 +81,8 @@ namespace engine
 			{
 				if (impl->spot_shadow_targets[tile] != 0)
 				{
-					self().render_target_destroy(impl->spot_shadow_targets[tile]);
+					if (impl->resource_domain != nullptr)
+						impl->resource_domain->render_target_destroy(impl->spot_shadow_targets[tile]);
 					impl->spot_shadow_targets[tile] = 0;
 				}
 			}
@@ -109,35 +112,14 @@ namespace engine
 		*/
 		if (impl->resource_domain != nullptr)
 			impl->resource_domain->shutdown();
-		//渲染目标依赖设备与内存，须先于两者销毁
-		impl->render_target.destroy();
-		impl->active_target = 0;
-		//复位同帧后处理呈现路径与其资源句柄（全屏网格随网格模块销毁、后处理管线随管线模块销毁）
-		impl->present_target = 0;
-		impl->present_extra.clear();
-		impl->post_chain.clear();
-		impl->post_pipeline = 0;
-		impl->fullscreen_mesh = 0;
-		//复位 SSAA 状态（超采样目标已随渲染目标模块销毁，仅清句柄、倍率与失败标记）
-		impl->ssaa_scene_target = 0;
-		impl->ssaa_resolve_target = 0;
-		impl->ssaa_extent_width = 0;
-		impl->ssaa_extent_height = 0;
-		impl->ssaa_target_factor = 0;
-		impl->ssaa_pipeline = 0;
-		impl->ssaa_factor = 1;
-		impl->ssaa_extent_failed = false;
+		//设备域只复位渲染目标选择、后处理链与参数，不销毁其他域资源
+		if (impl->device_domain != nullptr)
+			impl->device_domain->shutdown();
 		//复位 MSAA 采样数（第九十六轮）
 		impl->msaa_samples = 1;
 		//复位 MSAA 深度解析开关（第一百九十轮；默认开启）
 		impl->msaa_depth_resolve = true;
-		//复位逐级泛光参数覆盖与描边色专设，并复位剔除观测
-		for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
-		{
-			impl->post_stage_param_valid[stage] = false;
-			impl->post_stage_color_valid[stage] = false;
-				impl->post_stage_extra_valid[stage] = false;
-		}
+		//复位剔除观测
 		impl->culled_items = 0;
 		//剔除开关恢复默认（开启）
 		impl->cull_enabled = true;

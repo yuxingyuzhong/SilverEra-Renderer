@@ -27,7 +27,7 @@ namespace engine
 			uint32_t sky_mesh_index_count = 0;
 			//若管线与全屏网格齐备
 			if (sky_pipeline_object != VK_NULL_HANDLE
-				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, sky_mesh_buffer,
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->device_domain->state().fullscreen_mesh, sky_mesh_buffer,
 					sky_mesh_index_offset, sky_mesh_index_count))
 			{
 				//推送常量（16 浮点逆视图投影矩阵）

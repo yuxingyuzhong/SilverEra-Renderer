@@ -58,22 +58,22 @@ namespace engine
 		if (ssaa_frame)
 		{
 			//两个目标：场景目标（N 倍）与解析目标（输出尺寸）；复用缓冲避免逐帧堆分配（第一百九十四轮）
-			std::vector<Frame_Render_Target>& targets = impl->chain_targets_scratch;
+			std::vector<Frame_Render_Target>& targets = impl->device_domain->state().chain_targets_scratch;
 			targets.assign(2, Frame_Render_Target{});
 			//全屏四边形网格缓冲信息
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;
 			uint32_t mesh_index_count = 0;
 			//取两个目标的附件与全屏网格
-			bool ready = impl->render_target.target_get(impl->ssaa_scene_target, targets[0].color_image,
+			bool ready = impl->resource_domain->state().render_target.target_get(impl->device_domain->state().ssaa_scene_target, targets[0].color_image,
 				targets[0].color_view, targets[0].depth_view, targets[0].extent)
-				&& impl->render_target.target_get(impl->ssaa_resolve_target, targets[1].color_image,
+				&& impl->resource_domain->state().render_target.target_get(impl->device_domain->state().ssaa_resolve_target, targets[1].color_image,
 					targets[1].color_view, targets[1].depth_view, targets[1].extent)
-				&& impl->render_target.target_msaa_get(impl->ssaa_scene_target, targets[0].msaa_color_image,
+				&& impl->resource_domain->state().render_target.target_msaa_get(impl->device_domain->state().ssaa_scene_target, targets[0].msaa_color_image,
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
-				&& impl->render_target.target_msaa_get(impl->ssaa_resolve_target, targets[1].msaa_color_image,
+				&& impl->resource_domain->state().render_target.target_msaa_get(impl->device_domain->state().ssaa_resolve_target, targets[1].msaa_color_image,
 					targets[1].msaa_color_view, targets[1].msaa_depth_view, targets[1].sample_count)
-				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->device_domain->state().fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//并行录制格式（第二百轮；SSAA 目标与交换链同格式）
 			targets[0].color_format = impl->swapchain.format_get();
 			targets[0].depth_format = impl->swapchain.depth_format_get();
@@ -96,9 +96,9 @@ namespace engine
 					ready = false;
 				}
 				//两级管线：0 = 降采样（N 倍 → 输出），1 = 默认后处理（输出 → 交换链）
-				uint64_t stage_pipelines[2] = { impl->ssaa_pipeline, impl->post_pipeline };
+				uint64_t stage_pipelines[2] = { impl->device_domain->state().ssaa_pipeline, impl->device_domain->state().post_pipeline };
 				//后处理绘制项复用缓冲（第一百八十二轮）
-				std::vector<Frame_Render_Item>& post_items = impl->post_items_scratch;
+				std::vector<Frame_Render_Item>& post_items = impl->device_domain->state().post_items_scratch;
 				post_items.clear();
 				bool items_ready = true;
 				for (uint32_t index = 0; index < 2; ++index)
@@ -158,19 +158,19 @@ namespace engine
 			首项为场景目标（present_target），其余为额外中间目标（present_extra）；
 			链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时目标数必须 ≥ 2（上方已保证）。
 			*/
-			std::vector<Frame_Render_Target>& targets = impl->chain_targets_scratch;
+			std::vector<Frame_Render_Target>& targets = impl->device_domain->state().chain_targets_scratch;
 			//按目标组数量重置元素（容量保留，避免逐帧堆分配；第一百九十四轮）
-			targets.assign(1 + impl->present_extra.size(), Frame_Render_Target{});
+			targets.assign(1 + impl->device_domain->state().present_extra.size(), Frame_Render_Target{});
 			//全屏四边形网格的共用缓冲 / 索引区偏移 / 索引数
 			VkBuffer mesh_buffer = VK_NULL_HANDLE;
 			VkDeviceSize mesh_index_offset = 0;
 			uint32_t mesh_index_count = 0;
 			//场景目标与全屏网格均就绪才可走该路径
-			bool ready = impl->render_target.target_get(impl->present_target, targets[0].color_image,
+			bool ready = impl->resource_domain->state().render_target.target_get(impl->device_domain->state().present_target, targets[0].color_image,
 				targets[0].color_view, targets[0].depth_view, targets[0].extent)
-				&& impl->render_target.target_msaa_get(impl->present_target, targets[0].msaa_color_image,
+				&& impl->resource_domain->state().render_target.target_msaa_get(impl->device_domain->state().present_target, targets[0].msaa_color_image,
 					targets[0].msaa_color_view, targets[0].msaa_depth_view, targets[0].sample_count)
-				&& impl->resource_domain->state().mesh.mesh_record_get(impl->fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
+				&& impl->resource_domain->state().mesh.mesh_record_get(impl->device_domain->state().fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
 			//并行录制格式（第二百轮；场景目标与交换链同格式）
 			targets[0].color_format = impl->swapchain.format_get();
 			targets[0].depth_format = impl->swapchain.depth_format_get();
@@ -181,12 +181,12 @@ namespace engine
 			关闭或目标无多重采样深度时留空（帧模块跳过解析，保持既有行为）。
 			*/
 			if (ready && impl->msaa_depth_resolve)
-				impl->render_target.target_msaa_depth_image_get(impl->present_target, targets[0].msaa_depth_image);
+				impl->resource_domain->state().render_target.target_msaa_depth_image_get(impl->device_domain->state().present_target, targets[0].msaa_depth_image);
 			//逐个取额外中间目标附件
 			for (std::size_t each = 1; ready && each < targets.size(); ++each)
-				ready = impl->render_target.target_get(impl->present_extra[each - 1], targets[each].color_image,
+				ready = impl->resource_domain->state().render_target.target_get(impl->device_domain->state().present_extra[each - 1], targets[each].color_image,
 					targets[each].color_view, targets[each].depth_view, targets[each].extent)
-					&& impl->render_target.target_msaa_get(impl->present_extra[each - 1], targets[each].msaa_color_image,
+					&& impl->resource_domain->state().render_target.target_msaa_get(impl->device_domain->state().present_extra[each - 1], targets[each].msaa_color_image,
 						targets[each].msaa_color_view, targets[each].msaa_depth_view, targets[each].sample_count);
 			/*
 			目标尺寸预检（第十七轮放宽）
@@ -229,7 +229,7 @@ namespace engine
 				for (uint32_t index = 0; index < post_view_count; ++index)
 					post_views[index] = targets[index].color_view;
 				//取场景目标的深度图像（第一百二十三轮；帧模块据此做采样前后的布局转换）
-				impl->render_target.target_depth_get(impl->present_target, targets[0].depth_image, targets[0].depth_view);
+				impl->resource_domain->state().render_target.target_depth_get(impl->device_domain->state().present_target, targets[0].depth_image, targets[0].depth_view);
 				if (!impl->post_sets_bind(post_views, post_view_count,
 					shared_sampler, targets[0].depth_view))
 				{
@@ -237,17 +237,17 @@ namespace engine
 					ready = false;
 				}
 				//各级后处理管线句柄序列（链路径取链；单级路径取默认后处理管线；复用缓冲）
-				std::vector<uint64_t>& stage_pipelines = impl->post_stage_pipelines_scratch;
+				std::vector<uint64_t>& stage_pipelines = impl->device_domain->state().post_stage_pipelines_scratch;
 				stage_pipelines.clear();
 				//链路径取注册链
 				if (post_chain_mode)
-					stage_pipelines = impl->post_chain;
+					stage_pipelines = impl->device_domain->state().post_chain;
 				//单级路径取懒登记的默认后处理管线
 				else
-					stage_pipelines.push_back(impl->post_pipeline);
+					stage_pipelines.push_back(impl->device_domain->state().post_pipeline);
 				//组装各级后处理绘制项（全屏四边形 ＋ 各级管线 ＋ set0 场景 UBO / set1 对应源采样集）
 				//后处理绘制项复用缓冲（第一百八十二轮；与 SSAA 路径共用同一成员，两条路径互斥）
-				std::vector<Frame_Render_Item>& post_items = impl->post_items_scratch;
+				std::vector<Frame_Render_Item>& post_items = impl->device_domain->state().post_items_scratch;
 				post_items.clear();
 				//任一级管线缺失即整帧回落
 				bool items_ready = true;
@@ -280,24 +280,24 @@ namespace engine
 					//该级管线实际采样数（决定宿附件是否为多重采样；第九十八轮）
 					post_item.sample_count = impl->pipeline.pipeline_sample_count(stage_pipelines[index]);
 					//泛光参数（帧模块随「源 / 宿尺寸」一并推送，offset 96）
-					if (index < POST_CHAIN_MAX_STAGES && impl->post_stage_param_valid[index])
+					if (index < POST_CHAIN_MAX_STAGES && impl->device_domain->state().post_stage_param_valid[index])
 					{
 						//该级有专设参数则覆盖全局值
 						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_params[each] = impl->post_stage_param[index][each];
+							post_item.post_params[each] = impl->device_domain->state().post_stage_param[index][each];
 					}
 					else
 					{
 						//否则用全局泛光参数
 						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_params[each] = impl->bloom_param[each];
+							post_item.post_params[each] = impl->device_domain->state().bloom_param[each];
 					}
 					//描边色（第一百八十一轮；未专设时为黑 = 压暗轮廓）
-					if (index < POST_CHAIN_MAX_STAGES && impl->post_stage_color_valid[index])
+					if (index < POST_CHAIN_MAX_STAGES && impl->device_domain->state().post_stage_color_valid[index])
 					{
 						//该级有专设描边色则取专设值
 						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_color[each] = impl->post_stage_color[index][each];
+							post_item.post_color[each] = impl->device_domain->state().post_stage_color[index][each];
 					}
 					else
 					{
@@ -306,11 +306,11 @@ namespace engine
 							post_item.post_color[each] = 0.0f;
 					}
 					//逐级额外四参（第四百零一轮；未专设时为 0，既有阶段不读取 → 画面不变）
-					if (index < POST_CHAIN_MAX_STAGES && impl->post_stage_extra_valid[index])
+					if (index < POST_CHAIN_MAX_STAGES && impl->device_domain->state().post_stage_extra_valid[index])
 					{
 						//该级有专设 extra 则取专设值
 						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_extra[each] = impl->post_stage_extra[index][each];
+							post_item.post_extra[each] = impl->device_domain->state().post_stage_extra[index][each];
 					}
 					else
 					{
@@ -344,14 +344,14 @@ namespace engine
 				logger.warn("渲染器:: 同帧多 pass 后处理前置不完整（目标或全屏网格或采样器），回落原路径");
 		}
 		//若已设定本帧渲染目标（离屏路径）
-		if (!offscreen && impl->active_target != 0)
+		if (!offscreen && impl->device_domain->state().active_target != 0)
 		{
 			//取目标的颜色图像 / 颜色视图 / 深度视图与范围
 			Frame_Render_Target target{};
-			if (impl->render_target.target_get(impl->active_target, target.color_image, target.color_view,
+			if (impl->resource_domain->state().render_target.target_get(impl->device_domain->state().active_target, target.color_image, target.color_view,
 				target.depth_view, target.extent)
-				&& impl->render_target.target_depth_get(impl->active_target, target.depth_image, target.depth_view)
-				&& impl->render_target.target_msaa_get(impl->active_target, target.msaa_color_image,
+				&& impl->resource_domain->state().render_target.target_depth_get(impl->device_domain->state().active_target, target.depth_image, target.depth_view)
+				&& impl->resource_domain->state().render_target.target_msaa_get(impl->device_domain->state().active_target, target.msaa_color_image,
 					target.msaa_color_view, target.msaa_depth_view, target.sample_count))
 			{
 				//并行录制格式（第二百轮；离屏目标与交换链同格式）
@@ -380,7 +380,7 @@ namespace engine
 			}
 			//句柄无效则回落交换链路径
 			else
-				logger.warn("渲染器:: 渲染目标句柄 {} 无效，回落交换链路径", impl->active_target);
+				logger.warn("渲染器:: 渲染目标句柄 {} 无效，回落交换链路径", impl->device_domain->state().active_target);
 		}
 		//若走交换链路径
 		if (!offscreen)

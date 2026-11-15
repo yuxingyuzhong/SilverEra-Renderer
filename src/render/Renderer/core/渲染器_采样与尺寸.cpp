@@ -30,11 +30,11 @@ namespace engine
 		//钳制到 1..4（0 视为关闭）
 		uint32_t clamped = factor < 1 ? 1 : (factor > 4 ? 4 : factor);
 		//同值重复设置为空操作
-		if (clamped == impl->ssaa_factor)
+		if (clamped == impl->device_domain->state().ssaa_factor)
 			return;
-		impl->ssaa_factor = clamped;
+		impl->device_domain->state().ssaa_factor = clamped;
 		//倍率变化：清失败标记，下一次 frame_render 按需重建目标
-		impl->ssaa_extent_failed = false;
+		impl->device_domain->state().ssaa_extent_failed = false;
 		logger.info("渲染器:: SSAA 倍率已设为 {}（下一帧生效）", clamped);
 	}
 
@@ -44,7 +44,7 @@ namespace engine
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return 1;
-		return impl->ssaa_factor;
+		return impl->device_domain->state().ssaa_factor;
 	}
 
 	/*
@@ -90,7 +90,7 @@ namespace engine
 			}
 		}
 		//重建跟随默认采样数的渲染目标（句柄不变）
-		if (!impl->render_target.sample_count_set(samples))
+		if (!impl->resource_domain->state().render_target.sample_count_set(samples))
 		{
 			logger.warn("渲染器:: MSAA 切换时部分渲染目标重建失败");
 		}

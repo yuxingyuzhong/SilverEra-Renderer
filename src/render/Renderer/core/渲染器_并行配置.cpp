@@ -22,40 +22,50 @@ namespace engine
 {
 	//创建离屏渲染目标
 
-	void Renderer_Post::cull_enabled_set(bool enabled)
+	void Render_Device::cull_enabled_set(bool enabled)
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
 		if (impl == nullptr || !impl->initialized)
 			return;
 		impl->cull_enabled = enabled;
 	}
 
-	bool Renderer_Post::cull_enabled(void) const
+	bool Render_Device::cull_enabled(void) const
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（开启）
 		if (impl == nullptr || !impl->initialized)
 			return true;
 		return impl->cull_enabled;
 	}
 
-	void Renderer_Post::static_batching_set(bool enabled)
+	void Render_Device::static_batching_set(bool enabled)
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
 		if (impl == nullptr || !impl->initialized)
 			return;
 		impl->static_batching = enabled;
 	}
 
-	bool Renderer_Post::static_batching(void) const
+	bool Render_Device::static_batching(void) const
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（开启）
 		if (impl == nullptr || !impl->initialized)
 			return true;
 		return impl->static_batching;
 	}
 
-	void Renderer_Post::render_threads_set(uint32_t count)
+	void Render_Device::render_threads_set(uint32_t count)
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -77,16 +87,20 @@ namespace engine
 		logger.info("渲染器:: 渲染工作线程已设为 {}", impl->render_threads);
 	}
 
-	uint32_t Renderer_Post::render_threads(void) const
+	uint32_t Render_Device::render_threads(void) const
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回默认值（0 = 单线程）
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return impl->thread_pool.thread_count_get();
 	}
 
-	void Renderer_Post::cull_parallel_min_instances_set(uint32_t count)
+	void Render_Device::cull_parallel_min_instances_set(uint32_t count)
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -102,16 +116,20 @@ namespace engine
 		logger.info("渲染器:: 实例剔除并行阈值已设为 {}", count);
 	}
 
-	uint32_t Renderer_Post::cull_parallel_min_instances(void) const
+	uint32_t Render_Device::cull_parallel_min_instances(void) const
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回 0
 		if (impl == nullptr || !impl->initialized)
 			return 0;
 		return static_cast<uint32_t>(impl->cull_parallel_min_instances);
 	}
 
-	void Renderer_Post::instance_scan_parallel_min_set(uint32_t count)
+	void Render_Device::instance_scan_parallel_min_set(uint32_t count)
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化则静默返回
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -127,8 +145,10 @@ namespace engine
 		logger.info("渲染器:: 实例扫描并行阈值已设为 {}", count);
 	}
 
-	uint32_t Renderer_Post::instance_scan_parallel_min(void) const
+	uint32_t Render_Device::instance_scan_parallel_min(void) const
 	{
+		//实现体（未迁成员经此访问）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//未初始化时返回 0
 		if (impl == nullptr || !impl->initialized)
 			return 0;

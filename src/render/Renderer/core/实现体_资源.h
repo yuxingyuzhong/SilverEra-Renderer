@@ -84,9 +84,6 @@ namespace engine
 		//最近一帧上传到图形 set0 的簇数据字节数（第二百八十八轮；关闭恒 0）
 		uint32_t last_cluster_gpu_bytes = 0;
 
-		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
-		Render_Target_Context render_target;
-
 		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
 		static constexpr uint32_t SHADOW_SIZE = 1024;
 
@@ -235,64 +232,6 @@ namespace engine
 
 		//阴影强度（第五十三轮；0 = 阴影无效、1 = 全遮蔽）
 		float shadow_strength = 1.0f;
-
-		//本帧「渲染到目标并同帧后处理呈现」的目标句柄（0 = 关闭；见 render_target_present_set）
-		uint64_t present_target = 0;
-
-		/*
-		本帧「同帧后处理链」的额外中间目标句柄（下标 1..N-1；空 = 只有 present_target 一个目标）
-		由 render_target_present_chain_set 设置；链上第 i 级取 targets[i % 目标数]，故链长 ≥ 2 时至少需 2 个目标。
-		*/
-		std::vector<uint64_t> present_extra;
-
-		//后处理链级数上限（超出即整链拒绝；每级占用一次全屏 pass，超长链会带来隐性性能坍塌）
-
-		//后处理管线句柄（0 = 尚未登记；首次使用时懒登记，不透明档；仅用于既有单级默认路径）
-		uint64_t post_pipeline = 0;
-
-		/*
-		SSAA 超采样状态（倍率钳制 1..4；1 = 关闭）
-		scene_target 为输出 × 倍率的场景目标，resolve_target 为输出尺寸的解析目标；
-		extent_* / target_factor 记录建立时的参数，变化即重建；extent_failed 避免逐帧重复失败尝试。
-		*/
-		uint32_t ssaa_factor = 1;
-
-		uint64_t ssaa_scene_target = 0;
-
-		uint64_t ssaa_resolve_target = 0;
-
-		uint32_t ssaa_extent_width = 0;
-
-		uint32_t ssaa_extent_height = 0;
-
-		uint32_t ssaa_target_factor = 0;
-
-		//SSAA 降采样具名管线句柄（0 = 尚未登记）
-		uint64_t ssaa_pipeline = 0;
-
-		/*
-		后处理采样集绑定签名（第九十七轮）
-		记录上次写入的目标视图组与采样器；未变化则跳过逐帧重写，避免更新在途描述符集。
-		*/
-		VkImageView post_bound_views[PRESENT_TARGET_MAX] = {};
-
-		uint32_t post_bound_view_count = 0;
-
-		VkSampler post_bound_sampler = VK_NULL_HANDLE;
-
-		//后处理采样集 binding 2 已绑定的场景深度视图（第一百二十三轮）
-		VkImageView post_bound_depth = VK_NULL_HANDLE;
-
-		//后处理采样集 binding 4 已绑定的方向光阴影视图（第三百九十九轮）
-		VkImageView post_bound_shadow = VK_NULL_HANDLE;
-
-		bool post_bind_cached = false;
-
-		//当前尺寸 / 倍率下超采样目标创建失败（避免逐帧重复尝试）
-		bool ssaa_extent_failed = false;
-
-		//设备是否支持 144 字节推送块（仅决定 extra 写入接口是否可用）
-		bool post_extra_supported = false;
 
 		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
 		double shadow_gpu_ms = 0.0;

@@ -132,9 +132,9 @@ namespace engine
 		impl->batch_scratch.reserve(impl->instance_capacity);
 		//阴影列表与后处理绘制项的复用缓冲（第一百八十二轮；避免逐帧堆分配）
 		impl->shadow_items_scratch.reserve(64);
-		impl->post_items_scratch.reserve(POST_CHAIN_MAX_STAGES + 2);
+		impl->device_domain->state().post_items_scratch.reserve(POST_CHAIN_MAX_STAGES + 2);
 		//后处理级管线序列复用缓冲（第一百八十七轮）
-		impl->post_stage_pipelines_scratch.reserve(POST_CHAIN_MAX_STAGES + 1);
+		impl->device_domain->state().post_stage_pipelines_scratch.reserve(POST_CHAIN_MAX_STAGES + 1);
 
 		if (!impl->frame.build(impl->device.device_get(), impl->device.physical_device_get(),
 			impl->device.graphics_family_get(), impl->device.graphics_queue_get(),
@@ -181,10 +181,10 @@ namespace engine
 			*/
 			VkPhysicalDeviceProperties device_props{};
 			vkGetPhysicalDeviceProperties(impl->device.physical_device_get(), &device_props);
-			impl->post_extra_supported = device_props.limits.maxPushConstantsSize >= 144;
-			pipeline_config.max_push_constant_size = impl->post_extra_supported ? 144 : 128;
-			impl->frame.post_extra_enabled = impl->post_extra_supported;
-			if (!impl->post_extra_supported)
+			impl->device_domain->state().post_extra_supported = device_props.limits.maxPushConstantsSize >= 144;
+			pipeline_config.max_push_constant_size = impl->device_domain->state().post_extra_supported ? 144 : 128;
+			impl->frame.post_extra_enabled = impl->device_domain->state().post_extra_supported;
+			if (!impl->device_domain->state().post_extra_supported)
 				logger.warn("渲染器:: 设备推送常量上限 {} 字节不足 144，后处理逐级 extra 参数已禁用",
 					device_props.limits.maxPushConstantsSize);
 			if (!impl->pipeline.build(impl->device.device_get(), pipeline_config))

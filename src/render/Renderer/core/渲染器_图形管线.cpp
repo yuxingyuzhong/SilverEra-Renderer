@@ -22,8 +22,10 @@ namespace engine
 {
 	//设置后续绘制所用混合档（切档触发图形管线重建）
 
-	void Renderer_Pipeline::blend_mode_set(Blend_Mode mode)
+	void Render_Resource::blend_mode_set(Blend_Mode mode)
 	{
+		//实现体（通用状态尚未完全拆域）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -44,8 +46,10 @@ namespace engine
 		logger.info("渲染器:: 混合档已切换为 {}", static_cast<int32_t>(mode));
 	}
 
-	bool Renderer_Pipeline::pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage)
+	bool Render_Resource::pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage)
 	{
+		//实现体（通用状态尚未完全拆域）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//尚未初始化
 		if (impl == nullptr || !impl->initialized)
 		{
@@ -128,8 +132,10 @@ namespace engine
 		pending_items.push_back(outline_item);
 	}
 
-	void Renderer_Pipeline::pipeline_unload(uint64_t handle)
+	void Render_Resource::pipeline_unload(uint64_t handle)
 	{
+		//实现体（通用状态尚未完全拆域）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -158,16 +164,16 @@ namespace engine
 			//移除门面记录
 			impl->extra_pipelines.erase(it);
 			//若卸载的是当前所选管线则回落默认场景管线
-			if (impl->bound_pipeline_request == handle)
+			if (state().bound_pipeline_request == handle)
 			{
-				impl->bound_pipeline_request = 0;
+				state().bound_pipeline_request = 0;
 				impl->pipeline.pipeline_activate(0);
 			}
 			//若该管线在后处理链中则一并摘除（避免链残留失效句柄导致整帧回落）
-			std::size_t chain_before = impl->post_chain.size();
-			impl->post_chain.erase(std::remove(impl->post_chain.begin(), impl->post_chain.end(), handle), impl->post_chain.end());
+			std::size_t chain_before = impl->device_domain->state().post_chain.size();
+			impl->device_domain->state().post_chain.erase(std::remove(impl->device_domain->state().post_chain.begin(), impl->device_domain->state().post_chain.end(), handle), impl->device_domain->state().post_chain.end());
 			//若确有摘除则告警
-			if (impl->post_chain.size() != chain_before)
+			if (impl->device_domain->state().post_chain.size() != chain_before)
 			{
 				/*
 				级序已压缩（第二十五轮修复）
@@ -175,20 +181,22 @@ namespace engine
 				*/
 				for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
 				{
-					impl->post_stage_param_valid[stage] = false;
-					impl->post_stage_color_valid[stage] = false;
-				impl->post_stage_extra_valid[stage] = false;
+					impl->device_domain->state().post_stage_param_valid[stage] = false;
+					impl->device_domain->state().post_stage_color_valid[stage] = false;
+				impl->device_domain->state().post_stage_extra_valid[stage] = false;
 				}
 				logger.warn("渲染器:: 后处理链已摘除被卸载管线（句柄 {}，剩余 {} 级）；逐级参数已整体清除",
-					handle, impl->post_chain.size());
+					handle, impl->device_domain->state().post_chain.size());
 			}
 			logger.info("渲染器:: 具名管线已卸载（句柄 {}）", handle);
 			return;
 		}
 	}
 
-	void Renderer_Pipeline::pipeline_bind_set(uint64_t handle)
+	void Render_Resource::pipeline_bind_set(uint64_t handle)
 	{
+		//实现体（通用状态尚未完全拆域）
+		Renderer_Impl_Holder::Impl* impl = owner->impl.get();
 		//若尚未初始化
 		if (impl == nullptr || !impl->initialized)
 			return;
@@ -203,6 +211,6 @@ namespace engine
 		//激活目标管线（失败则保持原激活不变）
 		if (!impl->pipeline.pipeline_activate(target))
 			return;
-		impl->bound_pipeline_request = target;
+		state().bound_pipeline_request = target;
 	}
 }

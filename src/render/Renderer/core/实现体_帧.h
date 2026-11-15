@@ -71,42 +71,6 @@ namespace engine
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 
-		//同帧后处理呈现的目标数上限（= 每帧槽后处理采样集数量，超出即整组拒绝）
-
-		/*
-		本帧后处理链（各级具名管线句柄，下标即级序；空 = 走既有单级默认后处理路径）
-		由 post_chain_set 设置；各级使用同一全屏几何与场景 UBO，仅管线与源采样集不同。
-		级数上限见 POST_CHAIN_MAX_STAGES。
-		*/
-		std::vector<uint64_t> post_chain;
-
-		/*
-		逐级泛光参数覆盖（第二十三轮）
-		post_stage_param[stage] 有效时覆盖全局 bloom_param（x = 阈值、y = 软膝、z = 强度、w 保留）；
-		由 post_stage_param_set 设置，post_chain_set 时整体清除（链一变，旧下标即失去意义）。
-		*/
-		float post_stage_param[POST_CHAIN_MAX_STAGES][4] = {};
-
-		bool post_stage_param_valid[POST_CHAIN_MAX_STAGES] = {};
-
-		/*
-		逐级描边色（第一百八十一轮）
-		post_stage_color[stage] 为该级的描边色（rgb 0..1；默认 (0,0,0) = 压暗到黑）；
-		随「源 / 宿尺寸 ＋ 泛光参数」一并经推送常量（offset 112）下发；post_chain_set 时整体清除。
-		*/
-		float post_stage_color[POST_CHAIN_MAX_STAGES][4] = {};
-
-		bool post_stage_color_valid[POST_CHAIN_MAX_STAGES] = {};
-
-		/*
-		逐级额外四参（第四百零一轮）
-		写入推送块 offset 128 的第四组；设备 maxPushConstantsSize < 144 时接口拒绝写入（保持全零）。
-		与 param / color 同生命周期：post_chain_set 或级序压缩时整体清除。
-		*/
-		float post_stage_extra[POST_CHAIN_MAX_STAGES][4] = {};
-
-		bool post_stage_extra_valid[POST_CHAIN_MAX_STAGES] = {};
-
 		//累计因视锥剔除而未登记的绘制项数（第二十三轮；仅供 frame_stats_get 观测）
 		uint64_t culled_items = 0;
 
@@ -186,19 +150,6 @@ namespace engine
 		内容在 frame_render 返回前不再被使用（render_to_target / render_chain_present 均为同步调用）。
 		*/
 		std::vector<Frame_Render_Item> shadow_items_scratch;
-
-		std::vector<Frame_Render_Item> post_items_scratch;
-
-		//后处理级管线序列复用缓冲（第一百八十七轮；避免逐帧为「链 / 单级」序列分配向量）
-		std::vector<uint64_t> post_stage_pipelines_scratch;
-
-		/*
-		后处理链目标组复用缓冲（第一百九十四轮）
-		SSAA 路径与同帧后处理链路径原本逐帧在栈上新建 std::vector<Frame_Render_Target>；
-		改为复用该成员（每帧 assign 重置元素、容量保留），避免逐帧堆分配。
-		两条路径互斥，可共用；内容在 render_chain_present 返回前有效。
-		*/
-		std::vector<Frame_Render_Target> chain_targets_scratch;
 
 		//已呈现帧数
 		uint64_t frame_count = 0;

@@ -126,6 +126,16 @@ namespace engine
 				owner->shutdown();
 				return false;
 			}
+		//渲染目标记录设备、图形队列与内存模块（离屏目标按需创建）
+		if (!state().render_target.build(owner->impl->device.device_get(), owner->impl->device.graphics_family_get(),
+			owner->impl->device.graphics_queue_get(), owner->impl->memory))
+		{
+			logger.error("渲染器:: 渲染目标模块初始化失败");
+			owner->shutdown();
+			return false;
+		}
+		//渲染目标默认采样数与交换链一致
+		state().render_target.sample_count_set(owner->impl->msaa_samples);
 		return true;
 	}
 
@@ -140,6 +150,8 @@ namespace engine
 		state().mesh.destroy();
 		//纹理依赖设备与内存，须先于两者销毁
 		state().texture.destroy();
+		//渲染目标依赖设备与内存，须先于两者销毁
+		state().render_target.destroy();
 		//逐物体 PBR 材质恢复默认（不覆盖全局，第六十八轮）
 		state().material_pbr_active = false;
 		state().material_pbr_roughness = 1.0f;

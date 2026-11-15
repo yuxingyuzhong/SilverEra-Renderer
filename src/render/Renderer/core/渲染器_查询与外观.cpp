@@ -43,13 +43,13 @@ namespace engine
 		if (impl == nullptr || !impl->initialized)
 			return counts;
 		//各模块有效记录数
-		counts.meshes = impl->mesh.mesh_count();
-		counts.textures = impl->texture.texture_count();
+		counts.meshes = impl->resource_domain->state().mesh.mesh_count();
+		counts.textures = impl->resource_domain->state().texture.texture_count();
 		counts.pipelines = impl->pipeline.pipeline_count();
 		counts.fonts = self().ui().state().font.font_count();
-		counts.render_targets = impl->render_target.target_count();
+		counts.render_targets = impl->resource_domain->state().render_target.target_count();
 		//材质按有效记录计
-		for (const Impl::Material_Record& record : impl->materials)
+		for (const Material_Record& record : impl->resource_domain->state().materials)
 			if (record.valid)
 				++counts.materials;
 		return counts;
@@ -312,7 +312,7 @@ namespace engine
 		if (!impl->frame.frames_wait())
 			return false;
 		//转交渲染目标模块（同步拷贝并读回打包深度）
-		return impl->render_target.target_readback(impl->shadow_target, pixels, capacity, width_out, height_out);
+		return impl->resource_domain->state().render_target.target_readback(impl->shadow_target, pixels, capacity, width_out, height_out);
 	}
 
 	//设置清屏色（RGBA）

@@ -199,6 +199,30 @@ namespace engine
 		//设置后续绘制所用图形管线
 		void pipeline_bind_set(uint64_t handle);
 
+		//=== 原渲染目标资源接口方法（签名原样照抄）===
+		//创建离屏渲染目标
+		bool render_target_create(uint64_t& handle_out, uint32_t width, uint32_t height);
+		//销毁离屏渲染目标（句柄无效则忽略）
+		void render_target_destroy(uint64_t handle);
+		//查询离屏渲染目标尺寸
+		bool render_target_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const;
+		//读回离屏渲染目标颜色
+		bool render_target_readback(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		//读回离屏渲染目标颜色子区域
+		bool render_target_readback_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		//读回离屏渲染目标深度
+		bool render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		//读回离屏渲染目标深度子区域
+		bool render_target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		//把离屏渲染目标颜色绑定为当前纹理
+		void texture_bind_target(uint64_t handle);
+
 		//=== 迁移期内部入口（阶段 8 收口时降为私有）===
 		//初始化（原 renderer_init_graphics 中纹理 / 默认资源部分）
 		bool init(const Renderer_Config& effective);

@@ -16,12 +16,6 @@ namespace engine
 		//间接命令字节数（与 VkDrawIndexedIndirectCommand 对齐；第二百五十二轮）
 		static constexpr uint32_t INDIRECT_COMMAND_BYTES = 20;
 
-		//本帧渲染目标句柄（0 = 直接渲染到交换链）
-		uint64_t active_target = 0;
-
-		//全屏四边形网格句柄（0 = 尚未创建；后处理 pass 的几何）
-		Mesh_Handle fullscreen_mesh = 0;
-
 		//当前 MSAA 采样数（第九十六轮；1 = 关闭）
 		uint32_t msaa_samples = 1;
 

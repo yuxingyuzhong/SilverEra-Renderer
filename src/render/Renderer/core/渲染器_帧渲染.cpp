@@ -220,18 +220,18 @@ namespace engine
 		//后处理绘制项在本帧实例缓冲内的字节偏移
 		VkDeviceSize post_instance_offset = 0;
 		//若已设定同帧后处理呈现目标
-		if (impl->present_target != 0)
+		if (impl->device_domain->state().present_target != 0)
 		{
 			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
 			if (impl->pending_instances.size() >= impl->instance_capacity)
 				logger.warn("渲染器:: 本帧实例存储已满，同帧后处理呈现回落原路径");
 			//链长 ≥ 2 但目标组不足 2 个则回落单级默认路径
-			else if (!impl->post_chain.empty() && impl->post_chain.size() >= 2 && impl->present_extra.empty())
+			else if (!impl->device_domain->state().post_chain.empty() && impl->device_domain->state().post_chain.size() >= 2 && impl->device_domain->state().present_extra.empty())
 				logger.warn("渲染器:: 后处理链级数 ≥ 2 但中间目标不足 2 个，本帧回落单级默认后处理");
 			else
 			{
 				//本帧是否走链路径
-				bool chain_mode = !impl->post_chain.empty();
+				bool chain_mode = !impl->device_domain->state().post_chain.empty();
 				//确保后处理资源就绪（链 → 全屏网格；单级 → 全屏网格 ＋ 默认后处理管线）
 				bool resources_ready = chain_mode ? impl->post_mesh_ensure() : impl->post_resources_ensure();
 				//若资源就绪
@@ -263,11 +263,11 @@ namespace engine
 		//降采样 pass 在本帧实例缓冲内的字节偏移
 		VkDeviceSize ssaa_instance_offset = 0;
 		//若启用 SSAA 且未走后处理 / 离屏路径
-		if (impl->ssaa_factor > 1 && impl->present_target == 0 && impl->active_target == 0)
+		if (impl->device_domain->state().ssaa_factor > 1 && impl->device_domain->state().present_target == 0 && impl->device_domain->state().active_target == 0)
 		{
 			//确保降采样管线 / 全屏网格 / 默认后处理管线 / 超采样目标就绪
 			if (impl->ssaa_pipeline_ensure() && impl->post_mesh_ensure() && impl->post_pipeline_ensure()
-				&& impl->ssaa_targets_ensure(width, height, impl->ssaa_factor))
+				&& impl->ssaa_targets_ensure(width, height, impl->device_domain->state().ssaa_factor))
 			{
 				//本帧实例存储须仍有空位（降采样全屏四边形再占一个实例）
 				if (impl->pending_instances.size() < impl->instance_capacity)

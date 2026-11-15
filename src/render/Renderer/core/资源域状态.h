@@ -75,6 +75,9 @@ namespace engine
 		//纹理模块
 		Texture_Context texture;
 
+		//渲染目标模块（离屏渲染目标：颜色 + 深度 + 视图）
+		Render_Target_Context render_target;
+
 		//内置默认白纹理句柄
 		uint64_t default_texture = 0;
 

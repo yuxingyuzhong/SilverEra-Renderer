@@ -27,7 +27,7 @@ namespace engine
 				VkImage shadow_image = VK_NULL_HANDLE;
 				VkImageView shadow_depth_view = VK_NULL_HANDLE;
 				VkExtent2D shadow_extent{};
-				impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
+				impl->resource_domain->state().render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
 					shadow_depth_view, shadow_extent);
 			}
 			//聚光灯阴影图视图（第四百八十三轮；第五百零七轮扩为 4 张；未建立时以默认白纹理占位）
@@ -44,7 +44,7 @@ namespace engine
 				VkImageView atlas_view = VK_NULL_HANDLE;
 				VkImageView atlas_depth_view = VK_NULL_HANDLE;
 				VkExtent2D atlas_extent{};
-				if (impl->render_target.target_get(impl->spot_shadow_atlas_target, atlas_image, atlas_view,
+				if (impl->resource_domain->state().render_target.target_get(impl->spot_shadow_atlas_target, atlas_image, atlas_view,
 					atlas_depth_view, atlas_extent))
 					for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
 						spot_shadow_views[tile] = atlas_view;
@@ -59,7 +59,7 @@ namespace engine
 					VkImage spot_shadow_image = VK_NULL_HANDLE;
 					VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
 					VkExtent2D spot_shadow_extent{};
-					impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image,
+					impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image,
 						spot_shadow_views[tile], spot_shadow_depth_view, spot_shadow_extent);
 				}
 			}

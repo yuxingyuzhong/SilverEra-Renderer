@@ -43,12 +43,6 @@ namespace engine
 		//MSAA 深度解析开关（第一百九十轮；默认开启，仅影响采样数 > 1 且走后处理链的路径）
 		bool msaa_depth_resolve = true;
 
-		/*
-		泛光参数（阈值 / 软膝 / 强度 / 保留；默认 0.6 / 0.1 / 1.0 / 0）
-		由 bloom_param_set 更新；后处理链各级以推送常量（offset 96）下发。
-		*/
-		float bloom_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
-
 		//是否启用静态合批（第一百二十七轮；默认开启）
 		bool static_batching = true;
 

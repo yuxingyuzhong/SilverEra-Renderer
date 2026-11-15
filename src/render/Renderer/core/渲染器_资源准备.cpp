@@ -289,12 +289,12 @@ namespace engine
 		VkImageView shadow_view = VK_NULL_HANDLE;
 		VkImageView shadow_depth_view = VK_NULL_HANDLE;
 		VkExtent2D shadow_extent{};
-		render_target.target_get(shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent);
+		resource_domain->state().render_target.target_get(shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent);
 		//签名比较：采样器、数量、深度、阴影与逐视图一致则空操作
-		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count
-			&& post_bound_depth == depth_view && post_bound_shadow == shadow_view;
+		bool same = device_domain->state().post_bind_cached && device_domain->state().post_bound_sampler == sampler && device_domain->state().post_bound_view_count == count
+			&& device_domain->state().post_bound_depth == depth_view && device_domain->state().post_bound_shadow == shadow_view;
 		for (uint32_t index = 0; same && index < count; ++index)
-			if (post_bound_views[index] != views[index])
+			if (device_domain->state().post_bound_views[index] != views[index])
 				same = false;
 		if (same)
 			return true;
@@ -315,13 +315,13 @@ namespace engine
 					pipeline.post_shadow_bind(slot, sampler, shadow_view, index);
 			}
 		//更新签名缓存
-		post_bound_sampler = sampler;
-		post_bound_view_count = count;
-		post_bound_depth = depth_view;
-		post_bound_shadow = shadow_view;
+		device_domain->state().post_bound_sampler = sampler;
+		device_domain->state().post_bound_view_count = count;
+		device_domain->state().post_bound_depth = depth_view;
+		device_domain->state().post_bound_shadow = shadow_view;
 		for (uint32_t index = 0; index < count; ++index)
-			post_bound_views[index] = views[index];
-		post_bind_cached = true;
+			device_domain->state().post_bound_views[index] = views[index];
+		device_domain->state().post_bind_cached = true;
 		return true;
 	}
 
@@ -329,7 +329,7 @@ namespace engine
 	bool Renderer_Impl_Holder::Impl::post_mesh_ensure(void)
 	{
 		//全屏四边形网格尚未创建
-		if (fullscreen_mesh == 0)
+		if (device_domain->state().fullscreen_mesh == 0)
 		{
 			//全屏四边形（NDC 范围 -1..1；绕序取 (0,2,1)/(0,3,2) 以匹配「不做 Y 翻转」的顶点输出）
 			Mesh_Data data{};
@@ -347,7 +347,7 @@ namespace engine
 				logger.error("渲染器:: 后处理全屏网格创建失败");
 				return false;
 			}
-			fullscreen_mesh = created;
+			device_domain->state().fullscreen_mesh = created;
 		}
 		return true;
 	}
@@ -356,7 +356,7 @@ namespace engine
 	bool Renderer_Impl_Holder::Impl::post_pipeline_ensure(void)
 	{
 		//后处理具名管线尚未登记
-		if (post_pipeline == 0)
+		if (device_domain->state().post_pipeline == 0)
 		{
 			//加载后处理顶点 / 片元着色器模块（顺带解析顶点输入位置）
 			VkShaderModule vert_module = VK_NULL_HANDLE;
@@ -385,7 +385,7 @@ namespace engine
 				return false;
 			}
 			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
-			post_pipeline = registered;
+			device_domain->state().post_pipeline = registered;
 			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
 			logger.info("渲染器:: 后处理管线已登记（句柄 {}）", registered);
 		}
@@ -405,7 +405,7 @@ namespace engine
 	bool Renderer_Impl_Holder::Impl::ssaa_pipeline_ensure(void)
 	{
 		//降采样具名管线尚未登记
-		if (ssaa_pipeline == 0)
+		if (device_domain->state().ssaa_pipeline == 0)
 		{
 			//加载后处理顶点 / 降采样片元着色器模块（顺带解析顶点输入位置）
 			VkShaderModule vert_module = VK_NULL_HANDLE;
@@ -434,7 +434,7 @@ namespace engine
 				return false;
 			}
 			//记录句柄与其着色器模块（模块所有权在本实现体，随 extra_pipelines 一并销毁）
-			ssaa_pipeline = registered;
+			device_domain->state().ssaa_pipeline = registered;
 			extra_pipelines.push_back(Extra_Pipeline_Record{ registered, vert_module, frag_module });
 			logger.info("渲染器:: SSAA 降采样管线已登记（句柄 {}）", registered);
 		}
@@ -484,16 +484,16 @@ namespace engine
 	void Renderer_Impl_Holder::Impl::ssaa_targets_destroy(void)
 	{
 		//逐个销毁已建立的目标（句柄无效时内部忽略）
-		if (ssaa_scene_target != 0)
-			render_target.target_destroy(ssaa_scene_target);
-		if (ssaa_resolve_target != 0)
-			render_target.target_destroy(ssaa_resolve_target);
+		if (device_domain->state().ssaa_scene_target != 0)
+			resource_domain->state().render_target.target_destroy(device_domain->state().ssaa_scene_target);
+		if (device_domain->state().ssaa_resolve_target != 0)
+			resource_domain->state().render_target.target_destroy(device_domain->state().ssaa_resolve_target);
 		//句柄与建立参数一并清零
-		ssaa_scene_target = 0;
-		ssaa_resolve_target = 0;
-		ssaa_extent_width = 0;
-		ssaa_extent_height = 0;
-		ssaa_target_factor = 0;
+		device_domain->state().ssaa_scene_target = 0;
+		device_domain->state().ssaa_resolve_target = 0;
+		device_domain->state().ssaa_extent_width = 0;
+		device_domain->state().ssaa_extent_height = 0;
+		device_domain->state().ssaa_target_factor = 0;
 	}
 
 	//确保 SSAA 超采样目标就绪（场景目标 = 输出 × 倍率；解析目标 = 输出尺寸）
@@ -502,14 +502,14 @@ namespace engine
 		//尺寸无效或该尺寸已失败过则直接返回（避免逐帧重复尝试）
 		if (width == 0 || height == 0)
 			return false;
-		if (ssaa_extent_failed)
+		if (device_domain->state().ssaa_extent_failed)
 			return false;
 		//尺寸与倍率均未变化且目标齐备则复用
-		if (ssaa_scene_target != 0 && ssaa_resolve_target != 0
-			&& ssaa_extent_width == width && ssaa_extent_height == height && ssaa_target_factor == factor)
+		if (device_domain->state().ssaa_scene_target != 0 && device_domain->state().ssaa_resolve_target != 0
+			&& device_domain->state().ssaa_extent_width == width && device_domain->state().ssaa_extent_height == height && device_domain->state().ssaa_target_factor == factor)
 			return true;
 		//参数变化：等尽在途帧后销毁旧目标（避免释放仍在使用的附件）
-		if (ssaa_scene_target != 0 || ssaa_resolve_target != 0)
+		if (device_domain->state().ssaa_scene_target != 0 || device_domain->state().ssaa_resolve_target != 0)
 		{
 			frame.frames_wait();
 			ssaa_targets_destroy();
@@ -517,27 +517,27 @@ namespace engine
 		//按交换链格式创建场景目标（N 倍）与解析目标（输出尺寸）
 		uint64_t scene = 0;
 		uint64_t resolve = 0;
-		if (!render_target.target_create(scene, width * factor, height * factor,
+		if (!resource_domain->state().render_target.target_create(scene, width * factor, height * factor,
 			swapchain.format_get(), swapchain.depth_format_get()))
 		{
 			logger.warn("渲染器:: SSAA 场景目标创建失败（{}×{} ×{}），本帧回落", width, height, factor);
-			ssaa_extent_failed = true;
+			device_domain->state().ssaa_extent_failed = true;
 			return false;
 		}
-		if (!render_target.target_create(resolve, width, height,
+		if (!resource_domain->state().render_target.target_create(resolve, width, height,
 			swapchain.format_get(), swapchain.depth_format_get()))
 		{
 			logger.warn("渲染器:: SSAA 解析目标创建失败（{}×{}），本帧回落", width, height);
-			render_target.target_destroy(scene);
-			ssaa_extent_failed = true;
+			resource_domain->state().render_target.target_destroy(scene);
+			device_domain->state().ssaa_extent_failed = true;
 			return false;
 		}
 		//记录句柄与建立参数
-		ssaa_scene_target = scene;
-		ssaa_resolve_target = resolve;
-		ssaa_extent_width = width;
-		ssaa_extent_height = height;
-		ssaa_target_factor = factor;
+		device_domain->state().ssaa_scene_target = scene;
+		device_domain->state().ssaa_resolve_target = resolve;
+		device_domain->state().ssaa_extent_width = width;
+		device_domain->state().ssaa_extent_height = height;
+		device_domain->state().ssaa_target_factor = factor;
 		logger.info("渲染器:: SSAA 目标已建立（{}×{} ×{}）", width, height, factor);
 		return true;
 	}

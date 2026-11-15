@@ -113,7 +113,7 @@ namespace engine
 				}
 				//阴影目标附件
 				Frame_Render_Target shadow_target{};
-				if (!impl->render_target.target_get(impl->shadow_target, shadow_target.color_image,
+				if (!impl->resource_domain->state().render_target.target_get(impl->shadow_target, shadow_target.color_image,
 					shadow_target.color_view, shadow_target.depth_view, shadow_target.extent))
 				{
 					logger.error("渲染器:: 阴影目标附件查询失败");
@@ -220,7 +220,7 @@ namespace engine
 				Frame_Render_Target atlas_target{};
 				if (spot_atlas_active)
 				{
-					if (!impl->render_target.target_get(impl->spot_shadow_atlas_target, atlas_target.color_image,
+					if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_atlas_target, atlas_target.color_image,
 						atlas_target.color_view, atlas_target.depth_view, atlas_target.extent))
 					{
 						logger.error("渲染器:: 聚光阴影图集附件查询失败");
@@ -250,7 +250,7 @@ namespace engine
 							spot_target.viewport_rect.extent = { impl->shadow_size, impl->shadow_size };
 							spot_target.render_area_from_viewport = true;
 						}
-						else if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
+						else if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
 							spot_target.color_view, spot_target.depth_view, spot_target.extent))
 						{
 							logger.error("渲染器:: 聚光灯阴影目标附件查询失败（瓦片 {}）", tile);

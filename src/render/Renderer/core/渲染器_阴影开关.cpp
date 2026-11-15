@@ -191,7 +191,7 @@ namespace engine
 		VkImageView old_view = VK_NULL_HANDLE;
 		VkImageView old_depth_view = VK_NULL_HANDLE;
 		VkExtent2D old_extent{};
-		if (!impl->render_target.target_get(impl->shadow_target, old_image, old_view,
+		if (!impl->resource_domain->state().render_target.target_get(impl->shadow_target, old_image, old_view,
 			old_depth_view, old_extent))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：旧阴影图查询失败");
@@ -208,7 +208,7 @@ namespace engine
 			VkImage old_spot_image = VK_NULL_HANDLE;
 			VkImageView old_spot_depth_view = VK_NULL_HANDLE;
 			VkExtent2D old_spot_extent{};
-			if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], old_spot_image, old_spot_views[tile],
+			if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], old_spot_image, old_spot_views[tile],
 				old_spot_depth_view, old_spot_extent))
 			{
 				logger.error("渲染器:: 阴影分辨率切换失败：旧聚光灯阴影图查询失败（瓦片 {}）", tile);
@@ -218,7 +218,7 @@ namespace engine
 		//先建新目标（失败则旧目标原样保留）；颜色格式固定 UNORM，理由见 init ⑳ ①
 		uint64_t candidate = 0;
 		//阴影目标固定单采样（第九十六轮）
-		if (!impl->render_target.target_create(candidate, resolution, resolution,
+		if (!impl->resource_domain->state().render_target.target_create(candidate, resolution, resolution,
 			VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影目标创建失败（保持 {}）", impl->shadow_size);
@@ -231,14 +231,14 @@ namespace engine
 			//该瓦片未建立则跳过
 			if (impl->spot_shadow_targets[tile] == 0)
 				continue;
-			if (!impl->render_target.target_create(candidate_spot_tiles[tile], resolution, resolution,
+			if (!impl->resource_domain->state().render_target.target_create(candidate_spot_tiles[tile], resolution, resolution,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影目标创建失败（瓦片 {}）", tile);
-				impl->render_target.target_destroy(candidate);
+				impl->resource_domain->state().render_target.target_destroy(candidate);
 				for (std::size_t created = 0; created < tile; ++created)
 					if (candidate_spot_tiles[created] != 0)
-						impl->render_target.target_destroy(candidate_spot_tiles[created]);
+						impl->resource_domain->state().render_target.target_destroy(candidate_spot_tiles[created]);
 				return;
 			}
 		}
@@ -249,14 +249,14 @@ namespace engine
 		VkExtent2D new_extent{};
 		VkImageView default_view = VK_NULL_HANDLE;
 		VkSampler sampler = VK_NULL_HANDLE;
-		if (!impl->render_target.target_get(candidate, new_image, new_view, new_depth_view, new_extent)
+		if (!impl->resource_domain->state().render_target.target_get(candidate, new_image, new_view, new_depth_view, new_extent)
 			|| !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler))
 		{
 			logger.error("渲染器:: 阴影分辨率切换失败：新阴影图查询失败");
-			impl->render_target.target_destroy(candidate);
+			impl->resource_domain->state().render_target.target_destroy(candidate);
 			for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
 				if (candidate_spot_tiles[tile] != 0)
-					impl->render_target.target_destroy(candidate_spot_tiles[tile]);
+					impl->resource_domain->state().render_target.target_destroy(candidate_spot_tiles[tile]);
 			return;
 		}
 		//新聚光灯阴影图颜色视图（第四百八十七轮；第五百零七轮扩为 4 张）
@@ -270,14 +270,14 @@ namespace engine
 			VkImage new_spot_image = VK_NULL_HANDLE;
 			VkImageView new_spot_depth_view = VK_NULL_HANDLE;
 			VkExtent2D new_spot_extent{};
-			if (!impl->render_target.target_get(candidate_spot_tiles[tile], new_spot_image, new_spot_views[tile],
+			if (!impl->resource_domain->state().render_target.target_get(candidate_spot_tiles[tile], new_spot_image, new_spot_views[tile],
 				new_spot_depth_view, new_spot_extent))
 			{
 				logger.error("渲染器:: 阴影分辨率切换失败：新聚光灯阴影图查询失败（瓦片 {}）", tile);
-				impl->render_target.target_destroy(candidate);
+				impl->resource_domain->state().render_target.target_destroy(candidate);
 				for (std::size_t created = 0; created < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++created)
 					if (candidate_spot_tiles[created] != 0)
-						impl->render_target.target_destroy(candidate_spot_tiles[created]);
+						impl->resource_domain->state().render_target.target_destroy(candidate_spot_tiles[created]);
 				return;
 			}
 		}
@@ -290,10 +290,10 @@ namespace engine
 				logger.error("渲染器:: 阴影分辨率切换失败：帧槽 {} 绑定失败，回绑旧阴影图", slot);
 				for (std::size_t revert = 0; revert <= slot; ++revert)
 					impl->pipeline.shadow_bind(static_cast<uint32_t>(revert), sampler, old_view);
-				impl->render_target.target_destroy(candidate);
+				impl->resource_domain->state().render_target.target_destroy(candidate);
 				for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
 					if (candidate_spot_tiles[tile] != 0)
-						impl->render_target.target_destroy(candidate_spot_tiles[tile]);
+						impl->resource_domain->state().render_target.target_destroy(candidate_spot_tiles[tile]);
 				return;
 			}
 		}
@@ -324,23 +324,23 @@ namespace engine
 								static_cast<uint32_t>(target_tile));
 						}
 					}
-					impl->render_target.target_destroy(candidate);
+					impl->resource_domain->state().render_target.target_destroy(candidate);
 					for (std::size_t created = 0; created < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++created)
 						if (candidate_spot_tiles[created] != 0)
-							impl->render_target.target_destroy(candidate_spot_tiles[created]);
+							impl->resource_domain->state().render_target.target_destroy(candidate_spot_tiles[created]);
 					return;
 				}
 			}
 		}
 		//全部改绑成功后销毁旧目标并更新状态
-		impl->render_target.target_destroy(impl->shadow_target);
+		impl->resource_domain->state().render_target.target_destroy(impl->shadow_target);
 		impl->shadow_target = candidate;
 		for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
 		{
 			//未重建的瓦片保持原目标
 			if (candidate_spot_tiles[tile] == 0)
 				continue;
-			impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+			impl->resource_domain->state().render_target.target_destroy(impl->spot_shadow_targets[tile]);
 			impl->spot_shadow_targets[tile] = candidate_spot_tiles[tile];
 		}
 		impl->shadow_size = resolution;

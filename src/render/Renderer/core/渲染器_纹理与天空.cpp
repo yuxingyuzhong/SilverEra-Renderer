@@ -519,7 +519,7 @@ namespace engine
 			VkImageView shadow_view = VK_NULL_HANDLE;
 			VkImageView shadow_depth_view = VK_NULL_HANDLE;
 			VkExtent2D shadow_extent{};
-			if (owner->impl->render_target.target_get(owner->impl->shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent))
+			if (owner->impl->resource_domain->state().render_target.target_get(owner->impl->shadow_target, shadow_image, shadow_view, shadow_depth_view, shadow_extent))
 				for (uint32_t slot = 0; slot < owner->impl->config.frame_overlap; ++slot)
 					owner->impl->pipeline.shadow_bind(slot, sampler, shadow_view);
 		}

@@ -65,6 +65,8 @@
 #include "资源域状态.h"
 //计算域状态（从实现体迁出的计算上下文 / Hi-Z / Cluster 成员）
 #include "计算域状态.h"
+//设备域状态（从实现体迁出的渲染目标选择 / 后处理 / 超采样成员）
+#include "设备域状态.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -136,6 +138,8 @@ namespace engine
 		Render_Resource* resource_domain = nullptr;
 		//计算域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
 		Render_Compute* compute_domain = nullptr;
+		//设备域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
+		Render_Device* device_domain = nullptr;
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；

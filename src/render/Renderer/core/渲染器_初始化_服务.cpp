@@ -39,24 +39,14 @@ namespace engine
 	bool renderer_init_services(Renderer* owner, Renderer_Impl_Holder::Impl* impl, Renderer_Config& effective)
 	{
 		//⑮ 网格：记录内存模块
-		if (!impl->mesh.build(impl->memory))
+		if (!impl->resource_domain->state().mesh.build(impl->memory))
 		{
 			logger.error("渲染器:: 网格模块初始化失败");
 			owner->shutdown();
 			return false;
 		}
-		//⑯ 渲染目标：记录设备 / 图形队列与内存模块（离屏目标按需创建）
-		if (!impl->render_target.build(impl->device.device_get(), impl->device.graphics_family_get(),
-			impl->device.graphics_queue_get(), impl->memory))
-		{
-			logger.error("渲染器:: 渲染目标模块初始化失败");
-			owner->shutdown();
-			return false;
-		}
-		//渲染目标默认采样数与交换链一致（离屏 / 后处理目标随 MSAA 建立多重采样附件）
-		impl->render_target.sample_count_set(impl->msaa_samples);
 		//⑰ 字体：记录纹理模块（字形图集经纹理模块上传与销毁）
-		if (!owner->ui().state().font.build(impl->texture))
+		if (!owner->ui().state().font.build(impl->resource_domain->state().texture))
 		{
 			logger.error("渲染器:: 字体模块初始化失败");
 			owner->shutdown();

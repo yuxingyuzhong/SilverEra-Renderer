@@ -251,7 +251,7 @@ namespace engine
 			//已建立则跳过
 			if (impl->spot_shadow_targets[tile] != 0)
 				continue;
-			if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
+			if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
 				impl->shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				impl->spot_shadow_targets[tile] = 0;
@@ -262,9 +262,9 @@ namespace engine
 			VkImageView view = VK_NULL_HANDLE;
 			VkImageView depth_view = VK_NULL_HANDLE;
 			VkExtent2D extent{};
-			if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], image, view, depth_view, extent))
+			if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], image, view, depth_view, extent))
 			{
-				impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+				impl->resource_domain->state().render_target.target_destroy(impl->spot_shadow_targets[tile]);
 				impl->spot_shadow_targets[tile] = 0;
 				logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 查询失败，按无阴影处理", tile);
 				continue;
@@ -291,7 +291,7 @@ namespace engine
 		//回收旧图集
 		if (impl->spot_shadow_atlas_target != 0)
 		{
-			impl->render_target.target_destroy(impl->spot_shadow_atlas_target);
+			impl->resource_domain->state().render_target.target_destroy(impl->spot_shadow_atlas_target);
 			impl->spot_shadow_atlas_target = 0;
 		}
 		impl->spot_shadow_atlas = false;
@@ -304,7 +304,7 @@ namespace engine
 		{
 			const uint32_t atlas_width = impl->shadow_size * 4;
 			const uint32_t atlas_height = impl->shadow_size * 2;
-			if (impl->render_target.target_create(impl->spot_shadow_atlas_target, atlas_width, atlas_height,
+			if (impl->resource_domain->state().render_target.target_create(impl->spot_shadow_atlas_target, atlas_width, atlas_height,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				impl->spot_shadow_atlas = true;
@@ -317,7 +317,7 @@ namespace engine
 					//未建立的瓦片跳过
 					if (impl->spot_shadow_targets[tile] == 0)
 						continue;
-					impl->render_target.target_destroy(impl->spot_shadow_targets[tile]);
+					impl->resource_domain->state().render_target.target_destroy(impl->spot_shadow_targets[tile]);
 					impl->spot_shadow_targets[tile] = 0;
 				}
 			}
@@ -334,10 +334,10 @@ namespace engine
 			VkImage atlas_image = VK_NULL_HANDLE;
 			VkImageView atlas_depth_view = VK_NULL_HANDLE;
 			VkExtent2D atlas_extent{};
-			if (!impl->render_target.target_get(impl->spot_shadow_atlas_target, atlas_image, atlas_view,
+			if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_atlas_target, atlas_image, atlas_view,
 				atlas_depth_view, atlas_extent))
 			{
-				impl->render_target.target_destroy(impl->spot_shadow_atlas_target);
+				impl->resource_domain->state().render_target.target_destroy(impl->spot_shadow_atlas_target);
 				impl->spot_shadow_atlas_target = 0;
 				impl->spot_shadow_atlas = false;
 				atlas_view = VK_NULL_HANDLE;
@@ -359,7 +359,7 @@ namespace engine
 					VkImageView tile_view = VK_NULL_HANDLE;
 					VkImageView tile_depth_view = VK_NULL_HANDLE;
 					VkExtent2D tile_extent{};
-					if (impl->render_target.target_get(impl->spot_shadow_targets[tile], tile_image, tile_view,
+					if (impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], tile_image, tile_view,
 						tile_depth_view, tile_extent))
 						view = tile_view;
 				}

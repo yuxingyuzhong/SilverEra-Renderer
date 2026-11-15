@@ -99,8 +99,8 @@ namespace engine
 		真正的启用（构建资源 ＋ 懒加载生成管线）放在 initialized 置真之后，以便复用门面启用路径。
 		*/
 		//SSAA 倍率生效（钳制 1..4；默认 1 保持既有画面逐字节不变）
-		impl->ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
-		impl->ssaa_extent_failed = false;
+		impl->device_domain->state().ssaa_factor = effective.ssaa_factor < 1 ? 1 : (effective.ssaa_factor > 4 ? 4 : effective.ssaa_factor);
+		impl->device_domain->state().ssaa_extent_failed = false;
 		//记录生效的 MSAA 采样数（已按设备支持钳制）
 		impl->config.msaa_samples = impl->msaa_samples;
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
@@ -139,7 +139,7 @@ namespace engine
 			打包深度的字节会被 sRGB 编码 / 解码破坏，导致片元读回深度失真并误判为全遮蔽（自阴影全黑）。
 			*/
 			//阴影目标固定单采样（第九十六轮；与阴影管线一致，不随 MSAA 变化）
-			if (!impl->render_target.target_create(impl->shadow_target, impl->shadow_size, impl->shadow_size,
+			if (!impl->resource_domain->state().render_target.target_create(impl->shadow_target, impl->shadow_size, impl->shadow_size,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				logger.error("渲染器:: 阴影目标创建失败");
@@ -153,7 +153,7 @@ namespace engine
 			VkExtent2D shadow_extent{};
 			VkImageView default_view = VK_NULL_HANDLE;
 			VkSampler sampler = VK_NULL_HANDLE;
-			if (!impl->render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
+			if (!impl->resource_domain->state().render_target.target_get(impl->shadow_target, shadow_image, shadow_view,
 				shadow_depth_view, shadow_extent)
 				|| !impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler))
 			{
@@ -176,7 +176,7 @@ namespace engine
 			*/
 			for (std::size_t tile = 0; tile < 1; ++tile)
 			{
-				if (!impl->render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size, impl->shadow_size,
+				if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size, impl->shadow_size,
 					VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 				{
 					logger.error("渲染器:: 聚光灯阴影目标创建失败（瓦片 {}）", tile);
@@ -187,7 +187,7 @@ namespace engine
 				VkImageView spot_shadow_view = VK_NULL_HANDLE;
 				VkImageView spot_shadow_depth_view = VK_NULL_HANDLE;
 				VkExtent2D spot_shadow_extent{};
-				if (!impl->render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image, spot_shadow_view,
+				if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_shadow_image, spot_shadow_view,
 					spot_shadow_depth_view, spot_shadow_extent))
 				{
 					logger.error("渲染器:: 聚光灯阴影目标查询失败（瓦片 {}）", tile);
