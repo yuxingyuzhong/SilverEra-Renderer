@@ -28,7 +28,7 @@ namespace engine
 		uint32_t* const readback_width = input.readback_width;
 		uint32_t* const readback_height = input.readback_height;
 		//交给帧模块走取图像 / 录制 / 提交 / 呈现（可选像素回读）
-		const float* clear_color = impl->clear_color;
+		const float* clear_color = impl->scene_domain->state().clear_color;
 		bool rebuild_needed = false;
 		//像素回读请求（仅当调用方给出目标缓冲时组装）
 		Frame_Readback_Request readback_request{};

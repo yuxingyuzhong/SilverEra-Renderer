@@ -34,7 +34,7 @@ namespace engine
 			return false;
 		//当前视图 × 投影 → 六平面
 		float view_proj[16] = {};
-		owner->impl->camera.view_proj_get(view_proj);
+		owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
 		Frustum_Planes planes;
 		if (!frustum_planes_extract(planes, view_proj))
 			return false;
@@ -132,7 +132,7 @@ namespace engine
 		*visible_out = 0;
 		//当前视图 × 投影（与 CPU 剔除同一矩阵）
 		float view_proj[16] = {};
-		owner->impl->camera.view_proj_get(view_proj);
+		owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
 		//四个缓冲：源矩阵 / 压缩输出 / 原子计数 / 剔除参数
 		const uint32_t matrix_bytes = count * static_cast<uint32_t>(sizeof(float)) * 16u;
 		Compute_Buffer_Handle transform_handle = 0;

@@ -67,6 +67,8 @@
 #include "计算域状态.h"
 //设备域状态（从实现体迁出的渲染目标选择 / 后处理 / 超采样成员）
 #include "设备域状态.h"
+//场景域状态（从实现体迁出的相机 / 光源 / 雾 / 风格与阴影配置成员）
+#include "场景域状态.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -140,6 +142,8 @@ namespace engine
 		Render_Compute* compute_domain = nullptr;
 		//设备域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
 		Render_Device* device_domain = nullptr;
+		//场景域对象（由门面持有；关闭流程据此判断域对象是否仍可访问）
+		Render_Scene* scene_domain = nullptr;
 		/*
 		登记反向外扩描边项（第二百二十八轮）
 		把主体绘制项复制一份，换「剔除正面」的描边管线，并把宽度 / 颜色推入 offset 112 的推送块；
@@ -200,50 +204,10 @@ namespace engine
 		void frame_stage_descriptor_sets(uint32_t slot);
 		//配置（init 成功后生效）
 
-		/*
-		点光源数组（第三十二轮；最多 POINT_LIGHT_MAX 个，按登记顺序累加）
-		每个点光源：位置 ＋ 衰减半径；颜色 ＋ 强度。
-		*/
-		struct Point_Light
-		{
-			//位置（世界坐标）
-			float position[3] = { 0.0f, 0.0f, 0.0f };
-			//线性衰减半径（> 0）
-			float radius = 5.0f;
-			//颜色（RGB，0..1）
-			float color[3] = { 1.0f, 1.0f, 1.0f };
-			//强度（≥ 0）
-			float intensity = 1.0f;
-			//逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
-			uint32_t attenuation = 0;
-			//逐盏高光缩放（第四十八轮；1 = 跟随全局，0 = 该灯不产生高光）
-			float specular_scale = 1.0f;
-			//逐盏高光光泽度（第五十一轮；0 = 跟随全局）
-			float shininess = 0.0f;
-			/*
-			聚光灯附加参数（第三十四轮）
-			普通点光源的 is_spot 恒假；聚光灯在此基础上额外乘锥形衰减：
-			cone = smoothstep(spot_outer_cos, spot_inner_cos, dot(L, spot_direction))。
-			*/
-			//是否聚光灯
-			bool is_spot = false;
-			//光传播方向（单位向量；仅 is_spot 为真时有效）
-			float spot_direction[3] = { 0.0f, 0.0f, -1.0f };
-			//内锥角余弦（cos(内角)；锥内为 1）
-			float spot_inner_cos = 1.0f;
-			//外锥角余弦（cos(外角)；锥外为 0）
-			float spot_outer_cos = 0.0f;
-		};
-		//旧前向路径（场景 UBO）支持的光源上限（与着色器数组一致；第二百八十轮；第六百九十九轮由 8 扩为 16）
-		static constexpr uint32_t POINT_LIGHT_UBO_MAX = LIGHT_LEGACY_MAX;
-
-		//光源登记上限（Cluster 开启时生效；关闭时按 UBO 上限截断并告警；第二百八十轮）
-		static constexpr uint32_t POINT_LIGHT_MAX = LIGHT_RECORD_CAPACITY;
-
-		//点光源数组与当前数量
-		Point_Light point_lights[POINT_LIGHT_MAX];
-
-		uint32_t point_light_count = 0;
+		//点光源类型与上限由场景域持有；别名供迁移期帧代码继续引用
+		using Point_Light = Scene_State::Point_Light;
+		static constexpr uint32_t POINT_LIGHT_UBO_MAX = Scene_State::POINT_LIGHT_UBO_MAX;
+		static constexpr uint32_t POINT_LIGHT_MAX = Scene_State::POINT_LIGHT_MAX;
 
 		//具名管线记录（句柄 → 顶点 / 片元着色器模块；着色器模块所有权在门面，随卸载 / 关闭销毁）
 		struct Extra_Pipeline_Record

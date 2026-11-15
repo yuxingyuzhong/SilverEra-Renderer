@@ -24,10 +24,10 @@ namespace engine
 {
 	//相机：设置位置
 
-	void Renderer_Scene::light_set(const float direction[3], const float color[3], float intensity, float ambient)
+	void Render_Scene::light_set(const float direction[3], const float color[3], float intensity, float ambient)
 	{
 		//若尚未初始化或任一指针为空
-		if (impl == nullptr || !impl->initialized || direction == nullptr || color == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || direction == nullptr || color == nullptr)
 			return;
 		/*
 		参数校验
@@ -52,19 +52,19 @@ namespace engine
 		float inverse_length = 1.0f / std::sqrt(length_squared);
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			impl->light_direction[index] = direction[index] * inverse_length;
-			impl->light_color[index] = color[index];
+			state().light_direction[index] = direction[index] * inverse_length;
+			state().light_color[index] = color[index];
 		}
-		impl->light_intensity = intensity;
-		impl->light_ambient = ambient;
+		state().light_intensity = intensity;
+		state().light_ambient = ambient;
 		//切回「仅方向光」（清空点光源；第三十二轮）
-		impl->point_light_count = 0;
+		state().point_light_count = 0;
 	}
 
-	void Renderer_Scene::light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient)
+	void Render_Scene::light_point_set(const float position[3], const float color[3], float radius, float intensity, float ambient)
 	{
 		//若尚未初始化或任一指针为空
-		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || position == nullptr || color == nullptr)
 			return;
 		/*
 		参数校验（与 light_set 同口径，另加「半径须为正且有限」）
@@ -90,25 +90,25 @@ namespace engine
 		//写入点光源参数（位置即「光位置」，由着色器按模式选择语义）
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			impl->point_lights[0].position[index] = position[index];
-			impl->point_lights[0].color[index] = color[index];
+			state().point_lights[0].position[index] = position[index];
+			state().point_lights[0].color[index] = color[index];
 			//方向光颜色保持既有值
 		}
-		impl->point_lights[0].radius = radius;
-		impl->point_lights[0].intensity = intensity;
+		state().point_lights[0].radius = radius;
+		state().point_lights[0].intensity = intensity;
 		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
-		impl->point_lights[0].is_spot = false;
-		impl->point_light_count = 1;
-		impl->light_ambient = ambient;
+		state().point_lights[0].is_spot = false;
+		state().point_light_count = 1;
+		state().light_ambient = ambient;
 		//关闭方向光（第三十二轮：单点光源入口等价于「仅一个点光源」）
-		impl->light_intensity = 0.0f;
+		state().light_intensity = 0.0f;
 	}
 
-	bool Renderer_Scene::light_add_point(const float position[3], const float color[3], float radius, float intensity,
+	bool Render_Scene::light_add_point(const float position[3], const float color[3], float radius, float intensity,
 		float ambient, uint32_t attenuation, float specular, float shininess)
 	{
 		//若尚未初始化或任一指针为空
-		if (impl == nullptr || !impl->initialized || position == nullptr || color == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || position == nullptr || color == nullptr)
 			return false;
 		/*
 		参数校验（与 light_point_set 同口径）＋ 容量校验
@@ -136,18 +136,18 @@ namespace engine
 			return false;
 		}
 		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
-		const uint32_t light_limit = impl->compute_domain->state().cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_limit = owner->compute().state().cluster_enabled ? Scene_State::POINT_LIGHT_MAX : Scene_State::POINT_LIGHT_UBO_MAX;
 		//若已达上限
-		if (impl->point_light_count >= light_limit)
+		if (state().point_light_count >= light_limit)
 		{
 			//关闭 Cluster 时的截断须在统计中可见（不静默）
-			if (!impl->compute_domain->state().cluster_enabled)
-				impl->light_truncated = true;
+			if (!owner->compute().state().cluster_enabled)
+				state().light_truncated = true;
 			logger.warn("渲染器:: 点光源数量已达上限（{}），拒绝追加", light_limit);
 			return false;
 		}
 		//写入新槽位（按登记顺序累加）
-		Impl::Point_Light& light = impl->point_lights[impl->point_light_count];
+		Scene_State::Point_Light& light = state().point_lights[state().point_light_count];
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			light.position[index] = position[index];
@@ -163,17 +163,17 @@ namespace engine
 		light.shininess = shininess;
 		//本入口登记的是普通点光源（第三十四轮：清除可能残留的聚光标记）
 		light.is_spot = false;
-		impl->point_light_count += 1;
-		impl->light_ambient = ambient;
+		state().point_light_count += 1;
+		state().light_ambient = ambient;
 		return true;
 	}
 
-	bool Renderer_Scene::light_add_spot(const float position[3], const float direction[3], const float color[3],
+	bool Render_Scene::light_add_spot(const float position[3], const float direction[3], const float color[3],
 		float radius, float intensity, float inner_deg, float outer_deg, float ambient, uint32_t attenuation,
 		float specular, float shininess)
 	{
 		//若尚未初始化或任一指针为空
-		if (impl == nullptr || !impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || position == nullptr || direction == nullptr || color == nullptr)
 			return false;
 		/*
 		参数校验（点光源同口径 ＋ 方向非退化 ＋ 锥角关系）
@@ -205,18 +205,18 @@ namespace engine
 			return false;
 		}
 		//登记上限：Cluster 开启为全量容量，关闭为旧前向路径 8 盏（第二百八十轮）
-		const uint32_t light_limit = impl->compute_domain->state().cluster_enabled ? Impl::POINT_LIGHT_MAX : Impl::POINT_LIGHT_UBO_MAX;
+		const uint32_t light_limit = owner->compute().state().cluster_enabled ? Scene_State::POINT_LIGHT_MAX : Scene_State::POINT_LIGHT_UBO_MAX;
 		//若已达上限
-		if (impl->point_light_count >= light_limit)
+		if (state().point_light_count >= light_limit)
 		{
 			//关闭 Cluster 时的截断须在统计中可见（不静默）
-			if (!impl->compute_domain->state().cluster_enabled)
-				impl->light_truncated = true;
+			if (!owner->compute().state().cluster_enabled)
+				state().light_truncated = true;
 			logger.warn("渲染器:: 光源数量已达上限（{}），拒绝追加聚光灯", light_limit);
 			return false;
 		}
 		//写入新槽位（按登记顺序累加）
-		Impl::Point_Light& light = impl->point_lights[impl->point_light_count];
+		Scene_State::Point_Light& light = state().point_lights[state().point_light_count];
 		float inverse_length = 1.0f / std::sqrt(direction_length_squared);
 		for (std::size_t index = 0; index < 3; ++index)
 		{
@@ -238,52 +238,52 @@ namespace engine
 		constexpr float degrees_to_radians = 0.017453292519943295f;
 		light.spot_inner_cos = std::cos(inner_deg * degrees_to_radians);
 		light.spot_outer_cos = std::cos(outer_deg * degrees_to_radians);
-		impl->point_light_count += 1;
-		impl->light_ambient = ambient;
+		state().point_light_count += 1;
+		state().light_ambient = ambient;
 		return true;
 	}
 
-	void Renderer_Scene::lights_clear(void)
+	void Render_Scene::lights_clear(void)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//清空计数并恢复方向光默认强度（方向 / 颜色 / 环境光保持既有值）
-		impl->point_light_count = 0;
+		state().point_light_count = 0;
 		//清空截断标志（第二百八十轮）
-		impl->light_truncated = false;
+		state().light_truncated = false;
 		//清空淘汰数（第六百四十五轮）
-		impl->light_dropped = 0;
-		impl->light_intensity = 1.0f;
+		state().light_dropped = 0;
+		state().light_intensity = 1.0f;
 	}
 
-	void Renderer_Scene::light_select_set(uint32_t mode, uint32_t budget)
+	void Render_Scene::light_select_set(uint32_t mode, uint32_t budget)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//模式仅接受 0 / 1（其它取值按 0，保持旧口径）
-		impl->light_select_mode = mode == 1u ? 1u : 0u;
+		state().light_select_mode = mode == 1u ? 1u : 0u;
 		//预算钳到容量上限（0 = 跟随路径上限）
-		impl->light_budget = budget > Impl::POINT_LIGHT_MAX ? Impl::POINT_LIGHT_MAX : budget;
+		state().light_budget = budget > Scene_State::POINT_LIGHT_MAX ? Scene_State::POINT_LIGHT_MAX : budget;
 	}
 
-	uint32_t Renderer_Scene::point_light_count(void) const
+	uint32_t Render_Scene::point_light_count(void) const
 	{
 		//未初始化视为 0
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
-		return impl->point_light_count;
+		return state().point_light_count;
 	}
 
-	bool Renderer_Scene::point_light_state_get(uint32_t index, Point_Light_State& state_out) const
+	bool Render_Scene::point_light_state_get(uint32_t index, Point_Light_State& state_out) const
 	{
 		//未初始化或越界返回假（出参保持不变）
-		if (impl == nullptr || !impl->initialized || index >= impl->point_light_count
-			|| index >= Impl::POINT_LIGHT_MAX)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || index >= state().point_light_count
+			|| index >= Scene_State::POINT_LIGHT_MAX)
 			return false;
 		//内部记录 → 公开快照
-		const Impl::Point_Light& light = impl->point_lights[index];
+		const Scene_State::Point_Light& light = state().point_lights[index];
 		state_out = Point_Light_State{};
 		for (std::size_t each = 0; each < 3; ++each)
 		{
@@ -302,18 +302,18 @@ namespace engine
 		return true;
 	}
 
-	uint32_t Renderer_Scene::light_record_count(void) const
+	uint32_t Render_Scene::light_record_count(void) const
 	{
 		//未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
-		return 2u + impl->point_light_count;
+		return 2u + state().point_light_count;
 	}
 
-	uint32_t Renderer_Scene::light_records_get(Light_Record* out, uint32_t capacity) const
+	uint32_t Render_Scene::light_records_get(Light_Record* out, uint32_t capacity) const
 	{
 		//未初始化 / 出参缺失
-		if (impl == nullptr || !impl->initialized || out == nullptr || capacity == 0)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || out == nullptr || capacity == 0)
 			return 0;
 		uint32_t written = 0;
 		//写入一条记录（容量不足则只计数不写）
@@ -327,14 +327,14 @@ namespace engine
 		//主方向光
 		{
 			Light_Record record;
-			record.color_intensity[0] = impl->light_color[0];
-			record.color_intensity[1] = impl->light_color[1];
-			record.color_intensity[2] = impl->light_color[2];
-			record.color_intensity[3] = impl->light_intensity;
-			record.direction[0] = impl->light_direction[0];
-			record.direction[1] = impl->light_direction[1];
-			record.direction[2] = impl->light_direction[2];
-			record.cone[3] = impl->directional_specular;
+			record.color_intensity[0] = state().light_color[0];
+			record.color_intensity[1] = state().light_color[1];
+			record.color_intensity[2] = state().light_color[2];
+			record.color_intensity[3] = state().light_intensity;
+			record.direction[0] = state().light_direction[0];
+			record.direction[1] = state().light_direction[1];
+			record.direction[2] = state().light_direction[2];
+			record.cone[3] = state().directional_specular;
 			record.type = static_cast<uint32_t>(Light_Type::Directional);
 			record.flags = 1u;
 			push(record);
@@ -342,22 +342,22 @@ namespace engine
 		//补光（强度 0 = 关闭，仍占一条以保持索引稳定）
 		{
 			Light_Record record;
-			record.color_intensity[0] = impl->fill_color[0];
-			record.color_intensity[1] = impl->fill_color[1];
-			record.color_intensity[2] = impl->fill_color[2];
-			record.color_intensity[3] = impl->fill_intensity;
-			record.direction[0] = impl->fill_direction[0];
-			record.direction[1] = impl->fill_direction[1];
-			record.direction[2] = impl->fill_direction[2];
-			record.cone[3] = impl->fill_specular;
+			record.color_intensity[0] = state().fill_color[0];
+			record.color_intensity[1] = state().fill_color[1];
+			record.color_intensity[2] = state().fill_color[2];
+			record.color_intensity[3] = state().fill_intensity;
+			record.direction[0] = state().fill_direction[0];
+			record.direction[1] = state().fill_direction[1];
+			record.direction[2] = state().fill_direction[2];
+			record.cone[3] = state().fill_specular;
 			record.type = static_cast<uint32_t>(Light_Type::Directional);
-			record.flags = impl->fill_intensity > 0.0f ? 1u : 0u;
+			record.flags = state().fill_intensity > 0.0f ? 1u : 0u;
 			push(record);
 		}
 		//逐盏点光 / 聚光
-		for (uint32_t index = 0; index < impl->point_light_count && index < Impl::POINT_LIGHT_MAX; ++index)
+		for (uint32_t index = 0; index < state().point_light_count && index < Scene_State::POINT_LIGHT_MAX; ++index)
 		{
-			const Impl::Point_Light& light = impl->point_lights[index];
+			const Scene_State::Point_Light& light = state().point_lights[index];
 			Light_Record record;
 			record.pos_radius[0] = light.position[0];
 			record.pos_radius[1] = light.position[1];
@@ -388,10 +388,10 @@ namespace engine
 		return written < capacity ? written : capacity;
 	}
 
-	void Renderer_Scene::specular_set(float intensity, float shininess)
+	void Render_Scene::specular_set(float intensity, float shininess)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//参数校验（取反比较使 NaN 判非法）
 		if (!(intensity >= 0.0f && intensity <= 1e6f) || !(shininess >= 1.0f && shininess <= 1e6f))
@@ -399,14 +399,14 @@ namespace engine
 			logger.warn("渲染器:: 高光参数非法（强度 {}、光泽度 {}），整次拒绝", intensity, shininess);
 			return;
 		}
-		impl->specular_intensity = intensity;
-		impl->specular_shininess = shininess;
+		state().specular_intensity = intensity;
+		state().specular_shininess = shininess;
 	}
 
-	bool Renderer_Scene::light_attenuation_set(uint32_t mode)
+	bool Render_Scene::light_attenuation_set(uint32_t mode)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//仅接受线性（0）与平方反比（1）
 		if (mode > 1)
@@ -414,15 +414,15 @@ namespace engine
 			logger.warn("渲染器:: 距离衰减模式非法（{}），仅接受 0（线性）/ 1（平方反比）", mode);
 			return false;
 		}
-		impl->attenuation_mode = mode;
+		state().attenuation_mode = mode;
 		return true;
 	}
 
-	uint32_t Renderer_Scene::light_attenuation_get(void) const
+	uint32_t Render_Scene::light_attenuation_get(void) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
-		return impl->attenuation_mode;
+		return state().attenuation_mode;
 	}
 }

@@ -214,7 +214,7 @@ namespace engine
 		{
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
-			owner->impl->camera.view_proj_get(view_proj);
+			owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
 			//模型矩阵（空指针视作单位矩阵）
 			const float* model = (transform != nullptr) ? transform : IDENTITY_MATRIX4;
 			//若包围盒完全落在视锥外则跳过登记
@@ -538,7 +538,7 @@ namespace engine
 			const auto cull_begin = std::chrono::high_resolution_clock::now();
 			//当前视图 × 投影矩阵
 			float view_proj[16] = {};
-			owner->impl->camera.view_proj_get(view_proj);
+			owner->impl->scene_domain->state().camera.view_proj_get(view_proj);
 			/*
 			可见性掩码（第一百七十七轮）
 			逐实例只写自己的掩码槽（1 = 可见、0 = 剔除），故可分块并行且与单线程结果完全一致；

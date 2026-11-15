@@ -128,7 +128,7 @@ namespace engine
 			logger.warn("渲染器:: Cluster 光照启用失败（开关保持关闭）");
 		/*
 		⑳ 阴影资源（第五十二轮；第五十四轮边长可配）
-		阴影目标（颜色存打包深度，边长取 impl->shadow_size）＋ 阴影管线（与场景管线共享管线布局，
+		阴影目标（颜色存打包深度，边长取 impl->scene_domain->state().shadow_size）＋ 阴影管线（与场景管线共享管线布局，
 		光源空间矩阵经推送常量下发）；并把阴影图写入各帧槽场景采样集的 binding 1。
 		默认关闭，故不改变既有画面。
 		*/
@@ -139,7 +139,7 @@ namespace engine
 			打包深度的字节会被 sRGB 编码 / 解码破坏，导致片元读回深度失真并误判为全遮蔽（自阴影全黑）。
 			*/
 			//阴影目标固定单采样（第九十六轮；与阴影管线一致，不随 MSAA 变化）
-			if (!impl->resource_domain->state().render_target.target_create(impl->shadow_target, impl->shadow_size, impl->shadow_size,
+			if (!impl->resource_domain->state().render_target.target_create(impl->shadow_target, impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				logger.error("渲染器:: 阴影目标创建失败");
@@ -176,7 +176,7 @@ namespace engine
 			*/
 			for (std::size_t tile = 0; tile < 1; ++tile)
 			{
-				if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size, impl->shadow_size,
+				if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size,
 					VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 				{
 					logger.error("渲染器:: 聚光灯阴影目标创建失败（瓦片 {}）", tile);

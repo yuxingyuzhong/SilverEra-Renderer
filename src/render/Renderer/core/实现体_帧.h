@@ -7,43 +7,6 @@ namespace engine
 	//渲染器实现体子结构：帧
 	struct Renderer_Impl_帧
 	{
-		//清屏色（RGBA；由 scene_apply / clear_color_set 设置，frame_render 每帧取用）
-		float clear_color[4] = { 0.05f, 0.05f, 0.10f, 1.0f };
-
-		/*
-		光照参数（第二十九轮方向光 / 第三十一轮点光源与高光 / 第三十二轮多光源；随场景 UBO 逐帧下发）
-		默认值保证「未提供法线的网格」画面与旧版完全一致：
-		方向 (0,0,-1)（朝 -Z 传播）、颜色白、强度 1、环境光 0、无点光源 → 照度为 1。
-		*/
-		float light_direction[3] = { 0.0f, 0.0f, -1.0f };
-
-		/*
-		距离衰减模式（第三十六轮；对点光源与聚光灯共同生效）
-		0 = 线性（clamp(1 − d / radius)，默认，与引入该开关前一致）；1 = 平方反比（1 / (1 + (d / radius)²)）。
-		随场景 UBO 的 `light_color.w` 逐帧下发。
-		*/
-		uint32_t attenuation_mode = 0;
-
-		//是否发生过「Cluster 关闭且超过 UBO 上限」的截断告警（第二百八十轮）
-		bool light_truncated = false;
-
-		/*
-		光源选择配置与诊断（第六百四十五轮；A1 / A4）
-		light_select_mode = 0 声明顺序（默认）、1 重要性选择；light_budget = 0 跟随路径上限；
-		light_dropped 为最近一次场景应用中被预算 / 选择淘汰的光源数（供 Frame_Stats 导出）。
-		*/
-		uint32_t light_select_mode = 0;
-
-		//曝光补偿 EV（第六百六十轮；0 = 关闭；写场景 UBO 237）
-		float exposure = 0.0f;
-
-		/*
-		级联纹素钳制与自动淡化（第六百六十一轮）
-		shadow_texel_max = 纹素世界尺寸上限（0 = 关闭）；cascade_blend_auto = 自动淡化建议开关（默认关）；
-		cascade_blend_effective = 本帧实际写入 UBO 290 的淡化比例；shadow_texel_world = 本帧生效纹素（多级取最大）。
-		*/
-		float shadow_texel_max = 0.0f;
-
 		//帧模块
 		Frame_Context frame;
 
@@ -65,9 +28,6 @@ namespace engine
 			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
 			-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,
 		};
-		//逐盏聚光灯阴影优先级（第七百零九轮；按光源槽位 0..31，默认 0 = 全部同分）
-		float spot_shadow_priority[32] = {};
-
 		//光源空间视图投影矩阵（第五十二轮；每帧按方向光计算，同时写入 UBO 与阴影绘制推送常量）
 		float light_view_proj[16] = {};
 

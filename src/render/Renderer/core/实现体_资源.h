@@ -16,34 +16,10 @@ namespace engine
 
 		uint32_t last_spot_shadow_passes = 0;
 
-		/*
-		PCSS 软阴影配置（第六百五十七轮）
-		默认关闭；开启后着色器以 16 点阻塞物搜索 ＋ 16 点可变半径 PCF 取代硬边 / 3×3 软度口径。
-		*/
-		bool shadow_pcss_enabled = false;
-
-		float shadow_pcss_search = 24.0f;
-
-		float shadow_pcss_max = 8.0f;
-
-		//逐盏聚光灯阴影偏置缩放（第六百五十八轮；按前向槽位，默认 1）
-		float spot_shadow_bias_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-
-		//逐盏聚光灯阴影质量缩放（第七百零八轮；软度 / 强度，按前向槽位，默认 1）
-		float spot_shadow_softness_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-
-		float spot_shadow_strength_scale[8] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
-
-		//阴影分辨率预算（第六百五十九轮；0 = 关闭；门面 shadow_budget_set 的存值副本）
-		uint64_t shadow_budget_bytes = 0;
-
 		float shadow_texel_world = 0.0f;
 
 		//最近一次阴影重绘的命令缓冲提交次数（第六百六十五轮；C2 基线，现口径等于片数）
 		uint32_t last_shadow_submits = 0;
-
-		//阴影批量提交开关（第六百六十九轮；默认关，开启且段数 > 1 时一次提交）
-		bool shadow_batch_submit = false;
 
 		/*
 		帧内簇数据整备复用缓冲（第二百七十三轮；避免逐帧分配）
@@ -86,9 +62,6 @@ namespace engine
 
 		//阴影图默认边长（第五十二轮；固定默认 1024，兼顾精度与开销）
 		static constexpr uint32_t SHADOW_SIZE = 1024;
-
-		//阴影图实际边长（第五十四轮；可配 512 / 1024 / 2048）
-		uint32_t shadow_size = SHADOW_SIZE;
 
 		//上一帧阴影输入签名（第五十五轮；未就绪时为 0）
 		uint64_t shadow_signature = 0;
@@ -140,8 +113,6 @@ namespace engine
 
 		bool spot_shadow_atlas = false;
 
-		bool spot_shadow_atlas_requested = false;
-
 		uint64_t spot_shadow_targets[SPOT_SHADOW_TILES] = {};
 
 		//聚光灯阴影矩阵（第四百八十三轮；第五百零七轮扩为 4 份；第五百一十三轮扩为 8 份，关闭时为零矩阵）
@@ -165,78 +136,8 @@ namespace engine
 
 		float spot_shadow_strength_tiles[SPOT_SHADOW_TILES] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 
-		//聚光灯阴影偏置自校准开关（第五百二十一轮；默认关闭，画面与引入前逐字节一致）
-		bool spot_shadow_bias_auto = false;
-
-		//阴影是否启用（第五十二轮；默认关闭，保持既有画面逐字节不变）
-		bool shadow_enabled = false;
-
-		/*
-		聚光灯阴影（第四百七十四轮）
-		开启时阴影矩阵改为「第 1 盏聚光灯的透视视图投影」，复用方向光阴影图与阴影 pass；
-		着色器以 cascade_params.x = 0 判定聚光模式（方向光阴影让位）。
-		*/
-		bool spot_shadow_enabled = false;
-
-		/*
-		聚光灯阴影质量参数（第四百七十六轮）
-		与方向光阴影参数相互独立：偏置 0..0.05（默认 0.010）、软度 0..1（默认 0）、强度 0..1（默认 1）。
-		*/
-		float spot_shadow_bias = 0.010f;
-
-		float spot_shadow_softness = 0.0f;
-
-		float spot_shadow_strength = 1.0f;
-
-		//聚光灯阴影序号（第四百七十九轮；指向已登记聚光灯槽位 0..7，越界视为无聚光阴影）
-		int spot_shadow_index = 0;
-
-		/*
-		多盏聚光灯阴影（第五百零七轮）
-		开启时前 4 盏聚光灯按声明顺序各占瓦片 0..3，各自独立阴影图；
-		关闭时沿用 spot_shadow_index 的单盏语义（写入瓦片 0），画面与引入前一致。
-		*/
-		bool spot_shadow_all = false;
-
-		/*
-		逐盏聚光阴影开关（第六百四十八轮；A2 数据化）
-		按前向槽位（0..7）控制该盏聚光灯是否参与阴影；默认全开（与引入前逐字节一致）。
-		槽位超出 8（簇路径压缩口径）时该数组不适用，对应光源按旧口径参与投影。
-		*/
-		bool spot_shadow_light_enabled[8] = { true, true, true, true, true, true, true, true };
-
-		/*
-		阴影光源正交视锥（第一百零七轮）
-		默认值与引入该参数前一致：半宽 / 半高 12、近 1、远 60。
-		*/
-		float shadow_half_extent = 12.0f;
-
-		float shadow_near = 1.0f;
-
-		float shadow_far = 60.0f;
-
-		/*
-		级联阴影（第一百二十一轮；第一百四十六轮扩为三级）
-		cascade_count 为 1 时沿用上面单级口径（画面逐字节不变）；为 2 / 3 时阴影图按象限切 2 / 3 片：
-		各片覆盖以相机为中心、半径 split × far_scale^(片序) 的包围球，
-		片元按「与相机的距离」在 split、split × far_scale 处选择级联。
-		每片占 shadow_size / 级数 边长，故片内分辨率随级数下降（级联的固有代价）。
-		*/
-		uint32_t cascade_count = 1;
-
-		//阴影深度偏置（第五十二轮）
-		float shadow_bias = 0.003f;
-
-		//阴影软度（第五十三轮；0 = 单点硬边，≥0.5 = 3×3 PCF 平均）
-		float shadow_softness = 0.0f;
-
-		//阴影强度（第五十三轮；0 = 阴影无效、1 = 全遮蔽）
-		float shadow_strength = 1.0f;
-
 		//最近一次阴影 pass 的 GPU 耗时（毫秒；第一百二十八轮；未启用 / 无能力时 0）
 		double shadow_gpu_ms = 0.0;
 
-		//二次元风格化：暗部色调（第一百七十八轮；RGB 0..1，默认 (1,1,1) = 关闭）
-		float toon_shadow_tint[3] = { 1.0f, 1.0f, 1.0f };
 	};
 }

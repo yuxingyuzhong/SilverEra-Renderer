@@ -68,7 +68,7 @@ namespace engine
 		投影与相机同口径做 Y 翻转；方向与世界上方平行时改用 X 轴作上向量，避免 lookAt 退化。
 		*/
 		{
-			glm::vec3 light_dir(impl->light_direction[0], impl->light_direction[1], impl->light_direction[2]);
+			glm::vec3 light_dir(impl->scene_domain->state().light_direction[0], impl->scene_domain->state().light_direction[1], impl->scene_domain->state().light_direction[2]);
 			//方向退化时取默认传播方向
 			if (glm::dot(light_dir, light_dir) < 1e-12f)
 				light_dir = glm::vec3(0.0f, 0.0f, -1.0f);
@@ -85,40 +85,40 @@ namespace engine
 			*/
 			//本帧生效纹素世界尺寸（多级取各片最大；第六百六十一轮）
 			impl->shadow_texel_world = 0.0f;
-			if (impl->cascade_count >= 2 && impl->cascade_far_scale > 1.0f)
+			if (impl->scene_domain->state().cascade_count >= 2 && impl->scene_domain->state().cascade_far_scale > 1.0f)
 			{
 				//相机世界位置（各片包围球的共同中心）
 				float camera_position[3] = {};
-				impl->camera.position_get(camera_position);
+				impl->scene_domain->state().camera.position_get(camera_position);
 				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
 				//级联总数（2 或 3；第一百四十六轮）
-				const uint32_t cascade_total = impl->cascade_count == 3 ? 3u : 2u;
+				const uint32_t cascade_total = impl->scene_domain->state().cascade_count == 3 ? 3u : 2u;
 				for (uint32_t cascade = 0; cascade < cascade_total; ++cascade)
 				{
 					/*
 					本片包围球半径
 					第 0 片 = 切换距离；其后每片再乘一次远区倍数（三级时第 2 片为 split × far_scale²）。
 					*/
-					float radius = impl->cascade_split_distance;
+					float radius = impl->scene_domain->state().cascade_split_distance;
 					for (uint32_t level = 0; level < cascade; ++level)
-						radius *= impl->cascade_far_scale;
+						radius *= impl->scene_domain->state().cascade_far_scale;
 					/*
 					纹素尺寸钳制（第六百六十一轮）
 					半径上限 = 纹素上限 × 分片边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
 					*/
-					const float tile_pixels = static_cast<float>(impl->shadow_size) / static_cast<float>(cascade_total);
-					if (impl->shadow_texel_max > 0.0f)
+					const float tile_pixels = static_cast<float>(impl->scene_domain->state().shadow_size) / static_cast<float>(cascade_total);
+					if (impl->scene_domain->state().shadow_texel_max > 0.0f)
 					{
-						const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+						const float radius_cap = impl->scene_domain->state().shadow_texel_max * tile_pixels * 0.5f;
 						if (radius > radius_cap)
 							radius = radius_cap;
 					}
 					//光源机位：沿逆光向退到「球半径 + 近平面」处，使整球都落在近平面之后
-					glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+					glm::vec3 eye = center - light_dir * (radius + impl->scene_domain->state().shadow_near);
 					glm::mat4 light_view = glm::lookAt(eye, center, up);
 					//深度跨度：球直径 + 两端近平面余量
-					float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
-					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
+					float depth_far = 2.0f * radius + 2.0f * impl->scene_domain->state().shadow_near;
+					glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, impl->scene_domain->state().shadow_near, depth_far);
 					proj[1][1] *= -1.0f;
 					glm::mat4 vp = proj * light_view;
 					/*
@@ -135,7 +135,7 @@ namespace engine
 						: (cascade == 1 ? impl->light_view_proj_far : impl->light_view_proj_far2);
 					std::memcpy(target_matrix, glm::value_ptr(vp), sizeof(float) * 16);
 					//记录本片深度跨度（着色器法线偏移换算用）
-					impl->cascade_depth_span[cascade] = depth_far - impl->shadow_near;
+					impl->cascade_depth_span[cascade] = depth_far - impl->scene_domain->state().shadow_near;
 					/*
 					记录本片纹素世界尺寸（第六百六十一轮）
 					多级取各片最大值供诊断；钳制开启时该值不超过 shadow_texel_max。
@@ -154,24 +154,24 @@ namespace engine
 				深度跨度 = 球直径 ＋ 两端近平面余量，并同样做纹素对齐（相机平移不再重采样）。
 				*/
 				float camera_position[3] = {};
-				impl->camera.position_get(camera_position);
+				impl->scene_domain->state().camera.position_get(camera_position);
 				glm::vec3 center(camera_position[0], camera_position[1], camera_position[2]);
-				float radius = impl->shadow_half_extent;
+				float radius = impl->scene_domain->state().shadow_half_extent;
 				/*
 				纹素尺寸钳制（第六百六十一轮）
 				半径上限 = 纹素上限 × 阴影图边长 / 2；上限为 0（默认）时不干预，矩阵逐字节不变。
 				*/
-				const float tile_pixels = impl->shadow_size > 1 ? static_cast<float>(impl->shadow_size) : 1.0f;
-				if (impl->shadow_texel_max > 0.0f)
+				const float tile_pixels = impl->scene_domain->state().shadow_size > 1 ? static_cast<float>(impl->scene_domain->state().shadow_size) : 1.0f;
+				if (impl->scene_domain->state().shadow_texel_max > 0.0f)
 				{
-					const float radius_cap = impl->shadow_texel_max * tile_pixels * 0.5f;
+					const float radius_cap = impl->scene_domain->state().shadow_texel_max * tile_pixels * 0.5f;
 					if (radius > radius_cap)
 						radius = radius_cap;
 				}
-				glm::vec3 eye = center - light_dir * (radius + impl->shadow_near);
+				glm::vec3 eye = center - light_dir * (radius + impl->scene_domain->state().shadow_near);
 				glm::mat4 light_view = glm::lookAt(eye, center, up);
-				float depth_far = 2.0f * radius + 2.0f * impl->shadow_near;
-				glm::mat4 light_proj = glm::ortho(-radius, radius, -radius, radius, impl->shadow_near, depth_far);
+				float depth_far = 2.0f * radius + 2.0f * impl->scene_domain->state().shadow_near;
+				glm::mat4 light_proj = glm::ortho(-radius, radius, -radius, radius, impl->scene_domain->state().shadow_near, depth_far);
 				light_proj[1][1] *= -1.0f;
 				glm::mat4 light_vp = light_proj * light_view;
 				/*
@@ -185,7 +185,7 @@ namespace engine
 				//单级：远区矩阵为零，三处深度跨度均取本片跨度（着色器按级联数取用）
 				std::memset(impl->light_view_proj_far, 0, sizeof(impl->light_view_proj_far));
 				std::memset(impl->light_view_proj_far2, 0, sizeof(impl->light_view_proj_far2));
-				impl->cascade_depth_span[0] = depth_far - impl->shadow_near;
+				impl->cascade_depth_span[0] = depth_far - impl->scene_domain->state().shadow_near;
 				impl->cascade_depth_span[1] = impl->cascade_depth_span[0];
 				impl->cascade_depth_span[2] = impl->cascade_depth_span[0];
 				//单级纹素世界尺寸（第六百六十一轮；钳制开启时不超过 shadow_texel_max）
@@ -196,12 +196,12 @@ namespace engine
 			显式比例为 0、级联数 ≥ 2 且开关开启时，按「切换带半宽 ≥ 2 纹素」给出建议比例 4 / 分片边长，
 			钳到 [0.005, 0.1]；显式比例 > 0 或开关关闭（默认）时保持显式值，画面逐字节不变。
 			*/
-			impl->cascade_blend_effective = impl->cascade_blend;
-			if (impl->cascade_blend_auto && impl->cascade_blend <= 0.0f && impl->cascade_count >= 2)
+			impl->cascade_blend_effective = impl->scene_domain->state().cascade_blend;
+			if (impl->scene_domain->state().cascade_blend_auto && impl->scene_domain->state().cascade_blend <= 0.0f && impl->scene_domain->state().cascade_count >= 2)
 			{
-				const float cascade_total_f = static_cast<float>(impl->cascade_count == 3 ? 3u : 2u);
-				const float tile_pixels_f = impl->shadow_size > 1
-					? static_cast<float>(impl->shadow_size) / cascade_total_f : 1.0f;
+				const float cascade_total_f = static_cast<float>(impl->scene_domain->state().cascade_count == 3 ? 3u : 2u);
+				const float tile_pixels_f = impl->scene_domain->state().shadow_size > 1
+					? static_cast<float>(impl->scene_domain->state().shadow_size) / cascade_total_f : 1.0f;
 				float recommended = 4.0f / tile_pixels_f;
 				impl->cascade_blend_effective = recommended < 0.005f ? 0.005f : (recommended > 0.1f ? 0.1f : recommended);
 			}
@@ -223,9 +223,9 @@ namespace engine
 			impl->spot_shadow_spans[tile] = 0.0f;
 			//逐瓦片偏置默认取全局值（第五百二十一轮；无自校准时与引入前一致；第六百五十八轮乘逐盏缩放）
 			float slot_scale = 1.0f;
-			if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < 8)
-				slot_scale = impl->spot_shadow_bias_scale[impl->spot_shadow_index];
-			impl->spot_shadow_bias_tiles[tile] = impl->spot_shadow_bias * slot_scale;
+			if (impl->scene_domain->state().spot_shadow_index >= 0 && impl->scene_domain->state().spot_shadow_index < 8)
+				slot_scale = impl->scene_domain->state().spot_shadow_bias_scale[impl->scene_domain->state().spot_shadow_index];
+			impl->spot_shadow_bias_tiles[tile] = impl->scene_domain->state().spot_shadow_bias * slot_scale;
 			//逐瓦片质量缩放默认 1（第七百零八轮；无逐盏设置时与全局参数相同）
 			impl->spot_shadow_softness_tiles[tile] = 1.0f;
 			impl->spot_shadow_strength_tiles[tile] = 1.0f;
@@ -238,9 +238,9 @@ namespace engine
 		int candidates[Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 		//本帧有效瓦片数
 		std::size_t candidate_count = 0;
-		if (impl->spot_shadow_enabled)
+		if (impl->scene_domain->state().spot_shadow_enabled)
 		{
-			if (impl->spot_shadow_all)
+			if (impl->scene_domain->state().spot_shadow_all)
 			{
 				/*
 				多盏：优先「瓦片号 = 光源槽位」（第六百四十四轮；第七百零九轮加优先级）
@@ -251,13 +251,13 @@ namespace engine
 				std::size_t spot_pool[32] = {};
 				std::size_t spot_pool_count = 0;
 				bool slot_mapping = true;
-				for (std::size_t index = 0; index < impl->point_light_count && index < 32; ++index)
+				for (std::size_t index = 0; index < impl->scene_domain->state().point_light_count && index < 32; ++index)
 				{
 					//非聚光灯跳过
-					if (!impl->point_lights[index].is_spot)
+					if (!impl->scene_domain->state().point_lights[index].is_spot)
 						continue;
 					//该槽位的聚光阴影被关闭则跳过（第六百四十八轮；槽位 ≥ 8 不适用）
-					if (index < 8 && !impl->spot_shadow_light_enabled[index])
+					if (index < 8 && !impl->scene_domain->state().spot_shadow_light_enabled[index])
 						continue;
 					//槽位超出 8 时无法按槽位固定瓦片号
 					if (index >= Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)
@@ -279,8 +279,8 @@ namespace engine
 						std::size_t best = pick;
 						for (std::size_t probe = pick + 1; probe < spot_pool_count; ++probe)
 						{
-							const float probe_priority = impl->spot_shadow_priority[spot_pool[probe]];
-							const float best_priority = impl->spot_shadow_priority[spot_pool[best]];
+							const float probe_priority = impl->scene_domain->state().spot_shadow_priority[spot_pool[probe]];
+							const float best_priority = impl->scene_domain->state().spot_shadow_priority[spot_pool[best]];
 							//优先级更高者优先；同分保持较小槽位在前
 							if (probe_priority > best_priority)
 								best = probe;
@@ -310,12 +310,12 @@ namespace engine
 						++candidate_count;
 			}
 			//单盏：仅所选槽位且必须是聚光灯（瓦片固定为 0）
-			else if (impl->spot_shadow_index >= 0 && impl->spot_shadow_index < static_cast<int>(impl->point_light_count)
-				&& impl->point_lights[impl->spot_shadow_index].is_spot
+			else if (impl->scene_domain->state().spot_shadow_index >= 0 && impl->scene_domain->state().spot_shadow_index < static_cast<int>(impl->scene_domain->state().point_light_count)
+				&& impl->scene_domain->state().point_lights[impl->scene_domain->state().spot_shadow_index].is_spot
 				//该槽位的聚光阴影被关闭则不投影（第六百四十八轮）
-				&& (impl->spot_shadow_index >= 8 || impl->spot_shadow_light_enabled[impl->spot_shadow_index]))
+				&& (impl->scene_domain->state().spot_shadow_index >= 8 || impl->scene_domain->state().spot_shadow_light_enabled[impl->scene_domain->state().spot_shadow_index]))
 			{
-				candidates[0] = impl->spot_shadow_index;
+				candidates[0] = impl->scene_domain->state().spot_shadow_index;
 				candidate_count = 1;
 			}
 			for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
@@ -323,7 +323,7 @@ namespace engine
 				//该瓦片无对应光源则跳过
 				if (candidates[tile] < 0)
 					continue;
-				const Renderer_Impl_Holder::Impl::Point_Light& spot = impl->point_lights[static_cast<std::size_t>(candidates[tile])];
+				const Renderer_Impl_Holder::Impl::Point_Light& spot = impl->scene_domain->state().point_lights[static_cast<std::size_t>(candidates[tile])];
 				glm::vec3 spot_direction(spot.spot_direction[0], spot.spot_direction[1], spot.spot_direction[2]);
 				//方向退化时取默认传播方向
 				if (glm::dot(spot_direction, spot_direction) < 1e-12f)
@@ -353,10 +353,10 @@ namespace engine
 				*/
 				float tile_scale = 1.0f;
 				if (candidates[tile] >= 0 && candidates[tile] < 8)
-					tile_scale = impl->spot_shadow_bias_scale[candidates[tile]];
-				impl->spot_shadow_bias_tiles[tile] = (impl->spot_shadow_bias_auto
-					? impl->spot_shadow_bias * (Renderer_Impl_Holder::Impl::SPOT_BIAS_REFERENCE_SPAN / impl->spot_shadow_spans[tile])
-					: impl->spot_shadow_bias) * tile_scale;
+					tile_scale = impl->scene_domain->state().spot_shadow_bias_scale[candidates[tile]];
+				impl->spot_shadow_bias_tiles[tile] = (impl->scene_domain->state().spot_shadow_bias_auto
+					? impl->scene_domain->state().spot_shadow_bias * (Renderer_Impl_Holder::Impl::SPOT_BIAS_REFERENCE_SPAN / impl->spot_shadow_spans[tile])
+					: impl->scene_domain->state().spot_shadow_bias) * tile_scale;
 				//前向槽位 → 瓦片号（第七百零九轮扩到 32 槽；未登记到映射表的槽位恒为 -1）
 				if (candidates[tile] >= 0 && candidates[tile] < 32)
 				{
@@ -367,8 +367,8 @@ namespace engine
 					*/
 					if (candidates[tile] < 8)
 					{
-						impl->spot_shadow_softness_tiles[tile] = impl->spot_shadow_softness_scale[candidates[tile]];
-						impl->spot_shadow_strength_tiles[tile] = impl->spot_shadow_strength_scale[candidates[tile]];
+						impl->spot_shadow_softness_tiles[tile] = impl->scene_domain->state().spot_shadow_softness_scale[candidates[tile]];
+						impl->spot_shadow_strength_tiles[tile] = impl->scene_domain->state().spot_shadow_strength_scale[candidates[tile]];
 					}
 				}
 				spot_shadow_light_valid = true;

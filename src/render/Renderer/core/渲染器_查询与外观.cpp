@@ -21,15 +21,15 @@
 namespace engine
 {
 	//当前聚光灯数量（第一百一十五轮）
-	uint32_t Renderer_Scene::spot_light_count(void) const
+	uint32_t Render_Scene::spot_light_count(void) const
 	{
 		//未初始化返回 0
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0;
 		//统计 is_spot 为真的光源
 		uint32_t count = 0;
-		for (uint32_t index = 0; index < impl->point_light_count; ++index)
-			if (impl->point_lights[index].is_spot)
+		for (uint32_t index = 0; index < state().point_light_count; ++index)
+			if (state().point_lights[index].is_spot)
 				++count;
 		return count;
 	}
@@ -63,26 +63,26 @@ namespace engine
 	}
 
 	//PBR-lite 镜面开关（第六十四轮新增）
-	void Renderer_Style::pbr_enable_set(bool enabled)
+	void Render_Scene::pbr_enable_set(bool enabled)
 	{
 		//未初始化静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->pbr_enabled = enabled;
+		state().pbr_enabled = enabled;
 	}
 
 	//PBR-lite 是否启用（第六十四轮新增）
-	bool Renderer_Style::pbr_enabled(void) const
+	bool Render_Scene::pbr_enabled(void) const
 	{
 		//未初始化返回默认假
-		return impl != nullptr && impl->initialized ? impl->pbr_enabled : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().pbr_enabled : false;
 	}
 
 	//PBR-lite 粗糙度缩放（第六十四轮新增）
-	void Renderer_Style::pbr_roughness_set(float scale)
+	void Render_Scene::pbr_roughness_set(float scale)
 	{
 		//未初始化静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//合法区间 0.05..4；越界或非数整次忽略
 		if (!(scale >= 0.05f && scale <= 4.0f))
@@ -90,21 +90,21 @@ namespace engine
 			logger.warn("渲染器:: PBR 粗糙度缩放 {} 越界（0.05..4），已忽略", scale);
 			return;
 		}
-		impl->pbr_roughness = scale;
+		state().pbr_roughness = scale;
 	}
 
 	//当前 PBR-lite 粗糙度缩放（第六十四轮新增）
-	float Renderer_Style::pbr_roughness(void) const
+	float Render_Scene::pbr_roughness(void) const
 	{
 		//未初始化返回默认 1
-		return impl != nullptr && impl->initialized ? impl->pbr_roughness : 1.0f;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().pbr_roughness : 1.0f;
 	}
 
 	//PBR 金属度（第六十五轮新增）
-	void Renderer_Style::pbr_metallic_set(float metallic)
+	void Render_Scene::pbr_metallic_set(float metallic)
 	{
 		//未初始化静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//合法区间 0..1；越界或非数整次忽略
 		if (!(metallic >= 0.0f && metallic <= 1.0f))
@@ -112,52 +112,52 @@ namespace engine
 			logger.warn("渲染器:: PBR 金属度 {} 越界（0..1），已忽略", metallic);
 			return;
 		}
-		impl->pbr_metallic = metallic;
+		state().pbr_metallic = metallic;
 	}
 
 	//当前 PBR 金属度（第六十五轮新增）
-	float Renderer_Style::pbr_metallic(void) const
+	float Render_Scene::pbr_metallic(void) const
 	{
 		//未初始化返回默认 0
-		return impl != nullptr && impl->initialized ? impl->pbr_metallic : 0.0f;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().pbr_metallic : 0.0f;
 	}
 
 	//PBR 掠射高光能量修正（第六百七十二轮；D1 第一步）
-	void Renderer_Style::pbr_energy_set(bool enabled)
+	void Render_Scene::pbr_energy_set(bool enabled)
 	{
 		//未初始化静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//与原值一致则无需处理
-		if (impl->pbr_energy == enabled)
+		if (state().pbr_energy == enabled)
 			return;
-		impl->pbr_energy = enabled;
+		state().pbr_energy = enabled;
 	}
 
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
-	bool Renderer_Style::pbr_energy(void) const
+	bool Render_Scene::pbr_energy(void) const
 	{
 		//未初始化返回默认假
-		return impl != nullptr && impl->initialized ? impl->pbr_energy : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().pbr_energy : false;
 	}
 
 	//PBR 粗糙度绝对口径（第七百轮；D1 收尾）
-	void Renderer_Style::pbr_roughness_absolute_set(bool enabled)
+	void Render_Scene::pbr_roughness_absolute_set(bool enabled)
 	{
 		//未初始化静默返回
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//与原值一致则无需处理
-		if (impl->pbr_roughness_absolute == enabled)
+		if (state().pbr_roughness_absolute == enabled)
 			return;
-		impl->pbr_roughness_absolute = enabled;
+		state().pbr_roughness_absolute = enabled;
 	}
 
 	//当前 PBR 粗糙度绝对口径是否开启（第七百轮）
-	bool Renderer_Style::pbr_roughness_absolute(void) const
+	bool Render_Scene::pbr_roughness_absolute(void) const
 	{
 		//未初始化返回默认假
-		return impl != nullptr && impl->initialized ? impl->pbr_roughness_absolute : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().pbr_roughness_absolute : false;
 	}
 
 	/*
@@ -166,30 +166,30 @@ namespace engine
 	rim：0 = 关闭；0..1（越界钳制，非有限值按 0）。
 	两者均只写场景 UBO 的保留分量，默认值下画面逐字节不变。
 	*/
-	void Renderer_Style::toon_set(uint32_t steps, float rim)
+	void Render_Scene::toon_set(uint32_t steps, float rim)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//色阶数钳到 [0, 8]
-		impl->toon_steps = steps > 8 ? 8 : steps;
+		state().toon_steps = steps > 8 ? 8 : steps;
 		//边缘光强度钳到 [0, 1]（非有限值按 0）
 		float effective_rim = std::isfinite(rim) ? rim : 0.0f;
-		impl->toon_rim = effective_rim > 1.0f ? 1.0f : (effective_rim > 0.0f ? effective_rim : 0.0f);
+		state().toon_rim = effective_rim > 1.0f ? 1.0f : (effective_rim > 0.0f ? effective_rim : 0.0f);
 	}
 
 	//当前色阶数（第一百七十四轮新增）
-	uint32_t Renderer_Style::toon_steps(void) const
+	uint32_t Render_Scene::toon_steps(void) const
 	{
 		//未初始化返回默认 0（关闭）
-		return impl != nullptr && impl->initialized ? impl->toon_steps : 0;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().toon_steps : 0;
 	}
 
 	//当前边缘光强度（第一百七十四轮新增）
-	float Renderer_Style::toon_rim(void) const
+	float Render_Scene::toon_rim(void) const
 	{
 		//未初始化返回默认 0（关闭）
-		return impl != nullptr && impl->initialized ? impl->toon_rim : 0.0f;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().toon_rim : 0.0f;
 	}
 
 	/*
@@ -197,48 +197,48 @@ namespace engine
 	宽度钳到 [0, 1]（非有限值按 0），颜色逐分量钳到 [0, 1]（非有限值按 0）；
 	描边管线未登记时仅记录参数（绘制项不会额外登记描边项，画面不变）。
 	*/
-	void Renderer_Style::outline_set(float width, const float color[3])
+	void Render_Scene::outline_set(float width, const float color[3])
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//外扩宽度钳到 [0, 1]（非有限值按 0 = 关闭）
 		float effective_width = std::isfinite(width) ? width : 0.0f;
-		impl->outline_width = effective_width > 1.0f ? 1.0f : (effective_width > 0.0f ? effective_width : 0.0f);
+		state().outline_width = effective_width > 1.0f ? 1.0f : (effective_width > 0.0f ? effective_width : 0.0f);
 		//描边色逐分量钳到 [0, 1]（非有限值按 0）
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			float channel = color != nullptr ? color[index] : 0.0f;
 			if (!std::isfinite(channel))
 				channel = 0.0f;
-			impl->outline_color[index] = channel > 1.0f ? 1.0f : (channel > 0.0f ? channel : 0.0f);
+			state().outline_color[index] = channel > 1.0f ? 1.0f : (channel > 0.0f ? channel : 0.0f);
 		}
 	}
 
 	//关闭反向外扩描边（第二百二十八轮新增）
-	void Renderer_Style::outline_clear(void)
+	void Render_Scene::outline_clear(void)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->outline_width = 0.0f;
+		state().outline_width = 0.0f;
 	}
 
 	//当前外扩宽度（第二百二十八轮新增）
-	float Renderer_Style::outline_width(void) const
+	float Render_Scene::outline_width(void) const
 	{
 		//未初始化返回默认 0（关闭）
-		return impl != nullptr && impl->initialized ? impl->outline_width : 0.0f;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().outline_width : 0.0f;
 	}
 
 	//读取当前描边色（第二百二十八轮新增）
-	void Renderer_Style::outline_color(float out[3]) const
+	void Render_Scene::outline_color(float out[3]) const
 	{
 		//出参为空则忽略
 		if (out == nullptr)
 			return;
 		//未初始化写全零（黑）
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 		{
 			out[0] = 0.0f;
 			out[1] = 0.0f;
@@ -246,52 +246,52 @@ namespace engine
 			return;
 		}
 		for (std::size_t index = 0; index < 3; ++index)
-			out[index] = impl->outline_color[index];
+			out[index] = state().outline_color[index];
 	}
 
 	//设置暗部色调（第一百七十八轮新增）
-	void Renderer_Style::toon_shadow_tint_set(float r, float g, float b)
+	void Render_Scene::toon_shadow_tint_set(float r, float g, float b)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//逐分量归一：非有限值按 1（白 = 关闭），否则钳到 [0, 1]
 		const float channels[3] = { r, g, b };
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			float value = std::isfinite(channels[index]) ? channels[index] : 1.0f;
-			impl->toon_shadow_tint[index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
+			state().toon_shadow_tint[index] = value > 1.0f ? 1.0f : (value > 0.0f ? value : 0.0f);
 		}
 	}
 
 	//读取暗部色调（第一百七十八轮新增）
-	void Renderer_Style::toon_shadow_tint(float out[3]) const
+	void Render_Scene::toon_shadow_tint(float out[3]) const
 	{
 		//出参为空则无内容可写
 		if (out == nullptr)
 			return;
 		//未初始化时写默认白（关闭）
-		const bool ready = impl != nullptr && impl->initialized;
+		const bool ready = owner != nullptr && owner->impl != nullptr && owner->impl->initialized;
 		for (std::size_t index = 0; index < 3; ++index)
-			out[index] = ready ? impl->toon_shadow_tint[index] : 1.0f;
+			out[index] = ready ? state().toon_shadow_tint[index] : 1.0f;
 	}
 
 	//设置卡通高光阈值（第一百七十九轮新增）
-	void Renderer_Style::toon_specular_set(float threshold)
+	void Render_Scene::toon_specular_set(float threshold)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//阈值钳到 [0, 1]（非有限值按 0 = 关闭）
 		const float effective = std::isfinite(threshold) ? threshold : 0.0f;
-		impl->toon_specular = effective > 1.0f ? 1.0f : (effective > 0.0f ? effective : 0.0f);
+		state().toon_specular = effective > 1.0f ? 1.0f : (effective > 0.0f ? effective : 0.0f);
 	}
 
 	//读取卡通高光阈值（第一百七十九轮新增）
-	float Renderer_Style::toon_specular(void) const
+	float Render_Scene::toon_specular(void) const
 	{
 		//未初始化返回默认 0（关闭）
-		return impl != nullptr && impl->initialized ? impl->toon_specular : 0.0f;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().toon_specular : 0.0f;
 	}
 
 	//累计实例缓冲上传字节数（第六十一轮新增）
@@ -305,7 +305,7 @@ namespace engine
 	bool Renderer_Core::shadow_readback(uint8_t* pixels, uint32_t capacity, uint32_t* width_out, uint32_t* height_out)
 	{
 		//前置：已初始化、阴影已开启、阴影目标存在且参数齐备
-		if (impl == nullptr || !impl->initialized || !impl->shadow_enabled || impl->shadow_target == 0
+		if (impl == nullptr || !impl->initialized || !self().scene().state().shadow_enabled || impl->shadow_target == 0
 			|| pixels == nullptr || capacity == 0)
 			return false;
 		//等尽在途帧，避免与该目标的写入 / 采样冲突
@@ -316,10 +316,10 @@ namespace engine
 	}
 
 	//设置清屏色（RGBA）
-	void Renderer_Scene::clear_color_set(const float color[4])
+	void Render_Scene::clear_color_set(const float color[4])
 	{
 		//若尚未初始化或颜色指针为空
-		if (impl == nullptr || !impl->initialized || color == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || color == nullptr)
 			return;
 		/*
 		逐分量钳制到 [0,1] 后拷贝（自下一次 frame_render 起生效）
@@ -335,7 +335,7 @@ namespace engine
 			//若大于 1 则归 1
 			else if (value > 1.0f)
 				value = 1.0f;
-			impl->clear_color[index] = value;
+			state().clear_color[index] = value;
 		}
 	}
 }

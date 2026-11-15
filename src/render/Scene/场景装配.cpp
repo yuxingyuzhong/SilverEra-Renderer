@@ -247,7 +247,7 @@ namespace engine
 
 		//应用相机 / 光照 / 雾（相机已校验，三组必然生效；仅当调用方要求时）
 		if (apply_scene)
-			renderer.scene_apply(level_out.camera, level_out.light, level_out.fog);
+			renderer.scene().scene_apply(level_out.camera, level_out.light, level_out.fog);
 		return true;
 	}
 

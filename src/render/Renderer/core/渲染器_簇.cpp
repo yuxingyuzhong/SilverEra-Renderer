@@ -101,14 +101,14 @@ namespace engine
 			return false;
 		//分簇相机输入（当前相机与近远平面）
 		Cluster_Input input{};
-		owner->impl->camera.view_proj_get(input.view_proj);
-		owner->impl->camera.position_get(input.camera_position);
-		owner->impl->camera.fov_get(&input.fov);
-		input.aspect = owner->impl->camera.aspect_effective_get();
-		owner->impl->camera.clip_get(&input.near_plane, &input.far_plane);
+		owner->impl->scene_domain->state().camera.view_proj_get(input.view_proj);
+		owner->impl->scene_domain->state().camera.position_get(input.camera_position);
+		owner->impl->scene_domain->state().camera.fov_get(&input.fov);
+		input.aspect = owner->impl->scene_domain->state().camera.aspect_effective_get();
+		owner->impl->scene_domain->state().camera.clip_get(&input.near_plane, &input.far_plane);
 		//光源记录快照（容量上限内全部导出）
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
-		uint32_t count = owner->light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		uint32_t count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		//调用 CPU 参考实现
 		uint32_t total = cluster_counts_reference(counts_out, capacity, state().cluster_grid,
 			records.data(), count, input);
@@ -137,7 +137,7 @@ namespace engine
 			return false;
 		//光源记录快照
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
-		uint32_t count = owner->light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		uint32_t count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		if (count == 0)
 			return false;
 		//光源记录缓冲（只读）与计数缓冲（零初始化）
@@ -171,15 +171,15 @@ namespace engine
 			float camera_position[4];
 			float params[4];
 		} push{};
-		owner->impl->camera.view_proj_get(push.view_proj);
+		owner->impl->scene_domain->state().camera.view_proj_get(push.view_proj);
 		push.grid[0] = state().cluster_grid.x;
 		push.grid[1] = state().cluster_grid.y;
 		push.grid[2] = state().cluster_grid.z;
 		push.grid[3] = count;
-		owner->impl->camera.position_get(push.camera_position);
-		owner->impl->camera.fov_get(&push.params[0]);
-		push.params[1] = owner->impl->camera.aspect_effective_get();
-		owner->impl->camera.clip_get(&push.params[2], &push.params[3]);
+		owner->impl->scene_domain->state().camera.position_get(push.camera_position);
+		owner->impl->scene_domain->state().camera.fov_get(&push.params[0]);
+		push.params[1] = owner->impl->scene_domain->state().camera.aspect_effective_get();
+		owner->impl->scene_domain->state().camera.clip_get(&push.params[2], &push.params[3]);
 		//绑定 → 调度（每记录一线程） → 回读逐簇计数
 		bool ok = compute_buffer_bind(light_handle, 0)
 			&& compute_buffer_bind(count_handle, 1)
@@ -399,14 +399,14 @@ namespace engine
 			cursor[cluster] = offsets_out[cluster];
 		//分簇相机输入
 		Cluster_Input input{};
-		owner->impl->camera.view_proj_get(input.view_proj);
-		owner->impl->camera.position_get(input.camera_position);
-		owner->impl->camera.fov_get(&input.fov);
-		input.aspect = owner->impl->camera.aspect_effective_get();
-		owner->impl->camera.clip_get(&input.near_plane, &input.far_plane);
+		owner->impl->scene_domain->state().camera.view_proj_get(input.view_proj);
+		owner->impl->scene_domain->state().camera.position_get(input.camera_position);
+		owner->impl->scene_domain->state().camera.fov_get(&input.fov);
+		input.aspect = owner->impl->scene_domain->state().camera.aspect_effective_get();
+		owner->impl->scene_domain->state().camera.clip_get(&input.near_plane, &input.far_plane);
 		//光源记录快照
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
-		uint32_t count = owner->light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		uint32_t count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		//调用 CPU 参考
 		uint32_t written = cluster_list_reference(list_out, capacity, cursor.data(), counts, cluster_total,
 			state().cluster_grid, records.data(), count, input);
@@ -441,7 +441,7 @@ namespace engine
 		}
 		//光源记录快照
 		std::vector<Light_Record> records(LIGHT_RECORD_CAPACITY);
-		uint32_t light_count = owner->light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
+		uint32_t light_count = owner->scene().light_records_get(records.data(), LIGHT_RECORD_CAPACITY);
 		if (light_count == 0)
 			return false;
 		//四缓冲：光源记录 / 计数 / 游标（排他偏移）/ 列表
@@ -493,15 +493,15 @@ namespace engine
 			float params[4];
 			uint32_t light_count;
 		} push{};
-		owner->impl->camera.view_proj_get(push.view_proj);
+		owner->impl->scene_domain->state().camera.view_proj_get(push.view_proj);
 		push.grid[0] = state().cluster_grid.x;
 		push.grid[1] = state().cluster_grid.y;
 		push.grid[2] = state().cluster_grid.z;
 		push.grid[3] = cluster_total;
-		owner->impl->camera.position_get(push.camera_position);
-		owner->impl->camera.fov_get(&push.params[0]);
-		push.params[1] = owner->impl->camera.aspect_effective_get();
-		owner->impl->camera.clip_get(&push.params[2], &push.params[3]);
+		owner->impl->scene_domain->state().camera.position_get(push.camera_position);
+		owner->impl->scene_domain->state().camera.fov_get(&push.params[0]);
+		push.params[1] = owner->impl->scene_domain->state().camera.aspect_effective_get();
+		owner->impl->scene_domain->state().camera.clip_get(&push.params[2], &push.params[3]);
 		push.light_count = light_count;
 		//绑定 → 调度（每记录一线程） → 回读列表
 		bool ok = compute_buffer_bind(light_handle, 0)

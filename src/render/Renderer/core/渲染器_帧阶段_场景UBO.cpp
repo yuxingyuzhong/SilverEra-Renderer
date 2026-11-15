@@ -26,26 +26,26 @@ namespace engine
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[index] = view_proj[index];
 		//光照公共块：环境光 / 高光强度 / 光泽度 / 点光源数量
-		scene_block[16] = impl->light_ambient;
-		scene_block[17] = impl->specular_intensity;
-		scene_block[18] = impl->specular_shininess;
-		scene_block[19] = static_cast<float>(impl->point_light_count);
+		scene_block[16] = impl->scene_domain->state().light_ambient;
+		scene_block[17] = impl->scene_domain->state().specular_intensity;
+		scene_block[18] = impl->scene_domain->state().specular_shininess;
+		scene_block[19] = static_cast<float>(impl->scene_domain->state().point_light_count);
 		//方向光方向 / 强度 / 颜色 / 衰减模式
-		scene_block[20] = impl->light_direction[0];
-		scene_block[21] = impl->light_direction[1];
-		scene_block[22] = impl->light_direction[2];
-		scene_block[23] = impl->light_intensity;
-		scene_block[24] = impl->light_color[0];
-		scene_block[25] = impl->light_color[1];
-		scene_block[26] = impl->light_color[2];
-		scene_block[27] = static_cast<float>(impl->attenuation_mode);
+		scene_block[20] = impl->scene_domain->state().light_direction[0];
+		scene_block[21] = impl->scene_domain->state().light_direction[1];
+		scene_block[22] = impl->scene_domain->state().light_direction[2];
+		scene_block[23] = impl->scene_domain->state().light_intensity;
+		scene_block[24] = impl->scene_domain->state().light_color[0];
+		scene_block[25] = impl->scene_domain->state().light_color[1];
+		scene_block[26] = impl->scene_domain->state().light_color[2];
+		scene_block[27] = static_cast<float>(impl->scene_domain->state().attenuation_mode);
 		//相机世界位置（镜面高光的视线方向来源）；w = 方向光逐光高光缩放（第五十轮）
 		float camera_position[3] = {};
-		impl->camera.position_get(camera_position);
+		impl->scene_domain->state().camera.position_get(camera_position);
 		scene_block[28] = camera_position[0];
 		scene_block[29] = camera_position[1];
 		scene_block[30] = camera_position[2];
-		scene_block[31] = impl->directional_specular;
+		scene_block[31] = impl->scene_domain->state().directional_specular;
 		//点光源：旧 8 槽沿用原偏移；8..15 槽追加到块尾（位置段起点 = 高段基址）
 		for (uint32_t light = 0; light < Renderer_Impl_Holder::Impl::POINT_LIGHT_UBO_MAX; ++light)
 		{
@@ -54,15 +54,15 @@ namespace engine
 				: Renderer_Impl_Holder::Impl::SCENE_HIGH_SLOTS_BASE
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) / 8) * Renderer_Impl_Holder::Impl::SCENE_HIGH_GROUP_FLOATS
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) % 8) * 4;
-			scene_block[base + 0] = impl->point_lights[light].position[0];
-			scene_block[base + 1] = impl->point_lights[light].position[1];
-			scene_block[base + 2] = impl->point_lights[light].position[2];
-			scene_block[base + 3] = impl->point_lights[light].radius;
+			scene_block[base + 0] = impl->scene_domain->state().point_lights[light].position[0];
+			scene_block[base + 1] = impl->scene_domain->state().point_lights[light].position[1];
+			scene_block[base + 2] = impl->scene_domain->state().point_lights[light].position[2];
+			scene_block[base + 3] = impl->scene_domain->state().point_lights[light].radius;
 			//颜色段起点 = 同段位置 32 浮点之后
-			scene_block[base + 32 + 0] = impl->point_lights[light].color[0];
-			scene_block[base + 32 + 1] = impl->point_lights[light].color[1];
-			scene_block[base + 32 + 2] = impl->point_lights[light].color[2];
-			scene_block[base + 32 + 3] = impl->point_lights[light].intensity;
+			scene_block[base + 32 + 0] = impl->scene_domain->state().point_lights[light].color[0];
+			scene_block[base + 32 + 1] = impl->scene_domain->state().point_lights[light].color[1];
+			scene_block[base + 32 + 2] = impl->scene_domain->state().point_lights[light].color[2];
+			scene_block[base + 32 + 3] = impl->scene_domain->state().point_lights[light].intensity;
 		}
 		//聚光参数：旧 8 槽前 32 浮点为「方向 ＋ 有效标志」、后 32 浮点为锥参数；8..15 槽追加到块尾
 		for (uint32_t light = 0; light < Renderer_Impl_Holder::Impl::POINT_LIGHT_UBO_MAX; ++light)
@@ -72,45 +72,45 @@ namespace engine
 				: Renderer_Impl_Holder::Impl::SCENE_HIGH_SLOTS_BASE + 64
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) / 8) * Renderer_Impl_Holder::Impl::SCENE_HIGH_GROUP_FLOATS
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) % 8) * 4;
-			scene_block[base + 0] = impl->point_lights[light].spot_direction[0];
-			scene_block[base + 1] = impl->point_lights[light].spot_direction[1];
-			scene_block[base + 2] = impl->point_lights[light].spot_direction[2];
-			scene_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
+			scene_block[base + 0] = impl->scene_domain->state().point_lights[light].spot_direction[0];
+			scene_block[base + 1] = impl->scene_domain->state().point_lights[light].spot_direction[1];
+			scene_block[base + 2] = impl->scene_domain->state().point_lights[light].spot_direction[2];
+			scene_block[base + 3] = impl->scene_domain->state().point_lights[light].is_spot ? 1.0f : 0.0f;
 			//锥参数段起点 = 同段方向 32 浮点之后
-			scene_block[base + 32 + 0] = impl->point_lights[light].spot_inner_cos;
-			scene_block[base + 32 + 1] = impl->point_lights[light].spot_outer_cos;
-			scene_block[base + 32 + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+			scene_block[base + 32 + 0] = impl->scene_domain->state().point_lights[light].spot_inner_cos;
+			scene_block[base + 32 + 1] = impl->scene_domain->state().point_lights[light].spot_outer_cos;
+			scene_block[base + 32 + 2] = static_cast<float>(impl->scene_domain->state().point_lights[light].attenuation);
 			//w = 逐盏高光缩放（第四十九轮）
-			scene_block[base + 32 + 3] = impl->point_lights[light].specular_scale;
+			scene_block[base + 32 + 3] = impl->scene_domain->state().point_lights[light].specular_scale;
 		}
 		//雾参数（雾色 ＋ 密度 ＋ 区间；第六十二轮起点后移 64 浮点）
-		scene_block[160] = impl->fog_color[0];
-		scene_block[161] = impl->fog_color[1];
-		scene_block[162] = impl->fog_color[2];
-		scene_block[163] = impl->fog_density;
-		scene_block[164] = impl->fog_start;
-		scene_block[165] = impl->fog_end;
+		scene_block[160] = impl->scene_domain->state().fog_color[0];
+		scene_block[161] = impl->scene_domain->state().fog_color[1];
+		scene_block[162] = impl->scene_domain->state().fog_color[2];
+		scene_block[163] = impl->scene_domain->state().fog_density;
+		scene_block[164] = impl->scene_domain->state().fog_start;
+		scene_block[165] = impl->scene_domain->state().fog_end;
 		//雾模式（第一百四十三轮：0 = 线性区间、1 = 指数平方）
-		scene_block[166] = static_cast<float>(impl->fog_mode);
+		scene_block[166] = static_cast<float>(impl->scene_domain->state().fog_mode);
 		//雾高度衰减系数（第一百四十三轮）
-		scene_block[167] = impl->fog_height_falloff;
+		scene_block[167] = impl->scene_domain->state().fog_height_falloff;
 		//环境光颜色（第四十轮）
-		scene_block[168] = impl->ambient_color[0];
-		scene_block[169] = impl->ambient_color[1];
-		scene_block[170] = impl->ambient_color[2];
+		scene_block[168] = impl->scene_domain->state().ambient_color[0];
+		scene_block[169] = impl->scene_domain->state().ambient_color[1];
+		scene_block[170] = impl->scene_domain->state().ambient_color[2];
 		//半球环境光（第四十七轮：rgb = 地面色、w = 混合强度）
 		for (std::size_t index = 0; index < 4; ++index)
-			scene_block[172 + index] = impl->ambient_ground[index];
+			scene_block[172 + index] = impl->scene_domain->state().ambient_ground[index];
 		//补光方向与强度（第四十七轮）
-		scene_block[176] = impl->fill_direction[0];
-		scene_block[177] = impl->fill_direction[1];
-		scene_block[178] = impl->fill_direction[2];
-		scene_block[179] = impl->fill_intensity;
+		scene_block[176] = impl->scene_domain->state().fill_direction[0];
+		scene_block[177] = impl->scene_domain->state().fill_direction[1];
+		scene_block[178] = impl->scene_domain->state().fill_direction[2];
+		scene_block[179] = impl->scene_domain->state().fill_intensity;
 		//补光颜色（第四十七轮）＋ 逐光高光缩放（第五十轮；w）
-		scene_block[180] = impl->fill_color[0];
-		scene_block[181] = impl->fill_color[1];
-		scene_block[182] = impl->fill_color[2];
-		scene_block[183] = impl->fill_specular;
+		scene_block[180] = impl->scene_domain->state().fill_color[0];
+		scene_block[181] = impl->scene_domain->state().fill_color[1];
+		scene_block[182] = impl->scene_domain->state().fill_color[2];
+		scene_block[183] = impl->scene_domain->state().fill_specular;
 		//逐盏光泽度（第五十一轮；旧 8 槽在偏移 184 + light × 4；8..15 槽追加到块尾 588 起）
 		for (uint32_t light = 0; light < Renderer_Impl_Holder::Impl::POINT_LIGHT_UBO_MAX; ++light)
 		{
@@ -119,7 +119,7 @@ namespace engine
 				: Renderer_Impl_Holder::Impl::SCENE_HIGH_SLOTS_BASE + 128
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) / 8) * Renderer_Impl_Holder::Impl::SCENE_HIGH_GROUP_FLOATS
 					+ static_cast<std::size_t>((light - Renderer_Impl_Holder::Impl::UBO_LEGACY_SLOTS) % 8) * 4;
-			scene_block[offset] = impl->point_lights[light].shininess;
+			scene_block[offset] = impl->scene_domain->state().point_lights[light].shininess;
 		}
 		/*
 		光源空间矩阵沿用 ⑤a 结果（第五十二轮；第四百八十四轮起不再被聚光灯覆盖）
@@ -133,27 +133,27 @@ namespace engine
 		方向光阴影与聚光阴影各自独立：任一开启即 shadow_params.x = 1；
 		cascade_params.x 仅表示方向光阴影是否启用（0 = 方向光阴影关闭，着色器让位）。
 		*/
-		scene_block[232] = (impl->shadow_enabled || spot_shadow_light_valid) ? 1.0f : 0.0f;
-		scene_block[233] = impl->shadow_bias;
-		scene_block[234] = static_cast<float>(impl->shadow_size);
-		scene_block[235] = impl->shadow_softness;
+		scene_block[232] = (impl->scene_domain->state().shadow_enabled || spot_shadow_light_valid) ? 1.0f : 0.0f;
+		scene_block[233] = impl->scene_domain->state().shadow_bias;
+		scene_block[234] = static_cast<float>(impl->scene_domain->state().shadow_size);
+		scene_block[235] = impl->scene_domain->state().shadow_softness;
 		//阴影强度（第五十三轮：0 = 阴影无效、1 = 全遮蔽）
-		scene_block[236] = impl->shadow_strength;
+		scene_block[236] = impl->scene_domain->state().shadow_strength;
 		//曝光补偿（第六百六十轮；EV，0 = 关闭）
-		scene_block[237] = impl->exposure;
+		scene_block[237] = impl->scene_domain->state().exposure;
 		//PBR-lite 参数（第六十四轮：x = 启用、y = 粗糙度缩放；第六十五轮 z = 金属度）
-		scene_block[240] = impl->pbr_enabled ? 1.0f : 0.0f;
-		scene_block[241] = impl->pbr_roughness;
-		scene_block[242] = impl->pbr_metallic;
+		scene_block[240] = impl->scene_domain->state().pbr_enabled ? 1.0f : 0.0f;
+		scene_block[241] = impl->scene_domain->state().pbr_roughness;
+		scene_block[242] = impl->scene_domain->state().pbr_metallic;
 		/*
 		场景缓冲尾部扩展（第六百七十二轮；D1 第一步）
 		456 = PBR 掠射高光能量修正开关；457..459 保留（保持 vec4 对齐）。
 		*/
-		scene_block[456] = impl->pbr_energy ? 1.0f : 0.0f;
+		scene_block[456] = impl->scene_domain->state().pbr_energy ? 1.0f : 0.0f;
 		//PBR 粗糙度绝对口径（第七百轮；1 = 材质 / 全局粗糙度直接作为 GGX 粗糙度）
-		scene_block[457] = impl->pbr_roughness_absolute ? 1.0f : 0.0f;
+		scene_block[457] = impl->scene_domain->state().pbr_roughness_absolute ? 1.0f : 0.0f;
 		//二次元风格化色阶数（第一百七十四轮；w 槽；0 = 关闭）
-		scene_block[243] = static_cast<float>(impl->toon_steps);
+		scene_block[243] = static_cast<float>(impl->scene_domain->state().toon_steps);
 		/*
 		级联阴影参数（第一百二十一轮；第一百四十六轮扩为三级）
 		244..259 为远区级联矩阵（单级时为零矩阵）；260..263 为级联参数：
@@ -169,13 +169,13 @@ namespace engine
 		仅表示方向光阴影是否启用：方向光关闭时写 0（着色器 shadow_factor 让位）；
 		聚光阴影的开关与序号由 spot_shadow_params.w 表达，两图互不依赖。
 		*/
-		scene_block[260] = impl->shadow_enabled ? static_cast<float>(impl->cascade_count) : 0.0f;
-		scene_block[261] = impl->cascade_split_distance;
+		scene_block[260] = impl->scene_domain->state().shadow_enabled ? static_cast<float>(impl->scene_domain->state().cascade_count) : 0.0f;
+		scene_block[261] = impl->scene_domain->state().cascade_split_distance;
 		scene_block[262] = impl->cascade_depth_span[0];
 		scene_block[263] = impl->cascade_depth_span[1];
 		for (std::size_t index = 0; index < 16; ++index)
 			scene_block[272 + index] = impl->light_view_proj_far2[index];
-		scene_block[288] = impl->cascade_split_distance * impl->cascade_far_scale;
+		scene_block[288] = impl->scene_domain->state().cascade_split_distance * impl->scene_domain->state().cascade_far_scale;
 		scene_block[289] = impl->cascade_depth_span[2];
 		//级联接缝淡化带宽比例（第一百四十八轮；z 槽；第六百六十一轮改用「生效比例」）
 		scene_block[290] = impl->cascade_blend_effective;
@@ -185,7 +185,7 @@ namespace engine
 		*/
 		float clip_near = 0.0f;
 		float clip_far = 0.0f;
-		impl->camera.clip_get(&clip_near, &clip_far);
+		impl->scene_domain->state().camera.clip_get(&clip_near, &clip_far);
 		scene_block[264] = clip_near;
 		scene_block[265] = clip_far;
 		/*
@@ -193,8 +193,8 @@ namespace engine
 		266 = 红、267 = 绿（camera_range.zw），291 = 蓝（cascade_params2.w）；
 		默认 (1,1,1) 时着色器乘性恒等，画面与引入前逐字节一致。
 		*/
-		scene_block[266] = impl->toon_shadow_tint[0];
-		scene_block[267] = impl->toon_shadow_tint[1];
+		scene_block[266] = impl->scene_domain->state().toon_shadow_tint[0];
+		scene_block[267] = impl->scene_domain->state().toon_shadow_tint[1];
 		/*
 		天空盒参数（第一百二十五轮）
 		268 = 启用（> 0.5 生效）、269 = 漫反射（环境）强度、270 = 镜面强度、271 保留；
@@ -204,22 +204,22 @@ namespace engine
 		scene_block[269] = impl->resource_domain->state().sky_ambient;
 		scene_block[270] = impl->resource_domain->state().sky_specular;
 		//二次元风格化边缘光强度（第一百七十四轮；w 槽；0 = 关闭）
-		scene_block[271] = impl->toon_rim;
+		scene_block[271] = impl->scene_domain->state().toon_rim;
 		//二次元暗部色调蓝分量（第一百七十八轮；w 槽；与 266 / 267 共同构成 RGB）
-		scene_block[291] = impl->toon_shadow_tint[2];
+		scene_block[291] = impl->scene_domain->state().toon_shadow_tint[2];
 		/*
 		卡通高光参数（第一百七十九轮；x = 阈值 0..1、0 = 关闭；yzw 保留）
 		场景片元按「高光亮度 ≥ 阈值」二值化高光，形成硬边高光块；阈值为 0 时整段短路。
 		*/
-		scene_block[292] = impl->toon_specular;
+		scene_block[292] = impl->scene_domain->state().toon_specular;
 		/*
 		PCSS 软阴影参数（第六百五十七轮；复用卡通高光参数的空闲分量）
 		293 = 开关（> 0.5 生效）、294 = 阻塞物搜索尺度（纹素）、295 = PCF 半径上限（纹素）；
 		293 为 0（默认）时片元走旧硬边 / 3×3 软度口径，画面逐字节不变。
 		*/
-		scene_block[293] = impl->shadow_pcss_enabled ? 1.0f : 0.0f;
-		scene_block[294] = impl->shadow_pcss_search;
-		scene_block[295] = impl->shadow_pcss_max;
+		scene_block[293] = impl->scene_domain->state().shadow_pcss_enabled ? 1.0f : 0.0f;
+		scene_block[294] = impl->scene_domain->state().shadow_pcss_search;
+		scene_block[295] = impl->scene_domain->state().shadow_pcss_max;
 		/*
 		簇参数（第二百八十五轮写入；第二百八十九轮由场景片元读取）
 		296 = Cluster 启用（> 0.5 时片元改读逐簇光源列表）、297..299 = 网格 x / y / z；
@@ -234,8 +234,8 @@ namespace engine
 		x > 0.5 时着色器按瓦片号换算图集像素原点；w > 0.5 表示本帧存在有效聚光阴影。
 		*/
 		scene_block[300] = impl->spot_shadow_atlas ? 1.0f : 0.0f;
-		scene_block[301] = impl->spot_shadow_softness;
-		scene_block[302] = impl->spot_shadow_strength;
+		scene_block[301] = impl->scene_domain->state().spot_shadow_softness;
+		scene_block[302] = impl->scene_domain->state().spot_shadow_strength;
 		//w = 开关（第五百零七轮起不再编码序号，序号改由槽位映射表达）
 		scene_block[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
 		/*

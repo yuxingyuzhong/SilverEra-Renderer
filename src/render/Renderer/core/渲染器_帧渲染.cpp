@@ -94,7 +94,7 @@ namespace engine
 			VkExtent2D extent = impl->swapchain.extent_get();
 			//尺寸有效时刷新宽高比
 			if (extent.width != 0 && extent.height != 0)
-				impl->camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+				impl->scene_domain->state().camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
 		}
 
 		//光源空间矩阵与级联拟合
@@ -128,12 +128,12 @@ namespace engine
 		if (impl->compute_domain->state().cluster_enabled && impl->cluster_ensure())
 		{
 			//本帧记录数（含主方向光与补光；按容量截断）
-			uint32_t record_count = self().light_record_count();
+			uint32_t record_count = self().scene().light_record_count();
 			if (record_count > LIGHT_RECORD_CAPACITY)
 				record_count = LIGHT_RECORD_CAPACITY;
 			//组装缓冲按记录数调整后导出快照
 			impl->light_records_scratch.resize(record_count == 0 ? 1u : record_count);
-			uint32_t written = self().light_records_get(impl->light_records_scratch.data(), record_count);
+			uint32_t written = self().scene().light_records_get(impl->light_records_scratch.data(), record_count);
 			//写入该帧槽缓冲（仅写入有效记录区间）
 			if (written != 0
 				&& !impl->memory.buffer_write(impl->light_buffers[slot], impl->light_allocations[slot],
@@ -155,7 +155,7 @@ namespace engine
 		{
 			//网格总簇数与光源记录数（列表容量上界 = 簇数 × 记录数）
 			uint32_t cluster_total = cluster_grid_clusters(impl->compute_domain->state().cluster_grid);
-			uint32_t light_records = self().light_record_count();
+			uint32_t light_records = self().scene().light_record_count();
 			uint32_t list_capacity = cluster_total * light_records;
 			impl->cluster_counts_scratch.resize(cluster_total);
 			impl->cluster_offsets_scratch.resize(cluster_total);
@@ -195,7 +195,7 @@ namespace engine
 			impl->last_cluster_gpu_bytes = 0;
 		}
 		float view_proj[16] = {};
-		impl->camera.view_proj_get(view_proj);
+		impl->scene_domain->state().camera.view_proj_get(view_proj);
 		//推进文字子系统帧时钟并归还已淘汰且无在途引用的网格（第四十八轮）
 		self().ui().state().text.frame_begin(impl->config.frame_overlap);
 		//场景 UBO 组装与上传

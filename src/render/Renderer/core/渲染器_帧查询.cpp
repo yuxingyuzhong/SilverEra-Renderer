@@ -136,15 +136,15 @@ namespace engine
 		stats.cluster_entries = impl->compute_domain->state().last_cluster_entries;
 		stats.cluster_gpu_bytes = impl->last_cluster_gpu_bytes;
 		//光源截断标志（第二百八十轮；Cluster 关闭且超过 8 盏时置 1）
-		stats.light_truncated = impl->light_truncated ? 1u : 0u;
+		stats.light_truncated = impl->scene_domain->state().light_truncated ? 1u : 0u;
 		//光照诊断（第六百四十五轮；A4）
-		stats.lights_active = impl->point_light_count;
-		stats.lights_dropped = impl->light_dropped;
-		stats.light_select_mode = impl->light_select_mode;
+		stats.lights_active = impl->scene_domain->state().point_light_count;
+		stats.lights_dropped = impl->scene_domain->state().light_dropped;
+		stats.light_select_mode = impl->scene_domain->state().light_select_mode;
 		//阴影 pass 诊断（第六百四十七轮；A4 补齐）
 		stats.shadow_passes = impl->last_shadow_passes;
 		stats.spot_shadow_passes = impl->last_spot_shadow_passes;
-		stats.shadow_resolution = impl->shadow_target != 0 ? impl->shadow_size : 0u;
+		stats.shadow_resolution = impl->shadow_target != 0 ? impl->scene_domain->state().shadow_size : 0u;
 		//聚光阴影图集实际生效标志（第六百八十轮）
 		stats.shadow_atlas = impl->spot_shadow_atlas ? 1u : 0u;
 		//已建立的独立瓦片目标数（第七百零七轮；图集生效时为 0）
@@ -154,9 +154,9 @@ namespace engine
 				++stats.spot_shadow_tile_targets;
 		//图集颜色附件字节数（第六百八十四轮；RGBA8 = 4 字节/像素，4S × 2S）
 		stats.shadow_atlas_bytes = impl->spot_shadow_atlas
-			? static_cast<uint64_t>(impl->shadow_size) * 8u * impl->shadow_size * 4u : 0u;
+			? static_cast<uint64_t>(impl->scene_domain->state().shadow_size) * 8u * impl->scene_domain->state().shadow_size * 4u : 0u;
 		//PCSS 软阴影状态（第六百五十七轮）
-		stats.shadow_pcss = impl->shadow_pcss_enabled ? 1u : 0u;
+		stats.shadow_pcss = impl->scene_domain->state().shadow_pcss_enabled ? 1u : 0u;
 		//级联纹素与淡化观测（第六百六十一轮）
 		stats.shadow_texel_world = impl->shadow_texel_world;
 		stats.cascade_blend_applied = impl->cascade_blend_effective;

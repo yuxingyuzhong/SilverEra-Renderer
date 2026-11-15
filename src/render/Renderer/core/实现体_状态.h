@@ -9,15 +9,7 @@ namespace engine
 	{
 		Renderer_Config config;
 
-		//补光（第四十七轮）：第二盏方向光；强度 0 = 关闭
-		float fill_direction[3] = { 0.0f, 0.0f, -1.0f };
-
-		float fill_color[3] = { 1.0f, 1.0f, 1.0f };
-
-		float fill_intensity = 0.0f;
-
-		bool cascade_blend_auto = false;
-
+		//本帧实际生效的级联接缝淡化比例（用户配置由场景域持有）
 		float cascade_blend_effective = 0.0f;
 
 		//间接绘制开关（第二百五十二轮；默认关）
@@ -25,13 +17,6 @@ namespace engine
 
 		//自校准偏置的参考锥远平面（第五百二十一轮；radius 9 时与手动偏差等价）
 		static constexpr float SPOT_BIAS_REFERENCE_SPAN = 9.0f;
-
-		float cascade_far_scale = 3.0f;
-
-		float cascade_split_distance = 12.0f;
-
-		//级联接缝淡化带宽比例（第一百四十八轮；0 = 硬切换，0.5 = 阈值两侧各半）
-		float cascade_blend = 0.0f;
 
 		/*
 		各片光源空间深度跨度（近平面到远平面；第一百二十一轮）

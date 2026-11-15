@@ -13,12 +13,11 @@
 #include "渲染计算.h"
 //设备域
 #include "渲染设备.h"
+//场景域
+#include "渲染场景.h"
 //各能力接口
 #include "渲染器_接口_核心.h"
 #include "渲染器_接口_输出.h"
-#include "渲染器_接口_场景.h"
-#include "渲染器_接口_光照.h"
-#include "渲染器_接口_风格.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -35,12 +34,10 @@ namespace engine
 	工作线程不对外暴露、也不接受外部调用；Vulkan 对象（命令池 / 缓冲 / 描述符集）的创建、提交与呈现仍全部在调用线程上完成。
 	故「内部多线程」与「对外线程安全」是两件事：不要从多个线程并发调用本类接口，也不要与外部自行提交共用同一队列。
 
-	实现组织：本类由各能力接口多重继承组合而成；所有接口虚继承 Renderer_Impl_Holder，
-	故整个门面共享同一份实现体指针，公共 API 与单类时期完全一致。
+	实现组织：生命周期与输出能力由接口组合，场景 / 光照 / 风格等其余能力由独立域对象承载；
+	所有接口虚继承 Renderer_Impl_Holder，故整个门面共享同一份实现体指针。
 	*/
-	class Renderer : public Renderer_Core, public Renderer_Output,
-		public Renderer_Scene, public Renderer_Lighting,
-		public Renderer_Style
+	class Renderer : public Renderer_Core, public Renderer_Output
 	{
 	public:
 		//构造（绑定门面自身指针；实现体由共享基类创建）
@@ -68,6 +65,10 @@ namespace engine
 		Render_Device& device(void);
 		const Render_Device& device(void) const;
 
+		//场景域
+		Render_Scene& scene(void);
+		const Render_Scene& scene(void) const;
+
 	private:
 		//界面域对象
 		std::unique_ptr<Render_Ui> ui_domain;
@@ -79,5 +80,7 @@ namespace engine
 		std::unique_ptr<Render_Compute> compute_domain;
 		//设备域对象
 		std::unique_ptr<Render_Device> device_domain;
+		//场景域对象
+		std::unique_ptr<Render_Scene> scene_domain;
 	};
 }

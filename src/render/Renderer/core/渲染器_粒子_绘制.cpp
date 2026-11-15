@@ -206,7 +206,7 @@ namespace engine
 			return false;
 		//相机世界位置（billboard 朝向基准）
 		float camera[3] = {};
-		owner->impl->camera.position_get(camera);
+		owner->impl->scene_domain->state().camera.position_get(camera);
 		//单粒子模型矩阵构造（列主序 16 浮点；billboard 基 ＋ 年龄收缩尺寸）
 		auto build_matrix = [&](const Particle_State& state, float* matrix)
 		{
@@ -482,7 +482,7 @@ namespace engine
 			return false;
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
-		owner->impl->camera.position_get(camera);
+		owner->impl->scene_domain->state().camera.position_get(camera);
 		/*
 		推送块（128 B）
 		首位 = 相机位置 ＋ 四边形世界边长；64 / 80 / 96 为颜色覆盖（第三百五十四轮），其余留零。
@@ -678,7 +678,7 @@ namespace engine
 				return false;
 		//相机世界位置（着色器内 billboard 基准）
 		float camera[3] = {};
-		owner->impl->camera.position_get(camera);
+		owner->impl->scene_domain->state().camera.position_get(camera);
 		//推送块（128 B；首位 = 相机位置 ＋ 四边形世界边长，64 / 80 / 96 为颜色覆盖，其余留零）
 		owner->impl->pending_push_constants.emplace_back();
 		std::array<float, 32>& push_spatial = owner->impl->pending_push_constants.back();

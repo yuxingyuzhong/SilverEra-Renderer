@@ -22,52 +22,135 @@
 
 namespace engine
 {
+	//构造（只创建域状态，不接触 GPU 资源）
+	Render_Scene::Render_Scene(Renderer* owner)
+		: owner(owner),
+		state_ptr(new(std::nothrow) Scene_State())
+	{
+	}
+
+	//析构（场景域只持有主机侧状态）
+	Render_Scene::~Render_Scene(void)
+	{
+	}
+
+	//场景域
+	Scene_State& Render_Scene::state(void)
+	{
+		return *state_ptr;
+	}
+
+	//场景域（只读）
+	const Scene_State& Render_Scene::state(void) const
+	{
+		return *state_ptr;
+	}
+
+	//关闭（按原门面语义逐项复位场景域状态；幂等）
+	void Render_Scene::shutdown(void)
+	{
+		//状态未分配则无内容可复位
+		if (state_ptr == nullptr)
+			return;
+		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
+		state().light_direction[0] = 0.0f;
+		state().light_direction[1] = 0.0f;
+		state().light_direction[2] = -1.0f;
+		state().light_color[0] = 1.0f;
+		state().light_color[1] = 1.0f;
+		state().light_color[2] = 1.0f;
+		state().light_intensity = 1.0f;
+		state().light_ambient = 0.0f;
+		//点光源与高光恢复默认
+		state().point_light_count = 0;
+		state().specular_intensity = 0.0f;
+		state().specular_shininess = 16.0f;
+		state().attenuation_mode = 0;
+		//距离雾、雾模式与高度衰减恢复默认
+		state().fog_color[0] = 0.05f;
+		state().fog_color[1] = 0.05f;
+		state().fog_color[2] = 0.10f;
+		state().fog_density = 0.0f;
+		state().fog_start = 1.0f;
+		state().fog_end = 10.0f;
+		state().fog_mode = 0;
+		state().fog_height_falloff = 0.0f;
+		//环境光与半球环境光恢复默认
+		state().ambient_color[0] = 1.0f;
+		state().ambient_color[1] = 1.0f;
+		state().ambient_color[2] = 1.0f;
+		state().ambient_ground[0] = 1.0f;
+		state().ambient_ground[1] = 1.0f;
+		state().ambient_ground[2] = 1.0f;
+		state().ambient_ground[3] = 0.0f;
+		//补光恢复默认（朝 -Z、白、强度 0 = 关闭）
+		state().fill_direction[0] = 0.0f;
+		state().fill_direction[1] = 0.0f;
+		state().fill_direction[2] = -1.0f;
+		state().fill_color[0] = 1.0f;
+		state().fill_color[1] = 1.0f;
+		state().fill_color[2] = 1.0f;
+		state().fill_intensity = 0.0f;
+		state().directional_specular = 1.0f;
+		state().fill_specular = 1.0f;
+		//二次元风格化与描边用户参数恢复默认
+		state().toon_steps = 0;
+		state().toon_rim = 0.0f;
+		state().toon_specular = 0.0f;
+		state().outline_width = 0.0f;
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			state().toon_shadow_tint[index] = 1.0f;
+			state().outline_color[index] = 0.0f;
+		}
+	}
+
 	//相机：设置位置
 
-	void Renderer_Scene::camera_position_set(float x, float y, float z)
+	void Render_Scene::camera_position_set(float x, float y, float z)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.position_set(x, y, z);
+		state().camera.position_set(x, y, z);
 	}
 
-	void Renderer_Scene::camera_target_set(float x, float y, float z)
+	void Render_Scene::camera_target_set(float x, float y, float z)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.target_set(x, y, z);
+		state().camera.target_set(x, y, z);
 	}
 
-	void Renderer_Scene::camera_fov_set(float radians)
+	void Render_Scene::camera_fov_set(float radians)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.fov_set(radians);
+		state().camera.fov_set(radians);
 	}
 
-	void Renderer_Scene::camera_near_far_set(float near_plane, float far_plane)
+	void Render_Scene::camera_near_far_set(float near_plane, float far_plane)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.near_far_set(near_plane, far_plane);
+		state().camera.near_far_set(near_plane, far_plane);
 	}
 
-	void Renderer_Scene::camera_ortho_set(bool enabled, float ortho_height)
+	void Render_Scene::camera_ortho_set(bool enabled, float ortho_height)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.ortho_set(enabled, ortho_height);
+		state().camera.ortho_set(enabled, ortho_height);
 	}
 
-	void Renderer_Scene::camera_up_set(float x, float y, float z)
+	void Render_Scene::camera_up_set(float x, float y, float z)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//全零向量会使视图矩阵退化，整次忽略
 		if (x == 0.0f && y == 0.0f && z == 0.0f)
@@ -78,84 +161,84 @@ namespace engine
 		//非有限分量按忽略处理
 		if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
 			return;
-		impl->camera.up_set(x, y, z);
+		state().camera.up_set(x, y, z);
 	}
 
-	void Renderer_Scene::camera_aspect_set(float aspect)
+	void Render_Scene::camera_aspect_set(float aspect)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->camera.aspect_override_set(aspect);
+		state().camera.aspect_override_set(aspect);
 	}
 
-	float Renderer_Scene::camera_aspect_get(void) const
+	float Render_Scene::camera_aspect_get(void) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return 0.0f;
-		return impl->camera.aspect_effective_get();
+		return state().camera.aspect_effective_get();
 	}
 
-	bool Renderer_Scene::camera_fov_get(float* radians_out) const
+	bool Render_Scene::camera_fov_get(float* radians_out) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		impl->camera.fov_get(radians_out);
+		state().camera.fov_get(radians_out);
 		return true;
 	}
 
-	bool Renderer_Scene::camera_ortho_get(bool* enabled_out, float* height_out) const
+	bool Render_Scene::camera_ortho_get(bool* enabled_out, float* height_out) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		impl->camera.ortho_get(enabled_out, height_out);
+		state().camera.ortho_get(enabled_out, height_out);
 		return true;
 	}
 
-	bool Renderer_Scene::camera_world_height_at(float view_depth, float* height_out) const
+	bool Render_Scene::camera_world_height_at(float view_depth, float* height_out) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		impl->camera.world_height_at_get(view_depth, height_out);
+		state().camera.world_height_at_get(view_depth, height_out);
 		return true;
 	}
 
-	bool Renderer_Scene::camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const
+	bool Render_Scene::camera_project(const float world[3], float* u_out, float* v_out, float* depth_out) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		return impl->camera.project_to_screen(world, u_out, v_out, depth_out);
+		return state().camera.project_to_screen(world, u_out, v_out, depth_out);
 	}
 
-	bool Renderer_Scene::camera_unproject(float u, float v, float depth, float world_out[3]) const
+	bool Render_Scene::camera_unproject(float u, float v, float depth, float world_out[3]) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
-		return impl->camera.unproject_from_screen(u, v, depth, world_out);
+		return state().camera.unproject_from_screen(u, v, depth, world_out);
 	}
 
-	bool Renderer_Scene::camera_aabb_visible(const float min[3], const float max[3]) const
+	bool Render_Scene::camera_aabb_visible(const float min[3], const float max[3]) const
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//转交相机模块（六面保守判定）
-		return impl->camera.aabb_visible(min, max);
+		return state().camera.aabb_visible(min, max);
 	}
 
-	bool Renderer_Scene::camera_view_proj(float out[16]) const
+	bool Render_Scene::camera_view_proj(float out[16]) const
 	{
 		//未初始化或出参为空则拒绝
-		if (impl == nullptr || !impl->initialized || out == nullptr)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || out == nullptr)
 			return false;
 		//写出列主序矩阵
-		impl->camera.view_proj_get(out);
+		state().camera.view_proj_get(out);
 		return true;
 	}
 }

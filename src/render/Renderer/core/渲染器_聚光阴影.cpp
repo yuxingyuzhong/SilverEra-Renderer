@@ -24,10 +24,10 @@ namespace engine
 {
 	//设置距离雾（第三十八轮新增）
 
-	void Renderer_Lighting::spot_shadow_params_set(float bias, float softness, float strength)
+	void Render_Scene::spot_shadow_params_set(float bias, float softness, float strength)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//三项范围校验（取反比较使 NaN 判非法）
 		if (!(bias >= 0.0f && bias <= 0.05f) || !(softness >= 0.0f && softness <= 1.0f)
@@ -36,30 +36,30 @@ namespace engine
 			logger.warn("渲染器:: 聚光灯阴影参数非法（{} / {} / {}），整次忽略", bias, softness, strength);
 			return;
 		}
-		impl->spot_shadow_bias = bias;
-		impl->spot_shadow_softness = softness;
-		impl->spot_shadow_strength = strength;
+		state().spot_shadow_bias = bias;
+		state().spot_shadow_softness = softness;
+		state().spot_shadow_strength = strength;
 	}
 
-	void Renderer_Lighting::spot_shadow_params_get(float* bias_out, float* softness_out, float* strength_out) const
+	void Render_Scene::spot_shadow_params_get(float* bias_out, float* softness_out, float* strength_out) const
 	{
 		//未初始化按默认值输出
-		const bool ready = impl != nullptr && impl->initialized;
+		const bool ready = owner != nullptr && owner->impl != nullptr && owner->impl->initialized;
 		//偏置
 		if (bias_out != nullptr)
-			*bias_out = ready ? impl->spot_shadow_bias : 0.010f;
+			*bias_out = ready ? state().spot_shadow_bias : 0.010f;
 		//软度
 		if (softness_out != nullptr)
-			*softness_out = ready ? impl->spot_shadow_softness : 0.0f;
+			*softness_out = ready ? state().spot_shadow_softness : 0.0f;
 		//强度
 		if (strength_out != nullptr)
-			*strength_out = ready ? impl->spot_shadow_strength : 1.0f;
+			*strength_out = ready ? state().spot_shadow_strength : 1.0f;
 	}
 
-	void Renderer_Lighting::spot_shadow_index_set(int index)
+	void Render_Scene::spot_shadow_index_set(int index)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//序号须落在 0..7（取反比较使 NaN 判非法；int 入参无 NaN，仍保留统一写法）
 		if (!(index >= 0 && index < static_cast<int>(Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)))
@@ -67,24 +67,24 @@ namespace engine
 			logger.warn("渲染器:: 聚光灯阴影序号非法（{}），整次忽略", index);
 			return;
 		}
-		impl->spot_shadow_index = index;
+		state().spot_shadow_index = index;
 	}
 
-	int Renderer_Lighting::spot_shadow_index(void) const
+	int Render_Scene::spot_shadow_index(void) const
 	{
 		//未初始化返回默认值
-		return impl != nullptr && impl->initialized ? impl->spot_shadow_index : 0;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().spot_shadow_index : 0;
 	}
 
-	void Renderer_Lighting::spot_shadow_all_set(bool enabled)
+	void Render_Scene::spot_shadow_all_set(bool enabled)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
 		//与原值一致则无需处理
-		if (impl->spot_shadow_all == enabled)
+		if (state().spot_shadow_all == enabled)
 			return;
-		impl->spot_shadow_all = enabled;
+		state().spot_shadow_all = enabled;
 		//开启：按槽位 / 压缩口径补齐瓦片（第六百四十四轮；无聚光时至少建瓦片 1 占位）
 		if (enabled)
 		{
@@ -92,9 +92,9 @@ namespace engine
 			std::size_t tile_limit = 0;
 			bool slot_mapping = true;
 			std::size_t spot_total = 0;
-			for (std::size_t slot = 0; slot < impl->point_light_count; ++slot)
+			for (std::size_t slot = 0; slot < state().point_light_count; ++slot)
 			{
-				if (!impl->point_lights[slot].is_spot)
+				if (!state().point_lights[slot].is_spot)
 					continue;
 				++spot_total;
 				if (slot >= Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)
@@ -104,124 +104,124 @@ namespace engine
 			}
 			if (!slot_mapping)
 				tile_limit = spot_total < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES ? spot_total : Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES;
-			spot_shadow_tiles_ensure_impl(impl.get(), tile_limit > 0 ? tile_limit : 1u);
+			spot_shadow_tiles_ensure_impl(owner->impl.get(), tile_limit > 0 ? tile_limit : 1u);
 		}
 		//矩阵与槽位映射随下一帧重算，旧阴影图不再可信
-		impl->shadow_pass_ready = false;
+		owner->impl->shadow_pass_ready = false;
 		logger.info("渲染器:: 多盏聚光灯阴影已{}", enabled ? "开启" : "关闭");
 	}
 
-	bool Renderer_Lighting::spot_shadow_atlas_set(bool enabled)
+	bool Render_Scene::spot_shadow_atlas_set(bool enabled)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return false;
 		//与请求一致则无需处理
-		if (impl->spot_shadow_atlas_requested == enabled)
-			return impl->spot_shadow_atlas;
-		impl->spot_shadow_atlas_requested = enabled;
+		if (state().spot_shadow_atlas_requested == enabled)
+			return owner->impl->spot_shadow_atlas;
+		state().spot_shadow_atlas_requested = enabled;
 		//重建图集并重绑
-		spot_shadow_atlas_apply_impl(impl.get());
-		logger.info("渲染器:: 聚光阴影图集已{}", impl->spot_shadow_atlas ? "开启" : "关闭");
-		return impl->spot_shadow_atlas;
+		spot_shadow_atlas_apply_impl(owner->impl.get());
+		logger.info("渲染器:: 聚光阴影图集已{}", owner->impl->spot_shadow_atlas ? "开启" : "关闭");
+		return owner->impl->spot_shadow_atlas;
 	}
 
-	bool Renderer_Lighting::spot_shadow_atlas(void) const
+	bool Render_Scene::spot_shadow_atlas(void) const
 	{
 		//未初始化返回假
-		return impl != nullptr && impl->initialized ? impl->spot_shadow_atlas : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? owner->impl->spot_shadow_atlas : false;
 	}
 
-	bool Renderer_Lighting::spot_shadow_light_set(uint32_t index, bool enabled)
+	bool Render_Scene::spot_shadow_light_set(uint32_t index, bool enabled)
 	{
 		//若尚未初始化或槽位越界
-		if (impl == nullptr || !impl->initialized || index >= Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || index >= Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES)
 			return false;
 		//与原值一致则无需重绘
-		if (impl->spot_shadow_light_enabled[index] == enabled)
+		if (state().spot_shadow_light_enabled[index] == enabled)
 			return true;
-		impl->spot_shadow_light_enabled[index] = enabled;
+		state().spot_shadow_light_enabled[index] = enabled;
 		//旧阴影图不再可信（该槽位可能不再投影或重新投影）
-		impl->shadow_pass_ready = false;
+		owner->impl->shadow_pass_ready = false;
 		return true;
 	}
 
-	bool Renderer_Lighting::spot_shadow_bias_scale_set(uint32_t index, float scale)
+	bool Render_Scene::spot_shadow_bias_scale_set(uint32_t index, float scale)
 	{
 		//若尚未初始化或槽位越界
-		if (impl == nullptr || !impl->initialized || index >= 8)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || index >= 8)
 			return false;
 		//非有限值忽略（保持原值）
 		if (!std::isfinite(scale))
 			return false;
-		impl->spot_shadow_bias_scale[index] = scale < 0.1f ? 0.1f : (scale > 10.0f ? 10.0f : scale);
+		state().spot_shadow_bias_scale[index] = scale < 0.1f ? 0.1f : (scale > 10.0f ? 10.0f : scale);
 		return true;
 	}
 
-	bool Renderer_Lighting::spot_shadow_quality_set(uint32_t index, float softness_scale, float strength_scale)
+	bool Render_Scene::spot_shadow_quality_set(uint32_t index, float softness_scale, float strength_scale)
 	{
 		//若尚未初始化或槽位越界
-		if (impl == nullptr || !impl->initialized || index >= 8)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || index >= 8)
 			return false;
 		//非有限值整次忽略（保持原值）
 		if (!std::isfinite(softness_scale) || !std::isfinite(strength_scale))
 			return false;
-		impl->spot_shadow_softness_scale[index] =
+		state().spot_shadow_softness_scale[index] =
 			softness_scale < 0.25f ? 0.25f : (softness_scale > 4.0f ? 4.0f : softness_scale);
-		impl->spot_shadow_strength_scale[index] =
+		state().spot_shadow_strength_scale[index] =
 			strength_scale < 0.0f ? 0.0f : (strength_scale > 1.0f ? 1.0f : strength_scale);
 		return true;
 	}
 
-	bool Renderer_Lighting::spot_shadow_priority_set(uint32_t index, float priority)
+	bool Render_Scene::spot_shadow_priority_set(uint32_t index, float priority)
 	{
 		//若尚未初始化或槽位越界
-		if (impl == nullptr || !impl->initialized || index >= 32)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized || index >= 32)
 			return false;
 		//非有限值忽略（保持原值）
 		if (!std::isfinite(priority))
 			return false;
-		impl->spot_shadow_priority[index] = priority;
+		state().spot_shadow_priority[index] = priority;
 		return true;
 	}
 
-	bool Renderer_Lighting::spot_shadow_all(void) const
+	bool Render_Scene::spot_shadow_all(void) const
 	{
 		//未初始化返回默认值
-		return impl != nullptr && impl->initialized ? impl->spot_shadow_all : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().spot_shadow_all : false;
 	}
 
-	void Renderer_Lighting::spot_shadow_bias_auto_set(bool enabled)
+	void Render_Scene::spot_shadow_bias_auto_set(bool enabled)
 	{
 		//若尚未初始化
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 			return;
-		impl->spot_shadow_bias_auto = enabled;
+		state().spot_shadow_bias_auto = enabled;
 		//逐瓦片偏置随下一帧重算，旧阴影图不再可信
-		impl->shadow_pass_ready = false;
+		owner->impl->shadow_pass_ready = false;
 		logger.info("渲染器:: 聚光灯阴影偏置自校准已{}", enabled ? "开启" : "关闭");
 	}
 
-	bool Renderer_Lighting::spot_shadow_bias_auto(void) const
+	bool Render_Scene::spot_shadow_bias_auto(void) const
 	{
 		//未初始化返回默认值
-		return impl != nullptr && impl->initialized ? impl->spot_shadow_bias_auto : false;
+		return owner != nullptr && owner->impl != nullptr && owner->impl->initialized ? state().spot_shadow_bias_auto : false;
 	}
 
-	void Renderer_Lighting::spot_shadow_bias_tiles_get(float out[8]) const
+	void Render_Scene::spot_shadow_bias_tiles_get(float out[8]) const
 	{
 		//输出数组必须有效
 		if (out == nullptr)
 			return;
 		//未初始化写默认偏置
-		if (impl == nullptr || !impl->initialized)
+		if (owner == nullptr || owner->impl == nullptr || !owner->impl->initialized)
 		{
 			for (std::size_t index = 0; index < 8; ++index)
 				out[index] = 0.010f;
 			return;
 		}
 		for (std::size_t index = 0; index < 8; ++index)
-			out[index] = impl->spot_shadow_bias_tiles[index];
+			out[index] = owner->impl->spot_shadow_bias_tiles[index];
 	}
 
 	/*
@@ -251,8 +251,8 @@ namespace engine
 			//已建立则跳过
 			if (impl->spot_shadow_targets[tile] != 0)
 				continue;
-			if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->shadow_size,
-				impl->shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
+			if (!impl->resource_domain->state().render_target.target_create(impl->spot_shadow_targets[tile], impl->scene_domain->state().shadow_size,
+				impl->scene_domain->state().shadow_size, VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{
 				impl->spot_shadow_targets[tile] = 0;
 				logger.warn("渲染器:: 多盏聚光灯阴影瓦片 {} 创建失败，按无阴影处理", tile);
@@ -300,10 +300,10 @@ namespace engine
 		VkSampler sampler = VK_NULL_HANDLE;
 		impl->resource_domain->state().texture.texture_bind_get(impl->resource_domain->state().default_texture, default_view, sampler);
 		//需要图集时按 4×2 创建（每瓦片 shadow_size 见方）
-		if (impl->spot_shadow_atlas_requested)
+		if (impl->scene_domain->state().spot_shadow_atlas_requested)
 		{
-			const uint32_t atlas_width = impl->shadow_size * 4;
-			const uint32_t atlas_height = impl->shadow_size * 2;
+			const uint32_t atlas_width = impl->scene_domain->state().shadow_size * 4;
+			const uint32_t atlas_height = impl->scene_domain->state().shadow_size * 2;
 			if (impl->resource_domain->state().render_target.target_create(impl->spot_shadow_atlas_target, atlas_width, atlas_height,
 				VK_FORMAT_R8G8B8A8_UNORM, impl->swapchain.depth_format_get(), 1))
 			{

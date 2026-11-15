@@ -57,7 +57,7 @@ namespace engine
 			VkExtent2D extent = impl->swapchain.extent_get();
 			//尺寸有效时刷新宽高比
 			if (extent.width != 0 && extent.height != 0)
-				impl->camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
+				impl->scene_domain->state().camera.aspect_set(static_cast<float>(extent.width) / static_cast<float>(extent.height));
 		}
 		//⑲ 粒子域：缓冲 / 管线 / 四边形网格全部惰性创建，此处只走域入口（保持域装配顺序）
 		owner->particle().init(effective);

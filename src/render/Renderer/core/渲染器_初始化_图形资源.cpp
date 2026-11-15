@@ -89,7 +89,7 @@ namespace engine
 			}
 			//写入初始视图 × 投影矩阵（列主序 16 浮点）
 			float view_proj[16] = {};
-			impl->camera.view_proj_get(view_proj);
+			impl->scene_domain->state().camera.view_proj_get(view_proj);
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], view_proj, 64, 0))
 			{
 				logger.error("渲染器:: 场景 UBO 写入失败（帧槽 {}）", slot);
@@ -98,18 +98,18 @@ namespace engine
 			}
 			//写入初始光照块（offset 64、64 字节：公共参数 ＋ 方向光 ＋ 颜色 ＋ 相机位置）
 			float light_block[16] = {
-				impl->light_ambient, impl->specular_intensity, impl->specular_shininess, static_cast<float>(impl->point_light_count),
-				impl->light_direction[0], impl->light_direction[1], impl->light_direction[2], impl->light_intensity,
-				impl->light_color[0], impl->light_color[1], impl->light_color[2], static_cast<float>(impl->attenuation_mode),
+				impl->scene_domain->state().light_ambient, impl->scene_domain->state().specular_intensity, impl->scene_domain->state().specular_shininess, static_cast<float>(impl->scene_domain->state().point_light_count),
+				impl->scene_domain->state().light_direction[0], impl->scene_domain->state().light_direction[1], impl->scene_domain->state().light_direction[2], impl->scene_domain->state().light_intensity,
+				impl->scene_domain->state().light_color[0], impl->scene_domain->state().light_color[1], impl->scene_domain->state().light_color[2], static_cast<float>(impl->scene_domain->state().attenuation_mode),
 				0.0f, 0.0f, 0.0f, 0.0f,
 			};
 			//相机世界位置（镜面高光的视线方向来源）；位置在首帧前为默认机位，w = 方向光逐光高光缩放（第五十轮）
 			float camera_position[3] = {};
-			impl->camera.position_get(camera_position);
+			impl->scene_domain->state().camera.position_get(camera_position);
 			light_block[12] = camera_position[0];
 			light_block[13] = camera_position[1];
 			light_block[14] = camera_position[2];
-			light_block[15] = impl->directional_specular;
+			light_block[15] = impl->scene_domain->state().directional_specular;
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], light_block, 64, 64))
 			{
 				logger.error("渲染器:: 场景光照写入失败（帧槽 {}）", slot);
@@ -122,15 +122,15 @@ namespace engine
 			{
 				//先排全部「位置 ＋ 半径」，再排全部「颜色 ＋ 强度」（与着色器两个数组的 std140 布局一致）
 				const std::size_t base = static_cast<std::size_t>(light) * 4;
-				point_block[base + 0] = impl->point_lights[light].position[0];
-				point_block[base + 1] = impl->point_lights[light].position[1];
-				point_block[base + 2] = impl->point_lights[light].position[2];
-				point_block[base + 3] = impl->point_lights[light].radius;
+				point_block[base + 0] = impl->scene_domain->state().point_lights[light].position[0];
+				point_block[base + 1] = impl->scene_domain->state().point_lights[light].position[1];
+				point_block[base + 2] = impl->scene_domain->state().point_lights[light].position[2];
+				point_block[base + 3] = impl->scene_domain->state().point_lights[light].radius;
 				//颜色段起点 = 8 盏位置（32 浮点）之后
-				point_block[32 + base + 0] = impl->point_lights[light].color[0];
-				point_block[32 + base + 1] = impl->point_lights[light].color[1];
-				point_block[32 + base + 2] = impl->point_lights[light].color[2];
-				point_block[32 + base + 3] = impl->point_lights[light].intensity;
+				point_block[32 + base + 0] = impl->scene_domain->state().point_lights[light].color[0];
+				point_block[32 + base + 1] = impl->scene_domain->state().point_lights[light].color[1];
+				point_block[32 + base + 2] = impl->scene_domain->state().point_lights[light].color[2];
+				point_block[32 + base + 3] = impl->scene_domain->state().point_lights[light].intensity;
 			}
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], point_block, 256, 128))
 			{
@@ -148,15 +148,15 @@ namespace engine
 			{
 				//槽内基址（每个槽 4 个浮点）
 				const std::size_t base = static_cast<std::size_t>(light) * 4;
-				spot_block[base + 0] = impl->point_lights[light].spot_direction[0];
-				spot_block[base + 1] = impl->point_lights[light].spot_direction[1];
-				spot_block[base + 2] = impl->point_lights[light].spot_direction[2];
-				spot_block[base + 3] = impl->point_lights[light].is_spot ? 1.0f : 0.0f;
+				spot_block[base + 0] = impl->scene_domain->state().point_lights[light].spot_direction[0];
+				spot_block[base + 1] = impl->scene_domain->state().point_lights[light].spot_direction[1];
+				spot_block[base + 2] = impl->scene_domain->state().point_lights[light].spot_direction[2];
+				spot_block[base + 3] = impl->scene_domain->state().point_lights[light].is_spot ? 1.0f : 0.0f;
 				//锥参数段起点 = 8 盏方向（32 浮点）之后
-				spot_block[32 + base + 0] = impl->point_lights[light].spot_inner_cos;
-				spot_block[32 + base + 1] = impl->point_lights[light].spot_outer_cos;
+				spot_block[32 + base + 0] = impl->scene_domain->state().point_lights[light].spot_inner_cos;
+				spot_block[32 + base + 1] = impl->scene_domain->state().point_lights[light].spot_outer_cos;
 				//z = 逐光源衰减模式（0 = 跟随全局、1 = 线性、2 = 平方反比；第四十六轮）
-				spot_block[32 + base + 2] = static_cast<float>(impl->point_lights[light].attenuation);
+				spot_block[32 + base + 2] = static_cast<float>(impl->scene_domain->state().point_lights[light].attenuation);
 			}
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], spot_block, 256, 384))
 			{
@@ -169,8 +169,8 @@ namespace engine
 			前 16 字节 = 雾色 rgb ＋ 密度 w；后 16 字节 = 起始距离 x ＋ 结束距离 y ＋ 模式 z（第一百四十三轮）。
 			*/
 			float fog_block[8] = {
-				impl->fog_color[0], impl->fog_color[1], impl->fog_color[2], impl->fog_density,
-				impl->fog_start, impl->fog_end, static_cast<float>(impl->fog_mode), impl->fog_height_falloff,
+				impl->scene_domain->state().fog_color[0], impl->scene_domain->state().fog_color[1], impl->scene_domain->state().fog_color[2], impl->scene_domain->state().fog_density,
+				impl->scene_domain->state().fog_start, impl->scene_domain->state().fog_end, static_cast<float>(impl->scene_domain->state().fog_mode), impl->scene_domain->state().fog_height_falloff,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], fog_block, 32, 640))
 			{
@@ -180,7 +180,7 @@ namespace engine
 			}
 			//写入初始环境光颜色（offset 672、16 字节；第四十轮）
 			float ambient_block[4] = {
-				impl->ambient_color[0], impl->ambient_color[1], impl->ambient_color[2], 0.0f,
+				impl->scene_domain->state().ambient_color[0], impl->scene_domain->state().ambient_color[1], impl->scene_domain->state().ambient_color[2], 0.0f,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot], ambient_block, 16, 672))
 			{
@@ -190,7 +190,7 @@ namespace engine
 			}
 			//写入初始半球环境光（offset 688、16 字节；第四十七轮）
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
-				impl->ambient_ground, 16, 688))
+				impl->scene_domain->state().ambient_ground, 16, 688))
 			{
 				logger.error("渲染器:: 场景半球环境光写入失败（帧槽 {}）", slot);
 				owner->shutdown();
@@ -198,7 +198,7 @@ namespace engine
 			}
 			//写入初始补光方向与强度（offset 704、16 字节；第四十七轮）
 			float fill_dir_block[4] = {
-				impl->fill_direction[0], impl->fill_direction[1], impl->fill_direction[2], impl->fill_intensity,
+				impl->scene_domain->state().fill_direction[0], impl->scene_domain->state().fill_direction[1], impl->scene_domain->state().fill_direction[2], impl->scene_domain->state().fill_intensity,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
 				fill_dir_block, 16, 704))
@@ -209,7 +209,7 @@ namespace engine
 			}
 			//写入初始补光颜色（offset 720、16 字节；第四十七轮；w = 逐光高光缩放，第五十轮）
 			float fill_color_block[4] = {
-				impl->fill_color[0], impl->fill_color[1], impl->fill_color[2], impl->fill_specular,
+				impl->scene_domain->state().fill_color[0], impl->scene_domain->state().fill_color[1], impl->scene_domain->state().fill_color[2], impl->scene_domain->state().fill_specular,
 			};
 			if (!impl->memory.buffer_write(impl->scene_ubos[slot], impl->scene_ubo_allocs[slot],
 				fill_color_block, 16, 720))

@@ -112,14 +112,14 @@ namespace engine
 	void Renderer_Impl_Holder::Impl::outline_item_push(const Frame_Render_Item& item)
 	{
 		//描边关闭、管线未登记或正在绘制文字则空操作
-		if (outline_width <= 0.0f || outline_pipeline == 0
+		if (scene_domain->state().outline_width <= 0.0f || outline_pipeline == 0
 			|| (ui_domain != nullptr && ui_domain->state().in_text_draw))
 			return;
 		//推送块：x = 外扩宽度、yzw = 描边色（与后处理描边色共用 offset 112 槽位）
-		outline_push[0] = outline_width;
-		outline_push[1] = outline_color[0];
-		outline_push[2] = outline_color[1];
-		outline_push[3] = outline_color[2];
+		outline_push[0] = scene_domain->state().outline_width;
+		outline_push[1] = scene_domain->state().outline_color[0];
+		outline_push[2] = scene_domain->state().outline_color[1];
+		outline_push[3] = scene_domain->state().outline_color[2];
 		//复制主体项（实例区与索引区原样复用），换描边管线与描边推送块
 		Frame_Render_Item outline_item = item;
 		outline_item.pipeline = pipeline.pipeline_by_handle_get(outline_pipeline);

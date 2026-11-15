@@ -75,7 +75,9 @@ namespace engine
 				impl->spot_shadow_atlas_target = 0;
 			}
 			impl->spot_shadow_atlas = false;
-			impl->spot_shadow_atlas_requested = false;
+			//图集请求仅在已初始化关闭时撤销（保持旧语义）
+			if (impl->scene_domain != nullptr)
+				impl->scene_domain->state().spot_shadow_atlas_requested = false;
 			//归还聚光灯阴影目标（第四百八十三轮；第五百零七轮扩为 4 张）
 			for (std::size_t tile = 0; tile < Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES; ++tile)
 			{
@@ -91,6 +93,9 @@ namespace engine
 			impl->shadow_signature = 0;
 			impl->shadow_pass_count = 0;
 		}
+		//场景域只复位主机侧场景状态；阴影资源已在上方按原顺序归还
+		if (impl->scene_domain != nullptr)
+			impl->scene_domain->shutdown();
 		/*
 		粒子 billboard 资源须先于帧 / 网格上下文销毁（第三百一十四轮）
 		域对象可能已随门面析构释放（见 Renderer 析构），故按实现体登记判断。
@@ -125,52 +130,6 @@ namespace engine
 		impl->cull_enabled = true;
 		//静态合批恢复默认（开启，第一百二十七轮）
 		impl->static_batching = true;
-		//光照恢复默认（满照：朝 -Z、白色、强度 1、环境光 0）
-		impl->light_direction[0] = 0.0f;
-		impl->light_direction[1] = 0.0f;
-		impl->light_direction[2] = -1.0f;
-		impl->light_color[0] = 1.0f;
-		impl->light_color[1] = 1.0f;
-		impl->light_color[2] = 1.0f;
-		impl->light_intensity = 1.0f;
-		impl->light_ambient = 0.0f;
-		//点光源与高光恢复默认（无点光源、方向光强度 1、高光关闭、光泽度 16）
-		impl->point_light_count = 0;
-		impl->specular_intensity = 0.0f;
-		impl->specular_shininess = 16.0f;
-		//复位距离衰减模式（第三十六轮：默认线性）
-		impl->attenuation_mode = 0;
-		//复位距离雾（第三十八轮：密度 0 = 关闭）
-		impl->fog_color[0] = 0.05f;
-		impl->fog_color[1] = 0.05f;
-		impl->fog_color[2] = 0.10f;
-		impl->fog_density = 0.0f;
-		impl->fog_start = 1.0f;
-		impl->fog_end = 10.0f;
-		//复位雾模式（第一百四十三轮：默认线性区间）
-		impl->fog_mode = 0;
-		//复位雾高度衰减（第一百四十三轮：默认关闭）
-		impl->fog_height_falloff = 0.0f;
-		//复位环境光颜色（第四十轮：默认白）
-		impl->ambient_color[0] = 1.0f;
-		impl->ambient_color[1] = 1.0f;
-		impl->ambient_color[2] = 1.0f;
-		//半球环境光恢复默认（地面白、强度 0 = 关闭）
-		impl->ambient_ground[0] = 1.0f;
-		impl->ambient_ground[1] = 1.0f;
-		impl->ambient_ground[2] = 1.0f;
-		impl->ambient_ground[3] = 0.0f;
-		//补光恢复默认（朝 -Z、白、强度 0 = 关闭）
-		impl->fill_direction[0] = 0.0f;
-		impl->fill_direction[1] = 0.0f;
-		impl->fill_direction[2] = -1.0f;
-		impl->fill_color[0] = 1.0f;
-		impl->fill_color[1] = 1.0f;
-		impl->fill_color[2] = 1.0f;
-		impl->fill_intensity = 0.0f;
-		//逐光高光缩放恢复默认（第五十轮：均为 1）
-		impl->directional_specular = 1.0f;
-		impl->fill_specular = 1.0f;
 		impl->pending_push_constants.clear();
 		//场景 UBO 依赖内存模块，须先于 memory 销毁
 		if (impl->memory.valid())
@@ -197,19 +156,8 @@ namespace engine
 		impl->cluster_destroy();
 		//图形 set0 簇数据缓冲与占位缓冲依赖内存模块，须先于 memory 销毁（第二百八十八轮）
 		impl->cluster_graphics_destroy();
-		//二次元风格化状态复位（第一百七十四轮；默认关闭）
-		impl->toon_steps = 0;
-		impl->toon_rim = 0.0f;
-		//暗部色调恢复默认（白色 = 乘性恒等；第一百七十八轮）
-		for (std::size_t index = 0; index < 3; ++index)
-			impl->toon_shadow_tint[index] = 1.0f;
-		//卡通高光阈值复位（0 = 关闭；第一百七十九轮）
-		impl->toon_specular = 0.0f;
-		//反向外扩描边复位（宽度 0 = 关闭；第二百二十八轮）
-		impl->outline_width = 0.0f;
+		//描边管线句柄随资源域关闭失效（用户参数由场景域复位）
 		impl->outline_pipeline = 0;
-		for (std::size_t index = 0; index < 3; ++index)
-			impl->outline_color[index] = 0.0f;
 		/*
 		写回管线缓存（第一百零六轮；可选）
 		在销毁管线缓存之前取出字节并写盘；失败仅告警，不影响关闭流程。

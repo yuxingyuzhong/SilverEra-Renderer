@@ -28,7 +28,7 @@ namespace engine
 		impl->last_spot_shadow_passes = 0;
 		//本帧阴影提交次数归零（第六百六十五轮；C2 基线）
 		impl->last_shadow_submits = 0;
-		if ((impl->shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
+		if ((impl->scene_domain->state().shadow_enabled || spot_shadow_light_valid) && impl->shadow_pipeline != 0
 			&& impl->shadow_target != 0 && !impl->pending_items.empty())
 		{
 			//本帧参与投影的项数
@@ -43,7 +43,7 @@ namespace engine
 			uint64_t shadow_signature = shadow_signature_build(impl->light_view_proj,
 				impl->light_view_proj_far, impl->light_view_proj_far2, &impl->spot_view_proj_tiles[0][0],
 				impl->pending_items, impl->pending_instances,
-				shadow_item_count, impl->shadow_size, impl->cascade_count);
+				shadow_item_count, impl->scene_domain->state().shadow_size, impl->scene_domain->state().cascade_count);
 			//输入与上一帧完全一致且阴影图可用 → 跳过重绘
 			if (shadow_item_count != 0 && impl->shadow_pass_ready && impl->shadow_signature == shadow_signature)
 			{
@@ -134,8 +134,8 @@ namespace engine
 				单级：整幅目标一次绘制，行为与引入级联前逐字节一致；
 				双级：目标沿 X 切成左右两片，各占「边长的一半」，第 1 片先清屏整幅、第 2 片以「保留」写入。
 				*/
-				uint32_t cascade_total = impl->cascade_count == 3 ? 3u : (impl->cascade_count == 2 ? 2u : 1u);
-				uint32_t tile_size = cascade_total > 1 ? (impl->shadow_size / cascade_total) : impl->shadow_size;
+				uint32_t cascade_total = impl->scene_domain->state().cascade_count == 3 ? 3u : (impl->scene_domain->state().cascade_count == 2 ? 2u : 1u);
+				uint32_t tile_size = cascade_total > 1 ? (impl->scene_domain->state().shadow_size / cascade_total) : impl->scene_domain->state().shadow_size;
 				/*
 				阴影列表合批（第一百二十九轮；第二百一十七轮移到分片循环外）
 				各分片的投影项完全相同、仅推送常量（光源矩阵）不同，而合批判据只比较项内静态字段
@@ -145,7 +145,7 @@ namespace engine
 				if (impl->static_batching)
 					impl->frame_merged_items += batch_adjacent_items(shadow_items, impl->batch_scratch);
 				//方向光阴影关闭（仅聚光阴影）时跳过级联 pass，保留方向光图原样（第四百八十四轮）
-				const uint32_t directional_cascade_total = impl->shadow_enabled ? cascade_total : 0u;
+				const uint32_t directional_cascade_total = impl->scene_domain->state().shadow_enabled ? cascade_total : 0u;
 				/*
 				批量提交规划（第六百六十九轮；C2）
 				先统计本帧阴影段数（级联 ＋ 有效聚光瓦片）；开启且段数 > 1 时收集目标 / 矩阵 / 清屏标志，
@@ -161,7 +161,7 @@ namespace engine
 							&& (spot_atlas_active || impl->spot_shadow_targets[tile] != 0))
 							++spot_tile_total;
 				}
-				const bool batch_path = impl->shadow_batch_submit
+				const bool batch_path = impl->scene_domain->state().shadow_batch_submit
 					&& (directional_cascade_total + spot_tile_total) > 1;
 				//批量段表（级联上限 3 ＋ 聚光瓦片 8）
 				Frame_Render_Target batch_targets[3 + Renderer_Impl_Holder::Impl::SPOT_SHADOW_TILES] = {};
@@ -245,9 +245,9 @@ namespace engine
 						{
 							//复用图集目标并收缩到本瓦片小格（渲染区同步收缩，逐片独立清屏）
 							spot_target = atlas_target;
-							spot_target.viewport_rect.offset = { static_cast<int32_t>((tile % 4) * impl->shadow_size),
-								static_cast<int32_t>((tile / 4) * impl->shadow_size) };
-							spot_target.viewport_rect.extent = { impl->shadow_size, impl->shadow_size };
+							spot_target.viewport_rect.offset = { static_cast<int32_t>((tile % 4) * impl->scene_domain->state().shadow_size),
+								static_cast<int32_t>((tile / 4) * impl->scene_domain->state().shadow_size) };
+							spot_target.viewport_rect.extent = { impl->scene_domain->state().shadow_size, impl->scene_domain->state().shadow_size };
 							spot_target.render_area_from_viewport = true;
 						}
 						else if (!impl->resource_domain->state().render_target.target_get(impl->spot_shadow_targets[tile], spot_target.color_image,
