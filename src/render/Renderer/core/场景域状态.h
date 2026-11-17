@@ -103,6 +103,10 @@ namespace engine
 		bool pbr_env_irradiance = false;
 		//光泽度 → GGX 粗糙度修正映射（方向九第 721 轮；默认关闭）
 		bool pbr_gloss_mapping = false;
+		//各向异性 GGX（方向九第 722 轮；默认关闭）
+		bool pbr_aniso = false;
+		//各向异性强度 0..1（0 = 各向同性）
+		float pbr_aniso_strength = 0.5f;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

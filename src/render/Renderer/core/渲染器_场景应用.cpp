@@ -27,7 +27,7 @@ namespace engine
 	{
 		if (out == nullptr)
 			return;
-		std::fill(out, out + 988, 0.0f);
+		std::fill(out, out + 992, 0.0f);
 		(*state_ptr).camera.view_proj_get(out);
 		float camera_position[3] = {};
 		(*state_ptr).camera.position_get(camera_position);
@@ -207,6 +207,9 @@ namespace engine
 		out[986] = state_ptr->pbr_env_irradiance ? 1.0f : 0.0f;
 		//光泽度 → GGX 粗糙度修正映射（第七百二十一轮；pbr_extra.w）
 		out[987] = state_ptr->pbr_gloss_mapping ? 1.0f : 0.0f;
+		//各向异性 GGX（第七百二十二轮；pbr_aniso.x / .y）
+		out[988] = state_ptr->pbr_aniso ? 1.0f : 0.0f;
+		out[989] = state_ptr->pbr_aniso_strength;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 

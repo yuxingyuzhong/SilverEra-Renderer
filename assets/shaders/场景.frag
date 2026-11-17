@@ -177,6 +177,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 environment;
 	//PBR 扩展（方向九第 718 轮；x = Fresnel-roughness 与 F90 口径统一、yzw 保留；默认 0）
 	vec4 pbr_extra;
+	//各向异性（方向九第 722 轮；x = 开关、y = 强度 0..1、zw 保留；默认 0）
+	vec4 pbr_aniso;
 } scene;
 
 /*
@@ -420,8 +422,28 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 	float alpha = roughness * roughness;
 	float alpha2 = alpha * alpha;
 	float denominator = ndoth * ndoth * (alpha2 - 1.0) + 1.0;
-	//法线分布（GGX）
-	float distribution = alpha2 / (3.14159265 * denominator * denominator);
+	//法线分布（GGX；第七百二十二轮起支持各向异性）
+	float distribution;
+	if (scene.pbr_aniso.x > 0.5)
+	{
+		/*
+		各向异性 GGX（第七百二十二轮）
+		切线框架由世界 X 投影到切平面构造（v1 全局轴向，逐物体轴向后续再接）；
+		at / ab 为切向 / 副切向粗糙度，强度 0 时退化为各向同性（与原式等价）。
+		*/
+		vec3 reference = abs(normal.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 0.0, 1.0);
+		vec3 tangent = normalize(reference - normal * dot(normal, reference));
+		vec3 bitangent = cross(normal, tangent);
+		float strength = clamp(scene.pbr_aniso.y, 0.0, 1.0);
+		float at = max(alpha * (1.0 + strength), 0.001);
+		float ab = max(alpha * (1.0 - strength), 0.001);
+		float to_h = dot(tangent, halfway);
+		float bo_h = dot(bitangent, halfway);
+		float aniso_term = (to_h * to_h) / (at * at) + (bo_h * bo_h) / (ab * ab) + ndoth * ndoth;
+		distribution = 1.0 / (3.14159265 * at * ab * aniso_term * aniso_term);
+	}
+	else
+		distribution = alpha2 / (3.14159265 * denominator * denominator);
 	//几何遮蔽（Smith-Schlick 近似）
 	float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
 	float geometry = (ndotl / (ndotl * (1.0 - k) + k)) * (ndotv / (ndotv * (1.0 - k) + k));

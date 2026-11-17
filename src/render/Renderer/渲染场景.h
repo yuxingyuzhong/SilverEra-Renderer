@@ -262,6 +262,14 @@ namespace engine
 		void pbr_gloss_mapping_set(bool enabled);
 		//当前光泽度修正映射是否开启
 		bool pbr_gloss_mapping(void) const;
+		//各向异性 GGX（方向九第 722 轮；默认关闭）
+		void pbr_aniso_set(bool enabled);
+		//当前各向异性是否开启
+		bool pbr_aniso(void) const;
+		//各向异性强度（0..1；非法值整次忽略）
+		void pbr_aniso_strength_set(float strength);
+		//当前各向异性强度
+		float pbr_aniso_strength(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

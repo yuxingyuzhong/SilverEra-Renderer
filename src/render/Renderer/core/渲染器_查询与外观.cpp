@@ -241,6 +241,47 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_gloss_mapping : false;
 	}
 
+	//各向异性 GGX（方向九第 722 轮；默认关闭）
+	void Render_Scene::pbr_aniso_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_aniso == enabled)
+			return;
+		(*state_ptr).pbr_aniso = enabled;
+	}
+
+	//当前各向异性是否开启（方向九第 722 轮）
+	bool Render_Scene::pbr_aniso(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_aniso : false;
+	}
+
+	//各向异性强度（方向九第 722 轮；0..1，非法值整次忽略）
+	void Render_Scene::pbr_aniso_strength_set(float strength)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//合法区间 0..1；越界或非数整次忽略
+		if (!(strength >= 0.0f && strength <= 1.0f))
+		{
+			logger.warn("渲染器:: 各向异性强度 {} 越界（0..1），已忽略", strength);
+			return;
+		}
+		(*state_ptr).pbr_aniso_strength = strength;
+	}
+
+	//当前各向异性强度（方向九第 722 轮）
+	float Render_Scene::pbr_aniso_strength(void) const
+	{
+		//未初始化返回默认 0.5
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_aniso_strength : 0.5f;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{
