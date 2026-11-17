@@ -184,6 +184,25 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_fresnel_roughness : false;
 	}
 
+	//环境镜面 split-sum BRDF 近似（方向九第 719 轮；默认关闭）
+	void Render_Scene::pbr_env_brdf_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_env_brdf == enabled)
+			return;
+		(*state_ptr).pbr_env_brdf = enabled;
+	}
+
+	//当前环境镜面 BRDF 近似是否开启（方向九第 719 轮）
+	bool Render_Scene::pbr_env_brdf(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_env_brdf : false;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{

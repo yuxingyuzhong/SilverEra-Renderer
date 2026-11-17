@@ -250,6 +250,10 @@ namespace engine
 		void pbr_fresnel_roughness_set(bool enabled);
 		//当前 Fresnel-roughness 口径是否开启
 		bool pbr_fresnel_roughness(void) const;
+		//环境镜面 split-sum BRDF 近似（方向九第 719 轮；默认关闭）
+		void pbr_env_brdf_set(bool enabled);
+		//当前环境镜面 BRDF 近似是否开启
+		bool pbr_env_brdf(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

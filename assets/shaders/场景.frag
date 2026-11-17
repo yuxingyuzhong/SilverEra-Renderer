@@ -342,6 +342,20 @@ vec3 pbr_fresnel(vec3 f0, float cos_theta, float roughness)
 }
 
 /*
+环境镜面 split-sum 解析近似（方向九第 719 轮；Karis 移动端拟合）
+由粗糙度与 N·V 直接给出 DFG 积分的 A / B 系数，替代单个方向的菲涅尔采样；
+仅在 scene.pbr_extra.y > 0.5 时使用，默认关闭时走原菲涅尔路径（逐字节不变）。
+*/
+vec2 env_brdf_approx(float roughness, float ndotv)
+{
+	const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+	const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+	vec4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * ndotv)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+/*
 PBR 镜面能量修正（第六百七十二轮；D1 第一步）
 开启（lighting_extra.x > 0.5）时乘入射余弦 NoL，使镜面等价于 D·G·F/(4·NoV)，修正掠射角过亮；
 关闭时乘子为 1，既有 PBR 画面逐字节不变。
@@ -1008,10 +1022,14 @@ void main()
 			radiance += env_rgb * albedo_color.rgb * (1.0 - material_metallic_cached)
 				* pbr_diffuse_energy * occlusion;
 			vec3 env_f0 = pbr_f0(albedo_color.rgb, material_metallic_cached);
-			//与环境镜面共用同一菲涅尔口径（第 718 轮）
-			vec3 env_fresnel = pbr_fresnel(env_f0, dot(normal, to_view),
-				pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached));
-			sky_specular += env_spec_rgb * env_fresnel;
+			//环境镜面 split-sum 近似（第 719 轮；pbr_extra.y > 0.5 时启用）
+			float env_roughness = pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached);
+			float env_ndotv = clamp(dot(normal, to_view), 0.0, 1.0);
+			vec2 env_brdf = env_brdf_approx(env_roughness, env_ndotv);
+			vec3 env_spec = scene.pbr_extra.y > 0.5
+				? env_f0 * env_brdf.x + env_brdf.y
+				: pbr_fresnel(env_f0, env_ndotv, env_roughness);
+			sky_specular += env_spec_rgb * env_spec;
 		}
 		/*
 		方向光（强度为 0 视为关闭）
