@@ -195,6 +195,8 @@ namespace engine
 		out[302] = state_ptr->spot_shadow_strength;
 		out[303] = spot_shadow_light_valid ? 1.0f : 0.0f;
 		out[456] = state_ptr->pbr_energy ? 1.0f : 0.0f;
+		//多重散射能量补偿（第七百一十六轮；lighting_extra.z）
+		out[458] = state_ptr->pbr_multiscatter ? 1.0f : 0.0f;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 

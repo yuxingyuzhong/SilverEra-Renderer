@@ -361,7 +361,18 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 	float geometry = (ndotl / (ndotl * (1.0 - k) + k)) * (ndotv / (ndotv * (1.0 - k) + k));
 	//菲涅尔（Schlick；F0 由金属度插值）
 	vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vdoth, 5.0);
-	return fresnel * (distribution * geometry / (4.0 * ndotl * ndotv));
+	vec3 result = fresnel * (distribution * geometry / (4.0 * ndotl * ndotv));
+	/*
+	多重散射能量补偿（方向九第 716 轮；lighting_extra.z > 0.5 时启用）
+	单次散射 GGX 在高粗糙金属上偏暗；按 F0 亮度与粗糙度补回多次弹射能量。
+	默认关闭时乘子恒 1，画面与引入前逐字节一致。
+	*/
+	if (scene.lighting_extra.z > 0.5)
+	{
+		float f0_luma = dot(f0, vec3(0.2126, 0.7152, 0.0722));
+		result *= 1.0 + f0_luma * roughness * 0.5;
+	}
+	return result;
 }
 
 /*

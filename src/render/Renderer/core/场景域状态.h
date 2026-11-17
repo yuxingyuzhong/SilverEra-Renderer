@@ -91,6 +91,8 @@ namespace engine
 		float pbr_metallic = 0.0f;
 		bool pbr_energy = false;
 		bool pbr_roughness_absolute = false;
+		//多重散射能量补偿（方向九第 716 轮；默认关闭）
+		bool pbr_multiscatter = false;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

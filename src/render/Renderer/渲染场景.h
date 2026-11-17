@@ -238,6 +238,10 @@ namespace engine
 		float pbr_metallic(void) const;
 		//PBR 掠射高光能量修正
 		void pbr_energy_set(bool enabled);
+		//多重散射能量补偿（方向九第 716 轮；默认关闭）
+		void pbr_multiscatter_set(bool enabled);
+		//当前多重散射能量补偿是否开启
+		bool pbr_multiscatter(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径
