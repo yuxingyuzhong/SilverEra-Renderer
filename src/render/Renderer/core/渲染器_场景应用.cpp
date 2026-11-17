@@ -210,6 +210,9 @@ namespace engine
 		//各向异性 GGX（第七百二十二轮；pbr_aniso.x / .y）
 		out[988] = state_ptr->pbr_aniso ? 1.0f : 0.0f;
 		out[989] = state_ptr->pbr_aniso_strength;
+		//皮肤 SSS-lite wrap 漫反射（第七百二十三轮；pbr_aniso.z / .w）
+		out[990] = state_ptr->pbr_skin_sss ? 1.0f : 0.0f;
+		out[991] = state_ptr->pbr_skin_wrap;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 

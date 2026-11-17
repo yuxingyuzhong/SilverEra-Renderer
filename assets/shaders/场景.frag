@@ -1086,6 +1086,16 @@ void main()
 		{
 			vec3 to_light = -scene.light_dir.xyz;
 			float ndotl = max(dot(normal, to_light), 0.0);
+			/*
+			皮肤 SSS-lite wrap 漫反射（第 723 轮；pbr_aniso.z > 0.5）
+			以半兰伯特形式把明暗交界推向背光侧，模拟皮肤次表面透光；
+			默认关闭时保持标准兰伯特（逐字节不变）。
+			*/
+			if (scene.pbr_aniso.z > 0.5)
+			{
+				float wrap = clamp(scene.pbr_aniso.w, 0.0, 1.0) * 0.5 + 0.01;
+				ndotl = clamp((dot(normal, to_light) + wrap) / (1.0 + wrap), 0.0, 1.0);
+			}
 			//色阶量化（第一百七十四轮；关闭时原样返回）
 			ndotl = toon_quantize(ndotl, toon_levels);
 			//记录主方向光受光系数（第一百七十八轮；供暗部色调化使用）

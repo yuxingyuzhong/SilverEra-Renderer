@@ -270,6 +270,14 @@ namespace engine
 		void pbr_aniso_strength_set(float strength);
 		//当前各向异性强度
 		float pbr_aniso_strength(void) const;
+		//皮肤 SSS-lite wrap 漫反射（方向九第 723 轮；默认关闭）
+		void pbr_skin_sss_set(bool enabled);
+		//当前皮肤 wrap 漫反射是否开启
+		bool pbr_skin_sss(void) const;
+		//wrap 强度（0..1；非法值整次忽略）
+		void pbr_skin_wrap_set(float wrap);
+		//当前 wrap 强度
+		float pbr_skin_wrap(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

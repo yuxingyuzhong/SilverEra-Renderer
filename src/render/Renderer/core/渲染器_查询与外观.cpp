@@ -282,6 +282,47 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_aniso_strength : 0.5f;
 	}
 
+	//皮肤 SSS-lite wrap 漫反射（方向九第 723 轮；默认关闭）
+	void Render_Scene::pbr_skin_sss_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_skin_sss == enabled)
+			return;
+		(*state_ptr).pbr_skin_sss = enabled;
+	}
+
+	//当前皮肤 wrap 漫反射是否开启（方向九第 723 轮）
+	bool Render_Scene::pbr_skin_sss(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_skin_sss : false;
+	}
+
+	//wrap 强度（方向九第 723 轮；0..1，非法值整次忽略）
+	void Render_Scene::pbr_skin_wrap_set(float wrap)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//合法区间 0..1；越界或非数整次忽略
+		if (!(wrap >= 0.0f && wrap <= 1.0f))
+		{
+			logger.warn("渲染器:: wrap 强度 {} 越界（0..1），已忽略", wrap);
+			return;
+		}
+		(*state_ptr).pbr_skin_wrap = wrap;
+	}
+
+	//当前 wrap 强度（方向九第 723 轮）
+	float Render_Scene::pbr_skin_wrap(void) const
+	{
+		//未初始化返回默认 0.5
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_skin_wrap : 0.5f;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{
