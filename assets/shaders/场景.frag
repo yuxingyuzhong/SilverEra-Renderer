@@ -1334,5 +1334,11 @@ void main()
 	按 EV 乘以 2 的幂；EV = 0 时 exp2(0) = 1，乘性恒等，画面逐字节不变。
 	*/
 	final_rgb *= exp2(scene.exposure);
-	out_color = vec4(clamp(final_rgb, 0.0, 1.0), albedo_color.a);
+	/*
+	输出钳制（第七百四十五轮调整口径）
+	只钳下界：负值仍归 0，上界交给附件格式处理——
+	8 位 UNORM / sRGB 附件由固定功能饱和到 1.0（与旧 `clamp(x,0,1)` 逐字节一致）；
+	RGBA16F 场景目标则保留 >1 的光强，供后续色调映射真实压缩高光。
+	*/
+	out_color = vec4(max(final_rgb, 0.0), albedo_color.a);
 }

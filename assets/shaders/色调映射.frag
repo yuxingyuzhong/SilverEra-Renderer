@@ -24,8 +24,11 @@ layout(push_constant) uniform Push_Size
 //简化 ACES 曲线（单通道）
 float aces(float x)
 {
-	//钳制输入
-	float v = clamp(x, 0.0, 1.0);
+	/*
+	只钳下界（第七百四十五轮）：8 位源本就 ≤ 1，去掉上钳后结果逐字节不变；
+	16F 源则可保留 >1 的高光，由曲线真实压缩。
+	*/
+	float v = max(x, 0.0);
 	return (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14);
 }
 

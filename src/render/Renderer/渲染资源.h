@@ -200,7 +200,8 @@ namespace engine
 		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 			bool depth_write = true, bool cull_front = false, bool depth_test = true,
-			bool depth_format_override = false, uint32_t depth_format = 0, uint32_t sample_count = 0);
+			bool depth_format_override = false, uint32_t depth_format = 0, uint32_t sample_count = 0,
+			uint32_t color_format = 0);
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
 			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
 		//卸载具名图形管线

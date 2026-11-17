@@ -49,9 +49,9 @@ float aces(float x)
 //胶片曲线（白点归一化）
 vec3 filmic(vec3 color, float white_point, float exposure_bias)
 {
-	vec3 current = vec3(hable(clamp(color.r, 0.0, 1.0) * exposure_bias),
-		hable(clamp(color.g, 0.0, 1.0) * exposure_bias),
-		hable(clamp(color.b, 0.0, 1.0) * exposure_bias));
+	//只钳下界（第七百四十五轮）：8 位源本就 ≤ 1，结果逐字节不变；16F 源可保留 >1 高光
+	vec3 biased = max(color, vec3(0.0)) * exposure_bias;
+	vec3 current = vec3(hable(biased.r), hable(biased.g), hable(biased.b));
 	float white_scale = hable(white_point);
 	return clamp(current / vec3(max(white_scale, 1e-5)), 0.0, 1.0);
 }
