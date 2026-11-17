@@ -953,13 +953,26 @@ void main()
 		*/
 		if (scene.environment.w > 0.0)
 		{
-			vec3 env_rgb = scene.environment.rgb * scene.environment.w;
+			/*
+			环境源（第七百一十五轮）
+			天空盒开启时以其立方体贴图作为环境源：法线方向近似漫反射、反射方向近似镜面；
+			关闭时退回常量颜色（第 714 轮口径，画面逐字节不变）。
+			*/
+			vec3 env_diffuse = scene.environment.rgb;
+			vec3 env_specular = scene.environment.rgb;
+			if (scene.sky_params.x > 0.5)
+			{
+				env_diffuse *= texture(sky_map, normal).rgb;
+				env_specular *= texture(sky_map, reflect(-to_view, normal)).rgb;
+			}
+			vec3 env_rgb = env_diffuse * scene.environment.w;
+			vec3 env_spec_rgb = env_specular * scene.environment.w;
 			radiance += env_rgb * albedo_color.rgb * (1.0 - material_metallic_cached)
 				* pbr_diffuse_energy * occlusion;
 			vec3 env_f0 = pbr_f0(albedo_color.rgb, material_metallic_cached);
 			vec3 env_fresnel = env_f0 + (vec3(1.0) - env_f0)
 				* pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 5.0);
-			sky_specular += env_rgb * env_fresnel;
+			sky_specular += env_spec_rgb * env_fresnel;
 		}
 		/*
 		方向光（强度为 0 视为关闭）
