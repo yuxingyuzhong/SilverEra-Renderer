@@ -175,6 +175,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 spot_shadow_slots_hi[6];
 	//环境光照（方向九第 714 轮；rgb = 颜色、w = 强度；0 = 关闭，画面逐字节不变）
 	vec4 environment;
+	//PBR 扩展（方向九第 718 轮；x = Fresnel-roughness 与 F90 口径统一、yzw 保留；默认 0）
+	vec4 pbr_extra;
 } scene;
 
 /*
@@ -327,6 +329,19 @@ vec3 pbr_f0(vec3 albedo, float metallic)
 }
 
 /*
+PBR 菲涅尔项（方向九第 718 轮：Fresnel-roughness 与 F90 口径统一）
+scene.pbr_extra.x > 0.5 时 F90 取 max(1 − roughness, F0)：粗糙表面掠射反射上限随粗糙度下降，
+介电与金属共用同一口径；关闭时 F90 恒 1，与引入前逐字节一致。
+*/
+vec3 pbr_fresnel(vec3 f0, float cos_theta, float roughness)
+{
+	vec3 f90 = vec3(1.0);
+	if (scene.pbr_extra.x > 0.5)
+		f90 = max(vec3(1.0 - clamp(roughness, 0.0, 1.0)), f0);
+	return f0 + (f90 - f0) * pow(1.0 - clamp(cos_theta, 0.0, 1.0), 5.0);
+}
+
+/*
 PBR 镜面能量修正（第六百七十二轮；D1 第一步）
 开启（lighting_extra.x > 0.5）时乘入射余弦 NoL，使镜面等价于 D·G·F/(4·NoV)，修正掠射角过亮；
 关闭时乘子为 1，既有 PBR 画面逐字节不变。
@@ -371,8 +386,8 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 	//几何遮蔽（Smith-Schlick 近似）
 	float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
 	float geometry = (ndotl / (ndotl * (1.0 - k) + k)) * (ndotv / (ndotv * (1.0 - k) + k));
-	//菲涅尔（Schlick；F0 由金属度插值）
-	vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vdoth, 5.0);
+	//菲涅尔（Schlick；F0 由金属度插值；第 718 轮起支持 Fresnel-roughness 口径）
+	vec3 fresnel = pbr_fresnel(f0, vdoth, roughness);
 	vec3 result = fresnel * (distribution * geometry / (4.0 * ndotl * ndotv));
 	/*
 	多重散射能量补偿（方向九第 716 轮；lighting_extra.z > 0.5 时启用）
@@ -993,8 +1008,9 @@ void main()
 			radiance += env_rgb * albedo_color.rgb * (1.0 - material_metallic_cached)
 				* pbr_diffuse_energy * occlusion;
 			vec3 env_f0 = pbr_f0(albedo_color.rgb, material_metallic_cached);
-			vec3 env_fresnel = env_f0 + (vec3(1.0) - env_f0)
-				* pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 5.0);
+			//与环境镜面共用同一菲涅尔口径（第 718 轮）
+			vec3 env_fresnel = pbr_fresnel(env_f0, dot(normal, to_view),
+				pbr_roughness(max(scene.light_common.z, 1.0), material_roughness_cached));
 			sky_specular += env_spec_rgb * env_fresnel;
 		}
 		/*

@@ -95,6 +95,8 @@ namespace engine
 		bool pbr_multiscatter = false;
 		//镜面抗锯齿（方向九第 717 轮；默认关闭）
 		bool pbr_specular_aa = false;
+		//Fresnel-roughness 与 F90 口径统一（方向九第 718 轮；默认关闭）
+		bool pbr_fresnel_roughness = false;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

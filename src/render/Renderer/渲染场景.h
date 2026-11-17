@@ -246,6 +246,10 @@ namespace engine
 		void pbr_specular_aa_set(bool enabled);
 		//当前镜面抗锯齿是否开启
 		bool pbr_specular_aa(void) const;
+		//Fresnel-roughness 与 F90 口径统一（方向九第 718 轮；默认关闭）
+		void pbr_fresnel_roughness_set(bool enabled);
+		//当前 Fresnel-roughness 口径是否开启
+		bool pbr_fresnel_roughness(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

@@ -27,7 +27,7 @@ namespace engine
 	{
 		if (out == nullptr)
 			return;
-		std::fill(out, out + 984, 0.0f);
+		std::fill(out, out + 988, 0.0f);
 		(*state_ptr).camera.view_proj_get(out);
 		float camera_position[3] = {};
 		(*state_ptr).camera.position_get(camera_position);
@@ -199,6 +199,8 @@ namespace engine
 		out[458] = state_ptr->pbr_multiscatter ? 1.0f : 0.0f;
 		//镜面抗锯齿（第七百一十七轮；lighting_extra.w）
 		out[459] = state_ptr->pbr_specular_aa ? 1.0f : 0.0f;
+		//Fresnel-roughness 与 F90 口径统一（第七百一十八轮；pbr_extra.x）
+		out[984] = state_ptr->pbr_fresnel_roughness ? 1.0f : 0.0f;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 
