@@ -173,6 +173,8 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 spot_shadow_strength_scale[2];
 	//槽位 8..31 的瓦片映射（第七百零九轮；-1 = 不投影）
 	vec4 spot_shadow_slots_hi[6];
+	//环境光照（方向九第 714 轮；rgb = 颜色、w = 强度；0 = 关闭，画面逐字节不变）
+	vec4 environment;
 } scene;
 
 /*
@@ -942,6 +944,22 @@ void main()
 			radiance += texture(sky_map, normal).rgb * scene.sky_params.y * occlusion;
 			vec3 reflected = reflect(-to_view, normal);
 			sky_specular = texture(sky_map, reflected).rgb * scene.sky_params.z;
+		}
+		/*
+		常量环境光照（方向九第 714 轮；IBL 的常量近似）
+		environment.rgb = 环境颜色、.w = 强度；强度 0 时整段跳过，画面与引入前逐字节一致。
+		漫反射按反照率 × (1 - 金属度) × 漫反射能量分摊累加；
+		镜面按 Schlick 菲涅尔反射率乘环境颜色累加（均匀环境下与粗糙度无关）。
+		*/
+		if (scene.environment.w > 0.0)
+		{
+			vec3 env_rgb = scene.environment.rgb * scene.environment.w;
+			radiance += env_rgb * albedo_color.rgb * (1.0 - material_metallic_cached)
+				* pbr_diffuse_energy * occlusion;
+			vec3 env_f0 = pbr_f0(albedo_color.rgb, material_metallic_cached);
+			vec3 env_fresnel = env_f0 + (vec3(1.0) - env_f0)
+				* pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 5.0);
+			sky_specular += env_rgb * env_fresnel;
 		}
 		/*
 		方向光（强度为 0 视为关闭）

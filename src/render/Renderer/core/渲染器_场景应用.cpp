@@ -22,12 +22,12 @@
 
 namespace engine
 {
-	//填充初始化场景 UBO 的 980 浮点数据块
+	//填充初始化场景 UBO 的 984 浮点数据块
 	void Render_Scene::scene_initial_block_fill(float* out) const
 	{
 		if (out == nullptr)
 			return;
-		std::fill(out, out + 980, 0.0f);
+		std::fill(out, out + 984, 0.0f);
 		(*state_ptr).camera.view_proj_get(out);
 		float camera_position[3] = {};
 		(*state_ptr).camera.position_get(camera_position);

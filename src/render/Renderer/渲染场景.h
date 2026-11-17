@@ -215,7 +215,7 @@ namespace engine
 		bool spot_shadow_atlas_requested(void) const;
 		//填充场景相关的只读帧统计
 		void frame_stats_fill(Frame_Stats& stats) const;
-		//填充初始化场景 UBO 的 980 浮点数据块
+		//填充初始化场景 UBO 的 984 浮点数据块
 		void scene_initial_block_fill(float* out) const;
 		//填充逐帧场景块中由场景域拥有的字段及跨域只读参数
 		void scene_frame_block_fill(float* out, const float view_proj[16], bool spot_shadow_light_valid) const;

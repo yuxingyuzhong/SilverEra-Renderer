@@ -29,11 +29,11 @@ namespace engine
 			return false;
 		}
 
-		//缓冲描述（场景 UBO 3824 字节：… ＋ 前向高 24 槽 ＋ 逐瓦片质量缩放；第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480，第七百零一轮 3760，第七百零八轮 3824，第七百零九轮 3920）
+		//缓冲描述（场景 UBO 3936 字节：… ＋ 前向高 24 槽 ＋ 逐瓦片质量缩放 ＋ 环境光照；第五百一十三轮 1792，第五百二十一轮 1824，第六百七十二轮 1840，第六百九十九轮 2480，第七百零一轮 3760，第七百零八轮 3824，第七百零九轮 3920，第七百一十三轮 3936）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 3920;
+		buffer_info.range = 3936;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};
