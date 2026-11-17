@@ -203,6 +203,8 @@ namespace engine
 		out[984] = state_ptr->pbr_fresnel_roughness ? 1.0f : 0.0f;
 		//环境镜面 split-sum BRDF 近似（第七百一十九轮；pbr_extra.y）
 		out[985] = state_ptr->pbr_env_brdf ? 1.0f : 0.0f;
+		//环境漫反射辐照度方向平均（第七百二十轮；pbr_extra.z）
+		out[986] = state_ptr->pbr_env_irradiance ? 1.0f : 0.0f;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 

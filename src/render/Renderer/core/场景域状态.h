@@ -99,6 +99,8 @@ namespace engine
 		bool pbr_fresnel_roughness = false;
 		//环境镜面 split-sum BRDF 近似（方向九第 719 轮；默认关闭）
 		bool pbr_env_brdf = false;
+		//环境漫反射辐照度方向平均（方向九第 720 轮；默认关闭）
+		bool pbr_env_irradiance = false;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

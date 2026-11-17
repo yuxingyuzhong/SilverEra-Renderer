@@ -356,6 +356,28 @@ vec2 env_brdf_approx(float roughness, float ndotv)
 }
 
 /*
+环境漫反射辐照度方向平均（方向九第 720 轮）
+天空盒开启且 scene.pbr_extra.z > 0.5 时，取法线及其切平面上四个方向的立方图均值，
+近似半球辐照度；关闭时退回按法线单点采样（第 715 轮口径，逐字节不变）。
+天空盒未开启时调用方不使用本函数结果。
+*/
+vec3 env_diffuse_sample(vec3 normal)
+{
+	if (scene.pbr_extra.z <= 0.5)
+		return texture(sky_map, normal).rgb;
+	//切平面基（避开与法线接近平行的参考轴）
+	vec3 reference = abs(normal.x) < 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	vec3 tangent = normalize(cross(reference, normal));
+	vec3 bitangent = cross(normal, tangent);
+	vec3 total = texture(sky_map, normal).rgb;
+	total += texture(sky_map, normalize(normal + tangent)).rgb;
+	total += texture(sky_map, normalize(normal - tangent)).rgb;
+	total += texture(sky_map, normalize(normal + bitangent)).rgb;
+	total += texture(sky_map, normalize(normal - bitangent)).rgb;
+	return total / 5.0;
+}
+
+/*
 PBR 镜面能量修正（第六百七十二轮；D1 第一步）
 开启（lighting_extra.x > 0.5）时乘入射余弦 NoL，使镜面等价于 D·G·F/(4·NoV)，修正掠射角过亮；
 关闭时乘子为 1，既有 PBR 画面逐字节不变。
@@ -1014,7 +1036,7 @@ void main()
 			vec3 env_specular = scene.environment.rgb;
 			if (scene.sky_params.x > 0.5)
 			{
-				env_diffuse *= texture(sky_map, normal).rgb;
+				env_diffuse *= env_diffuse_sample(normal);
 				env_specular *= texture(sky_map, reflect(-to_view, normal)).rgb;
 			}
 			vec3 env_rgb = env_diffuse * scene.environment.w;

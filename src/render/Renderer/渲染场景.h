@@ -254,6 +254,10 @@ namespace engine
 		void pbr_env_brdf_set(bool enabled);
 		//当前环境镜面 BRDF 近似是否开启
 		bool pbr_env_brdf(void) const;
+		//环境漫反射辐照度方向平均（方向九第 720 轮；默认关闭）
+		void pbr_env_irradiance_set(bool enabled);
+		//当前环境漫反射辐照度方向平均是否开启
+		bool pbr_env_irradiance(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径
