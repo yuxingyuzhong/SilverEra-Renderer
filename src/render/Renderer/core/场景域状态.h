@@ -101,6 +101,8 @@ namespace engine
 		bool pbr_env_brdf = false;
 		//环境漫反射辐照度方向平均（方向九第 720 轮；默认关闭）
 		bool pbr_env_irradiance = false;
+		//光泽度 → GGX 粗糙度修正映射（方向九第 721 轮；默认关闭）
+		bool pbr_gloss_mapping = false;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

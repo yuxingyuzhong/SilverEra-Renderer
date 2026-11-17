@@ -304,7 +304,7 @@ float toon_quantize(float ndotl, float steps)
 /*
 PBR-lite 粗糙度换算（第六十四轮；第六十八轮增加逐物体缩放入参）
 由 Blinn-Phong 光泽度换算 GGX 粗糙度：roughness = sqrt(2 / (shininess + 2))，
-再乘缩放入参并钳到 [0.03, 1]。
+再乘缩放入参并钳到 [0.03, 1]；第 721 轮起可选修正映射（见函数内）。
 */
 float pbr_roughness(float shininess, float scale)
 {
@@ -316,6 +316,9 @@ float pbr_roughness(float shininess, float scale)
 	if (scene.lighting_extra.y > 0.5)
 		return clamp(scale, 0.03, 1.0);
 	float roughness = sqrt(2.0 / (max(shininess, 1.0) + 2.0));
+	//光泽度修正映射（第 721 轮；pbr_extra.w > 0.5）：alpha = sqrt(2/(n+2)) → roughness = alpha^0.5
+	if (scene.pbr_extra.w > 0.5)
+		roughness = pow(2.0 / (max(shininess, 1.0) + 2.0), 0.25);
 	return clamp(roughness * max(scale, 0.05), 0.03, 1.0);
 }
 

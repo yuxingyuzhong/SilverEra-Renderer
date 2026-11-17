@@ -222,6 +222,25 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_env_irradiance : false;
 	}
 
+	//光泽度 → GGX 粗糙度修正映射（方向九第 721 轮；默认关闭）
+	void Render_Scene::pbr_gloss_mapping_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_gloss_mapping == enabled)
+			return;
+		(*state_ptr).pbr_gloss_mapping = enabled;
+	}
+
+	//当前光泽度修正映射是否开启（方向九第 721 轮）
+	bool Render_Scene::pbr_gloss_mapping(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_gloss_mapping : false;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{

@@ -258,6 +258,10 @@ namespace engine
 		void pbr_env_irradiance_set(bool enabled);
 		//当前环境漫反射辐照度方向平均是否开启
 		bool pbr_env_irradiance(void) const;
+		//光泽度 → GGX 粗糙度修正映射（方向九第 721 轮；默认关闭）
+		void pbr_gloss_mapping_set(bool enabled);
+		//当前光泽度修正映射是否开启
+		bool pbr_gloss_mapping(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

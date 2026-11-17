@@ -205,6 +205,8 @@ namespace engine
 		out[985] = state_ptr->pbr_env_brdf ? 1.0f : 0.0f;
 		//环境漫反射辐照度方向平均（第七百二十轮；pbr_extra.z）
 		out[986] = state_ptr->pbr_env_irradiance ? 1.0f : 0.0f;
+		//光泽度 → GGX 粗糙度修正映射（第七百二十一轮；pbr_extra.w）
+		out[987] = state_ptr->pbr_gloss_mapping ? 1.0f : 0.0f;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 
