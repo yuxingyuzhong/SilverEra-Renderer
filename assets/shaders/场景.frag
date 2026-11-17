@@ -343,6 +343,18 @@ GGX 镜面反射（第六十四轮；第六十五轮改为 RGB 菲涅尔）
 */
 vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec3 f0)
 {
+	/*
+	镜面抗锯齿（方向九第 717 轮；lighting_extra.w > 0.5 时启用）
+	按屏幕空间法线导数加宽粗糙度，抑制远处 / 高频法线的高光闪烁；
+	默认关闭时不做任何修改，画面逐字节不变。
+	*/
+	if (scene.lighting_extra.w > 0.5)
+	{
+		vec3 normal_dx = dFdx(normal);
+		vec3 normal_dy = dFdy(normal);
+		float variance = dot(normal_dx, normal_dx) + dot(normal_dy, normal_dy);
+		roughness = clamp(sqrt(roughness * roughness + min(2.0 * variance, 0.18)), 0.03, 1.0);
+	}
 	float ndotl = max(dot(normal, to_light), 0.0);
 	float ndotv = max(dot(normal, to_view), 0.0);
 	//任一侧背光则无镜面

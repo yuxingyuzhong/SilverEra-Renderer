@@ -146,6 +146,25 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_multiscatter : false;
 	}
 
+	//镜面抗锯齿（方向九第 717 轮；默认关闭）
+	void Render_Scene::pbr_specular_aa_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_specular_aa == enabled)
+			return;
+		(*state_ptr).pbr_specular_aa = enabled;
+	}
+
+	//当前镜面抗锯齿是否开启（方向九第 717 轮）
+	bool Render_Scene::pbr_specular_aa(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_specular_aa : false;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{
