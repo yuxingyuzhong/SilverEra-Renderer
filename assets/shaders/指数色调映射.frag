@@ -4,7 +4,7 @@
 指数曲线逐通道压缩高光：1 − exp(−x)，高光滚降比 Reinhard 更硬、暗区更接近线性。
 
 口径：
-1. 输入先钳到 [0,1]（本层后处理源为 8 位附件，不会超过 1）；
+1. 输入只钳下界（第七百四十八轮）：8 位源本就 ≤ 1、结果逐字节不变；16F 源可保留 >1 高光；
 2. 输出仍落在 [0,1]：x=1 → ≈0.632、x=0.18 → ≈0.165；
 3. alpha 恒置 1；只做逐像素映射，不读任何参数（与 ACES / Reinhard 预设互补）。
 */
@@ -23,8 +23,8 @@ layout(push_constant) uniform Push_Size
 //指数曲线（单通道）
 float exponential(float x)
 {
-	//钳制输入后按 1 − exp(−x) 映射
-	float v = clamp(x, 0.0, 1.0);
+	//只钳下界后按 1 − exp(−x) 映射
+	float v = max(x, 0.0);
 	return 1.0 - exp(-v);
 }
 
