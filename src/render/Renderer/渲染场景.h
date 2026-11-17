@@ -117,6 +117,10 @@ namespace engine
 		void ambient_color_set(const float color[3]);
 		//设置半球环境光
 		void ambient_ground_set(const float ground_color[3], float hemisphere);
+		//设置环境光照（方向九；颜色各分量 0..1，强度 ≥0；非法整次忽略）
+		void environment_set(const float color[3], float intensity);
+		//当前环境光照（未初始化时写 0）
+		void environment_get(float color[3], float* intensity) const;
 		//设置方向光的逐光高光缩放
 		void directional_specular_set(float scale);
 		//方向光阴影开关

@@ -159,6 +159,46 @@ namespace engine
 		(*state_ptr).ambient_ground[3] = blend;
 	}
 
+	void Render_Scene::environment_set(const float color[3], float intensity)
+	{
+		//若尚未初始化或颜色指针为空
+		if (owner == nullptr || !owner->device().valid() || color == nullptr)
+			return;
+		//颜色各分量须落在 [0,1]、强度须非负有限（取反比较使 NaN 判非法）
+		bool valid = (intensity >= 0.0f) && (intensity <= 1e6f);
+		for (std::size_t index = 0; index < 3; ++index)
+			if (!(color[index] >= 0.0f && color[index] <= 1.0f))
+				valid = false;
+		//若环境参数非法
+		if (!valid)
+		{
+			logger.warn("渲染器:: 环境光照参数非法（强度 {}），整次忽略", intensity);
+			return;
+		}
+		//写入环境颜色与强度
+		for (std::size_t index = 0; index < 3; ++index)
+			(*state_ptr).environment_color[index] = color[index];
+		(*state_ptr).environment_intensity = intensity;
+	}
+
+	void Render_Scene::environment_get(float color[3], float* intensity) const
+	{
+		//未初始化时写 0
+		if (state_ptr == nullptr)
+		{
+			if (color != nullptr)
+				color[0] = color[1] = color[2] = 0.0f;
+			if (intensity != nullptr)
+				*intensity = 0.0f;
+			return;
+		}
+		if (color != nullptr)
+			for (std::size_t index = 0; index < 3; ++index)
+				color[index] = (*state_ptr).environment_color[index];
+		if (intensity != nullptr)
+			*intensity = (*state_ptr).environment_intensity;
+	}
+
 	void Render_Device::light_fill_set(const float direction[3], const float color[3], float intensity, float specular)
 	{
 		//转发场景域补光语义

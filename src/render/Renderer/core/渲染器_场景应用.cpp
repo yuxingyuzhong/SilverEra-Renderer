@@ -74,6 +74,10 @@ namespace engine
 			out[172 + component] = (*state_ptr).ambient_ground[component];
 		out[179] = (*state_ptr).fill_intensity;
 		out[183] = (*state_ptr).fill_specular;
+		//环境光照（方向九；IBL 常量近似；默认 0）
+		for (uint32_t component = 0; component < 3; ++component)
+			out[980 + component] = (*state_ptr).environment_color[component];
+		out[983] = (*state_ptr).environment_intensity;
 		out[236] = 1.0f;
 		out[241] = 1.0f;
 	}
@@ -146,6 +150,10 @@ namespace engine
 			out[172 + component] = state_ptr->ambient_ground[component];
 		out[179] = state_ptr->fill_intensity;
 		out[183] = state_ptr->fill_specular;
+		//环境光照（方向九；IBL 常量近似；默认 0）
+		for (std::size_t component = 0; component < 3; ++component)
+			out[980 + component] = state_ptr->environment_color[component];
+		out[983] = state_ptr->environment_intensity;
 		out[232] = (state_ptr->shadow_enabled || spot_shadow_light_valid) ? 1.0f : 0.0f;
 		out[233] = state_ptr->shadow_bias;
 		out[234] = static_cast<float>(state_ptr->shadow_size);
@@ -374,6 +382,8 @@ namespace engine
 		ambient_color_set(light.ambient_color);
 		//半球环境光（地面颜色 ＋ 混合强度；非法颜色由 ambient_ground_set 整次忽略）
 		ambient_ground_set(light.ambient_ground, light.ambient_hemisphere);
+		//环境光照（方向九；非法值整次忽略）
+		environment_set(light.environment_color, light.environment_intensity);
 		//补光（第二盏方向光；强度 0 = 关闭；第五十轮含逐光高光缩放）
 		owner->light_fill_set(light.fill_direction, light.fill_color, light.fill_intensity, light.fill_specular);
 		//方向光逐光高光缩放（第五十轮；非法值由 setter 忽略）
@@ -592,6 +602,9 @@ namespace engine
 			light.fill_color[index] = scene.fill_color[index];
 		}
 		light.ambient_hemisphere = scene.ambient_hemisphere;
+		for (std::size_t index = 0; index < 3; ++index)
+			light.environment_color[index] = scene.environment_color[index];
+		light.environment_intensity = scene.environment_intensity;
 		light.fill_intensity = scene.fill_intensity;
 		light.directional_specular = scene.directional_specular;
 		light.fill_specular = scene.fill_specular;

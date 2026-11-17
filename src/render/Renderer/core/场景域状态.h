@@ -72,6 +72,9 @@ namespace engine
 		//环境光颜色与半球环境光
 		float ambient_color[3] = { 1.0f, 1.0f, 1.0f };
 		float ambient_ground[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
+		//环境光照（方向九；IBL 常量近似；默认关闭）
+		float environment_color[3] = { 0.0f, 0.0f, 0.0f };
+		float environment_intensity = 0.0f;
 		//距离雾与高度衰减
 		float fog_color[3] = { 0.05f, 0.05f, 0.10f };
 		float fog_density = 0.0f;

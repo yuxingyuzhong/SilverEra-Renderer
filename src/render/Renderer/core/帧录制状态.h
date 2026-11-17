@@ -151,7 +151,7 @@ namespace engine
 		456..459 = `lighting_extra`；460..619 = 高 8..15 槽；620..779 = 16..23 槽；780..939 = 24..31 槽（每组 160 浮点）；
 		940..947 = 逐瓦片软度缩放（8）；948..955 = 逐瓦片强度缩放（8）；956..979 = 槽位 8..31 的瓦片映射（24）。
 		*/
-		static constexpr std::size_t SCENE_BLOCK_FLOATS = 980;
+		static constexpr std::size_t SCENE_BLOCK_FLOATS = 984;
 
 		//槽位 8..31 的瓦片映射起始浮点偏移（第七百零九轮）
 		static constexpr std::size_t SCENE_SPOT_SLOTS_HI_BASE = 956;
