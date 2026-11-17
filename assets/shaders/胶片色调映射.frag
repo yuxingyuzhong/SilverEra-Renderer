@@ -18,7 +18,8 @@ layout(set = 1, binding = 0) uniform sampler2D source_image;
 layout(push_constant) uniform Push_Size
 {
 	layout(offset = 80) vec4 size_xy;
-	//逐级额外四参槽（offset 128）：x = 白点（≤ 0 回落 11.2），y = 曝光偏置（≤ 0 回落 2.0）
+	//逐级额外四参槽（offset 128）：
+	//x = 白点（≤ 0 回落 11.2）、y = 曝光偏置（≤ 0 回落 2.0）、z = 与 ACES 的混合比例（0 = 纯胶片）
 	layout(offset = 128) vec4 curve_extra;
 } push_size;
 
@@ -36,6 +37,13 @@ float hable(float x)
 	const float E = 0.02;
 	const float F = 0.30;
 	return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
+}
+
+//简化 ACES 曲线（与 色调映射.frag 同口径；第 742 轮用于 look 混合）
+float aces(float x)
+{
+	float v = clamp(x, 0.0, 1.0);
+	return (v * (2.51 * v + 0.03)) / (v * (2.43 * v + 0.59) + 0.14);
 }
 
 //胶片曲线（白点归一化）
@@ -61,5 +69,11 @@ void main()
 	float white_point = push_size.curve_extra.x > 0.0 ? push_size.curve_extra.x : DEFAULT_WHITE_POINT;
 	//曝光偏置：参数 ≤ 0 时回落默认口径
 	float exposure_bias = push_size.curve_extra.y > 0.0 ? push_size.curve_extra.y : DEFAULT_EXPOSURE_BIAS;
-	out_color = vec4(filmic(source.rgb, white_point, exposure_bias), 1.0);
+	//胶片结果
+	vec3 filmic_rgb = filmic(source.rgb, white_point, exposure_bias);
+	//与 ACES 的混合比例（0 = 纯胶片；默认 0，保证未设参时逐字节不变）
+	float look_mix = clamp(push_size.curve_extra.z, 0.0, 1.0);
+	//混合目标（简化 ACES 逐通道）
+	vec3 aces_rgb = vec3(aces(source.r), aces(source.g), aces(source.b));
+	out_color = vec4(mix(filmic_rgb, aces_rgb, look_mix), 1.0);
 }
