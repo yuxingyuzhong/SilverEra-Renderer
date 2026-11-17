@@ -161,6 +161,13 @@ namespace engine
 		bool target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回渲染目标的颜色为浮点 RGBA（第七百五十二轮）
+		values 为宽×高×4 个 float；16F 目标返回原始线性值（可 > 1），8 位目标按 /255 归一；
+		capacity 为 float 元素个数，须不小于 宽×高×4。调用方须保证无在途帧引用（门面先 frames_wait）。
+		*/
+		bool target_readback_float(uint64_t handle, float* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:
@@ -168,6 +175,10 @@ namespace engine
 		bool target_readback_impl(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		//按指定纹素字节数读回原始字节（整幅 / 子区域；第七百五十二轮抽出）
+		bool target_readback_raw(uint64_t handle, uint32_t x, uint32_t y,
+			uint32_t region_width, uint32_t region_height, uint32_t bytes_per_texel,
+			uint8_t* bytes, uint32_t capacity, uint32_t* width_out, uint32_t* height_out);
 		//确保一次性命令池与栅栏就绪（首次创建，之后复用）
 		bool transient_resources_ensure(void);
 		//一次性布局转换：颜色 UNDEFINED → SHADER_READ_ONLY、深度 UNDEFINED → DEPTH_ATTACHMENT（含 MSAA 附件）

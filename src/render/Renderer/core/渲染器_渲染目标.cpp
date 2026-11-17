@@ -86,6 +86,19 @@ namespace engine
 			pixels, capacity, width_out, height_out);
 	}
 
+	bool Render_Resource::render_target_readback_float(uint64_t handle, float* values, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//若尚未初始化
+		if (owner == nullptr || !owner->device().valid())
+			return false;
+		//先把在途帧等尽，避免与该目标的写入 / 采样冲突
+		if (!core->frame.frames_wait())
+			return false;
+		//转交渲染目标模块（浮点转换）
+		return (*state_ptr).render_target.target_readback_float(handle, values, capacity, width_out, height_out);
+	}
+
 	bool Render_Resource::render_target_readback_depth(uint64_t handle, uint32_t* values, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{

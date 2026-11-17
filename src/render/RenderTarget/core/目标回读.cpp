@@ -315,8 +315,105 @@ namespace engine
 		return recorded;
 	}
 
+	//读回实现（RGBA8：复用原始字节路径）
 	bool Render_Target_Context::target_readback_impl(uint64_t handle, uint32_t x, uint32_t y,
 		uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		return target_readback_raw(handle, x, y, region_width, region_height, 4,
+			pixels, capacity, width_out, height_out);
+	}
+
+	//文件内部工具：半精度 → 单精度
+	namespace
+	{
+		//IEEE 754 binary16 转 binary32（含符号 / 非规格化 / 无穷 / NaN）
+		float half_to_float(uint16_t value)
+		{
+			const uint32_t sign = static_cast<uint32_t>(value & 0x8000u) << 16;
+			uint32_t exponent = (value >> 10) & 0x1Fu;
+			uint32_t mantissa = value & 0x3FFu;
+			uint32_t bits = 0;
+			//零或非规格化
+			if (exponent == 0)
+			{
+				if (mantissa == 0)
+					bits = sign;
+				else
+				{
+					exponent = 1;
+					while ((mantissa & 0x400u) == 0)
+					{
+						mantissa <<= 1;
+						--exponent;
+					}
+					mantissa &= 0x3FFu;
+					bits = sign | ((exponent + 112u) << 23) | (mantissa << 13);
+				}
+			}
+			//无穷 / NaN
+			else if (exponent == 0x1Fu)
+				bits = sign | 0x7F800000u | (mantissa << 13);
+			//规格化
+			else
+				bits = sign | ((exponent + 112u) << 23) | (mantissa << 13);
+			float result = 0.0f;
+			std::memcpy(&result, &bits, sizeof(result));
+			return result;
+		}
+	}
+
+	//读回颜色为浮点 RGBA
+	bool Render_Target_Context::target_readback_float(uint64_t handle, float* values, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 / 出参 / 上下文校验
+		if (!valid() || values == nullptr || handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则拒绝
+		if (!record.valid)
+			return false;
+		//纹素字节数（本层只出现 RGBA16F 与 8 位）
+		const uint32_t bytes_per_texel = record.color_format == VK_FORMAT_R16G16B16A16_SFLOAT ? 8u : 4u;
+		const uint32_t width = record.extent.width;
+		const uint32_t height = record.extent.height;
+		const std::size_t float_count = static_cast<std::size_t>(width) * height * 4;
+		//若容量不足
+		if (float_count > capacity)
+		{
+			logger.error("渲染目标:: 浮点读回容量不足（需要 {} 个 float，给出 {}）", float_count, capacity);
+			return false;
+		}
+		//原始字节暂存（按纹素字节数紧排）
+		std::vector<uint8_t> raw(static_cast<std::size_t>(width) * height * bytes_per_texel);
+		if (!target_readback_raw(handle, 0, 0, width, height, bytes_per_texel, raw.data(),
+			static_cast<uint32_t>(raw.size()), width_out, height_out))
+			return false;
+		//转换为浮点
+		if (bytes_per_texel == 8)
+		{
+			const uint16_t* halves = reinterpret_cast<const uint16_t*>(raw.data());
+			for (std::size_t index = 0; index < float_count; ++index)
+				values[index] = half_to_float(halves[index]);
+		}
+		else
+		{
+			for (std::size_t index = 0; index < float_count; ++index)
+				values[index] = static_cast<float>(raw[index]) / 255.0f;
+		}
+		return true;
+	}
+
+	bool Render_Target_Context::target_readback_raw(uint64_t handle, uint32_t x, uint32_t y,
+		uint32_t region_width, uint32_t region_height, uint32_t bytes_per_texel,
+		uint8_t* pixels, uint32_t capacity,
 		uint32_t* width_out, uint32_t* height_out)
 	{
 		//出参先复位
@@ -332,8 +429,8 @@ namespace engine
 		//已空则拒绝
 		if (!record.valid)
 			return false;
-		//子区域字节数（RGBA8 紧排）
-		VkDeviceSize byte_size = static_cast<VkDeviceSize>(region_width) * region_height * 4;
+		//子区域字节数（按纹素字节数紧排）
+		VkDeviceSize byte_size = static_cast<VkDeviceSize>(region_width) * region_height * bytes_per_texel;
 		//若容量不足
 		if (byte_size > capacity)
 		{

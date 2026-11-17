@@ -230,6 +230,9 @@ namespace engine
 		bool render_target_readback_depth_region(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint32_t* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		//读回离屏渲染目标颜色为浮点 RGBA（16F 返回原始线性值，8 位按 /255 归一）
+		bool render_target_readback_float(uint64_t handle, float* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//把离屏渲染目标颜色绑定为当前纹理
 		void texture_bind_target(uint64_t handle);
 
