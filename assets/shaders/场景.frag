@@ -177,8 +177,10 @@ layout(set = 0, binding = 0) uniform Scene_Buffer
 	vec4 environment;
 	//PBR 扩展（方向九第 718 轮；x = Fresnel-roughness 与 F90 口径统一、yzw 保留；默认 0）
 	vec4 pbr_extra;
-	//各向异性（方向九第 722 轮；x = 开关、y = 强度 0..1、zw 保留；默认 0）
+	//各向异性（方向九第 722 轮；x = 开关、y = 强度 0..1、z = 皮肤 wrap 开关、w = wrap 强度；默认 0）
 	vec4 pbr_aniso;
+	//布料绒感 sheen（方向九第 724 轮；x = 开关、y = 强度 0..1、zw 保留；默认 0）
+	vec4 pbr_sheen;
 } scene;
 
 /*
@@ -1103,6 +1105,17 @@ void main()
 			//方向光阴影系数（第五十二轮；未启用时恒 1；第五十九轮传入法线做偏移）
 			float dir_shadow = shadow_factor(in_world, normal);
 			radiance += scene.light_color.rgb * scene.light_dir.w * ndotl * dir_shadow;
+			/*
+			布料绒感 sheen（第 724 轮；pbr_sheen.x > 0.5）
+			沿轮廓按 (1 − N·V)^3 叠一层受光绒边，模拟布料 / 绒毛的掠射散射；
+			默认关闭时整段跳过（逐字节不变）。
+			*/
+			if (scene.pbr_sheen.x > 0.5)
+			{
+				float sheen_rim = pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 3.0);
+				radiance += scene.light_color.rgb * scene.light_dir.w * sheen_rim
+					* clamp(scene.pbr_sheen.y, 0.0, 1.0) * ndotl;
+			}
 			//高光：PBR 开启走 GGX，否则沿用 Blinn-Phong（第六十四轮）
 			if (scene.pbr_params.x > 0.5)
 				specular = max(specular, pbr_specular_energy(ggx_specular(normal, to_view, to_light,

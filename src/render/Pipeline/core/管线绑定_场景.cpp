@@ -33,7 +33,7 @@ namespace engine
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = ubo_buffer;
 		buffer_info.offset = 0;
-		buffer_info.range = 3968;
+		buffer_info.range = 3984;
 
 		//描述符写（set 0 binding 0）
 		VkWriteDescriptorSet write{};

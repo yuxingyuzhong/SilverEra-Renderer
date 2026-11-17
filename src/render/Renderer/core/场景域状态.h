@@ -111,6 +111,10 @@ namespace engine
 		bool pbr_skin_sss = false;
 		//wrap 强度 0..1（0 = 标准兰伯特）
 		float pbr_skin_wrap = 0.5f;
+		//布料绒感 sheen（方向九第 724 轮；默认关闭）
+		bool pbr_sheen = false;
+		//sheen 强度 0..1
+		float pbr_sheen_strength = 0.5f;
 		//二次元风格化配置
 		uint32_t toon_steps = 0;
 		float toon_rim = 0.0f;

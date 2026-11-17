@@ -278,6 +278,14 @@ namespace engine
 		void pbr_skin_wrap_set(float wrap);
 		//当前 wrap 强度
 		float pbr_skin_wrap(void) const;
+		//布料绒感 sheen（方向九第 724 轮；默认关闭）
+		void pbr_sheen_set(bool enabled);
+		//当前 sheen 是否开启
+		bool pbr_sheen(void) const;
+		//sheen 强度（0..1；非法值整次忽略）
+		void pbr_sheen_strength_set(float strength);
+		//当前 sheen 强度
+		float pbr_sheen_strength(void) const;
 		//PBR 掠射高光能量修正是否开启
 		bool pbr_energy(void) const;
 		//PBR 粗糙度绝对口径

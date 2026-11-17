@@ -27,7 +27,7 @@ namespace engine
 	{
 		if (out == nullptr)
 			return;
-		std::fill(out, out + 992, 0.0f);
+		std::fill(out, out + 996, 0.0f);
 		(*state_ptr).camera.view_proj_get(out);
 		float camera_position[3] = {};
 		(*state_ptr).camera.position_get(camera_position);
@@ -213,6 +213,9 @@ namespace engine
 		//皮肤 SSS-lite wrap 漫反射（第七百二十三轮；pbr_aniso.z / .w）
 		out[990] = state_ptr->pbr_skin_sss ? 1.0f : 0.0f;
 		out[991] = state_ptr->pbr_skin_wrap;
+		//布料绒感 sheen（第七百二十四轮；pbr_sheen.x / .y）
+		out[992] = state_ptr->pbr_sheen ? 1.0f : 0.0f;
+		out[993] = state_ptr->pbr_sheen_strength;
 		out[457] = state_ptr->pbr_roughness_absolute ? 1.0f : 0.0f;
 	}
 

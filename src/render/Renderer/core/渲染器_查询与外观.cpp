@@ -323,6 +323,47 @@ namespace engine
 		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_skin_wrap : 0.5f;
 	}
 
+	//布料绒感 sheen（方向九第 724 轮；默认关闭）
+	void Render_Scene::pbr_sheen_set(bool enabled)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//与原值一致则无需处理
+		if ((*state_ptr).pbr_sheen == enabled)
+			return;
+		(*state_ptr).pbr_sheen = enabled;
+	}
+
+	//当前 sheen 是否开启（方向九第 724 轮）
+	bool Render_Scene::pbr_sheen(void) const
+	{
+		//未初始化返回默认假
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_sheen : false;
+	}
+
+	//sheen 强度（方向九第 724 轮；0..1，非法值整次忽略）
+	void Render_Scene::pbr_sheen_strength_set(float strength)
+	{
+		//未初始化静默返回
+		if (owner == nullptr || !owner->device().valid())
+			return;
+		//合法区间 0..1；越界或非数整次忽略
+		if (!(strength >= 0.0f && strength <= 1.0f))
+		{
+			logger.warn("渲染器:: sheen 强度 {} 越界（0..1），已忽略", strength);
+			return;
+		}
+		(*state_ptr).pbr_sheen_strength = strength;
+	}
+
+	//当前 sheen 强度（方向九第 724 轮）
+	float Render_Scene::pbr_sheen_strength(void) const
+	{
+		//未初始化返回默认 0.5
+		return owner != nullptr && owner->device().valid() ? (*state_ptr).pbr_sheen_strength : 0.5f;
+	}
+
 	//当前 PBR 掠射高光能量修正是否开启（第六百七十二轮）
 	bool Render_Scene::pbr_energy(void) const
 	{

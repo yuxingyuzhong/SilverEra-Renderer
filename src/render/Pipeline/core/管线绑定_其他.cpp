@@ -69,7 +69,7 @@ namespace engine
 		VkDescriptorBufferInfo ubo_info{};
 		ubo_info.buffer = ubo_buffer;
 		ubo_info.offset = 0;
-		ubo_info.range = 3968;
+		ubo_info.range = 3984;
 		VkWriteDescriptorSet ubo_write{};
 		ubo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		ubo_write.dstSet = particle_sets[slot];
