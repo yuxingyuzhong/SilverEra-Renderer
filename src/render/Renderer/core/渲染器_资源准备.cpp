@@ -712,8 +712,10 @@ namespace engine
 		present_extra.push_back(hdr_bloom_targets[0]);
 		present_extra.push_back(hdr_bloom_targets[1]);
 		present_extra.push_back(hdr_bloom_targets[2]);
-		//模糊半径 4（此时链长为 4，级序 1 合法）
-		owner->device().post_stage_param_set(1, 0.6f, 0.1f, 4.0f);
+		//逐级参数：提取（阈值 / 软膝）、模糊（半径）、叠加（强度）——第 763 轮参数化
+		owner->device().post_stage_param_set(0, hdr_bloom_threshold, hdr_bloom_knee, 1.0f);
+		owner->device().post_stage_param_set(1, hdr_bloom_threshold, hdr_bloom_knee, hdr_bloom_radius);
+		owner->device().post_stage_param_set(2, hdr_bloom_threshold, hdr_bloom_knee, hdr_bloom_intensity);
 		hdr_bloom_chain_active = true;
 	}
 

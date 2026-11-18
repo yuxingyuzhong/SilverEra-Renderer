@@ -105,6 +105,12 @@ namespace engine
 		中间目标与管线由引擎自建；需 hdr_targets 同时开启，且调用方未指定呈现 / 渲染目标与后处理链。
 		*/
 		bool hdr_auto_bloom = false;
+		//HDR 自动泛光的提取阈值 / 软膝（第 763 轮；默认 0.6 / 0.1，与第七百六十一轮一致）
+		float hdr_bloom_threshold = 0.6f;
+		float hdr_bloom_knee = 0.1f;
+		//HDR 自动泛光的模糊半径（钳到 1..4）与叠加强度（须 > 0；默认 4.0 / 1.0）
+		float hdr_bloom_radius = 4.0f;
+		float hdr_bloom_intensity = 1.0f;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*

@@ -150,6 +150,11 @@ namespace engine
 		uint32_t hdr_tone_operator = 0;
 		//HDR 默认路径自动泛光开关与资源（第 761 轮；默认关闭）
 		bool hdr_auto_bloom = false;
+		//自动泛光参数（第 763 轮；默认与第七百六十一轮一致）
+		float hdr_bloom_threshold = 0.6f;
+		float hdr_bloom_knee = 0.1f;
+		float hdr_bloom_radius = 4.0f;
+		float hdr_bloom_intensity = 1.0f;
 		uint64_t hdr_bloom_targets[3] = { 0, 0, 0 };
 		uint64_t hdr_bloom_pipelines[3] = { 0, 0, 0 };
 		uint32_t hdr_bloom_width = 0;

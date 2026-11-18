@@ -59,6 +59,11 @@ namespace engine
 		state_ptr->hdr_tone_operator = 0;
 		//自动泛光复位（第 761 轮；目标已随资源域销毁）
 		state_ptr->hdr_auto_bloom = false;
+		//自动泛光参数复位为默认（第 763 轮）
+		state_ptr->hdr_bloom_threshold = 0.6f;
+		state_ptr->hdr_bloom_knee = 0.1f;
+		state_ptr->hdr_bloom_radius = 4.0f;
+		state_ptr->hdr_bloom_intensity = 1.0f;
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			state_ptr->hdr_bloom_targets[index] = 0;

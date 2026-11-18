@@ -74,6 +74,20 @@ namespace engine
 		state_ptr->hdr_tone_operator = effective.hdr_tone_operator > 4 ? 0 : effective.hdr_tone_operator;
 		//HDR 默认路径自动泛光（第 761 轮；默认关闭）
 		state_ptr->hdr_auto_bloom = effective.hdr_auto_bloom;
+		/*
+		自动泛光参数（第 763 轮）
+		半径钳到 1..4（模糊片元只接受该区间）；强度须 > 0，非法时回落 1.0；
+		阈值 / 软膝非有限值或软膝为负时回落默认（0.6 / 0.1）。
+		*/
+		state_ptr->hdr_bloom_threshold = (effective.hdr_bloom_threshold == effective.hdr_bloom_threshold)
+			? effective.hdr_bloom_threshold : 0.6f;
+		state_ptr->hdr_bloom_knee = (effective.hdr_bloom_knee == effective.hdr_bloom_knee
+			&& effective.hdr_bloom_knee >= 0.0f) ? effective.hdr_bloom_knee : 0.1f;
+		state_ptr->hdr_bloom_radius = effective.hdr_bloom_radius < 1.0f ? 1.0f
+			: (effective.hdr_bloom_radius > 4.0f ? 4.0f : effective.hdr_bloom_radius);
+		state_ptr->hdr_bloom_intensity = (effective.hdr_bloom_intensity == effective.hdr_bloom_intensity
+			&& effective.hdr_bloom_intensity > 0.0f && effective.hdr_bloom_intensity < 100.0f)
+			? effective.hdr_bloom_intensity : 1.0f;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))
