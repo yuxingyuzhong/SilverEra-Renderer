@@ -64,6 +64,8 @@ namespace engine
 		state_ptr->hdr_bloom_knee = 0.1f;
 		state_ptr->hdr_bloom_radius = 4.0f;
 		state_ptr->hdr_bloom_intensity = 1.0f;
+		//半分辨率自动泛光复位为关闭（第 765 轮）
+		state_ptr->hdr_bloom_half_res = false;
 		for (std::size_t index = 0; index < 3; ++index)
 		{
 			state_ptr->hdr_bloom_targets[index] = 0;

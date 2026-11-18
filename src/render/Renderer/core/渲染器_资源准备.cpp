@@ -625,15 +625,27 @@ namespace engine
 			hdr_bloom_width = 0;
 			hdr_bloom_height = 0;
 		}
-		//按 16F 创建三个中间目标
+		//按 16F 创建三个中间目标（第 765 轮：可选半分辨率）
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			if (!owner->resource().render_target_create_format(hdr_bloom_targets[index], width, height,
+			/*
+			半分辨率策略（第 765 轮，默认关闭）
+			索引 0（亮部提取输出）与 1（模糊输出）取 1/2 边长；索引 2（叠加输出）恒取场景尺寸 ——
+			叠加级的宿随后被色调映射级按全屏采样，若也降半会让泛光在直边上出现块状边缘。
+			*/
+			uint32_t target_width = width;
+			uint32_t target_height = height;
+			if (hdr_bloom_half_res && index < 2)
+			{
+				target_width = width / 2 > 0 ? width / 2 : 1;
+				target_height = height / 2 > 0 ? height / 2 : 1;
+			}
+			if (!owner->resource().render_target_create_format(hdr_bloom_targets[index], target_width, target_height,
 				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
 				static_cast<uint32_t>(swapchain.depth_format_get())))
 			{
-				logger.warn("渲染器:: HDR 泛光中间目标创建失败（{}×{}，第 {} 个），本帧回落不泛光", width, height,
-					static_cast<uint32_t>(index));
+				logger.warn("渲染器:: HDR 泛光中间目标创建失败（{}×{}，第 {} 个），本帧回落不泛光",
+					target_width, target_height, static_cast<uint32_t>(index));
 				hdr_bloom_failed = true;
 				return false;
 			}
@@ -722,7 +734,14 @@ namespace engine
 		present_extra.push_back(hdr_bloom_targets[2]);
 		//逐级参数：提取（阈值 / 软膝）、模糊（半径）、叠加（强度）——第 763 轮参数化
 		owner->device().post_stage_param_set(0, hdr_bloom_threshold, hdr_bloom_knee, 1.0f);
-		owner->device().post_stage_param_set(1, hdr_bloom_threshold, hdr_bloom_knee, hdr_bloom_radius);
+		/*
+		模糊半径按目标分辨率折算（第 765 轮）
+		半分辨率下半径按纹素计，若不折算会使泛光带宽翻倍；除以 2 后仍钳回 1..4（片元只接受该区间）。
+		*/
+		float blur_radius = hdr_bloom_half_res ? hdr_bloom_radius * 0.5f : hdr_bloom_radius;
+		if (blur_radius < 1.0f)
+			blur_radius = 1.0f;
+		owner->device().post_stage_param_set(1, hdr_bloom_threshold, hdr_bloom_knee, blur_radius);
 		owner->device().post_stage_param_set(2, hdr_bloom_threshold, hdr_bloom_knee, hdr_bloom_intensity);
 		hdr_bloom_chain_active = true;
 	}

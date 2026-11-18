@@ -88,6 +88,8 @@ namespace engine
 		state_ptr->hdr_bloom_intensity = (effective.hdr_bloom_intensity == effective.hdr_bloom_intensity
 			&& effective.hdr_bloom_intensity > 0.0f && effective.hdr_bloom_intensity < 100.0f)
 			? effective.hdr_bloom_intensity : 1.0f;
+		//自动泛光半分辨率（第 765 轮；默认关闭，关闭时中间目标尺寸与第七百六十一轮一致）
+		state_ptr->hdr_bloom_half_res = effective.hdr_bloom_half_res;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))

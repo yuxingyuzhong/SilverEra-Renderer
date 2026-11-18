@@ -155,6 +155,8 @@ namespace engine
 		float hdr_bloom_knee = 0.1f;
 		float hdr_bloom_radius = 4.0f;
 		float hdr_bloom_intensity = 1.0f;
+		//自动泛光半分辨率（第 765 轮；默认关闭：提取 / 模糊两个中间目标取 1/2 边长）
+		bool hdr_bloom_half_res = false;
 		uint64_t hdr_bloom_targets[3] = { 0, 0, 0 };
 		uint64_t hdr_bloom_pipelines[3] = { 0, 0, 0 };
 		uint32_t hdr_bloom_width = 0;
