@@ -426,6 +426,9 @@ namespace engine
 				case 3:
 					fragment = "Reinhard扩展色调映射.frag.spv";
 					break;
+				case 4:
+					fragment = "AgX色调映射.frag.spv";
+					break;
 				default:
 					fragment = "色调映射.frag.spv";
 					break;

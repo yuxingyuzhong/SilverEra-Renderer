@@ -70,8 +70,8 @@ namespace engine
 		HDR 默认路径要求场景管线按 16F 烘焙，故不能等到阶段函数之后再赋值。
 		*/
 		state_ptr->hdr_targets = effective.hdr_targets;
-		//色调映射算子同须早于后处理管线惰性登记（第 759 轮；越界按 0）
-		state_ptr->hdr_tone_operator = effective.hdr_tone_operator > 3 ? 0 : effective.hdr_tone_operator;
+		//色调映射算子同须早于后处理管线惰性登记（第 759 / 760 轮；越界按 0）
+		state_ptr->hdr_tone_operator = effective.hdr_tone_operator > 4 ? 0 : effective.hdr_tone_operator;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))

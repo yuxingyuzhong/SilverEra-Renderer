@@ -93,8 +93,9 @@ namespace engine
 		*/
 		bool hdr_targets = false;
 		/*
-		HDR 默认路径的色调映射算子（第 759 轮；默认 0）
-		0 = ACES 近似（色调映射.frag，与第七百五十七轮一致）；1 = 胶片（Hable）；2 = 指数；3 = 扩展 Reinhard。
+		HDR 默认路径的色调映射算子（第 759 / 760 轮；默认 0）
+		0 = ACES 近似（色调映射.frag，与第七百五十七轮一致）；1 = 胶片（Hable）；2 = 指数；
+		3 = 扩展 Reinhard；4 = AgX 近似（彩色高光去饱和）。
 		仅在 hdr_targets 开启且走默认路径时生效；越界值按 0 处理，关闭时不影响任何画面。
 		*/
 		uint32_t hdr_tone_operator = 0;
