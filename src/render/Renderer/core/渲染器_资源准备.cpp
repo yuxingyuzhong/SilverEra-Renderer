@@ -434,8 +434,16 @@ namespace engine
 					break;
 				}
 			}
+			/*
+			末级呈现管线的颜色格式须显式取交换链格式（第 764 轮）
+			HDR 默认路径下管线上下文的全局颜色格式是 16F（供场景 pass 写 16F 目标），
+			而末级（色调映射 / 直通）始终直接写交换链；若沿用全局格式烘焙，
+			动态渲染的附件格式与管线声明不一致（VUID-...-dynamicRenderingUnusedAttachments-08910），
+			驱动虽多能容忍，但属未定义行为。故此处显式按交换链格式创建。
+			*/
 			if (!owner->resource().pipeline_load_ex(registered, "后处理.vert.spv", fragment,
-				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 1))
+				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 1,
+				static_cast<uint32_t>(swapchain.format_get())))
 			{
 				logger.error("渲染器:: 后处理管线登记失败");
 				return false;
