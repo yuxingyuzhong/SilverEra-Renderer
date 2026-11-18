@@ -43,6 +43,8 @@ namespace engine
 		void msaa_depth_resolve_set(bool enabled);
 		bool msaa_depth_resolve(void) const;
 		bool hdr_targets(void) const;
+		//当前生效的色调映射算子（第 776 轮；0 ACES / 1 胶片 / 2 指数 / 3 扩展 Reinhard / 4 AgX / 5 双轨）
+		uint32_t hdr_tone_operator(void) const;
 		uint32_t msaa_max_samples(void) const;
 		bool sampler_anisotropy_supported(void) const;
 		float sampler_max_anisotropy(void) const;
