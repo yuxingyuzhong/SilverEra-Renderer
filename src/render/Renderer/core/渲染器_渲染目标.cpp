@@ -32,9 +32,12 @@ namespace engine
 			logger.error("渲染器:: 创建渲染目标失败：尚未初始化");
 			return false;
 		}
-		//转交渲染目标模块（颜色 / 深度格式取当前交换链格式）
+		//颜色格式：开启「离屏目标默认 16F」时改用 16F，否则取当前交换链格式
+		VkFormat color_format = owner->device().hdr_targets()
+			? VK_FORMAT_R16G16B16A16_SFLOAT : core->swapchain.format_get();
+		//转交渲染目标模块
 		return (*state_ptr).render_target.target_create(handle_out, width, height,
-			core->swapchain.format_get(), core->swapchain.depth_format_get());
+			color_format, core->swapchain.depth_format_get());
 	}
 
 	bool Render_Resource::render_target_size(uint64_t handle, uint32_t* width_out, uint32_t* height_out) const

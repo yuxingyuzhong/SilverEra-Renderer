@@ -134,6 +134,9 @@ namespace engine
 		//SSAA 超采样状态（倍率钳制 1..4；1 = 关闭）
 		uint32_t ssaa_factor = 1;
 
+		//离屏渲染目标默认 16F 开关（第 756 轮；默认关闭，关闭时逐字节不变）
+		bool hdr_targets = false;
+
 		uint64_t ssaa_scene_target = 0;
 
 		uint64_t ssaa_resolve_target = 0;

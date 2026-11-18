@@ -53,6 +53,8 @@ namespace engine
 		state_ptr->ssaa_pipeline = 0;
 		state_ptr->ssaa_factor = 1;
 		state_ptr->ssaa_extent_failed = false;
+		//离屏目标默认 16F 复位为关闭（第 756 轮）
+		state_ptr->hdr_targets = false;
 		//逐级专设值失效（参数本身与全局泛光参数按原语义保留）
 		for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
 		{

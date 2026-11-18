@@ -42,6 +42,7 @@ namespace engine
 		uint32_t msaa_samples(void) const;
 		void msaa_depth_resolve_set(bool enabled);
 		bool msaa_depth_resolve(void) const;
+		bool hdr_targets(void) const;
 		uint32_t msaa_max_samples(void) const;
 		bool sampler_anisotropy_supported(void) const;
 		float sampler_max_anisotropy(void) const;

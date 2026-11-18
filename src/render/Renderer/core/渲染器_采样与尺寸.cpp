@@ -47,6 +47,15 @@ namespace engine
 		return state_ptr->ssaa_factor;
 	}
 
+	//离屏目标默认 16F 是否开启（第 756 轮）
+	bool Render_Device::hdr_targets(void) const
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return false;
+		return state_ptr->hdr_targets;
+	}
+
 	/*
 	设置 MSAA 采样数（第九十六轮）
 	请求值按设备支持钳制后立即生效：等尽在途帧 → 重建交换链 MSAA 附件 → 重建全部渲染目标

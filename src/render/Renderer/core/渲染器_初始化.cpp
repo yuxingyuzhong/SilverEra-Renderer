@@ -104,6 +104,8 @@ namespace engine
 		state_ptr->config.msaa_samples = state_ptr->msaa_samples;
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
 		state_ptr->msaa_depth_resolve = effective.msaa_depth_resolve;
+		//离屏目标默认 16F 开关（第 756 轮；默认关闭）
+		state_ptr->hdr_targets = effective.hdr_targets;
 		//Cluster 能力与初始分簇网格由计算域承接（初始化 guard 尚未置位）
 		owner->compute().options_apply(effective.gpu_cull_enable, effective.cluster_grid);
 		state_ptr->initialized = true;

@@ -85,6 +85,13 @@ namespace engine
 		采样数为 1 或目标无多重采样深度时该开关无作用（画面逐字节不变）。
 		*/
 		bool msaa_depth_resolve = true;
+		/*
+		离屏渲染目标默认 16F（方向九第 756 轮；默认关闭）
+		开启后 resource().render_target_create 改用 VK_FORMAT_R16G16B16A16_SFLOAT，
+		使离屏目标可保存 >1 的线性值（HDR 泛光高光阈值）；关闭时与引入该开关前逐字节一致。
+		（显式指定格式的 render_target_create_format 不受该开关影响。）
+		*/
+		bool hdr_targets = false;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*

@@ -123,6 +123,8 @@ namespace engine
 		state_ptr->msaa_samples = 1;
 		//复位 MSAA 深度解析开关（第一百九十轮；默认开启）
 		state_ptr->msaa_depth_resolve = true;
+		//复位离屏目标默认 16F 开关（第 756 轮；默认关闭）
+		state_ptr->hdr_targets = false;
 		//复位剔除观测
 		state_ptr->culled_items = 0;
 		//剔除开关恢复默认（开启）
