@@ -155,7 +155,11 @@ namespace engine
 		{
 			//按当前客户区尺寸确保 16F 场景目标
 			if (state_ptr->hdr_scene_ensure(width, height))
+			{
 				state_ptr->effective_present_target = state_ptr->hdr_scene_target;
+				//自动泛光：按需填充四级链与三个中间目标（未开启 / 用户已有配置时不介入）
+				state_ptr->hdr_bloom_frame_apply();
+			}
 		}
 		bool post_frame = false;
 		//本帧是否走后处理链路径（false 且 post_frame → 既有单级默认路径）

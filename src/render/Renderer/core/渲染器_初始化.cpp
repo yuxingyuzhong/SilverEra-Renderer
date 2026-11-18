@@ -72,6 +72,8 @@ namespace engine
 		state_ptr->hdr_targets = effective.hdr_targets;
 		//色调映射算子同须早于后处理管线惰性登记（第 759 / 760 轮；越界按 0）
 		state_ptr->hdr_tone_operator = effective.hdr_tone_operator > 4 ? 0 : effective.hdr_tone_operator;
+		//HDR 默认路径自动泛光（第 761 轮；默认关闭）
+		state_ptr->hdr_auto_bloom = effective.hdr_auto_bloom;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))

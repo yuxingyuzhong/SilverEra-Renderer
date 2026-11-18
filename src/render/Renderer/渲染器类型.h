@@ -99,6 +99,12 @@ namespace engine
 		仅在 hdr_targets 开启且走默认路径时生效；越界值按 0 处理，关闭时不影响任何画面。
 		*/
 		uint32_t hdr_tone_operator = 0;
+		/*
+		HDR 默认路径自动泛光（第 761 轮；默认关闭）
+		开启且走 HDR 默认路径时，自动挂「亮部提取 → 模糊(半径 4) → 泛光叠加 → 色调映射」四级链，
+		中间目标与管线由引擎自建；需 hdr_targets 同时开启，且调用方未指定呈现 / 渲染目标与后处理链。
+		*/
+		bool hdr_auto_bloom = false;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*
