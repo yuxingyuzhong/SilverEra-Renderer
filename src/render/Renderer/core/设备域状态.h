@@ -157,6 +157,9 @@ namespace engine
 		float hdr_bloom_intensity = 1.0f;
 		//自动泛光半分辨率（第 765 轮；默认关闭：提取 / 模糊两个中间目标取 1/2 边长）
 		bool hdr_bloom_half_res = false;
+		//双轨色调映射的分轨位置与过渡半宽（第 774 轮；默认与第七百七十三轮常量一致）
+		float hdr_dual_tone_split = 0.5f;
+		float hdr_dual_tone_band = 0.1f;
 		uint64_t hdr_bloom_targets[3] = { 0, 0, 0 };
 		uint64_t hdr_bloom_pipelines[3] = { 0, 0, 0 };
 		uint32_t hdr_bloom_width = 0;

@@ -20,10 +20,12 @@ layout(location = 0) out vec4 out_color;
 //源纹理（描述符集 1）：上一级的输出
 layout(set = 1, binding = 0) uniform sampler2D source_image;
 
-//推送常量：后处理「源 / 宿尺寸」（offset 80；x/y = 源宽高，z/w = 宿宽高）
+//推送常量：后处理「源 / 宿尺寸」（offset 80）与逐级参数（offset 96）
 layout(push_constant) uniform Push_Size
 {
 	layout(offset = 80) vec4 size_xy;
+	//x = 分轨位置（0..1）、y = 过渡半宽（0..0.5）；由门面按配置下发，默认 0.5 / 0.1
+	vec4 tone_param;
 } push_size;
 
 //AgX 输入矩阵（Rec.709 线性 → AgX 工作空间；列主序）
@@ -67,8 +69,11 @@ void main()
 	vec3 source = texelFetch(source_image, coord, 0).rgb;
 	//本像素的屏幕横向归一坐标（0 = 左缘、1 = 右缘）
 	float uv_x = gl_FragCoord.x / push_size.size_xy.z;
+	//分轨位置与过渡半宽（配置下发；非法值回落 0.5 / 0.1）
+	float split = (push_size.tone_param.x > 0.0 && push_size.tone_param.x < 1.0) ? push_size.tone_param.x : 0.5;
+	float band = (push_size.tone_param.y > 0.0 && push_size.tone_param.y < 0.5) ? push_size.tone_param.y : 0.1;
 	//过渡权重：0 = 左半（AgX）、1 = 右半（逐通道 ACES）
-	float weight = smoothstep(0.45, 0.55, uv_x);
+	float weight = smoothstep(split - band, split + band, uv_x);
 	//两条曲线结果
 	vec3 left = agx(source);
 	vec3 right = vec3(aces(source.r), aces(source.g), aces(source.b));

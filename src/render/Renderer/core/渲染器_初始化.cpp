@@ -90,6 +90,16 @@ namespace engine
 			? effective.hdr_bloom_intensity : 1.0f;
 		//自动泛光半分辨率（第 765 轮；默认关闭，关闭时中间目标尺寸与第七百六十一轮一致）
 		state_ptr->hdr_bloom_half_res = effective.hdr_bloom_half_res;
+		/*
+		双轨色调映射参数（第 774 轮）
+		split 须在 (0,1)、band 须在 (0,0.5) 且小于 split；非法回落 0.5 / 0.1（与 773 的固常量一致）。
+		*/
+		state_ptr->hdr_dual_tone_split = (effective.hdr_dual_tone_split > 0.0f
+			&& effective.hdr_dual_tone_split < 1.0f) ? effective.hdr_dual_tone_split : 0.5f;
+		state_ptr->hdr_dual_tone_band = (effective.hdr_dual_tone_band > 0.0f
+			&& effective.hdr_dual_tone_band < 0.5f
+			&& effective.hdr_dual_tone_band < state_ptr->hdr_dual_tone_split)
+			? effective.hdr_dual_tone_band : 0.1f;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))

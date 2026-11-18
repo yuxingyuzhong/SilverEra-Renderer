@@ -159,6 +159,14 @@ namespace engine
 				state_ptr->effective_present_target = state_ptr->hdr_scene_target;
 				//自动泛光：按需填充四级链与三个中间目标（未开启 / 用户已有配置时不介入）
 				state_ptr->hdr_bloom_frame_apply();
+				/*
+				双轨分轨参数下发（第 774 轮）
+				算子 5 的分轨位置 / 过渡带经全局泛光参数槽传入末级片元（offset 96）；
+				默认值即 773 的固常量（0.5 / 0.1），关闭该算子时此槽仍作泛光默认参数使用。
+				*/
+				if (state_ptr->hdr_tone_operator == 5)
+					owner->device().bloom_param_set(state_ptr->hdr_dual_tone_split,
+						state_ptr->hdr_dual_tone_band, 1.0f);
 			}
 		}
 		bool post_frame = false;

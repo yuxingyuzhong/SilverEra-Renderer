@@ -123,6 +123,12 @@ namespace engine
 		关闭时三个中间目标与场景目标同尺寸，画面与第七百六十一轮逐字节一致。
 		*/
 		bool hdr_bloom_half_res = false;
+		/*
+		双轨色调映射的分轨位置与过渡半宽（第 774 轮；仅 hdr_tone_operator = 5 生效）
+		默认 0.5 / 0.1，与第七百七十三轮的固常量一致；split 须在 (0,1)、band 须在 (0, 0.5) 且小于 split，非法回落默认。
+		*/
+		float hdr_dual_tone_split = 0.5f;
+		float hdr_dual_tone_band = 0.1f;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*
