@@ -172,13 +172,20 @@ namespace engine
 			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
 			if (state_ptr->pending_instances.size() >= state_ptr->instance_capacity)
 				logger.warn("渲染器:: 本帧实例存储已满，同帧后处理呈现回落原路径");
-			//链长 ≥ 2 但目标组不足 2 个则回落单级默认路径
-			else if (!state_ptr->post_chain.empty() && state_ptr->post_chain.size() >= 2 && state_ptr->present_extra.empty())
-				logger.warn("渲染器:: 后处理链级数 ≥ 2 但中间目标不足 2 个，本帧回落单级默认后处理");
 			else
 			{
 				//本帧是否走链路径
 				bool chain_mode = !state_ptr->post_chain.empty();
+				/*
+				链级数 ≥ 2 但中间目标不足（第 770 轮修正）
+				此前此处只打日志、整段跳过后处理，画面会直通交换链（HDR 默认路径下等于丢掉色调映射）；
+				现按日志口径真正回落「单级默认后处理」：本帧改走内置默认后处理管线，用户链本身不被改写。
+				*/
+				if (chain_mode && state_ptr->post_chain.size() >= 2 && state_ptr->present_extra.empty())
+				{
+					logger.warn("渲染器:: 后处理链级数 ≥ 2 但中间目标不足 2 个，本帧回落单级默认后处理");
+					chain_mode = false;
+				}
 				//确保后处理资源就绪（链 → 全屏网格；单级 → 全屏网格 ＋ 默认后处理管线）
 				bool resources_ready = chain_mode ? state_ptr->post_mesh_ensure() : state_ptr->post_resources_ensure();
 				//若资源就绪
