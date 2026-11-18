@@ -406,7 +406,13 @@ namespace engine
 		if (post_pipeline == 0)
 		{
 			uint64_t registered = 0;
-			if (!owner->resource().pipeline_load_ex(registered, "后处理.vert.spv", "后处理.frag.spv",
+			/*
+			HDR 默认路径以色调映射收尾（第 757 轮）
+			hdr_targets 开启时场景写 16F 目标，末级须做色调映射把线性高光压回显示域；
+			关闭时保持既有直通片元，画面逐字节不变。
+			*/
+			const char* fragment = hdr_targets ? "色调映射.frag.spv" : "后处理.frag.spv";
+			if (!owner->resource().pipeline_load_ex(registered, "后处理.vert.spv", fragment,
 				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 1))
 			{
 				logger.error("渲染器:: 后处理管线登记失败");
@@ -466,8 +472,7 @@ namespace engine
 	}
 
 	//确保 SSAA 超采样目标就绪（场景目标 = 输出 × 倍率；解析目标 = 输出尺寸）
-	bool Device_State::ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor)
-	{
+	bool Device_State::ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor)	{
 		//尺寸无效或该尺寸已失败过则直接返回（避免逐帧重复尝试）
 		if (width == 0 || height == 0)
 			return false;
@@ -509,6 +514,55 @@ namespace engine
 		ssaa_target_factor = factor;
 		logger.info("渲染器:: SSAA 目标已建立（{}×{} ×{}）", width, height, factor);
 		return true;
+	}
+
+	/*
+	确保 HDR 默认路径的 16F 场景目标就绪（第 757 轮）
+	hdr_targets 开启且本帧无显式目标时，场景写入该目标、再由色调映射级呈现到交换链；
+	目标随交换链尺寸重建，建立失败时本帧回落原路径（成功后同尺寸复用）。
+	*/
+	bool Device_State::hdr_scene_ensure(uint32_t width, uint32_t height)
+	{
+		//尺寸无效或该尺寸已失败过则直接返回（避免逐帧重复尝试）
+		if (width == 0 || height == 0)
+			return false;
+		if (hdr_scene_failed)
+			return false;
+		//尺寸未变化且目标齐备则复用
+		if (hdr_scene_target != 0 && hdr_scene_width == width && hdr_scene_height == height)
+			return true;
+		//尺寸变化：等尽在途帧后销毁旧目标（避免释放仍在使用的附件）
+		if (hdr_scene_target != 0)
+		{
+			frame.frames_wait();
+			hdr_scene_destroy();
+		}
+		//按 16F 创建场景目标（显式格式，不受 hdr_targets 开关二次影响）
+		uint64_t target = 0;
+		if (!owner->resource().render_target_create_format(target, width, height,
+			static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
+			static_cast<uint32_t>(swapchain.depth_format_get())))
+		{
+			logger.warn("渲染器:: HDR 场景目标创建失败（{}×{}），本帧回落原路径", width, height);
+			hdr_scene_failed = true;
+			return false;
+		}
+		hdr_scene_target = target;
+		hdr_scene_width = width;
+		hdr_scene_height = height;
+		logger.info("渲染器:: HDR 场景目标已建立（{}×{}，16F）", width, height);
+		return true;
+	}
+
+	//销毁 HDR 默认路径的 16F 场景目标
+	void Device_State::hdr_scene_destroy(void)
+	{
+		//句柄有效则归还资源域（内部按延迟销毁队列处理）
+		if (hdr_scene_target != 0)
+			owner->resource().render_target_release(hdr_scene_target);
+		hdr_scene_target = 0;
+		hdr_scene_width = 0;
+		hdr_scene_height = 0;
 	}
 
 }

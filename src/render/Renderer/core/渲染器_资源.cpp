@@ -457,6 +457,18 @@ namespace engine
 	{
 		if (!render_target_frame_get(handle, target_out))
 			return false;
+		/*
+		颜色 / 深度格式（第 757 轮）
+		取目标自身记录，供动态渲染与并行录制的继承信息使用；
+		16F 场景目标若沿用交换链格式会与图像视图不匹配。
+		*/
+		VkFormat color_format = VK_FORMAT_UNDEFINED;
+		VkFormat depth_format = VK_FORMAT_UNDEFINED;
+		if (state_ptr->render_target.target_format_get(handle, color_format, depth_format))
+		{
+			target_out.color_format = color_format;
+			target_out.depth_format = depth_format;
+		}
 		return state_ptr->render_target.target_depth_get(handle, target_out.depth_image, target_out.depth_view)
 			&& state_ptr->render_target.target_msaa_get(handle, target_out.msaa_color_image,
 				target_out.msaa_color_view, target_out.msaa_depth_view, target_out.sample_count);

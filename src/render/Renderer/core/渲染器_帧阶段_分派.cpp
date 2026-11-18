@@ -174,11 +174,13 @@ namespace engine
 			VkDeviceSize mesh_index_offset = 0;
 			uint32_t mesh_index_count = 0;
 			//场景目标与全屏网格均就绪才可走该路径
-			bool ready = owner->resource().render_target_frame_full_get(state.present_target, targets[0])
+			bool ready = owner->resource().render_target_frame_full_get(state.effective_present_target, targets[0])
 				&& mesh_frame_native_get(owner->resource(),state.fullscreen_mesh, mesh_buffer, mesh_index_offset, mesh_index_count);
-			//并行录制格式（第二百轮；场景目标与交换链同格式）
-			targets[0].color_format = state.swapchain.format_get();
-			targets[0].depth_format = state.swapchain.depth_format_get();
+			//并行录制格式（第 757 轮：优先取目标自身记录，缺失时回落交换链格式）
+			if (targets[0].color_format == VK_FORMAT_UNDEFINED)
+				targets[0].color_format = state.swapchain.format_get();
+			if (targets[0].depth_format == VK_FORMAT_UNDEFINED)
+				targets[0].depth_format = state.swapchain.depth_format_get();
 			/*
 			MSAA 深度解析目标（第一百九十轮）
 			开启深度解析时取场景目标的多重采样深度图像，帧模块据此在场景 pass 结束时
@@ -186,7 +188,7 @@ namespace engine
 			关闭或目标无多重采样深度时留空（帧模块跳过解析，保持既有行为）。
 			*/
 			if (ready && state.msaa_depth_resolve)
-				targets[0].msaa_depth_image = reinterpret_cast<VkImage>(owner->resource().render_target_msaa_depth_image_native(state.present_target));
+				targets[0].msaa_depth_image = reinterpret_cast<VkImage>(owner->resource().render_target_msaa_depth_image_native(state.effective_present_target));
 			//逐个取额外中间目标附件
 			for (std::size_t each = 1; ready && each < targets.size(); ++each)
 				ready = owner->resource().render_target_frame_full_get(state.present_extra[each - 1], targets[each]);
@@ -350,9 +352,11 @@ namespace engine
 			Frame_Render_Target target{};
 			if (owner->resource().render_target_frame_full_get(state.active_target, target))
 			{
-				//并行录制格式（第二百轮；离屏目标与交换链同格式）
-				target.color_format = state.swapchain.format_get();
-				target.depth_format = state.swapchain.depth_format_get();
+				//并行录制格式（第 757 轮：优先取目标自身记录，缺失时回落交换链格式）
+				if (target.color_format == VK_FORMAT_UNDEFINED)
+					target.color_format = state.swapchain.format_get();
+				if (target.depth_format == VK_FORMAT_UNDEFINED)
+					target.depth_format = state.swapchain.depth_format_get();
 				offscreen = true;
 				/*
 				场景退场回调（第三百六十八轮；离屏目标亦生成 Hi-Z 深度历史）
@@ -456,7 +460,7 @@ namespace engine
 				if (!state.swapchain_rebuild_deferred(width, height))
 					logger.warn("渲染器:: 交换链重建失败（下一帧再试）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!owner->resource().pipeline_rebuild(state.swapchain.format_get(), state.swapchain.depth_format_get(), state.msaa_samples))
+				if (!owner->resource().pipeline_rebuild(static_cast<uint32_t>(state.scene_color_format()), state.swapchain.depth_format_get(), state.msaa_samples))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 			}
 		}

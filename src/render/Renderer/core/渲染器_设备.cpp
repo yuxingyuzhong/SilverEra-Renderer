@@ -55,6 +55,12 @@ namespace engine
 		state_ptr->ssaa_extent_failed = false;
 		//离屏目标默认 16F 复位为关闭（第 756 轮）
 		state_ptr->hdr_targets = false;
+		//复位 HDR 默认路径（第 757 轮；目标已随资源域渲染目标模块销毁）
+		state_ptr->hdr_scene_target = 0;
+		state_ptr->hdr_scene_width = 0;
+		state_ptr->hdr_scene_height = 0;
+		state_ptr->hdr_scene_failed = false;
+		state_ptr->effective_present_target = 0;
 		//逐级专设值失效（参数本身与全局泛光参数按原语义保留）
 		for (std::size_t stage = 0; stage < POST_CHAIN_MAX_STAGES; ++stage)
 		{

@@ -155,7 +155,7 @@ namespace engine
 		//⑪ 管线：描述符布局 / 管线布局 / 描述符池与每帧槽描述符集
 		{
 			Pipeline_Config pipeline_config{};
-			pipeline_config.color_format = state.swapchain.format_get();
+			pipeline_config.color_format = state.scene_color_format();
 			pipeline_config.depth_format = state.swapchain.depth_format_get();
 			pipeline_config.frame_overlap = effective.frame_overlap;
 			pipeline_config.sample_count = state.msaa_samples;
@@ -173,7 +173,7 @@ namespace engine
 				logger.warn("渲染器:: 设备推送常量上限 {} 字节不足 144，后处理逐级 extra 参数已禁用",
 					device_props.limits.maxPushConstantsSize);
 			if (!owner->resource().scene_pipeline_infrastructure_build(
-				static_cast<uint32_t>(state.swapchain.format_get()), static_cast<uint32_t>(state.swapchain.depth_format_get()),
+				static_cast<uint32_t>(state.scene_color_format()), static_cast<uint32_t>(state.swapchain.depth_format_get()),
 				effective.frame_overlap, state.msaa_samples, pipeline_config.max_push_constant_size))
 			{
 				logger.error("渲染器:: 管线基础设施创建失败");

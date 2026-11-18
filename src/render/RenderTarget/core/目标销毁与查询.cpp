@@ -112,6 +112,26 @@ namespace engine
 		return records[handle - 1].valid;
 	}
 
+	//取目标颜色 / 深度格式
+	bool Render_Target_Context::target_format_get(uint64_t handle, VkFormat& color_format_out, VkFormat& depth_format_out) const
+	{
+		//出参先复位
+		color_format_out = VK_FORMAT_UNDEFINED;
+		depth_format_out = VK_FORMAT_UNDEFINED;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空则返回假
+		if (!record.valid)
+			return false;
+		//写出格式
+		color_format_out = record.color_format;
+		depth_format_out = record.depth_format;
+		return true;
+	}
+
 	void Render_Target_Context::destroy(void)
 	{
 		//逐条归还渲染目标

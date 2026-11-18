@@ -124,6 +124,8 @@ namespace engine
 		//取目标 MSAA 附件与采样数（第九十六轮；关闭 MSAA 时图像 / 视图为空且采样数为 1）
 		bool target_msaa_get(uint64_t handle, VkImage& msaa_color_image_out, VkImageView& msaa_color_view_out,
 			VkImageView& msaa_depth_view_out, uint32_t& sample_count_out) const;
+		//取目标颜色 / 深度格式（第 757 轮；句柄无效返回假且出参为 UNDEFINED）
+		bool target_format_get(uint64_t handle, VkFormat& color_format_out, VkFormat& depth_format_out) const;
 		/*
 		取目标 MSAA 深度图像（第一百九十轮）
 		供场景 pass 结束时以「深度解析」把多重采样深度写入单采样深度图像（后处理阶段采样那张）。

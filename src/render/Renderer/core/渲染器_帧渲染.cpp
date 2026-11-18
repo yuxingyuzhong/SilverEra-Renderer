@@ -83,7 +83,8 @@ namespace engine
 				if (!state_ptr->swapchain_rebuild_deferred(width, height))
 					logger.warn("渲染器:: 交换链重建失败（本帧继续）");
 				//格式若因重建而改变则重建图形管线（格式未变时为空操作）
-				if (!owner->resource().pipeline_rebuild(state_ptr->swapchain.format_get(), state_ptr->swapchain.depth_format_get(), state_ptr->msaa_samples))
+				if (!owner->resource().pipeline_rebuild(static_cast<uint32_t>(state_ptr->scene_color_format()),
+					state_ptr->swapchain.depth_format_get(), state_ptr->msaa_samples))
 					logger.warn("渲染器:: 图形管线随交换链格式重建失败");
 				rebuilt = true;
 			}
@@ -144,13 +145,25 @@ namespace engine
 		路径：post_chain 非空 → 链路径（须 post_mesh_ensure；链长 ≥ 2 还须第二目标）；
 		      post_chain 为空 → 既有单级默认路径（post_resources_ensure）。
 		*/
+		/*
+		HDR 默认路径（第 757 轮）
+		hdr_targets 开启且本帧未显式指定呈现 / 渲染目标时，内部以 16F 场景目标接管场景渲染，
+		再由内置色调映射级呈现到交换链；目标建立失败或用户显式指定目标时保持原路径。
+		*/
+		state_ptr->effective_present_target = state_ptr->present_target;
+		if (state_ptr->hdr_targets && state_ptr->present_target == 0 && state_ptr->active_target == 0)
+		{
+			//按当前客户区尺寸确保 16F 场景目标
+			if (state_ptr->hdr_scene_ensure(width, height))
+				state_ptr->effective_present_target = state_ptr->hdr_scene_target;
+		}
 		bool post_frame = false;
 		//本帧是否走后处理链路径（false 且 post_frame → 既有单级默认路径）
 		bool post_chain_mode = false;
 		//后处理绘制项在本帧实例缓冲内的字节偏移
 		VkDeviceSize post_instance_offset = 0;
-		//若已设定同帧后处理呈现目标
-		if (state_ptr->present_target != 0)
+		//若已设定同帧后处理呈现目标（含 HDR 默认路径派生的 16F 场景目标）
+		if (state_ptr->effective_present_target != 0)
 		{
 			//本帧实例存储须仍有空位（后处理全屏四边形再占一个实例；满则回落原路径，避免实例缓冲越界写）
 			if (state_ptr->pending_instances.size() >= state_ptr->instance_capacity)
@@ -192,8 +205,8 @@ namespace engine
 		bool ssaa_frame = false;
 		//降采样 pass 在本帧实例缓冲内的字节偏移
 		VkDeviceSize ssaa_instance_offset = 0;
-		//若启用 SSAA 且未走后处理 / 离屏路径
-		if (state_ptr->ssaa_factor > 1 && state_ptr->present_target == 0 && state_ptr->active_target == 0)
+		//若启用 SSAA 且未走后处理 / 离屏 / HDR 默认路径
+		if (state_ptr->ssaa_factor > 1 && state_ptr->effective_present_target == 0 && state_ptr->active_target == 0)
 		{
 			//确保降采样管线 / 全屏网格 / 默认后处理管线 / 超采样目标就绪
 			if (state_ptr->ssaa_pipeline_ensure() && state_ptr->post_mesh_ensure() && state_ptr->post_pipeline_ensure()

@@ -42,6 +42,13 @@ namespace engine
 		bool sky_pipeline_ensure(void);
 		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
 		void ssaa_targets_destroy(void);
+		bool hdr_scene_ensure(uint32_t width, uint32_t height);
+		void hdr_scene_destroy(void);
+		//场景管线的颜色格式（第 757 轮：HDR 默认路径开启时烘焙为 16F）
+		VkFormat scene_color_format(void) const
+		{
+			return hdr_targets ? VK_FORMAT_R16G16B16A16_SFLOAT : swapchain.format_get();
+		}
 
 		//平台模块
 		Platform_Context platform;
@@ -136,6 +143,18 @@ namespace engine
 
 		//离屏渲染目标默认 16F 开关（第 756 轮；默认关闭，关闭时逐字节不变）
 		bool hdr_targets = false;
+
+		/*
+		HDR 默认路径（第 757 轮）
+		hdr_targets 开启且本帧未显式指定呈现 / 渲染目标时，内部以该 16F 场景目标接管场景渲染，
+		再由内置色调映射级呈现到交换链；目标随交换链尺寸变化重建。
+		*/
+		uint64_t hdr_scene_target = 0;
+		uint32_t hdr_scene_width = 0;
+		uint32_t hdr_scene_height = 0;
+		bool hdr_scene_failed = false;
+		//本帧生效的呈现目标（用户设定 → 该句柄；否则 hdr 路径 → hdr_scene_target；其余 0）
+		uint64_t effective_present_target = 0;
 
 		uint64_t ssaa_scene_target = 0;
 

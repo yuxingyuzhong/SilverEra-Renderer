@@ -65,6 +65,11 @@ namespace engine
 #ifdef NDEBUG
 		effective.validation = false;
 #endif
+		/*
+		离屏目标默认 16F 开关须在管线烘焙之前落位（第 757 轮）
+		HDR 默认路径要求场景管线按 16F 烘焙，故不能等到阶段函数之后再赋值。
+		*/
+		state_ptr->hdr_targets = effective.hdr_targets;
 
 		//① 平台 / 实例 / 设备 / 表面
 		if (!renderer_init_platform(owner, *state_ptr, effective))
@@ -104,8 +109,6 @@ namespace engine
 		state_ptr->config.msaa_samples = state_ptr->msaa_samples;
 		//MSAA 深度解析开关（第一百九十轮；默认开启）
 		state_ptr->msaa_depth_resolve = effective.msaa_depth_resolve;
-		//离屏目标默认 16F 开关（第 756 轮；默认关闭）
-		state_ptr->hdr_targets = effective.hdr_targets;
 		//Cluster 能力与初始分簇网格由计算域承接（初始化 guard 尚未置位）
 		owner->compute().options_apply(effective.gpu_cull_enable, effective.cluster_grid);
 		state_ptr->initialized = true;

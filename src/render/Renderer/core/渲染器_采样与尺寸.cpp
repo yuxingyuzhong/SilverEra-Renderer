@@ -104,7 +104,7 @@ namespace engine
 			logger.warn("渲染器:: MSAA 切换时部分渲染目标重建失败");
 		}
 		//重建全部图形管线（采样数被烘焙进管线状态）
-		if (!owner->resource().pipeline_rebuild(state_ptr->swapchain.format_get(),
+		if (!owner->resource().pipeline_rebuild(static_cast<uint32_t>(state_ptr->scene_color_format()),
 			state_ptr->swapchain.depth_format_get(), samples))
 		{
 			logger.warn("渲染器:: MSAA 切换时图形管线重建失败");
