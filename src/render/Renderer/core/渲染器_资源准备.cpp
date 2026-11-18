@@ -547,40 +547,46 @@ namespace engine
 	}
 
 	/*
-	确保 HDR 默认路径的 16F 场景目标就绪（第 757 轮）
+	确保 HDR 默认路径的 16F 场景目标就绪（第 757 轮；第 766 轮起支持 MSAA）
 	hdr_targets 开启且本帧无显式目标时，场景写入该目标、再由色调映射级呈现到交换链；
-	目标随交换链尺寸重建，建立失败时本帧回落原路径（成功后同尺寸复用）。
+	目标随交换链尺寸与 MSAA 采样数重建，建立失败时本帧回落原路径（成功后同尺寸复用）。
+	采样数 > 1 时由目标自带多重采样颜色 / 深度附件，链路径在场景 pass 结束处解析到单采样颜色。
 	*/
-	bool Device_State::hdr_scene_ensure(uint32_t width, uint32_t height)
+	bool Device_State::hdr_scene_ensure(uint32_t width, uint32_t height, uint32_t samples)
 	{
 		//尺寸无效或该尺寸已失败过则直接返回（避免逐帧重复尝试）
 		if (width == 0 || height == 0)
 			return false;
 		if (hdr_scene_failed)
 			return false;
-		//尺寸未变化且目标齐备则复用
-		if (hdr_scene_target != 0 && hdr_scene_width == width && hdr_scene_height == height)
+		//采样数兜底为 1
+		if (samples == 0)
+			samples = 1;
+		//尺寸与采样数均未变化且目标齐备则复用
+		if (hdr_scene_target != 0 && hdr_scene_width == width && hdr_scene_height == height
+			&& hdr_scene_samples == samples)
 			return true;
-		//尺寸变化：等尽在途帧后销毁旧目标（避免释放仍在使用的附件）
+		//尺寸或采样数变化：等尽在途帧后销毁旧目标（避免释放仍在使用的附件）
 		if (hdr_scene_target != 0)
 		{
 			frame.frames_wait();
 			hdr_scene_destroy();
 		}
-		//按 16F 创建场景目标（显式格式，不受 hdr_targets 开关二次影响）
+		//按 16F 创建场景目标（显式格式，不受 hdr_targets 开关二次影响；采样数由调用方给出）
 		uint64_t target = 0;
 		if (!owner->resource().render_target_create_format(target, width, height,
 			static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
-			static_cast<uint32_t>(swapchain.depth_format_get())))
+			static_cast<uint32_t>(swapchain.depth_format_get()), samples))
 		{
-			logger.warn("渲染器:: HDR 场景目标创建失败（{}×{}），本帧回落原路径", width, height);
+			logger.warn("渲染器:: HDR 场景目标创建失败（{}×{}，采样数 {}），本帧回落原路径", width, height, samples);
 			hdr_scene_failed = true;
 			return false;
 		}
 		hdr_scene_target = target;
 		hdr_scene_width = width;
 		hdr_scene_height = height;
-		logger.info("渲染器:: HDR 场景目标已建立（{}×{}，16F）", width, height);
+		hdr_scene_samples = samples;
+		logger.info("渲染器:: HDR 场景目标已建立（{}×{}，16F，采样数 {}）", width, height, samples);
 		return true;
 	}
 
@@ -593,6 +599,7 @@ namespace engine
 		hdr_scene_target = 0;
 		hdr_scene_width = 0;
 		hdr_scene_height = 0;
+		hdr_scene_samples = 1;
 	}
 
 	/*

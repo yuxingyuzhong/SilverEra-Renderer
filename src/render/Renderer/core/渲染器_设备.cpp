@@ -79,6 +79,7 @@ namespace engine
 		state_ptr->hdr_scene_target = 0;
 		state_ptr->hdr_scene_width = 0;
 		state_ptr->hdr_scene_height = 0;
+		state_ptr->hdr_scene_samples = 1;
 		state_ptr->hdr_scene_failed = false;
 		state_ptr->effective_present_target = 0;
 		//逐级专设值失效（参数本身与全局泛光参数按原语义保留）

@@ -153,8 +153,8 @@ namespace engine
 		state_ptr->effective_present_target = state_ptr->present_target;
 		if (state_ptr->hdr_targets && state_ptr->present_target == 0 && state_ptr->active_target == 0)
 		{
-			//按当前客户区尺寸确保 16F 场景目标
-			if (state_ptr->hdr_scene_ensure(width, height))
+			//按当前客户区尺寸与 MSAA 采样数确保 16F 场景目标（第 766 轮起支持多重采样）
+			if (state_ptr->hdr_scene_ensure(width, height, state_ptr->msaa_samples))
 			{
 				state_ptr->effective_present_target = state_ptr->hdr_scene_target;
 				//自动泛光：按需填充四级链与三个中间目标（未开启 / 用户已有配置时不介入）

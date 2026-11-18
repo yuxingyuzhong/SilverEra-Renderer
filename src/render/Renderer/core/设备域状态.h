@@ -42,7 +42,7 @@ namespace engine
 		bool sky_pipeline_ensure(void);
 		bool ssaa_targets_ensure(uint32_t width, uint32_t height, uint32_t factor);
 		void ssaa_targets_destroy(void);
-		bool hdr_scene_ensure(uint32_t width, uint32_t height);
+		bool hdr_scene_ensure(uint32_t width, uint32_t height, uint32_t samples = 1);
 		void hdr_scene_destroy(void);
 		bool hdr_bloom_ensure(uint32_t width, uint32_t height);
 		void hdr_bloom_destroy(void);
@@ -173,6 +173,8 @@ namespace engine
 		uint64_t hdr_scene_target = 0;
 		uint32_t hdr_scene_width = 0;
 		uint32_t hdr_scene_height = 0;
+		//HDR 场景目标的采样数（第 766 轮；与设备域 msaa_samples 同步，1 = 关闭）
+		uint32_t hdr_scene_samples = 1;
 		bool hdr_scene_failed = false;
 		//本帧生效的呈现目标（用户设定 → 该句柄；否则 hdr 路径 → hdr_scene_target；其余 0）
 		uint64_t effective_present_target = 0;
