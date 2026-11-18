@@ -143,6 +143,8 @@ namespace engine
 
 		//离屏渲染目标默认 16F 开关（第 756 轮；默认关闭，关闭时逐字节不变）
 		bool hdr_targets = false;
+		//HDR 默认路径的色调映射算子（第 759 轮；0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard）
+		uint32_t hdr_tone_operator = 0;
 
 		/*
 		HDR 默认路径（第 757 轮）

@@ -410,8 +410,27 @@ namespace engine
 			HDR 默认路径以色调映射收尾（第 757 轮）
 			hdr_targets 开启时场景写 16F 目标，末级须做色调映射把线性高光压回显示域；
 			关闭时保持既有直通片元，画面逐字节不变。
+			算子由 hdr_tone_operator 选择（第 759 轮；0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard）。
 			*/
-			const char* fragment = hdr_targets ? "色调映射.frag.spv" : "后处理.frag.spv";
+			const char* fragment = "后处理.frag.spv";
+			if (hdr_targets)
+			{
+				switch (hdr_tone_operator)
+				{
+				case 1:
+					fragment = "胶片色调映射.frag.spv";
+					break;
+				case 2:
+					fragment = "指数色调映射.frag.spv";
+					break;
+				case 3:
+					fragment = "Reinhard扩展色调映射.frag.spv";
+					break;
+				default:
+					fragment = "色调映射.frag.spv";
+					break;
+				}
+			}
 			if (!owner->resource().pipeline_load_ex(registered, "后处理.vert.spv", fragment,
 				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 1))
 			{

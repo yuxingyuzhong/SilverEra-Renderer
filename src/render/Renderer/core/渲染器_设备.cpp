@@ -55,6 +55,8 @@ namespace engine
 		state_ptr->ssaa_extent_failed = false;
 		//离屏目标默认 16F 复位为关闭（第 756 轮）
 		state_ptr->hdr_targets = false;
+		//色调映射算子复位为 ACES（第 759 轮）
+		state_ptr->hdr_tone_operator = 0;
 		//复位 HDR 默认路径（第 757 轮；目标已随资源域渲染目标模块销毁）
 		state_ptr->hdr_scene_target = 0;
 		state_ptr->hdr_scene_width = 0;

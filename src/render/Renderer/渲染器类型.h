@@ -92,6 +92,12 @@ namespace engine
 		（显式指定格式的 render_target_create_format 不受该开关影响。）
 		*/
 		bool hdr_targets = false;
+		/*
+		HDR 默认路径的色调映射算子（第 759 轮；默认 0）
+		0 = ACES 近似（色调映射.frag，与第七百五十七轮一致）；1 = 胶片（Hable）；2 = 指数；3 = 扩展 Reinhard。
+		仅在 hdr_targets 开启且走默认路径时生效；越界值按 0 处理，关闭时不影响任何画面。
+		*/
+		uint32_t hdr_tone_operator = 0;
 		//静态合批（第一百二十七轮；默认开启；仅合并相邻等价绘制项，画面不变）
 		bool static_batching = true;
 		/*
