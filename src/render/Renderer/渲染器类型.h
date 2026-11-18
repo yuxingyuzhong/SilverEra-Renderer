@@ -98,6 +98,11 @@ namespace engine
 		3 = 扩展 Reinhard；4 = AgX 近似（彩色高光去饱和）。
 		仅在 hdr_targets 开启且走默认路径时生效；越界值按 0 处理，关闭时不影响任何画面。
 		*/
+		/*
+		HDR 默认路径的色调映射算子（第 759 / 760 / 773 轮）
+		0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard、4 = AgX、5 = 双轨（左半 AgX / 右半逐通道 ACES）；
+		越界按 0；仅 hdr_targets 开启且走默认路径时生效。
+		*/
 		uint32_t hdr_tone_operator = 0;
 		/*
 		HDR 默认路径自动泛光（第 761 轮；默认关闭）

@@ -429,6 +429,10 @@ namespace engine
 				case 4:
 					fragment = "AgX色调映射.frag.spv";
 					break;
+				//双轨（第 773 轮）：左半 AgX / 右半逐通道 ACES，按屏幕横向区域过渡
+				case 5:
+					fragment = "双轨色调映射.frag.spv";
+					break;
 				default:
 					fragment = "色调映射.frag.spv";
 					break;
