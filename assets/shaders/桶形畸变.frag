@@ -30,8 +30,9 @@ void main()
 	//径向缩放后回到 0..1 UV
 	vec2 distorted = centered * (1.0 + strength * radius_squared);
 	vec2 source_uv = clamp(distorted * 0.5 + 0.5, vec2(0.0), vec2(1.0));
-	//采样源纹理
-	vec3 color = texture(source_image, source_uv * source_scale).rgb;
+	//采样源纹理（连同 alpha：透传逐材质色调编号；双线性会在畸变边缘混编号，末级按最近编号解码）
+	vec4 source = texture(source_image, source_uv * source_scale);
+	vec3 color = source.rgb;
 
-	out_color = vec4(color, 1.0);
+	out_color = vec4(color, source.a);
 }

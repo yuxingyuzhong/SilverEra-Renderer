@@ -6,7 +6,7 @@
 未专设时沿用全局强度默认 1.0 → 块尺寸 1（等价于原样输出）。
 
 取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；
-块内取块中心对应的源像素；越界钳边；alpha 恒 1。
+块内取块中心对应的源像素；越界钳边；alpha 透传块中心源值（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -37,5 +37,7 @@ void main()
 	vec2 block_center = (floor(gl_FragCoord.xy / block) + vec2(0.5)) * block;
 	//映射到源像素并钳边
 	ivec2 coord = clamp(ivec2(block_center * source_scale), ivec2(0), source_size - ivec2(1));
-	out_color = vec4(texelFetch(source_image, coord, 0).rgb, 1.0);
+	//取块中心对应的源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	out_color = vec4(source_texel.rgb, source_texel.a);
 }

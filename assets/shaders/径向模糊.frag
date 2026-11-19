@@ -37,5 +37,7 @@ void main()
 		uv = clamp(uv * source_scale, vec2(0.0), vec2(1.0));
 		sum += texture(source_image, uv).rgb;
 	}
-	out_color = vec4(sum / float(samples), 1.0);
+	//本像素源纹素（alpha 不做平均：逐材质色调编号按中心像素透传）
+	ivec2 center_coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), textureSize(source_image, 0) - ivec2(1));
+	out_color = vec4(sum / float(samples), texelFetch(source_image, center_coord, 0).a);
 }

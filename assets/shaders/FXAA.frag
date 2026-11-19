@@ -68,5 +68,6 @@ void main()
 	//四邻域均值与混合量（对比度越高混合越强，上限 0.75 保留细节；再乘强度）
 	vec3 average = (left.rgb + right.rgb + up.rgb + down.rgb) * 0.25;
 	float blend = clamp(contrast * 1.5, 0.0, 0.75) * strength;
-	out_color = vec4(mix(center.rgb, average, blend), 1.0);
+	//混合结果（alpha 不参与混合：逐材质色调编号按中心像素透传）
+	out_color = vec4(mix(center.rgb, average, blend), center.a);
 }

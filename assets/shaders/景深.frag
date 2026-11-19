@@ -68,8 +68,9 @@ void main()
 	//宿像素 → 源像素映射比例
 	vec2 source_scale = push.size_xy.xy / push.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
-	//取源颜色
-	vec3 color = texelFetch(source_image, coord, 0).rgb;
+	//取源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 color = source_texel.rgb;
 	//取该像素的深度并换算成世界距离
 	float depth = texelFetch(depth_image, coord, 0).r;
 	float near_plane = max(scene.camera_range.x, 0.0001);
@@ -88,7 +89,7 @@ void main()
 	//半径过小视为清晰，直接写回（与直通逐字节一致）
 	if (radius < 0.5)
 	{
-		out_color = vec4(color, 1.0);
+		out_color = vec4(color, source_texel.a);
 		return;
 	}
 
@@ -104,6 +105,6 @@ void main()
 		ivec2 sample_coord = clamp(coord + ivec2(direction * sample_radius), ivec2(0), source_size - ivec2(1));
 		accum += texelFetch(source_image, sample_coord, 0).rgb;
 	}
-	//均值写回
-	out_color = vec4(accum / float(TAPS + 1), 1.0);
+	//均值写回（alpha 不参与平均：逐材质色调编号按中心像素透传）
+	out_color = vec4(accum / float(TAPS + 1), source_texel.a);
 }

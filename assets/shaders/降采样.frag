@@ -45,5 +45,8 @@ void main()
 			++count;
 		}
 	}
-	out_color = vec4(sum / float(max(count, 1)), 1.0);
+	//源块中心纹素（alpha 不做平均：逐材质色调编号按块中心像素透传）
+	ivec2 center = clamp(ivec2(base) + ivec2(factor / 2), ivec2(0), source_size - ivec2(1));
+	vec4 center_texel = texelFetch(source_image, center, 0);
+	out_color = vec4(sum / float(max(count, 1)), center_texel.a);
 }

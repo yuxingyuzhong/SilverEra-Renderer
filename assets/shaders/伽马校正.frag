@@ -5,7 +5,7 @@
 端点 0 / 1 不变。γ 取后处理推送常量的 z 分量（`post_stage_param_set` 的 intensity），
 钳到 [0.2, 5]；未专设时沿用全局强度默认 1.0（等价于原样输出）。
 
-取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；越界钳边；alpha 恒 1。
+取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；越界钳边；alpha 透传源值（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -32,13 +32,15 @@ void main()
 	vec2 source_scale = push_post.size_xy.xy / push_post.size_xy.zw;
 	//中心采样坐标（钳到合法范围）
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
 	//源颜色（钳到 [0,1] 保证幂运算合法）
-	vec3 source = clamp(texelFetch(source_image, coord, 0).rgb, 0.0, 1.0);
+	vec3 source = clamp(source_texel.rgb, 0.0, 1.0);
 	//伽马值（钳到 [0.2, 5]；非数按 1 处理）
 	float gamma = push_post.post_param.z;
 	if (!(gamma == gamma))
 		gamma = 1.0;
 	gamma = clamp(gamma, 0.2, 5.0);
 	//逐通道幂变换
-	out_color = vec4(pow(source, vec3(1.0 / gamma)), 1.0);
+	out_color = vec4(pow(source, vec3(1.0 / gamma)), source_texel.a);
 }

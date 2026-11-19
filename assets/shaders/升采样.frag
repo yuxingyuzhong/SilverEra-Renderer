@@ -4,7 +4,7 @@
 把较小尺寸的源（如半分辨率模糊层）放大到宿尺寸：按「源 / 宿尺寸」推送求出源空间浮点坐标，
 取 4 个邻域 texel 做双线性插值，减轻最近邻放大产生的块状边缘。
 
-口径：源与宿尺寸可不同（通常源为宿的一半）；越界一律钳到边缘；alpha 恒置 1。
+口径：源与宿尺寸可不同（通常源为宿的一半）；越界一律钳到边缘；alpha 按最近邻源像素透传（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -38,5 +38,7 @@ void main()
 	//双线性插值
 	vec3 top = mix(c00, c10, fraction.x);
 	vec3 bottom = mix(c01, c11, fraction.x);
-	out_color = vec4(mix(top, bottom, fraction.y), 1.0);
+	//最近邻源像素（alpha 不做插值：逐材质色调编号按最近像素透传）
+	ivec2 nearest = clamp(base + ivec2(fraction + 0.5), ivec2(0), max_index);
+	out_color = vec4(mix(top, bottom, fraction.y), texelFetch(source_image, nearest, 0).a);
 }

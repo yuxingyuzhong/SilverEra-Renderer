@@ -7,7 +7,7 @@
 未专设时沿用全局泛光强度的默认 1.0）。
 
 取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；
-越界一律钳边；alpha 恒置 1。
+越界一律钳边；alpha 按中心像素透传（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -52,10 +52,12 @@ void main()
 	//红通道沿径向外扩、蓝通道沿径向内收（越界钳边）
 	ivec2 red_coord = clamp(ivec2(position + direction * shift), ivec2(0), maximum);
 	ivec2 blue_coord = clamp(ivec2(position - direction * shift), ivec2(0), maximum);
+	//中心纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 center_texel = texelFetch(source_image, center, 0);
 	//三通道各自取自错位后的采样点
 	vec3 separated = vec3(
 		texelFetch(source_image, red_coord, 0).r,
-		texelFetch(source_image, center, 0).g,
+		center_texel.g,
 		texelFetch(source_image, blue_coord, 0).b);
-	out_color = vec4(separated, 1.0);
+	out_color = vec4(separated, center_texel.a);
 }

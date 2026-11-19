@@ -63,8 +63,10 @@ void main()
 	//宿像素 → 源像素映射比例
 	vec2 source_scale = push.size_xy.xy / push.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
 	//取源颜色
-	vec3 color = clamp(texelFetch(source_image, coord, 0).rgb, 0.0, 1.0);
+	vec3 color = clamp(source_texel.rgb, 0.0, 1.0);
 	//查找表尺寸
 	ivec2 lut_size = textureSize(lut_image, 0);
 	int edge = lut_size.y;
@@ -76,5 +78,5 @@ void main()
 		float strength = clamp(push.post_param.x, 0.0, 1.0);
 		color = mix(color, graded, strength);
 	}
-	out_color = vec4(clamp(color, 0.0, 1.0), 1.0);
+	out_color = vec4(clamp(color, 0.0, 1.0), source_texel.a);
 }

@@ -6,7 +6,7 @@
 半径取后处理推送常量的 z 分量（`post_stage_param_set` 的 intensity），四舍五入后钳到 [1, 4]；
 未专设时沿用全局强度默认 1.0 → 半径 1（现行 3×3 行为）。
 
-取像素用 texelFetch ＋ 整数偏移（与顶点朝向 / 纹理坐标无关），越界钳到边缘；alpha 恒置 1。
+取像素用 texelFetch ＋ 整数偏移（与顶点朝向 / 纹理坐标无关），越界钳到边缘；alpha 不做加权，按中心像素透传（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;
@@ -53,5 +53,7 @@ void main()
 			sum += texelFetch(source_image, coord, 0).rgb * weight;
 		}
 	}
-	out_color = vec4(sum, 1.0);
+	//中心纹素（alpha 不做加权：逐材质色调编号按中心像素透传）
+	vec4 center_texel = texelFetch(source_image, clamp(center, ivec2(0), source_size - ivec2(1)), 0);
+	out_color = vec4(sum, center_texel.a);
 }
