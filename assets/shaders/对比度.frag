@@ -27,10 +27,12 @@ void main()
 	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//取源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//对比度增益（固定常量）
 	const float gain = 1.5;
 	//围绕中灰放大并钳到 [0,1]
 	vec3 adjusted = clamp((source - vec3(0.5)) * gain + vec3(0.5), vec3(0.0), vec3(1.0));
-	out_color = vec4(adjusted, 1.0);
+	out_color = vec4(adjusted, source_texel.a);
 }

@@ -85,11 +85,13 @@ void main()
 	//中心采样坐标（钳到合法范围）
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//色相偏移（度 → 转数，钳到 [-360, 360] 度）
 	float offset_degrees = clamp(push_post.post_param.z, -360.0, 360.0);
 	//转 HSV → 旋转色相 → 转回 RGB
 	vec3 hsv = rgb_to_hsv(source);
 	hsv.x = fract(hsv.x + offset_degrees / 360.0);
-	out_color = vec4(hsv_to_rgb(hsv), 1.0);
+	out_color = vec4(hsv_to_rgb(hsv), source_texel.a);
 }

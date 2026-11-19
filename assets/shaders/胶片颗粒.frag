@@ -45,11 +45,13 @@ void main()
 	//中心采样坐标（钳到合法范围）
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//颗粒强度（钳到 [0, 0.5]；负值按 0）
 	float strength = clamp(push_post.post_param.z, 0.0, 0.5);
 	//零均值噪声（同一像素坐标恒定）
 	float noise = hash12(vec2(coord)) - 0.5;
 	//叠加颗粒并钳到色域
-	out_color = vec4(clamp(source + noise * strength, 0.0, 1.0), 1.0);
+	out_color = vec4(clamp(source + noise * strength, 0.0, 1.0), source_texel.a);
 }

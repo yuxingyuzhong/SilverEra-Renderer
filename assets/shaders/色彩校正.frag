@@ -29,7 +29,9 @@ void main()
 	vec2 source_scale = push.size_xy.xy / push.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//取源颜色
-	vec3 color = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 color_texel = texelFetch(source_image, coord, 0);
+	vec3 color = color_texel.rgb;
 
 	//参数归一
 	float contrast = clamp(push.post_param.x, 0.1, 4.0);
@@ -44,5 +46,5 @@ void main()
 	//亮度增益
 	color = color * brightness;
 
-	out_color = vec4(clamp(color, 0.0, 1.0), 1.0);
+	out_color = vec4(clamp(color, 0.0, 1.0), color_texel.a);
 }

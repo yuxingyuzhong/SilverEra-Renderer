@@ -26,7 +26,9 @@ void main()
 	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//取源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//到中心的归一化距离（0 = 中心、1 = 边缘中点）
 	vec2 normalized = abs(vec2(coord) / vec2(source_size) * 2.0 - vec2(1.0));
 	float radius = length(normalized);
@@ -34,5 +36,5 @@ void main()
 	const float inner = 0.55;
 	const float outer = 1.0;
 	float weight = 1.0 - 0.75 * smoothstep(inner, outer, radius);
-	out_color = vec4(source * weight, 1.0);
+	out_color = vec4(source * weight, source_texel.a);
 }

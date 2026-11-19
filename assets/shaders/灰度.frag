@@ -31,5 +31,6 @@ void main()
 	//Rec.709 亮度
 	float luma = dot(source.rgb, vec3(0.2126, 0.7152, 0.0722));
 	//灰度输出
-	out_color = vec4(vec3(luma), 1.0);
+	//透传源 alpha（第 790 轮：逐材质色调编号不在中间级丢失）
+	out_color = vec4(vec3(luma), source.a);
 }

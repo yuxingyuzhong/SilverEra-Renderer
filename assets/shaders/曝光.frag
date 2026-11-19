@@ -33,11 +33,13 @@ void main()
 	//中心采样坐标（钳到合法范围）
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//曝光倍数（钳到 [0.1, 8]；非数按 1 处理）
 	float multiplier = push_post.post_param.z;
 	if (!(multiplier == multiplier))
 		multiplier = 1.0;
 	multiplier = clamp(multiplier, 0.1, 8.0);
-	out_color = vec4(clamp(source * multiplier, 0.0, 1.0), 1.0);
+	out_color = vec4(clamp(source * multiplier, 0.0, 1.0), source_texel.a);
 }

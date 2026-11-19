@@ -30,5 +30,6 @@ void main()
 	//取源颜色（sRGB 附件下 texelFetch 返回线性化值）
 	vec4 source = texelFetch(source_image, coord, 0);
 	//反色输出（alpha 归一）
-	out_color = vec4(vec3(1.0) - source.rgb, 1.0);
+	//透传源 alpha（第 790 轮：逐材质色调编号不在中间级丢失）
+	out_color = vec4(vec3(1.0) - source.rgb, source.a);
 }

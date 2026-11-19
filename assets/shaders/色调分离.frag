@@ -33,10 +33,12 @@ void main()
 	//中心采样坐标（钳到合法范围）
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//源颜色
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
+	vec3 source = source_texel.rgb;
 	//色阶数（四舍五入后钳到 [2, 64]）
 	float levels = clamp(floor(push_post.post_param.z + 0.5), 2.0, 64.0);
 	//逐通道量化（结果仍落在 [0, 1]）
 	vec3 posterized = floor(source * levels + 0.5) / levels;
-	out_color = vec4(posterized, 1.0);
+	out_color = vec4(posterized, source_texel.a);
 }
