@@ -83,8 +83,8 @@ namespace engine
 		for (uint32_t index = 0; index < item_count; ++index)
 		{
 			const Frame_Render_Item& item = items[index];
-			//透明项 / 非实例项 / 间接项不承载逐材质算子，跳过
-			if (item.transparent || !item.instance_input || item.gpu_indirect)
+			//透明项 / 非实例项 / 间接项 / alpha 裁剪材质不承载「稳定的」逐材质编号，跳过
+			if (item.transparent || item.alpha_clip || !item.instance_input || item.gpu_indirect)
 				continue;
 			//管线或缓冲缺失、索引数或实例数为 0 的项跳过（与主通道同口径）
 			if (item.vertex_buffer == VK_NULL_HANDLE || item.index_buffer == VK_NULL_HANDLE

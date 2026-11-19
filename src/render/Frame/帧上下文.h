@@ -207,6 +207,12 @@ namespace engine
 		*/
 		bool transparent = false;
 		/*
+		Alpha 裁剪材质标记（第 814 轮）
+		材质声明裁剪阈值（alpha_cutoff > 0）时为真；编号预通道跳过此类项
+		（编号通道不采样反照率，无法与主 pass 的 discard 保持一致）。
+		*/
+		bool alpha_clip = false;
+		/*
 		该绘制项所用管线的采样数（第九十八轮；1 = 单采样）
 		后处理链各级据此选择宿附件：1 直接写单采样宿，> 1 用多重采样附件并解析。
 		0 / 1 均按单采样处理。
