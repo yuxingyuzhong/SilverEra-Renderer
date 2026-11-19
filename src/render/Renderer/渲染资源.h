@@ -196,12 +196,16 @@ namespace engine
 		//=== 原管线接口方法（签名原样照抄）===
 		//设置后续绘制所用混合档
 		void blend_mode_set(Blend_Mode mode);
-		//登记具名图形管线
+		/*
+		登记具名图形管线
+		tone_id_format（第 804 轮 · 8 位 MRT 段 2）：0 = 无第二颜色附件；非 0 = 该管线按两项颜色附件创建
+		（第二项通常为 R8_UNORM，用于写逐像素色调编号）。默认 0，既有调用与画面逐字节不变。
+		*/
 		bool pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 			bool depth_write = true, bool cull_front = false, bool depth_test = true,
 			bool depth_format_override = false, uint32_t depth_format = 0, uint32_t sample_count = 0,
-			uint32_t color_format = 0);
+			uint32_t color_format = 0, uint32_t tone_id_format = 0);
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
 			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
 		//卸载具名图形管线

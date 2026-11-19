@@ -39,7 +39,7 @@ namespace engine
 		if (!graphics_pipeline_create(entry.vert_module, entry.frag_module, entry.blend_mode, created,
 			entry.color_format, entry.cull_none, entry.sample_count, entry.input_locations,
 			entry.depth_write, entry.depth_lequal, entry.alpha_to_coverage, entry.cull_front,
-			entry.depth_test, entry.depth_format_override, entry.depth_format))
+			entry.depth_test, entry.depth_format_override, entry.depth_format, entry.tone_id_format))
 			return false;
 		//写回条目
 		entry.pipeline = created;
@@ -324,7 +324,7 @@ namespace engine
 	bool Pipeline_Context::pipeline_register(uint64_t& handle_out, VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations,
 		bool depth_write, bool depth_lequal, bool alpha_to_coverage, bool cull_front,
-		bool depth_test, bool depth_format_override, VkFormat depth_format)
+		bool depth_test, bool depth_format_override, VkFormat depth_format, VkFormat tone_id_format)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -351,6 +351,8 @@ namespace engine
 		entry.depth_test = depth_test;
 		entry.depth_format_override = depth_format_override;
 		entry.depth_format = depth_format;
+		//第二颜色附件格式（第 804 轮 · MRT 段 2）
+		entry.tone_id_format = tone_id_format;
 		//若创建失败
 		if (!entry_pipeline_create(entry))
 		{

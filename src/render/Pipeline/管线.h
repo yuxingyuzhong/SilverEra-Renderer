@@ -72,6 +72,12 @@ namespace engine
 		*/
 		VkFormat color_format = VK_FORMAT_UNDEFINED;
 		/*
+		第二颜色附件格式（第 804 轮 · 8 位路径 MRT 段 2）
+		VK_FORMAT_UNDEFINED = 单颜色附件（既有行为）；非未定义 = 该管线按两项颜色附件创建，
+		第二项通常为 R8_UNORM，用于承载逐像素色调编号（段 3 接入场景 pass 与帧链路）。
+		*/
+		VkFormat tone_id_format = VK_FORMAT_UNDEFINED;
+		/*
 		是否关闭背面剔除（第五十四轮新增）
 		阴影 pass 从光源视角观察，与相机视角的可见绕序相反；若沿用背面剔除，
 		朝光源的正面会被判为背面而整体剔除，阴影图将只剩清屏值。
@@ -158,7 +164,8 @@ namespace engine
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
 			bool alpha_to_coverage = false, bool cull_front = false,
-			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED);
+			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED,
+			VkFormat tone_id_format = VK_FORMAT_UNDEFINED);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -354,7 +361,8 @@ namespace engine
 			VkFormat color_format = VK_FORMAT_UNDEFINED, bool cull_none = false, uint32_t sample_count = 0,
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
 			bool alpha_to_coverage = false, bool cull_front = false,
-			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED);
+			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED,
+			VkFormat tone_id_format = VK_FORMAT_UNDEFINED);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

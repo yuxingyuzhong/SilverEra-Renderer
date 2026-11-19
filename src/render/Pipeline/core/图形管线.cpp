@@ -28,7 +28,7 @@ namespace engine
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal,
 		bool alpha_to_coverage, bool cull_front,
-		bool depth_test, bool depth_format_override, VkFormat depth_format)
+		bool depth_test, bool depth_format_override, VkFormat depth_format, VkFormat tone_id_format)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -203,12 +203,14 @@ namespace engine
 		else
 			color_attachment.blendEnable = VK_FALSE;
 
-		//颜色混合状态
+		//颜色混合状态（第二附件存在时按两项下发，第二项同混合口径）
+		VkPipelineColorBlendAttachmentState color_attachments[2] = { color_attachment, color_attachment };
+		const bool tone_id_active = tone_id_format != VK_FORMAT_UNDEFINED;
 		VkPipelineColorBlendStateCreateInfo color_blend{};
 		color_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 		color_blend.logicOpEnable = VK_FALSE;
-		color_blend.attachmentCount = 1;
-		color_blend.pAttachments = &color_attachment;
+		color_blend.attachmentCount = tone_id_active ? 2u : 1u;
+		color_blend.pAttachments = color_attachments;
 
 		//动态状态（视口与裁剪）
 		VkDynamicState dynamic_states[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
@@ -219,10 +221,11 @@ namespace engine
 
 		//动态渲染信息（颜色 / 深度附件格式，经 pNext 链入；颜色格式可被条目覆盖，见 Pipeline_Entry::color_format）
 		VkFormat attachment_color_format = color_format == VK_FORMAT_UNDEFINED ? config.color_format : color_format;
+		VkFormat attachment_formats[2] = { attachment_color_format, tone_id_format };
 		VkPipelineRenderingCreateInfo rendering_info{};
 		rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-		rendering_info.colorAttachmentCount = 1;
-		rendering_info.pColorAttachmentFormats = &attachment_color_format;
+		rendering_info.colorAttachmentCount = tone_id_active ? 2u : 1u;
+		rendering_info.pColorAttachmentFormats = attachment_formats;
 		rendering_info.depthAttachmentFormat = attachment_depth_format;
 
 		//图形管线创建信息
