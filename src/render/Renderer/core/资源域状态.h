@@ -29,6 +29,12 @@ namespace engine
 		float pbr_gloss = -1.0f;
 		//逐材质色调算子（第 779 轮；0..4 = 具体曲线，0xFF = 继承全局默认）
 		uint8_t tone_operator = 0xFF;
+		/*
+		色调编号的 alpha 携带是否安全（第 780 轮）
+		逐材质算子编号借用场景目标 alpha 传递，故只有不透明路径（默认管线 ＋ Opaque ＋ 未启用覆盖率写入）可安全携带；
+		透明 / 覆盖率写入材质若也写编号，会改写 alpha 造成混合错误，故登记为 false，绑定时回落继承全局。
+		*/
+		bool tone_alpha_opaque = false;
 		//是否覆盖全局卡通参数（第四百零八轮；false 时沿用场景 UBO 的全局卡通参数）
 		bool toon_override = false;
 		//逐物体色阶数（0..8；仅 toon_override 为真时生效）

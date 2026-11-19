@@ -224,6 +224,9 @@ namespace engine
 		record.pbr_features = data.pbr_features & 0x3Fu;
 		//逐材质色调算子（第 779 轮；0..4 有效，其余按继承全局）
 		record.tone_operator = data.tone_operator <= 4 ? data.tone_operator : 0xFF;
+		//色调编号借用 alpha 传递：仅默认管线 ＋ 不透明档 ＋ 未启用覆盖率写入时才安全（第 780 轮）
+		record.tone_alpha_opaque = data.pipeline == 0 && data.blend == Blend_Mode::Opaque
+			&& !data.alpha_to_coverage;
 		if (record.pbr_features_override && (record.pbr_features & 0x20u) != 0
 			&& std::isfinite(data.pbr_gloss) && data.pbr_gloss >= 0.0f && data.pbr_gloss <= 1.0f)
 		{
@@ -530,7 +533,8 @@ namespace engine
 		(*state_ptr).material_pbr_features_active = record.pbr_features_override;
 		(*state_ptr).material_pbr_features = record.pbr_features_override ? record.pbr_features : 0u;
 		//逐材质色调算子（第 779 轮；0xFF = 继承全局默认）
-		(*state_ptr).material_tone_operator = record.tone_operator;
+		//透明 / 覆盖率写入材质不携带编号（第 780 轮；避免改写 alpha 破坏混合）
+		(*state_ptr).material_tone_operator = record.tone_alpha_opaque ? record.tone_operator : 0xFF;
 		//按记录的卡通覆盖标志同步逐物体卡通参数（第四百零八轮；无覆盖时三项清零即回落全局）
 		(*state_ptr).material_toon_active = record.toon_override;
 		(*state_ptr).material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;
