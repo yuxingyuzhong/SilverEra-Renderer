@@ -319,6 +319,27 @@ namespace engine
 		(*state_ptr).post_stage_param_valid[stage] = true;
 	}
 
+	/*
+	指定后处理链某一级的全局回落色调算子（第 781 轮）
+	该级的逐像素覆盖仍来自场景 alpha（材质级），本值只用于未覆盖像素；越界按 0（ACES）。
+	*/
+	void Render_Device::post_stage_tone_operator_set(uint32_t stage, uint32_t tone_operator)
+	{
+		//未初始化则静默返回
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return;
+		//级序须落在当前链内
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+		{
+			logger.warn("渲染器:: 回落色调算子设置被忽略：级序 {} 不在当前链内（链长 {}）",
+				stage, static_cast<uint32_t>((*state_ptr).post_chain.size()));
+			return;
+		}
+		//写入第四分量并标记该级参数有效（前三参保持原值 / 默认 0）
+		(*state_ptr).post_stage_param[stage][3] = static_cast<float>(tone_operator <= 5 ? tone_operator : 0u);
+		(*state_ptr).post_stage_param_valid[stage] = true;
+	}
+
 	void Render_Device::post_stage_param4_set(uint32_t stage, float x, float y, float z, float w)
 	{
 		//未初始化则静默返回

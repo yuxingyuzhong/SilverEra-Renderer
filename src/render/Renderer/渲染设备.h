@@ -76,6 +76,12 @@ namespace engine
 		uint64_t post_lut_get(void) const;
 		void bloom_param_set(float threshold, float knee, float intensity);
 		void post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity);
+		/*
+		逐材质色调映射的回落算子（第 781 轮）
+		显式装配的后处理链若使用 材质色调映射.frag，可用本接口指定该级的全局回落算子（0..5）；
+		未覆盖像素用该值，逐材质覆盖仍按场景 alpha 优先。越界按 0（ACES）。
+		*/
+		void post_stage_tone_operator_set(uint32_t stage, uint32_t tone_operator);
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
 		void post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w);
