@@ -109,9 +109,9 @@ namespace engine
 		pool_sizes[1].descriptorCount = config.frame_overlap * 8;
 		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		//采样器类描述符按「场景集 ＋ UI 集 ＋ 后处理集 ＋ 逐绘制项集」四部分计
-		//每帧槽 17 个采样器（9 个单值 ＋ 8 个聚光灯阴影数组元素；第五百一十三轮由 13 扩为 17）
+		//每帧槽 18 个采样器（10 个单值 ＋ 8 个聚光灯阴影数组元素；第八百一十二轮由 17 扩为 18，含编号附件）
 		pool_sizes[2].descriptorCount = config.frame_overlap
-			* (1 + UI_SET_PER_SLOT + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 17;
+			* (1 + UI_SET_PER_SLOT + POST_SET_PER_SLOT + DRAW_SET_PER_SLOT) * 18;
 
 		//描述符池创建信息
 		VkDescriptorPoolCreateInfo pool_info{};

@@ -342,12 +342,21 @@ namespace engine
 				if (items_ready)
 				{
 					offscreen = true;
+					/*
+					逐材质色调编号通道（第 812 轮 · 段 4）
+					链路径的场景目标带编号附件且开关开启时挂接编号管线；否则传空（零额外命令）。
+					*/
+					VkPipeline chain_tone_pipeline = VK_NULL_HANDLE;
+					if (state.tone_id_pass && state.tone_id_pipeline != 0
+						&& targets[0].tone_id_view != VK_NULL_HANDLE)
+						chain_tone_pipeline = reinterpret_cast<VkPipeline>(
+							owner->resource().pipeline_native_get(state.tone_id_pipeline));
 					//场景 pass ＋ N 级后处理 pass（目标轮转）＋ UI ＋ 呈现（单级路径即本函数 N = 1 的特例）
 					if (!state.frame.render_chain_present(state.swapchain, targets.data(),
 						static_cast<uint32_t>(targets.size()),
 						state.pending_items.data(), static_cast<uint32_t>(state.pending_items.size()),
 						post_items.data(), static_cast<uint32_t>(post_items.size()),
-						clear_color, rebuild_needed, readback_ptr, &ui_callback))
+						clear_color, rebuild_needed, readback_ptr, &ui_callback, chain_tone_pipeline))
 					{
 						logger.error("渲染器:: 同帧后处理链渲染失败");
 						return false;

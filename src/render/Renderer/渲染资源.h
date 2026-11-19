@@ -243,6 +243,8 @@ namespace engine
 		*/
 		bool render_target_readback_tone_id(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		//取默认编号附件视图（第八百一十二轮；1×1 R8_UINT 零图，未启用编号通道时占位 binding 10）
+		bool render_target_tone_id_default_get(uint64_t& view_out);
 		//把离屏渲染目标颜色绑定为当前纹理
 		void texture_bind_target(uint64_t handle);
 
@@ -264,7 +266,8 @@ namespace engine
 		bool scene_shadow_bind(uint32_t slot, uint64_t sampler, uint64_t shadow_view);
 		bool scene_spot_shadow_bind(uint32_t slot, uint64_t sampler, uint64_t shadow_view, uint32_t tile);
 		bool post_stage_bind(uint32_t slot, uint32_t stage, uint64_t sampler, uint64_t source_view,
-			uint64_t scene_view, uint64_t depth_view, uint64_t shadow_view);
+			uint64_t scene_view, uint64_t depth_view, uint64_t shadow_view,
+			uint64_t tone_id_view = 0);
 		bool render_target_create_format(uint64_t& handle_out, uint32_t width, uint32_t height,
 			uint32_t color_format, uint32_t depth_format, uint32_t sample_count = 0);
 		/*

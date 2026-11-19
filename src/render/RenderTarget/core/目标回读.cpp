@@ -455,6 +455,121 @@ namespace engine
 			pixels, capacity, width_out, height_out, record.tone_id_image);
 	}
 
+	//取默认编号附件（第八百一十二轮；1×1 R8_UINT 零图）
+	bool Render_Target_Context::tone_id_default_get(VkImageView& view_out)
+	{
+		//出参先复位
+		view_out = VK_NULL_HANDLE;
+		//已创建则直接返回
+		if (default_tone_id_view != VK_NULL_HANDLE)
+		{
+			view_out = default_tone_id_view;
+			return true;
+		}
+		//前置：上下文与内存模块齐备
+		if (!valid() || memory == nullptr)
+			return false;
+		//创建 1×1 R8_UINT 图像与视图（采样 ＋ 传输目的）
+		if (!memory->image_create(default_tone_id_image, default_tone_id_alloc, 1, 1,
+			VK_FORMAT_R8_UINT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT))
+		{
+			logger.error("渲染目标:: 默认编号附件创建失败");
+			return false;
+		}
+		if (!memory->image_view_create(default_tone_id_view, default_tone_id_image,
+			VK_FORMAT_R8_UINT, VK_IMAGE_ASPECT_COLOR_BIT))
+		{
+			logger.error("渲染目标:: 默认编号附件视图创建失败");
+			memory->image_destroy(default_tone_id_image, default_tone_id_alloc);
+			default_tone_id_image = VK_NULL_HANDLE;
+			default_tone_id_alloc = VK_NULL_HANDLE;
+			return false;
+		}
+		//确保一次性命令资源就绪
+		if (!transient_resources_ensure())
+			return false;
+		//重置命令池并分配命令缓冲
+		bool recorded = vk_result_check(vkResetCommandPool(device, transient_pool, 0), "渲染目标:: 重置默认编号命令池");
+		VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+		if (recorded)
+		{
+			VkCommandBufferAllocateInfo buffer_alloc{};
+			buffer_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			buffer_alloc.commandPool = transient_pool;
+			buffer_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			buffer_alloc.commandBufferCount = 1;
+			recorded = vk_result_check(vkAllocateCommandBuffers(device, &buffer_alloc, &command_buffer),
+				"渲染目标:: 分配默认编号命令缓冲");
+		}
+		//开始录制
+		if (recorded)
+		{
+			VkCommandBufferBeginInfo begin_info{};
+			begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			recorded = vk_result_check(vkBeginCommandBuffer(command_buffer, &begin_info), "渲染目标:: 开始默认编号录制");
+		}
+		if (recorded)
+		{
+			//屏障：未定义 → 传输目的
+			VkImageMemoryBarrier to_transfer{};
+			to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			to_transfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			to_transfer.image = default_tone_id_image;
+			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			to_transfer.srcAccessMask = 0;
+			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+				VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_transfer);
+			//清 0（0 = 无覆盖）
+			VkClearColorValue clear{};
+			clear.uint32[0] = 0;
+			VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			vkCmdClearColorImage(command_buffer, default_tone_id_image,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+			//屏障：传输目的 → 着色器可读
+			VkImageMemoryBarrier to_sample = to_transfer;
+			to_sample.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			to_sample.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			to_sample.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			to_sample.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &to_sample);
+			//结束录制
+			recorded = vk_result_check(vkEndCommandBuffer(command_buffer), "渲染目标:: 结束默认编号录制");
+		}
+		//提交并等待
+		if (recorded)
+			recorded = vk_result_check(vkResetFences(device, 1, &transient_fence), "渲染目标:: 重置默认编号栅栏");
+		if (recorded)
+		{
+			VkSubmitInfo submit_info{};
+			submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit_info.commandBufferCount = 1;
+			submit_info.pCommandBuffers = &command_buffer;
+			recorded = vk_result_check(vkQueueSubmit(graphics_queue, 1, &submit_info, transient_fence),
+				"渲染目标:: 提交默认编号命令");
+		}
+		if (recorded)
+			recorded = vk_result_check(vkWaitForFences(device, 1, &transient_fence, VK_TRUE, UINT64_MAX),
+				"渲染目标:: 等待默认编号完成");
+		//失败则归还刚创建的资源
+		if (!recorded)
+		{
+			memory->image_view_destroy(default_tone_id_view);
+			memory->image_destroy(default_tone_id_image, default_tone_id_alloc);
+			default_tone_id_view = VK_NULL_HANDLE;
+			default_tone_id_image = VK_NULL_HANDLE;
+			default_tone_id_alloc = VK_NULL_HANDLE;
+			return false;
+		}
+		view_out = default_tone_id_view;
+		return true;
+	}
+
 	bool Render_Target_Context::target_readback_raw(uint64_t handle, uint32_t x, uint32_t y,
 		uint32_t region_width, uint32_t region_height, uint32_t bytes_per_texel,
 		uint8_t* pixels, uint32_t capacity,

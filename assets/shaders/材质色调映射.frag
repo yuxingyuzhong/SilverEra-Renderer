@@ -21,6 +21,13 @@ layout(location = 0) out vec4 out_color;
 //源纹理（描述符集 1）：上一级的输出
 layout(set = 1, binding = 0) uniform sampler2D source_image;
 
+/*
+逐材质色调编号附件（第 812 轮 · 8 位路径段 4）
+与场景目标同尺寸的 R8_UINT 附件：0 = 无覆盖、1..5 = 算子 + 1；
+未绑定真实编号附件时由引擎写入 1×1 零图（恒 0），解码自动回落到 alpha / 全局。
+*/
+layout(set = 1, binding = 10) uniform usampler2D tone_id_image;
+
 //推送常量：源 / 宿尺寸（offset 80）与色调参数（offset 96）
 layout(push_constant) uniform Push_Size
 {
@@ -126,6 +133,16 @@ void main()
 	vec4 source = texelFetch(source_image, coord, 0);
 	//全局默认算子（推送常量 w；非法回落 0）
 	int operator_id = int(clamp(push_size.tone_param.w + 0.5, 0.0, 5.0));
+	/*
+	编号附件优先（第 812 轮 · 8 位路径段 4）
+	通道开启且目标带编号附件时，每个可见片元携带 1..5（算子 + 1）；0 表示未覆盖。
+	编号按同一「宿 → 源」比例映射到编号附件坐标（编号附件与场景目标同尺寸）。
+	*/
+	ivec2 tone_size = textureSize(tone_id_image, 0);
+	ivec2 tone_coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), tone_size - ivec2(1));
+	uint tone_id = texelFetch(tone_id_image, tone_coord, 0).r;
+	if (tone_id >= 1u && tone_id <= 5u)
+		operator_id = clamp(int(tone_id) - 1, 0, 4);
 	/*
 	逐材质覆盖（第 779 轮；第 784 轮收窄编码带宽）
 	场景 pass 把 (id + 1) × 0.0005 写进 alpha；编码落在 0.0005..0.0025，故按 < 0.003 判定，

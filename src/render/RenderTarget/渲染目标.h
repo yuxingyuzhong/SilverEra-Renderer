@@ -191,6 +191,12 @@ namespace engine
 		*/
 		bool target_readback_tone_id(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		取默认编号附件（第八百一十二轮；1×1 R8_UINT 零图）
+		惰性创建并清 0、转 SHADER_READ_ONLY；供后处理采样集 binding 10 在未启用编号通道时占位，
+		使 材质色调映射.frag 的编号分支恒读到 0（回落到 alpha / 全局）。
+		*/
+		bool tone_id_default_get(VkImageView& view_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:
@@ -229,5 +235,9 @@ namespace engine
 		VkFence transient_fence = VK_NULL_HANDLE;
 		//渲染目标记录集合（下标 = 句柄 - 1）
 		std::vector<Render_Target_Record> records;
+		//默认编号附件（第八百一十二轮；1×1 R8_UINT 零图）
+		VkImage default_tone_id_image = VK_NULL_HANDLE;
+		VmaAllocation default_tone_id_alloc = VK_NULL_HANDLE;
+		VkImageView default_tone_id_view = VK_NULL_HANDLE;
 	};
 }

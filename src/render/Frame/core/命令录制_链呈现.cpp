@@ -9,7 +9,7 @@ namespace engine
 		uint32_t post_count, const float clear_color[4], VkBuffer readback_buffer, VkQueryPool timestamp_pool,
 		VkImage swapchain_msaa_image, VkImageView swapchain_msaa_color_view,
 		VkImageView swapchain_msaa_depth_view, uint32_t swapchain_sample_count,
-		const Frame_Ui_Callback* ui_callback)
+		const Frame_Ui_Callback* ui_callback, VkPipeline tone_id_pipeline)
 	{
 		//场景目标（目标组首项）
 		const Frame_Render_Target& scene_target = targets[0];
@@ -183,6 +183,13 @@ namespace engine
 		//场景结束时间戳（第一百二十八轮；后处理耗时 = 查询 2 − 查询 1）
 		if (timestamp_pool != VK_NULL_HANDLE)
 			vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, timestamp_pool, 1);
+
+		/*
+		逐材质色调编号预通道（第 812 轮 · 8 位路径段 4）
+		场景 pass 结束后、场景深度仍为 DEPTH_ATTACHMENT_OPTIMAL 时，以同一深度图重绘不透明项，
+		只有最终可见片元写入场景目标的编号附件；主 pass 保持单颜色附件。
+		*/
+		tone_id_pass_record(command_buffer, scene_target, items, item_count, tone_id_pipeline);
 
 		/*
 		场景 pass → 首级后处理 · 场景目标颜色布局转换：COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL

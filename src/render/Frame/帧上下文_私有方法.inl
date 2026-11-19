@@ -63,7 +63,7 @@
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE,
 			VkImage swapchain_msaa_image = VK_NULL_HANDLE, VkImageView swapchain_msaa_color_view = VK_NULL_HANDLE,
 			VkImageView swapchain_msaa_depth_view = VK_NULL_HANDLE, uint32_t swapchain_sample_count = 1,
-			const Frame_Ui_Callback* ui_callback = nullptr);
+			const Frame_Ui_Callback* ui_callback = nullptr, VkPipeline tone_id_pipeline = VK_NULL_HANDLE);
 		/*
 		逐渲染项绘制（状态缓存的管线 / 描述符集绑定 ＋ vkCmdDrawIndexed；实现见 core/命令录制.cpp）
 		由 command_record（交换链路径）与 command_record_target（离屏路径）共用。

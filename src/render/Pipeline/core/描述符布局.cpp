@@ -43,8 +43,8 @@ namespace engine
 		if (!vk_result_check(vkCreateDescriptorSetLayout(device, &scene_info, nullptr, &scene_set_layout), "vkCreateDescriptorSetLayout（场景）"))
 			return false;
 
-		//set 1 绑定（采样器：0 = 当前纹理 / 上一级输出，1 = 场景目标 / 阴影图，2 = 场景深度，3 = 法线贴图，4 = 粗糙度贴图（第一百二十三轮 / 第一百二十四轮），5 = 天空盒，6 = 自发光贴图（第一百六十八轮），7 = 环境光遮蔽贴图，8 = 金属度贴图（第一百六十九轮），9 = 聚光灯阴影图数组（第四百八十三轮；第五百零七轮扩为 4 张））
-		VkDescriptorSetLayoutBinding sampler_bindings[10]{};
+		//set 1 绑定（采样器：0 = 当前纹理 / 上一级输出，1 = 场景目标 / 阴影图，2 = 场景深度，3 = 法线贴图，4 = 粗糙度贴图（第一百二十三轮 / 第一百二十四轮），5 = 天空盒，6 = 自发光贴图（第一百六十八轮），7 = 环境光遮蔽贴图，8 = 金属度贴图（第一百六十九轮），9 = 聚光灯阴影图数组（第四百八十三轮；第五百零七轮扩为 4 张；第五百一十三轮扩为 8 张），10 = 逐材质色调编号附件（第八百一十二轮））
+		VkDescriptorSetLayoutBinding sampler_bindings[11]{};
 		sampler_bindings[0].binding = 0;
 		sampler_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		sampler_bindings[0].descriptorCount = 1;
@@ -90,11 +90,19 @@ namespace engine
 		sampler_bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		sampler_bindings[9].descriptorCount = 8;
 		sampler_bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		/*
+		逐材质色调编号附件（第八百一十二轮）
+		单张 R8_UINT 附件；未绑定真实附件时写 1×1 零图（恒 0 = 无覆盖）。
+		*/
+		sampler_bindings[10].binding = 10;
+		sampler_bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		sampler_bindings[10].descriptorCount = 1;
+		sampler_bindings[10].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
 		//set 1 布局创建信息
 		VkDescriptorSetLayoutCreateInfo sampler_info{};
 		sampler_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		sampler_info.bindingCount = 10;
+		sampler_info.bindingCount = 11;
 		sampler_info.pBindings = sampler_bindings;
 		//若采样器布局创建失败
 		if (!vk_result_check(vkCreateDescriptorSetLayout(device, &sampler_info, nullptr, &sampler_set_layout), "vkCreateDescriptorSetLayout（采样器）"))

@@ -343,9 +343,29 @@ namespace engine
 		Render_Target_Native_Info shadow_info{};
 		owner->resource().render_target_native_get(shadow_target, shadow_info);
 		VkImageView shadow_view = reinterpret_cast<VkImageView>(shadow_info.color_view);
-		//签名比较：采样器、数量、深度、阴影与逐视图一致则空操作
+		/*
+		逐材质色调编号视图（第 812 轮）
+		门面设定的来源目标带编号附件时取该视图，否则取 1×1 零图占位（恒 0 = 无覆盖）。
+		*/
+		VkImageView tone_id_view = VK_NULL_HANDLE;
+		if (post_tone_id_target != 0)
+		{
+			uint64_t tone_image = 0;
+			uint64_t tone_view = 0;
+			uint32_t tone_format = 0;
+			if (owner->resource().render_target_tone_id_get(post_tone_id_target, tone_image, tone_view, tone_format))
+				tone_id_view = reinterpret_cast<VkImageView>(tone_view);
+		}
+		if (tone_id_view == VK_NULL_HANDLE)
+		{
+			uint64_t default_view = 0;
+			if (owner->resource().render_target_tone_id_default_get(default_view))
+				tone_id_view = reinterpret_cast<VkImageView>(default_view);
+		}
+		//签名比较：采样器、数量、深度、阴影、编号与逐视图一致则空操作
 		bool same = post_bind_cached && post_bound_sampler == sampler && post_bound_view_count == count
-			&& post_bound_depth == depth_view && post_bound_shadow == shadow_view;
+			&& post_bound_depth == depth_view && post_bound_shadow == shadow_view
+			&& post_bound_tone_id == tone_id_view;
 		for (uint32_t index = 0; same && index < count; ++index)
 			if (post_bound_views[index] != views[index])
 				same = false;
@@ -360,13 +380,15 @@ namespace engine
 			{
 				owner->resource().post_stage_bind(slot, index, reinterpret_cast<uint64_t>(sampler),
 					reinterpret_cast<uint64_t>(views[index]), reinterpret_cast<uint64_t>(views[0]),
-					reinterpret_cast<uint64_t>(depth_view), reinterpret_cast<uint64_t>(shadow_view));
+					reinterpret_cast<uint64_t>(depth_view), reinterpret_cast<uint64_t>(shadow_view),
+					reinterpret_cast<uint64_t>(tone_id_view));
 			}
 		//更新签名缓存
 		post_bound_sampler = sampler;
 		post_bound_view_count = count;
 		post_bound_depth = depth_view;
 		post_bound_shadow = shadow_view;
+		post_bound_tone_id = tone_id_view;
 		for (uint32_t index = 0; index < count; ++index)
 			post_bound_views[index] = views[index];
 		post_bind_cached = true;

@@ -140,6 +140,33 @@ namespace engine
 		return owner->resource().post_lut_get();
 	}
 
+	/*
+	逐材质色调编号来源（第 812 轮 · 8 位路径段 4）
+	只记录句柄并置「后处理绑定失效」：下一帧 post_sets_bind 按新来源重写 binding 10，
+	未设定或目标无编号附件时写 1×1 零图，材质色调映射片元回落到 alpha / 全局。
+	*/
+	void Render_Device::post_tone_id_target_set(uint64_t render_target_handle)
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return;
+		//同值重复设置为空操作
+		if (state_ptr->post_tone_id_target == render_target_handle)
+			return;
+		state_ptr->post_tone_id_target = render_target_handle;
+		state_ptr->post_bind_cached = false;
+		logger.info("渲染器:: 后处理编号来源已设为{}", render_target_handle != 0 ? "指定目标" : "默认零图");
+	}
+
+	//当前后处理编号来源（第 812 轮）
+	uint64_t Render_Device::post_tone_id_target(void) const
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return 0;
+		return state_ptr->post_tone_id_target;
+	}
+
 	void Render_Device::bloom_param_set(float threshold, float knee, float intensity)
 	{
 		//未初始化则静默返回

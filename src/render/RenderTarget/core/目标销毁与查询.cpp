@@ -167,6 +167,17 @@ namespace engine
 		}
 		records.clear();
 
+		//归还默认编号附件（第八百一十二轮）
+		if (memory != nullptr && default_tone_id_image != VK_NULL_HANDLE)
+		{
+			if (default_tone_id_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(default_tone_id_view);
+			memory->image_destroy(default_tone_id_image, default_tone_id_alloc);
+		}
+		default_tone_id_view = VK_NULL_HANDLE;
+		default_tone_id_image = VK_NULL_HANDLE;
+		default_tone_id_alloc = VK_NULL_HANDLE;
+
 		//归还一次性资源
 		if (device != VK_NULL_HANDLE)
 		{

@@ -131,6 +131,13 @@ namespace engine
 		VkImageView post_bound_shadow = VK_NULL_HANDLE;
 
 		bool post_bind_cached = false;
+		/*
+		逐材质色调编号附件（第 812 轮）
+		post_tone_id_target 为门面设定的「编号来源目标」句柄（0 = 未设定，binding 10 写默认零图）；
+		post_bound_tone_id 为上次写入的编号视图（参与绑定签名比较）。
+		*/
+		uint64_t post_tone_id_target = 0;
+		VkImageView post_bound_tone_id = VK_NULL_HANDLE;
 
 		//设备是否支持 144 字节推送块
 		bool post_extra_supported = false;

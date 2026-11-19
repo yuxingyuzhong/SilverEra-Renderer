@@ -108,7 +108,8 @@
 			uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 			const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
 			bool& rebuild_needed_out, Frame_Readback_Request* readback = nullptr,
-			const Frame_Ui_Callback* ui_callback = nullptr);
+			const Frame_Ui_Callback* ui_callback = nullptr,
+			VkPipeline tone_id_pipeline = VK_NULL_HANDLE);
 		/*
 		实际绘制量（第十一轮新增）
 		区分「登记量」（上层登记的渲染项数）与「实际绘制量」（真正下达绘制命令的量）：

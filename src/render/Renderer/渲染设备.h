@@ -77,6 +77,13 @@ namespace engine
 		void post_lut_bind(uint64_t texture_handle);
 		uint64_t post_lut_get(void) const;
 		/*
+		逐材质色调编号来源（第 812 轮 · 8 位路径段 4）
+		指定一个带编号附件的渲染目标：后处理采样集 binding 10 将绑定该目标的编号视图，
+		`材质色调映射.frag` 按「id 附件 > alpha > 全局」选曲线；传 0 撤回（binding 10 写 1×1 零图）。
+		*/
+		void post_tone_id_target_set(uint64_t render_target_handle);
+		uint64_t post_tone_id_target(void) const;
+		/*
 		全局后处理回落参数（第 795 轮补注；原 namesake 为「泛光参数」，自动泛光已于 778 轮删除）
 		设置链级参数在「该级未专设」时的回落值：threshold / knee / intensity 分别写入全局槽 x/y/z；
 		逐级专设（post_stage_param_set / post_stage_param4_set）优先。

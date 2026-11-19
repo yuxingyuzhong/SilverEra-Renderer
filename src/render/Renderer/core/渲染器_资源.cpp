@@ -756,7 +756,7 @@ namespace engine
 
 	//写入一帧槽的一级后处理采样绑定
 	bool Render_Resource::post_stage_bind(uint32_t slot, uint32_t stage, uint64_t sampler, uint64_t source_view,
-		uint64_t scene_view, uint64_t depth_view, uint64_t shadow_view)
+		uint64_t scene_view, uint64_t depth_view, uint64_t shadow_view, uint64_t tone_id_view)
 	{
 		VkSampler native_sampler = reinterpret_cast<VkSampler>(sampler);
 		bool result = (*state_ptr).pipeline.post_texture_bind(slot, native_sampler,
@@ -769,7 +769,30 @@ namespace engine
 		if (shadow_view != 0)
 			result = (*state_ptr).pipeline.post_shadow_bind(slot, native_sampler,
 				reinterpret_cast<VkImageView>(shadow_view), stage) && result;
+		/*
+		逐材质色调编号附件（第八百一十二轮）
+		启用编号通道时为目标编号视图，否则为 1×1 零图；两者都写，保证材质色调映射片元的 binding 10 恒有效。
+		*/
+		if (tone_id_view != 0)
+			result = (*state_ptr).pipeline.post_tone_id_bind(slot, native_sampler,
+				reinterpret_cast<VkImageView>(tone_id_view), stage) && result;
 		return result;
+	}
+
+	//取默认编号附件视图（第八百一十二轮）
+	bool Render_Resource::render_target_tone_id_default_get(uint64_t& view_out)
+	{
+		//出参先复位
+		view_out = 0;
+		//若尚未初始化
+		if (owner == nullptr || !owner->device().valid())
+			return false;
+		//转交渲染目标模块（惰性创建 1×1 R8_UINT 零图）
+		VkImageView view = VK_NULL_HANDLE;
+		if (!(*state_ptr).render_target.tone_id_default_get(view))
+			return false;
+		view_out = reinterpret_cast<uint64_t>(view);
+		return true;
 	}
 
 	//按显式格式创建渲染目标

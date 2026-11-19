@@ -339,6 +339,12 @@ namespace engine
 		*/
 		bool post_lut_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
 		/*
+		向第 slot 帧槽的后处理采样器集写「逐材质色调编号附件」（set 1 binding 10；第八百一十二轮）
+		供 材质色调映射.frag 按「id 附件 > alpha > 全局」解码；未启用编号通道时由门面写入 1×1 零图
+		（R8_UINT 恒 0 = 无覆盖），既有画面不变。
+		*/
+		bool post_tone_id_bind(uint32_t slot, VkSampler sampler, VkImageView view, uint32_t index = 0);
+		/*
 		向第 slot 帧槽的场景采样器集批量写全部材质贴图
 		（set 1 binding 3 = 法线、4 = 粗糙度、6 = 自发光、7 = 环境光遮蔽、8 = 金属度；第一百七十轮）
 		一次 vkUpdateDescriptorSets 更新五个绑定；无贴图时由门面传入内置默认白纹理，

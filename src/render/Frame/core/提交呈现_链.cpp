@@ -43,7 +43,8 @@ namespace engine
 	bool Frame_Context::render_chain_present(Swapchain_Context& swapchain, const Frame_Render_Target* targets,
 		uint32_t target_count, const Frame_Render_Item* items, uint32_t item_count,
 		const Frame_Render_Item* post_items, uint32_t post_count, const float clear_color[4],
-		bool& rebuild_needed_out, Frame_Readback_Request* readback, const Frame_Ui_Callback* ui_callback)
+		bool& rebuild_needed_out, Frame_Readback_Request* readback, const Frame_Ui_Callback* ui_callback,
+		VkPipeline tone_id_pipeline)
 	{
 		//默认无需重建
 		rebuild_needed_out = false;
@@ -194,7 +195,8 @@ namespace engine
 			targets, target_count, items, item_count, post_items, post_count, clear_color,
 			readback_target, slot.timestamp_pool,
 			swapchain.msaa_color_image_get(image_index), swapchain.msaa_color_view_get(image_index),
-			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get(), ui_callback);
+			swapchain.msaa_depth_view_get(image_index), swapchain.sample_count_get(), ui_callback,
+			tone_id_pipeline);
 		//并行上下文只对本帧录制有效（清空后下一帧重新判定）
 		active_secondary = nullptr;
 		active_secondary_count = 0;
