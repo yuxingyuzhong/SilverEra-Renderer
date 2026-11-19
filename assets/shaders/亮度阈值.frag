@@ -28,10 +28,12 @@ void main()
 		//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
 	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
+	//源纹素（保留 alpha 以便透传逐材质色调编号）
+	vec4 source_texel = texelFetch(source_image, coord, 0);
 	//取源颜色（sRGB 附件下 texelFetch 返回线性化值）
-	vec3 source = texelFetch(source_image, coord, 0).rgb;
+	vec3 source = source_texel.rgb;
 	//Rec.709 亮度
 	float luma = dot(source, vec3(0.2126, 0.7152, 0.0722));
-	//按 0.5 阈值二值化（亮 → 纯白、暗 → 纯黑；alpha 归一）
-	out_color = vec4(luma >= 0.5 ? vec3(1.0) : vec3(0.0), 1.0);
+	//按 0.5 阈值二值化（亮 → 纯白、暗 → 纯黑；alpha 透传源值）
+	out_color = vec4(luma >= 0.5 ? vec3(1.0) : vec3(0.0), source_texel.a);
 }

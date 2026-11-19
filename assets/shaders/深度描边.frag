@@ -60,7 +60,7 @@ void main()
 	//边缘权重与强度
 	float edge = clamp(laplacian / max(threshold, 0.00001), 0.0, 1.0);
 	float strength = clamp(push.post_param.x, 0.0, 1.0);
-	//原色按权重混向描边色（默认黑 = 压暗轮廓，与引入参数前逐字节一致；第一百八十一轮）
+	//原色按权重混向描边色（alpha 透传源值，保留逐材质色调编号）
 	vec4 source = texelFetch(source_image, source_coord, 0);
-	out_color = vec4(mix(source.rgb, push.outline_color.rgb, clamp(edge * strength, 0.0, 1.0)), 1.0);
+	out_color = vec4(mix(source.rgb, push.outline_color.rgb, clamp(edge * strength, 0.0, 1.0)), source.a);
 }
