@@ -48,7 +48,8 @@ namespace engine
 	bool Render_Resource::pipeline_load_ex(uint64_t& handle_out, const std::string& vert_shader,
 		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 		bool depth_write, bool cull_front, bool depth_test, bool depth_format_override,
-		uint32_t depth_format, uint32_t sample_count, uint32_t color_format, uint32_t tone_id_format)
+		uint32_t depth_format, uint32_t sample_count, uint32_t color_format,
+		uint32_t tone_id_format, bool depth_lequal)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -72,9 +73,9 @@ namespace engine
 		//登记到管线模块（具名管线与默认场景管线共享同一管线布局）
 		uint64_t handle = 0;
 		if (!state_ptr->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
-			static_cast<VkFormat>(color_format), cull_none, sample_count, vert_input_locations, depth_write, false,
-			alpha_to_coverage, cull_front, depth_test, depth_format_override, static_cast<VkFormat>(depth_format),
-			static_cast<VkFormat>(tone_id_format)))
+			static_cast<VkFormat>(color_format), cull_none, sample_count, vert_input_locations, depth_write,
+			depth_lequal, alpha_to_coverage, cull_front, depth_test, depth_format_override,
+			static_cast<VkFormat>(depth_format), static_cast<VkFormat>(tone_id_format)))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏

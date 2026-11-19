@@ -474,9 +474,17 @@ namespace engine
 			target_out.color_format = color_format;
 			target_out.depth_format = depth_format;
 		}
-		return state_ptr->render_target.target_depth_get(handle, target_out.depth_image, target_out.depth_view)
-			&& state_ptr->render_target.target_msaa_get(handle, target_out.msaa_color_image,
-				target_out.msaa_color_view, target_out.msaa_depth_view, target_out.sample_count);
+		if (!state_ptr->render_target.target_depth_get(handle, target_out.depth_image, target_out.depth_view)
+			|| !state_ptr->render_target.target_msaa_get(handle, target_out.msaa_color_image,
+				target_out.msaa_color_view, target_out.msaa_depth_view, target_out.sample_count))
+			return false;
+		/*
+		逐材质色调编号附件（第 808 轮；可选，未建立时保持空句柄）
+		该附件与既有渲染路径无关，取不到不影响目标可用性。
+		*/
+		state_ptr->render_target.target_tone_id_get(handle, target_out.tone_id_image,
+			target_out.tone_id_view, target_out.tone_id_format);
+		return true;
 	}
 
 	//读取多重采样深度图像

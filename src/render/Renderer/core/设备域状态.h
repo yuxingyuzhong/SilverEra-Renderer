@@ -180,5 +180,13 @@ namespace engine
 		uint64_t ssaa_pipeline = 0;
 
 		bool ssaa_extent_failed = false;
+
+		/*
+		逐材质色调编号通道（第 808 轮 · 8 位路径方案 B）
+		tone_id_pipeline 为极简编号管线（R8_UINT 颜色 ＋ 场景深度、LESS_OR_EQUAL、不写深度）；
+		tone_id_pass 为开关（默认关闭）：仅当渲染目标带编号附件时帧链路才录制该通道。
+		*/
+		uint64_t tone_id_pipeline = 0;
+		bool tone_id_pass = false;
 	};
 }

@@ -184,6 +184,13 @@ namespace engine
 		*/
 		bool target_readback_float(uint64_t handle, float* values, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回逐材质色调编号附件（第 808 轮）
+		pixels 为宽×高 个字节（R8_UINT 原始值，0 = 无覆盖、1..5 = 算子 + 1）；
+		capacity 须不小于 宽×高；目标未建立编号附件时返回假。读回后图像仍回到 SHADER_READ_ONLY。
+		*/
+		bool target_readback_tone_id(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
 		//句柄是否有效
 		bool target_valid(uint64_t handle) const;
 	private:
@@ -191,10 +198,11 @@ namespace engine
 		bool target_readback_impl(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
-		//按指定纹素字节数读回原始字节（整幅 / 子区域；第七百五十二轮抽出）
+		//按指定纹素字节数读回原始字节（整幅 / 子区域；第七百五十二轮抽出；source 为空时取颜色图像）
 		bool target_readback_raw(uint64_t handle, uint32_t x, uint32_t y,
 			uint32_t region_width, uint32_t region_height, uint32_t bytes_per_texel,
-			uint8_t* bytes, uint32_t capacity, uint32_t* width_out, uint32_t* height_out);
+			uint8_t* bytes, uint32_t capacity, uint32_t* width_out, uint32_t* height_out,
+			VkImage source = VK_NULL_HANDLE);
 		//确保一次性命令池与栅栏就绪（首次创建，之后复用）
 		bool transient_resources_ensure(void);
 		//一次性布局转换：颜色 UNDEFINED → SHADER_READ_ONLY、深度 UNDEFINED → DEPTH_ATTACHMENT（含 MSAA 附件）

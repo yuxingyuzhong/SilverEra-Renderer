@@ -39,7 +39,14 @@
 			VkQueryPool timestamp_pool = VK_NULL_HANDLE, bool shadow_pass = false,
 			const Frame_Post_Scene_Callback* post_scene = nullptr,
 			bool reset_query = true, bool write_begin_timestamp = true, bool write_end_timestamp = true,
-			bool leading_barrier = false);
+			bool leading_barrier = false, VkPipeline tone_id_pipeline = VK_NULL_HANDLE);
+		/*
+		逐材质色调编号预通道（第 808 轮；实现见 core/命令录制_色调编号.cpp）
+		场景 pass 结束后以同一深度图（LESS_OR_EQUAL、不写深度）重绘不透明项，
+		把可见片元的逐材质算子写入目标的 R8_UINT 编号附件；主 pass 保持单颜色附件。
+		*/
+		void tone_id_pass_record(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
+			const Frame_Render_Item* items, uint32_t item_count, VkPipeline pipeline);
 		/*
 		录制「场景 pass ＋ N 级后处理 pass（多目标轮转）＋ UI ＋ 呈现」的命令缓冲（实现见 core/命令录制.cpp）
 		场景 pass：targets[0] 颜色 SHADER_READ_ONLY → COLOR_ATTACHMENT，绘制 items 后转回 SHADER_READ_ONLY；

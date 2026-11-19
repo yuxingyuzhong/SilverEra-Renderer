@@ -385,10 +385,18 @@ namespace engine
 					post_scene.fn = Device_State::hiz_post_scene_entry;
 					post_scene.user_data = &state;
 				}
+				/*
+				逐材质色调编号通道（第 808 轮）
+				开关开启、目标带编号附件且编号管线已登记时才挂接；其余情况传空管线，
+				录制路径不产生任何额外命令（默认逐字节不变）。
+				*/
+				VkPipeline tone_id_pipeline = VK_NULL_HANDLE;
+				if (state.tone_id_pass && state.tone_id_pipeline != 0 && target.tone_id_view != VK_NULL_HANDLE)
+					tone_id_pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get(state.tone_id_pipeline));
 				//渲染到离屏目标（不取交换链图像、不呈现）
 				if (!state.frame.render_to_target(target, state.pending_items.data(),
 					static_cast<uint32_t>(state.pending_items.size()), clear_color,
-					&ui_callback, readback_ptr, false, &post_scene))
+					&ui_callback, readback_ptr, false, &post_scene, tone_id_pipeline))
 				{
 					logger.error("渲染器:: 离屏帧渲染失败");
 					return false;

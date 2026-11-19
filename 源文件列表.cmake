@@ -36,6 +36,7 @@ target_sources(EngineRenderer PRIVATE
     "src/render/Frame/core/命令录制_主通道.cpp"
     "src/render/Frame/core/命令录制_目标通道.cpp"
     "src/render/Frame/core/命令录制_绘制项.cpp"
+    "src/render/Frame/core/命令录制_色调编号.cpp"
     "src/render/Frame/core/命令录制_链呈现.cpp"
     "src/render/Frame/core/命令录制_间接与UI.cpp"
     "src/render/Frame/core/帧槽创建.cpp"

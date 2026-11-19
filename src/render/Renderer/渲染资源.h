@@ -205,7 +205,7 @@ namespace engine
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 			bool depth_write = true, bool cull_front = false, bool depth_test = true,
 			bool depth_format_override = false, uint32_t depth_format = 0, uint32_t sample_count = 0,
-			uint32_t color_format = 0, uint32_t tone_id_format = 0);
+			uint32_t color_format = 0, uint32_t tone_id_format = 0, bool depth_lequal = false);
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
 			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
 		//卸载具名图形管线
@@ -236,6 +236,12 @@ namespace engine
 			uint32_t* width_out, uint32_t* height_out);
 		//读回离屏渲染目标颜色为浮点 RGBA（16F 返回原始线性值，8 位按 /255 归一）
 		bool render_target_readback_float(uint64_t handle, float* values, uint32_t capacity,
+			uint32_t* width_out, uint32_t* height_out);
+		/*
+		读回逐材质色调编号附件（第 808 轮；每像素 1 字节，R8_UINT 原始值）
+		0 = 无覆盖、1..5 = 算子 + 1；目标未建立编号附件时返回假。
+		*/
+		bool render_target_readback_tone_id(uint64_t handle, uint8_t* pixels, uint32_t capacity,
 			uint32_t* width_out, uint32_t* height_out);
 		//把离屏渲染目标颜色绑定为当前纹理
 		void texture_bind_target(uint64_t handle);

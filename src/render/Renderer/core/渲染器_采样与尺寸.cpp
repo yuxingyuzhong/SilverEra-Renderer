@@ -149,6 +149,46 @@ namespace engine
 		logger.info("渲染器:: MSAA 深度解析已{}（下一帧生效）", enabled ? "开启" : "关闭");
 	}
 
+	/*
+	逐材质色调编号通道开关（第 808 轮 · 8 位路径方案 B）
+	首次开启时按需登记编号管线（极简 id 管线，R8_UINT ＋ 场景深度，LESS_OR_EQUAL 不写深度）；
+	登记失败则保持关闭。默认关闭时初始化阶段不注册任何额外管线，资源计数与既有路径逐字节不变。
+	*/
+	void Render_Device::tone_id_pass_set(bool enabled)
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return;
+		//同值重复设置为空操作
+		if (state_ptr->tone_id_pass == enabled)
+			return;
+		//开启且管线尚未登记时按需登记
+		if (enabled && state_ptr->tone_id_pipeline == 0)
+		{
+			uint64_t handle = 0;
+			if (!owner->resource().pipeline_load_ex(handle, "色调编号.vert.spv", "色调编号.frag.spv",
+				Blend_Mode::Opaque, false, false, false, false, true, true,
+				static_cast<uint32_t>(state_ptr->swapchain.depth_format_get()), 1,
+				static_cast<uint32_t>(VK_FORMAT_R8_UINT), 0, true))
+			{
+				logger.error("渲染器:: 色调编号管线登记失败，通道保持关闭");
+				return;
+			}
+			state_ptr->tone_id_pipeline = handle;
+		}
+		state_ptr->tone_id_pass = enabled;
+		logger.info("渲染器:: 逐材质色调编号通道已{}（下一帧生效）", enabled ? "开启" : "关闭");
+	}
+
+	//当前逐材质色调编号通道开关（第 808 轮）
+	bool Render_Device::tone_id_pass(void) const
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return false;
+		return state_ptr->tone_id_pass;
+	}
+
 	//当前 MSAA 深度解析开关（第一百九十轮）
 	bool Render_Device::msaa_depth_resolve(void) const
 	{

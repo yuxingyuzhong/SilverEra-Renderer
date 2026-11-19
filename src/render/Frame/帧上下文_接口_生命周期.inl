@@ -65,7 +65,8 @@
 		bool render_to_target(const Frame_Render_Target& target, const Frame_Render_Item* items,
 			uint32_t item_count, const float clear_color[4], const Frame_Ui_Callback* ui_callback = nullptr,
 			Frame_Readback_Request* readback = nullptr, bool shadow_pass = false,
-			const Frame_Post_Scene_Callback* post_scene = nullptr);
+			const Frame_Post_Scene_Callback* post_scene = nullptr,
+			VkPipeline tone_id_pipeline = VK_NULL_HANDLE);
 		/*
 		批量渲染到多个离屏目标（第六百六十九轮；C2 单次提交）
 		一次帧槽准备（栅栏等待 / 时间戳读回 / 栅栏重置 / 命令池重置）后，为每个 pass 录制一条主命令缓冲

@@ -152,7 +152,8 @@ namespace engine
 		if (tone_id_format != VK_FORMAT_UNDEFINED && record.sample_count == 1)
 		{
 			if (!memory->image_create(record.tone_id_image, record.tone_id_alloc, width, height,
-				tone_id_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT))
+				tone_id_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+					| VK_IMAGE_USAGE_TRANSFER_SRC_BIT))
 			{
 				logger.error("渲染目标:: 色调编号附件创建失败");
 				record_resources_destroy(record);

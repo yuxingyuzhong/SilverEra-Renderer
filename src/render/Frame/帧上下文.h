@@ -249,6 +249,15 @@ namespace engine
 		VkImage msaa_depth_image = VK_NULL_HANDLE;
 		uint32_t sample_count = 1;
 		/*
+		逐材质色调编号附件（第 808 轮 · 8 位路径编号预通道）
+		非空时帧链路在场景 pass 结束后以同一深度图再绘一遍不透明项，
+		把每个可见片元的逐材质算子写入该附件（R8_UINT，0 = 无覆盖）；
+		主 pass 保持单颜色附件，因此不产生任何管线变体。
+		*/
+		VkImage tone_id_image = VK_NULL_HANDLE;
+		VkImageView tone_id_view = VK_NULL_HANDLE;
+		VkFormat tone_id_format = VK_FORMAT_UNDEFINED;
+		/*
 		颜色 / 深度格式（第二百轮）
 		供并行录制时次级命令缓冲的 VkCommandBufferInheritanceRenderingInfo 使用；
 		离屏目标通常与交换链同格式，阴影目标为独立固定格式。

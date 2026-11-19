@@ -6,7 +6,8 @@ namespace engine
 		const Frame_Render_Item* items, uint32_t item_count, const float clear_color[4],
 		const Frame_Ui_Callback* ui_callback, VkBuffer readback_buffer, VkQueryPool timestamp_pool, bool shadow_pass,
 		const Frame_Post_Scene_Callback* post_scene,
-		bool reset_query, bool write_begin_timestamp, bool write_end_timestamp, bool leading_barrier)
+		bool reset_query, bool write_begin_timestamp, bool write_end_timestamp, bool leading_barrier,
+		VkPipeline tone_id_pipeline)
 	{
 		//开始录制（一次性提交）
 		VkCommandBufferBeginInfo begin_info{};
@@ -189,6 +190,13 @@ namespace engine
 		//结束场景动态渲染（MSAA 时此处完成解析到目标颜色图像）
 		vkCmdEndRendering(command_buffer);
 		}
+
+		/*
+		逐材质色调编号预通道（第 808 轮 · 8 位路径方案 B）
+		紧跟场景 pass：此时场景深度仍为 DEPTH_ATTACHMENT_OPTIMAL，以同一深度图重绘不透明项，
+		只有最终可见片元写入编号附件；主 pass 保持单颜色附件，无任何管线变体。
+		*/
+		tone_id_pass_record(command_buffer, target, items, item_count, tone_id_pipeline);
 
 		/*
 		场景退场回调（第三百六十八轮；离屏路径的 Hi-Z 深度拷贝与金字塔生成）

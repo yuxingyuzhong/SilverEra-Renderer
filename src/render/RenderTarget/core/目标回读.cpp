@@ -426,10 +426,39 @@ namespace engine
 		return true;
 	}
 
+	//读回逐材质色调编号附件（第 808 轮）
+	bool Render_Target_Context::target_readback_tone_id(uint64_t handle, uint8_t* pixels, uint32_t capacity,
+		uint32_t* width_out, uint32_t* height_out)
+	{
+		//出参先复位
+		if (width_out != nullptr)
+			*width_out = 0;
+		if (height_out != nullptr)
+			*height_out = 0;
+		//句柄 / 出参校验
+		if (!valid() || pixels == nullptr || handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空或未建立编号附件则拒绝
+		if (!record.valid || record.tone_id_image == VK_NULL_HANDLE)
+			return false;
+		//容量校验（每像素 1 字节）
+		VkDeviceSize pixel_count = static_cast<VkDeviceSize>(record.extent.width) * record.extent.height;
+		if (pixel_count > capacity)
+		{
+			logger.error("渲染目标:: 编号附件读回容量不足（需要 {} 字节，给出 {}）", pixel_count, capacity);
+			return false;
+		}
+		//转交原始字节读回（源 = 编号图像、每像素 1 字节）
+		return target_readback_raw(handle, 0, 0, record.extent.width, record.extent.height, 1,
+			pixels, capacity, width_out, height_out, record.tone_id_image);
+	}
+
 	bool Render_Target_Context::target_readback_raw(uint64_t handle, uint32_t x, uint32_t y,
 		uint32_t region_width, uint32_t region_height, uint32_t bytes_per_texel,
 		uint8_t* pixels, uint32_t capacity,
-		uint32_t* width_out, uint32_t* height_out)
+		uint32_t* width_out, uint32_t* height_out, VkImage source)
 	{
 		//出参先复位
 		if (width_out != nullptr)
@@ -444,6 +473,8 @@ namespace engine
 		//已空则拒绝
 		if (!record.valid)
 			return false;
+		//读回源图像（未指定时取颜色图像）
+		const VkImage source_image = source != VK_NULL_HANDLE ? source : record.color_image;
 		//子区域字节数（按纹素字节数紧排）
 		VkDeviceSize byte_size = static_cast<VkDeviceSize>(region_width) * region_height * bytes_per_texel;
 		//若容量不足
@@ -495,7 +526,7 @@ namespace engine
 			to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			to_transfer.image = record.color_image;
+			to_transfer.image = source_image;
 			to_transfer.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 			to_transfer.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -510,7 +541,7 @@ namespace engine
 			region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 			region.imageOffset = { static_cast<int32_t>(x), static_cast<int32_t>(y), 0 };
 			region.imageExtent = { region_width, region_height, 1 };
-			vkCmdCopyImageToBuffer(command_buffer, record.color_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+			vkCmdCopyImageToBuffer(command_buffer, source_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
 
 			//转回着色器可读（后续帧继续采样该目标）
 			VkImageMemoryBarrier to_sample = to_transfer;
