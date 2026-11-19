@@ -54,6 +54,6 @@ void main()
 	float weight = clamp(magnitude * 2.0, 0.0, 1.0);
 	//原色
 	vec4 source = texelFetch(source_image, coord, 0);
-	//按权重压暗
-	out_color = vec4(source.rgb * (1.0 - weight), 1.0);
+	//按权重压暗（alpha 透传：第 789 轮，保留场景 alpha 上的逐材质色调编号）
+	out_color = vec4(source.rgb * (1.0 - weight), source.a);
 }

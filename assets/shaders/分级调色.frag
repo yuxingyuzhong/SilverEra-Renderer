@@ -28,8 +28,9 @@ void main()
 	//宿像素 → 源像素映射比例
 	vec2 source_scale = push.size_xy.xy / push.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
-	//取源颜色
-	vec3 color = texelFetch(source_image, coord, 0).rgb;
+	//取源颜色（alpha 透传：第 789 轮，保留场景 alpha 上的逐材质色调编号）
+	vec4 source = texelFetch(source_image, coord, 0);
+	vec3 color = source.rgb;
 
 	//参数归一（与门面合法域一致）
 	float lift = clamp(push.post_param.x, -1.0, 1.0);
@@ -45,5 +46,5 @@ void main()
 	float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
 	color = mix(vec3(luma), color, saturation);
 
-	out_color = vec4(clamp(color, 0.0, 1.0), 1.0);
+	out_color = vec4(clamp(color, 0.0, 1.0), source.a);
 }
