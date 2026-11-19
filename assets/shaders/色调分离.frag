@@ -5,7 +5,7 @@
 N 取后处理推送常量的 z 分量（`post_stage_param_set` 的 intensity），四舍五入后钳到 [2, 64]；
 未专设时沿用全局泛光强度默认 1.0 → 钳为 2（二值化风格）。
 
-取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；越界钳边；alpha 恒 1。
+取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）；越界钳边；alpha 透传源值（保留逐材质色调编号）。
 */
 //颜色附件输出
 layout(location = 0) out vec4 out_color;

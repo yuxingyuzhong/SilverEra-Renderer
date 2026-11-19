@@ -27,7 +27,6 @@ void main()
 	//宿像素 → 源像素映射比例
 	vec2 source_scale = push.size_xy.xy / push.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
-	//取源颜色
 	//源纹素（保留 alpha 以便透传逐材质色调编号）
 	vec4 color_texel = texelFetch(source_image, coord, 0);
 	vec3 color = color_texel.rgb;

@@ -2,7 +2,7 @@
 /*
 后处理片元着色器 · 对比度（链式后处理预设）
 逐通道围绕中灰 0.5 线性放大：rgb = clamp((rgb − 0.5) × k + 0.5, 0, 1)，k 取 1.5。
-效果：亮部更亮、暗部更暗（端点方向确定，不依赖具体曲线）；alpha 恒置 1。
+效果：亮部更亮、暗部更暗（端点方向确定，不依赖具体曲线）；alpha 透传源值（保留逐材质色调编号）。
 
 取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）。
 */
@@ -26,7 +26,6 @@ void main()
 		//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
 	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
-	//取源颜色
 	//源纹素（保留 alpha 以便透传逐材质色调编号）
 	vec4 source_texel = texelFetch(source_image, coord, 0);
 	vec3 source = source_texel.rgb;

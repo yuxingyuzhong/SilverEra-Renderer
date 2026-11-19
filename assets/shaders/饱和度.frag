@@ -2,7 +2,7 @@
 /*
 后处理片元着色器 · 饱和度（链式后处理预设）
 按 Rec.709 亮度把颜色向「远离灰轴」的方向推：rgb = mix(vec3(luma), rgb, s)，s 取 1.5。
-效果：色偏区域的通道差（如 b − r）被放大，纯灰（三通道相等）保持不变；alpha 恒置 1。
+效果：色偏区域的通道差（如 b − r）被放大，纯灰（三通道相等）保持不变；alpha 透传源值（保留逐材质色调编号）。
 
 取像素用 texelFetch ＋ 帧缓冲坐标，经推送的「源 / 宿尺寸」映射（1:1 时为恒等）。
 */
@@ -26,7 +26,6 @@ void main()
 		//宿像素 → 源像素映射比例（1:1 时为 1；非 1:1 时为点采样）
 	vec2 source_scale = push_size.size_xy.xy / push_size.size_xy.zw;
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
-	//取源颜色
 	//源纹素（保留 alpha 以便透传逐材质色调编号）
 	vec4 source_texel = texelFetch(source_image, coord, 0);
 	vec3 source = source_texel.rgb;

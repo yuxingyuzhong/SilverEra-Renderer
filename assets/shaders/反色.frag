@@ -2,7 +2,7 @@
 /*
 后处理片元着色器 · 反色（链式后处理的一级）
 把「源纹理」（描述符集 1：上一级 / 场景 pass 的输出）逐像素 1:1 取回后按 1 - rgb 取反，
-alpha 置为 1，从而得到可用于叠加验收的一级效果。
+alpha 透传源值（保留逐材质色调编号），从而得到可用于叠加验收的一级效果。
 
 取像素用 texelFetch ＋ 帧缓冲坐标（gl_FragCoord.xy），与顶点朝向 / 纹理坐标无关，
 故不受视口 Y 方向约定影响；要求源目标范围与本级宿范围一致（1:1），越界时钳到边缘。
@@ -29,7 +29,6 @@ void main()
 	ivec2 coord = clamp(ivec2(gl_FragCoord.xy * source_scale), ivec2(0), source_size - ivec2(1));
 	//取源颜色（sRGB 附件下 texelFetch 返回线性化值）
 	vec4 source = texelFetch(source_image, coord, 0);
-	//反色输出（alpha 归一）
-	//透传源 alpha（第 790 轮：逐材质色调编号不在中间级丢失）
+	//反色输出（rgb 取补，alpha 透传源值，第 790 轮：逐材质色调编号不在中间级丢失）
 	out_color = vec4(vec3(1.0) - source.rgb, source.a);
 }
