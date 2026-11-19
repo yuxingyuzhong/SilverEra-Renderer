@@ -253,6 +253,15 @@ namespace engine
 		return state_ptr->swapchain.extent_get().height;
 	}
 
+	//当前交换链颜色格式（第 817 轮）
+	uint32_t Render_Device::swapchain_format(void) const
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return 0;
+		return static_cast<uint32_t>(state_ptr->swapchain.format_get());
+	}
+
 	//请求改变窗口客户区尺寸
 	bool Render_Device::window_size_set(uint32_t width, uint32_t height)
 	{
