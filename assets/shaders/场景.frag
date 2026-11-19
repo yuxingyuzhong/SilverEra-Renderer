@@ -1376,13 +1376,14 @@ void main()
 	RGBA16F 场景目标则保留 >1 的光强，供后续色调映射真实压缩高光。
 	*/
 	/*
-	逐材质色调算子写入（第 779 轮）
-	覆盖时把编号写进 alpha（(id+1)/255，末级通用色调映射按 <0.05 判定为覆盖）；
+	逐材质色调算子写入（第 779 轮；第 784 轮收窄编码带宽）
+	覆盖时把编号写进 alpha（(id+1) × 0.0005，末级按 < 0.003 判定为覆盖）；
 	未覆盖时保持反照率 alpha，故默认画面与引入前逐字节一致。
+	带宽收窄的理由：粒子等透明绘制也会写 alpha，编码落在 0.0005..0.0025 可把碰撞概率压到「几乎不可见」的量级。
 	注意：该通道依赖 HDR 16F 场景目标承载，且会改写 alpha，透明混合材质不应请求覆盖。
 	*/
 	float tone_alpha = albedo_color.a;
 	if (g_tone_operator >= 0.0 && g_tone_operator <= 4.0)
-		tone_alpha = (floor(g_tone_operator + 0.5) + 1.0) / 255.0;
+		tone_alpha = (floor(g_tone_operator + 0.5) + 1.0) * 0.0005;
 	out_color = vec4(max(final_rgb, 0.0), tone_alpha);
 }
