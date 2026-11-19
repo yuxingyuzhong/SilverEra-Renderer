@@ -290,9 +290,25 @@ namespace engine
 					}
 					else
 					{
-						//否则用全局泛光参数
-						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_params[each] = state.global_post_param[each];
+						/*
+						HDR 默认末级（第 796 轮）
+						内置单级末级读 offset 96 的 x/y 作为双轨分轨位置 / 半宽、w 作为全局算子；
+						这些值直接取设备状态，不再借全局回落槽传递（该槽只服务调用方的阈值 / 软膝 / 强度）。
+						*/
+						if (state.hdr_targets && stage_pipelines[index] == state.post_pipeline)
+						{
+							//默认末级：x/y = 双轨分轨、z = 强度、w = 全局算子
+							post_item.post_params[0] = state.hdr_dual_tone_split;
+							post_item.post_params[1] = state.hdr_dual_tone_band;
+							post_item.post_params[2] = 1.0f;
+							post_item.post_params[3] = static_cast<float>(state.hdr_tone_operator);
+						}
+						else
+						{
+							//否则用全局后处理回落参数
+							for (std::size_t each = 0; each < 4; ++each)
+								post_item.post_params[each] = state.global_post_param[each];
+						}
 					}
 					//描边色（第一百八十一轮；未专设时为黑 = 压暗轮廓）
 					if (index < POST_CHAIN_MAX_STAGES && state.post_stage_color_valid[index])

@@ -158,13 +158,11 @@ namespace engine
 			{
 				state_ptr->effective_present_target = state_ptr->hdr_scene_target;
 				/*
-				双轨分轨参数下发（第 774 轮）
-				算子 5 的分轨位置 / 过渡带经全局泛光参数槽传入末级片元（offset 96）；
-				默认值即 773 的固常量（0.5 / 0.1），关闭该算子时此槽仍作泛光默认参数使用。
+				双轨分轨参数下发（第 774 轮；第 796 轮改为派发期取值）
+				算子 5 的分轨位置 / 过渡半宽随该级的推送常量下发（offset 96 的 x/y）。
+				取值在「后处理绘制项组装」时按设备状态写入默认末级，不再借全局回落槽传递，
+				避免每帧静默覆盖调用方经 bloom_param_set 设置的链级回落参数。
 				*/
-				if (state_ptr->hdr_tone_operator == 5)
-					owner->device().bloom_param_set(state_ptr->hdr_dual_tone_split,
-						state_ptr->hdr_dual_tone_band, 1.0f);
 			}
 		}
 		bool post_frame = false;
