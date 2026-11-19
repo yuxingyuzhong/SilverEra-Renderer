@@ -264,7 +264,11 @@ namespace engine
 		return true;
 	}
 
-	//释放泛光预设持有的中间目标与管线（调用方仍应先把链 / 呈现链中的引用摘除）
+	/*
+	释放泛光预设持有的中间目标与管线（第 778 轮；第 787 轮补引用摘除）
+	目标即将归还资源域，故先摘除设备帧路径对它们的引用（目标组），避免下一帧继续引用已释放资源；
+	管线卸载本身会从后处理链中摘除对应级。
+	*/
 	void Render_Device::post_bloom_preset_release(Bloom_Preset& preset)
 	{
 		//未初始化则只清句柄
@@ -276,6 +280,21 @@ namespace engine
 				preset.pipelines[index] = 0;
 			}
 			return;
+		}
+		//先判定目标组是否仍引用本预设的中间目标（有则整组清除，由调用方重新装配）
+		bool referenced = false;
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			if (preset.targets[index] == 0)
+				continue;
+			for (uint64_t extra : (*state_ptr).present_extra)
+				if (extra == preset.targets[index])
+					referenced = true;
+		}
+		if (referenced && !(*state_ptr).present_extra.empty())
+		{
+			(*state_ptr).present_extra.clear();
+			logger.info("渲染器:: 泛光预设释放：目标组已清除，调用方需重新装配后处理链");
 		}
 		for (std::size_t index = 0; index < 3; ++index)
 		{
