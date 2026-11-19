@@ -227,6 +227,15 @@ namespace engine
 		//色调编号借用 alpha 传递：仅默认管线 ＋ 不透明档 ＋ 未启用覆盖率写入时才安全（第 780 轮）
 		record.tone_alpha_opaque = data.pipeline == 0 && data.blend == Blend_Mode::Opaque
 			&& !data.alpha_to_coverage;
+		/*
+		关闭 HDR 默认路径时的能力边界（第 794 轮）
+		逐材质色调编号借用场景 alpha 传递，8 位呈现路径没有可承载编号的浮点通道；
+		此时覆盖不生效（除非调用方自建 16F 场景目标与 材质色调映射 链），故登记时明确告警，
+		避免「设了但不生效」的隐藏行为。
+		*/
+		if (record.tone_operator != 0xFF && !owner->device().hdr_targets())
+			logger.warn("渲染器:: 材质请求逐材质色调算子 {}，但 HDR 默认路径未开启："
+				"该覆盖仅在自建 16F 场景目标 ＋ 材质色调映射 链时生效", record.tone_operator);
 		if (record.pbr_features_override && (record.pbr_features & 0x20u) != 0
 			&& std::isfinite(data.pbr_gloss) && data.pbr_gloss >= 0.0f && data.pbr_gloss <= 1.0f)
 		{
