@@ -77,7 +77,7 @@ namespace engine
 		末级「材质色调映射」片元从推送常量 offset 96 的 w 读回落算子；
 		逐材质覆盖经场景目标 alpha 携带，故该项只是未覆盖像素的默认值。
 		*/
-		state_ptr->bloom_param[3] = static_cast<float>(state_ptr->hdr_tone_operator);
+		state_ptr->global_post_param[3] = static_cast<float>(state_ptr->hdr_tone_operator);
 		/*
 		双轨色调映射参数（第 774 轮）
 		split 须在 (0,1)、band 须在 (0,0.5) 且小于 split；非法回落 0.5 / 0.1（与 773 的固常量一致）。

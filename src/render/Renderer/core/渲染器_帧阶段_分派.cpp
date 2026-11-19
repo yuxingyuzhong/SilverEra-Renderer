@@ -292,7 +292,7 @@ namespace engine
 					{
 						//否则用全局泛光参数
 						for (std::size_t each = 0; each < 4; ++each)
-							post_item.post_params[each] = state.bloom_param[each];
+							post_item.post_params[each] = state.global_post_param[each];
 					}
 					//描边色（第一百八十一轮；未专设时为黑 = 压暗轮廓）
 					if (index < POST_CHAIN_MAX_STAGES && state.post_stage_color_valid[index])

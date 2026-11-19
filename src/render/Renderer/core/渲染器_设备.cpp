@@ -58,7 +58,7 @@ namespace engine
 		//色调映射算子复位为 ACES（第 759 轮）
 		state_ptr->hdr_tone_operator = 0;
 		//全局默认算子回落值复位（第 779 轮）
-		state_ptr->bloom_param[3] = 0.0f;
+		state_ptr->global_post_param[3] = 0.0f;
 		//双轨色调映射参数复位为默认（第 774 轮）
 		state_ptr->hdr_dual_tone_split = 0.5f;
 		state_ptr->hdr_dual_tone_band = 0.1f;

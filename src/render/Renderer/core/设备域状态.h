@@ -135,8 +135,12 @@ namespace engine
 		//设备是否支持 144 字节推送块
 		bool post_extra_supported = false;
 
-		//全局泛光参数（阈值 / 软膝 / 强度 / 保留）
-		float bloom_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
+		/*
+		全局后处理参数（第 795 轮由 bloom_param 更名：自动泛光已于 778 轮删除，该槽不再是泛光专属）
+		x/y = 双轨色调映射的分轨位置 / 过渡半宽（算子 5）或链级阈值 / 软膝回落值；
+		z = 链级强度回落值；w = 全局默认色调算子（逐材质未覆盖时使用）。
+		*/
+		float global_post_param[4] = { 0.6f, 0.1f, 1.0f, 0.0f };
 
 		//SSAA 超采样状态（倍率钳制 1..4；1 = 关闭）
 		uint32_t ssaa_factor = 1;

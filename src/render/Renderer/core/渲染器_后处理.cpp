@@ -155,9 +155,9 @@ namespace engine
 				threshold, knee, intensity);
 			return;
 		}
-		(*state_ptr).bloom_param[0] = threshold;
-		(*state_ptr).bloom_param[1] = knee;
-		(*state_ptr).bloom_param[2] = intensity;
+		(*state_ptr).global_post_param[0] = threshold;
+		(*state_ptr).global_post_param[1] = knee;
+		(*state_ptr).global_post_param[2] = intensity;
 	}
 
 	/*

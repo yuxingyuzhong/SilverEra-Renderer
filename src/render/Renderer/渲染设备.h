@@ -76,6 +76,12 @@ namespace engine
 		uint32_t post_chain_sample_counts(uint32_t* out, uint32_t capacity) const;
 		void post_lut_bind(uint64_t texture_handle);
 		uint64_t post_lut_get(void) const;
+		/*
+		全局后处理回落参数（第 795 轮补注；原 namesake 为「泛光参数」，自动泛光已于 778 轮删除）
+		设置链级参数在「该级未专设」时的回落值：threshold / knee / intensity 分别写入全局槽 x/y/z；
+		逐级专设（post_stage_param_set / post_stage_param4_set）优先。
+		该全局槽的 w 与 x/y 另被 HDR 默认路径占用：w = 全局默认色调算子、x/y = 双轨分轨位置与过渡半宽。
+		*/
 		void bloom_param_set(float threshold, float knee, float intensity);
 		void post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity);
 		/*
