@@ -105,25 +105,6 @@ namespace engine
 		*/
 		uint32_t hdr_tone_operator = 0;
 		/*
-		HDR 默认路径自动泛光（第 761 轮；默认关闭）
-		开启且走 HDR 默认路径时，自动挂「亮部提取 → 模糊(半径 4) → 泛光叠加 → 色调映射」四级链，
-		中间目标与管线由引擎自建；需 hdr_targets 同时开启，且调用方未指定呈现 / 渲染目标与后处理链。
-		*/
-		bool hdr_auto_bloom = false;
-		//HDR 自动泛光的提取阈值 / 软膝（第 763 轮；默认 0.6 / 0.1，与第七百六十一轮一致）
-		float hdr_bloom_threshold = 0.6f;
-		float hdr_bloom_knee = 0.1f;
-		//HDR 自动泛光的模糊半径（钳到 1..4）与叠加强度（须 > 0；默认 4.0 / 1.0）
-		float hdr_bloom_radius = 4.0f;
-		float hdr_bloom_intensity = 1.0f;
-		/*
-		HDR 自动泛光半分辨率（第 765 轮；默认关闭）
-		开启后「亮部提取」与「模糊」两个中间目标取场景目标的 1/2 边长（至少 1×1），
-		「泛光叠加」仍按场景尺寸输出，故泛光带宽度不变、仅中间层带宽与显存下降；
-		关闭时三个中间目标与场景目标同尺寸，画面与第七百六十一轮逐字节一致。
-		*/
-		bool hdr_bloom_half_res = false;
-		/*
 		双轨色调映射的分轨位置与过渡半宽（第 774 轮；仅 hdr_tone_operator = 5 生效）
 		默认 0.5 / 0.1，与第七百七十三轮的固常量一致；split 须在 (0,1)、band 须在 (0, 0.5) 且小于 split，非法回落默认。
 		*/
@@ -491,12 +472,44 @@ namespace engine
 		bool pbr_active = false;
 		float pbr_roughness = 1.0f;
 		float pbr_metallic = 0.0f;
+		//逐物体 PBR 特性覆盖（第 777 轮；false 时片元回落场景 UBO 的全局开关）
+		bool pbr_features_active = false;
+		//逐物体 PBR 特性位掩码（仅 pbr_features_active 为真时生效）
+		uint32_t pbr_features = 0;
+		//逐材质色调算子（第 779 轮；0..4 = 具体曲线，255 = 继承全局默认）
+		float tone_operator = 255.0f;
 		float emissive = 0.0f;
 		bool toon_active = false;
 		float toon_steps = 0.0f;
 		float toon_rim = 0.0f;
 		float toon_specular = 0.0f;
 		float toon_tint[3] = { 1.0f, 1.0f, 1.0f };
+	};
+
+	/*
+	泛光预设描述（第 778 轮 · 通用引擎化整改）
+	泛光不再由引擎在背后自动介入：调用方用 post_bloom_preset_build 显式建立三个 16F 中间目标
+	与三条管线，再自行订阅到后处理链与呈现链。非法值按默认处理（阈值 0.6、软膝 0.1、半径 4、强度 1）。
+	*/
+	struct Bloom_Preset_Desc
+	{
+		//亮部提取阈值（低于该值的亮度不参与泛光）
+		float threshold = 0.6f;
+		//阈值软膝（过渡带半宽）
+		float knee = 0.1f;
+		//模糊半径（钳到 1..4；半分辨率时按纹素折算再钳回）
+		float radius = 4.0f;
+		//叠加强度（须 > 0；非法回落 1.0）
+		float intensity = 1.0f;
+		//提取与模糊两级使用 1/2 边长目标（叠加强出仍取全尺寸）
+		bool half_res = false;
+	};
+
+	//泛光预设句柄组（第 778 轮；targets 为三个中间目标、pipelines 为提取 / 模糊 / 叠加三条管线）
+	struct Bloom_Preset
+	{
+		uint64_t targets[3] = { 0, 0, 0 };
+		uint64_t pipelines[3] = { 0, 0, 0 };
 	};
 
 	//按帧阴影矩阵与逐瓦片参数值快照

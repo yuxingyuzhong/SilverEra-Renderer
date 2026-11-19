@@ -57,27 +57,11 @@ namespace engine
 		state_ptr->hdr_targets = false;
 		//色调映射算子复位为 ACES（第 759 轮）
 		state_ptr->hdr_tone_operator = 0;
-		//自动泛光复位（第 761 轮；目标已随资源域销毁）
-		state_ptr->hdr_auto_bloom = false;
-		//自动泛光参数复位为默认（第 763 轮）
-		state_ptr->hdr_bloom_threshold = 0.6f;
-		state_ptr->hdr_bloom_knee = 0.1f;
-		state_ptr->hdr_bloom_radius = 4.0f;
-		state_ptr->hdr_bloom_intensity = 1.0f;
-		//半分辨率自动泛光复位为关闭（第 765 轮）
-		state_ptr->hdr_bloom_half_res = false;
+		//全局默认算子回落值复位（第 779 轮）
+		state_ptr->bloom_param[3] = 0.0f;
 		//双轨色调映射参数复位为默认（第 774 轮）
 		state_ptr->hdr_dual_tone_split = 0.5f;
 		state_ptr->hdr_dual_tone_band = 0.1f;
-		for (std::size_t index = 0; index < 3; ++index)
-		{
-			state_ptr->hdr_bloom_targets[index] = 0;
-			state_ptr->hdr_bloom_pipelines[index] = 0;
-		}
-		state_ptr->hdr_bloom_width = 0;
-		state_ptr->hdr_bloom_height = 0;
-		state_ptr->hdr_bloom_failed = false;
-		state_ptr->hdr_bloom_chain_active = false;
 		//复位 HDR 默认路径（第 757 轮；目标已随资源域渲染目标模块销毁）
 		state_ptr->hdr_scene_target = 0;
 		state_ptr->hdr_scene_width = 0;

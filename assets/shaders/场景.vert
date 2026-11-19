@@ -31,6 +31,12 @@ layout(location = 8) in vec4 in_toon;
 xyz = 暗部色调（默认 (1,1,1) = 不色偏）、w 保留；仅当卡通覆盖标志 > 0.5 时参与着色。
 */
 layout(location = 9) in vec4 in_toon_tint;
+/*
+逐物体 PBR 特性覆盖（第 777 轮；按实例步进，步长 128 的第 112..127 字节）
+x = 覆盖标志（> 0.5 时生效）、y = 位掩码（bit0 多散射 / bit1 Fresnel-roughness / bit2 各向异性 /
+bit3 皮肤 SSS / bit4 布料 sheen / bit5 光泽度映射）、z/w 保留；零向量表示沿用全局开关。
+*/
+layout(location = 10) in vec4 in_pbr_features;
 
 //传递给片元着色器的纹理坐标
 layout(location = 0) out vec2 out_uv;
@@ -44,6 +50,8 @@ layout(location = 3) flat out vec4 out_material;
 layout(location = 4) flat out vec4 out_toon;
 //传递给片元着色器的逐物体暗部色调（第四百零九轮；整实例恒定，flat）
 layout(location = 5) flat out vec4 out_toon_tint;
+//传递给片元着色器的逐物体 PBR 特性覆盖（第 777 轮；整实例恒定，flat）
+layout(location = 6) flat out vec4 out_pbr_features;
 
 //场景缓冲（描述符集 0）：视图投影矩阵 ＋ 光照参数 ＋ 相机位置 ＋ 点光源数组，逐帧更新
 layout(set = 0, binding = 0) uniform Scene_Buffer
@@ -79,5 +87,7 @@ void main()
 	out_toon = in_toon;
 	//逐物体卡通暗部色调原样下传（第四百零九轮）
 	out_toon_tint = in_toon_tint;
+	//逐物体 PBR 特性覆盖原样下传（第 777 轮）
+	out_pbr_features = in_pbr_features;
 	gl_Position = scene.view_proj * world;
 }

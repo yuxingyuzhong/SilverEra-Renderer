@@ -19,6 +19,37 @@ layout(location = 4) flat in vec4 in_toon;
 xyz = 暗部色调、w 保留；仅在覆盖标志（in_toon.w）> 0.5 时参与着色，默认 (1,1,1) 即不色偏。
 */
 layout(location = 5) flat in vec4 in_toon_tint;
+/*
+逐物体 PBR 特性覆盖（第 777 轮）
+x = 覆盖标志（> 0.5 时按 y 的位掩码逐特性覆盖全局开关）、y = 位掩码（bit0 多散射 / bit1 Fresnel-roughness /
+bit2 各向异性 / bit3 皮肤 SSS / bit4 布料 sheen / bit5 光泽度映射）；默认全 0 = 沿用全局，画面逐字节不变。
+*/
+layout(location = 6) flat in vec4 in_pbr_features;
+
+//逐物体特性覆盖的当前取值（第 777 轮；由 main 在着色前写入，供各着色函数按位查询）
+vec2 g_pbr_features = vec2(0.0);
+
+/*
+逐材质色调算子（第 779 轮）
+255 = 继承全局默认（hdr_tone_operator），0..4 = ACES / 胶片 / 指数 / 扩展 Reinhard / AgX；
+仅用于把编号写进 alpha 供末级通用色调映射逐像素选曲线，不参与本片元着色。
+*/
+float g_tone_operator = 255.0;
+
+/*
+查询某 PBR 特性是否生效（第 777 轮）
+材质给了覆盖标志时按位掩码判定（掩码位为 1 = 该材质开启此特性），否则沿用场景 UBO 的全局开关；
+故未设置覆盖的绘制项与引入前逐字节一致。
+*/
+bool pbr_feature_on(uint bit, float global_flag)
+{
+	//材质未覆盖 → 用全局开关
+	if (g_pbr_features.x <= 0.5)
+		return global_flag > 0.5;
+	//位提取（浮点实现，避免依赖整数位运算扩展）
+	float divisor = exp2(float(bit));
+	return mod(floor(g_pbr_features.y / divisor + 0.0001), 2.0) > 0.5;
+}
 
 /*
 逐物体反照率色调（第六十九轮）
@@ -343,7 +374,7 @@ scene.pbr_extra.x > 0.5 时 F90 取 max(1 − roughness, F0)：粗糙表面掠�
 vec3 pbr_fresnel(vec3 f0, float cos_theta, float roughness)
 {
 	vec3 f90 = vec3(1.0);
-	if (scene.pbr_extra.x > 0.5)
+	if (pbr_feature_on(1u, scene.pbr_extra.x))
 		f90 = max(vec3(1.0 - clamp(roughness, 0.0, 1.0)), f0);
 	return f0 + (f90 - f0) * pow(1.0 - clamp(cos_theta, 0.0, 1.0), 5.0);
 }
@@ -426,7 +457,7 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 	float denominator = ndoth * ndoth * (alpha2 - 1.0) + 1.0;
 	//法线分布（GGX；第七百二十二轮起支持各向异性）
 	float distribution;
-	if (scene.pbr_aniso.x > 0.5)
+	if (pbr_feature_on(2u, scene.pbr_aniso.x))
 	{
 		/*
 		各向异性 GGX（第七百二十二轮）
@@ -457,7 +488,7 @@ vec3 ggx_specular(vec3 normal, vec3 to_view, vec3 to_light, float roughness, vec
 	单次散射 GGX 在高粗糙金属上偏暗；按 F0 亮度与粗糙度补回多次弹射能量。
 	默认关闭时乘子恒 1，画面与引入前逐字节一致。
 	*/
-	if (scene.lighting_extra.z > 0.5)
+	if (pbr_feature_on(0u, scene.lighting_extra.z))
 	{
 		float f0_luma = dot(f0, vec3(0.2126, 0.7152, 0.0722));
 		result *= 1.0 + f0_luma * roughness * 0.5;
@@ -887,6 +918,10 @@ float shadow_factor(vec3 world_pos, vec3 normal)
 
 void main()
 {
+	//写入逐物体 PBR 特性覆盖（第 777 轮；供各着色函数按位查询）
+	g_pbr_features = in_pbr_features.xy;
+	//写入逐材质色调算子（第 779 轮；z = 0..4 覆盖、255 = 继承全局）
+	g_tone_operator = in_pbr_features.z;
 	/*
 	材质贴图 UV 变换（第一百七十一轮；第一百八十三轮加旋转）
 	全部材质贴图共用同一变换：先缩放、再绕 (0,0) 旋转、最后偏移；
@@ -1093,7 +1128,7 @@ void main()
 			以半兰伯特形式把明暗交界推向背光侧，模拟皮肤次表面透光；
 			默认关闭时保持标准兰伯特（逐字节不变）。
 			*/
-			if (scene.pbr_aniso.z > 0.5)
+			if (pbr_feature_on(3u, scene.pbr_aniso.z))
 			{
 				float wrap = clamp(scene.pbr_aniso.w, 0.0, 1.0) * 0.5 + 0.01;
 				ndotl = clamp((dot(normal, to_light) + wrap) / (1.0 + wrap), 0.0, 1.0);
@@ -1110,7 +1145,7 @@ void main()
 			沿轮廓按 (1 − N·V)^3 叠一层受光绒边，模拟布料 / 绒毛的掠射散射；
 			默认关闭时整段跳过（逐字节不变）。
 			*/
-			if (scene.pbr_sheen.x > 0.5)
+			if (pbr_feature_on(4u, scene.pbr_sheen.x))
 			{
 				float sheen_rim = pow(1.0 - clamp(dot(normal, to_view), 0.0, 1.0), 3.0);
 				radiance += scene.light_color.rgb * scene.light_dir.w * sheen_rim
@@ -1340,5 +1375,14 @@ void main()
 	8 位 UNORM / sRGB 附件由固定功能饱和到 1.0（与旧 `clamp(x,0,1)` 逐字节一致）；
 	RGBA16F 场景目标则保留 >1 的光强，供后续色调映射真实压缩高光。
 	*/
-	out_color = vec4(max(final_rgb, 0.0), albedo_color.a);
+	/*
+	逐材质色调算子写入（第 779 轮）
+	覆盖时把编号写进 alpha（(id+1)/255，末级通用色调映射按 <0.05 判定为覆盖）；
+	未覆盖时保持反照率 alpha，故默认画面与引入前逐字节一致。
+	注意：该通道依赖 HDR 16F 场景目标承载，且会改写 alpha，透明混合材质不应请求覆盖。
+	*/
+	float tone_alpha = albedo_color.a;
+	if (g_tone_operator >= 0.0 && g_tone_operator <= 4.0)
+		tone_alpha = (floor(g_tone_operator + 0.5) + 1.0) / 255.0;
+	out_color = vec4(max(final_rgb, 0.0), tone_alpha);
 }

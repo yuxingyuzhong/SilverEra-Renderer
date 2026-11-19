@@ -47,8 +47,8 @@ namespace engine
 		只在位集命中时声明对应属性，避免校验层「属性未被消费」告警。
 		*/
 		uint32_t declared_locations = input_locations == 0 ? 0xFF : input_locations;
-		//属性集合（最多 10 条：0..9）
-		VkVertexInputAttributeDescription vertex_attributes[10]{};
+		//属性集合（最多 11 条：0..10）
+		VkVertexInputAttributeDescription vertex_attributes[11]{};
 		uint32_t attribute_count = 0;
 		//是否需要顶点绑定 0 / 实例绑定 1
 		bool use_vertex_binding = false;
@@ -83,6 +83,8 @@ namespace engine
 		add_attribute(8, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_TOON_OFFSET * 4);
 		//逐物体卡通暗部色调（第四百零九轮；location 9，偏移 96）
 		add_attribute(9, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_TOON_TINT_OFFSET * 4);
+		//逐物体 PBR 特性覆盖（第 777 轮；location 10，偏移 112）
+		add_attribute(10, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_PBR_FEATURES_OFFSET * 4);
 
 		//顶点绑定（binding 0：顶点属性，步长 = sizeof(Vertex)；binding 1：实例步长 80）
 		VkVertexInputBindingDescription vertex_bindings[2]{};

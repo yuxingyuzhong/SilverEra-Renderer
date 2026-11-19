@@ -216,6 +216,23 @@ namespace engine
 			logger.warn("渲染器:: 材质 PBR 参数非法（粗糙度 {}、金属度 {}），按不覆盖登记",
 				data.pbr_roughness, data.pbr_metallic);
 		/*
+		逐物体 PBR 特性覆盖（第 777 轮）
+		掩码只取低 6 位（bit5 = 光泽度映射）；仅当 pbr_gloss 合法（0..1）时 bit5 才生效。
+		光泽度映射按 roughness = clamp(1 − gloss, 0.05, 1) 覆盖本材质粗糙度，并强制登记为逐物体 PBR 覆盖。
+		*/
+		record.pbr_features_override = data.pbr_features_override;
+		record.pbr_features = data.pbr_features & 0x3Fu;
+		//逐材质色调算子（第 779 轮；0..4 有效，其余按继承全局）
+		record.tone_operator = data.tone_operator <= 4 ? data.tone_operator : 0xFF;
+		if (record.pbr_features_override && (record.pbr_features & 0x20u) != 0
+			&& std::isfinite(data.pbr_gloss) && data.pbr_gloss >= 0.0f && data.pbr_gloss <= 1.0f)
+		{
+			record.pbr_gloss = data.pbr_gloss;
+			//光泽度映射改写粗糙度，故本材质必然走逐物体覆盖路径
+			record.pbr_override = true;
+			record.pbr_roughness = std::max(1.0f - data.pbr_gloss, 0.05f);
+		}
+		/*
 		逐物体卡通参数（第四百零八轮）
 		合法域：色阶数 [0, 8]、边缘光 [0, 1]、卡通高光阈值 [0, 1]；
 		任一项非有限或越界则按「不覆盖」登记（不把脏值写进实例属性），覆盖标志本身不受影响。
@@ -509,6 +526,11 @@ namespace engine
 			(*state_ptr).material_pbr_active = false;
 		(*state_ptr).material_pbr_roughness = record.pbr_override ? record.pbr_roughness : 1.0f;
 		(*state_ptr).material_pbr_metallic = record.pbr_override ? record.pbr_metallic : 0.0f;
+		//同步逐物体 PBR 特性覆盖（第 777 轮；无覆盖时清零 → 片元回落全局开关）
+		(*state_ptr).material_pbr_features_active = record.pbr_features_override;
+		(*state_ptr).material_pbr_features = record.pbr_features_override ? record.pbr_features : 0u;
+		//逐材质色调算子（第 779 轮；0xFF = 继承全局默认）
+		(*state_ptr).material_tone_operator = record.tone_operator;
 		//按记录的卡通覆盖标志同步逐物体卡通参数（第四百零八轮；无覆盖时三项清零即回落全局）
 		(*state_ptr).material_toon_active = record.toon_override;
 		(*state_ptr).material_toon_steps = record.toon_override ? record.toon_steps : 0.0f;

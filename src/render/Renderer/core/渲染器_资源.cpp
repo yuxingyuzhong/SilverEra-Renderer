@@ -144,6 +144,11 @@ namespace engine
 		(*state_ptr).material_pbr_active = false;
 		(*state_ptr).material_pbr_roughness = 1.0f;
 		(*state_ptr).material_pbr_metallic = 0.0f;
+		//逐物体 PBR 特性覆盖恢复默认（第 777 轮；无覆盖 → 片元回落全局开关）
+		(*state_ptr).material_pbr_features_active = false;
+		(*state_ptr).material_pbr_features = 0;
+		//逐材质色调算子恢复默认（第 779 轮；继承全局）
+		(*state_ptr).material_tone_operator = 0xFF;
 		//逐物体卡通参数恢复默认（不覆盖全局，第四百零八轮）
 		(*state_ptr).material_toon_active = false;
 		(*state_ptr).material_toon_steps = 0.0f;

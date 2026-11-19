@@ -44,9 +44,6 @@ namespace engine
 		void ssaa_targets_destroy(void);
 		bool hdr_scene_ensure(uint32_t width, uint32_t height, uint32_t samples = 1);
 		void hdr_scene_destroy(void);
-		bool hdr_bloom_ensure(uint32_t width, uint32_t height);
-		void hdr_bloom_destroy(void);
-		void hdr_bloom_frame_apply(void);
 		//场景管线的颜色格式（第 757 轮：HDR 默认路径开启时烘焙为 16F）
 		VkFormat scene_color_format(void) const
 		{
@@ -148,25 +145,9 @@ namespace engine
 		bool hdr_targets = false;
 		//HDR 默认路径的色调映射算子（第 759 轮；0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard、4 = AgX）
 		uint32_t hdr_tone_operator = 0;
-		//HDR 默认路径自动泛光开关与资源（第 761 轮；默认关闭）
-		bool hdr_auto_bloom = false;
-		//自动泛光参数（第 763 轮；默认与第七百六十一轮一致）
-		float hdr_bloom_threshold = 0.6f;
-		float hdr_bloom_knee = 0.1f;
-		float hdr_bloom_radius = 4.0f;
-		float hdr_bloom_intensity = 1.0f;
-		//自动泛光半分辨率（第 765 轮；默认关闭：提取 / 模糊两个中间目标取 1/2 边长）
-		bool hdr_bloom_half_res = false;
 		//双轨色调映射的分轨位置与过渡半宽（第 774 轮；默认与第七百七十三轮常量一致）
 		float hdr_dual_tone_split = 0.5f;
 		float hdr_dual_tone_band = 0.1f;
-		uint64_t hdr_bloom_targets[3] = { 0, 0, 0 };
-		uint64_t hdr_bloom_pipelines[3] = { 0, 0, 0 };
-		uint32_t hdr_bloom_width = 0;
-		uint32_t hdr_bloom_height = 0;
-		bool hdr_bloom_failed = false;
-		//本帧后处理链 / 额外目标是否由自动泛光填充（下一帧据此还原用户可见状态）
-		bool hdr_bloom_chain_active = false;
 
 		/*
 		HDR 默认路径（第 757 轮）

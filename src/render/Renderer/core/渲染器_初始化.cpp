@@ -72,24 +72,12 @@ namespace engine
 		state_ptr->hdr_targets = effective.hdr_targets;
 		//色调映射算子同须早于后处理管线惰性登记（第 759 / 760 / 773 轮；越界按 0）
 		state_ptr->hdr_tone_operator = effective.hdr_tone_operator > 5 ? 0 : effective.hdr_tone_operator;
-		//HDR 默认路径自动泛光（第 761 轮；默认关闭）
-		state_ptr->hdr_auto_bloom = effective.hdr_auto_bloom;
 		/*
-		自动泛光参数（第 763 轮）
-		半径钳到 1..4（模糊片元只接受该区间）；强度须 > 0，非法时回落 1.0；
-		阈值 / 软膝非有限值或软膝为负时回落默认（0.6 / 0.1）。
+		全局默认算子写入泛光参数第四分量（第 779 轮）
+		末级「材质色调映射」片元从推送常量 offset 96 的 w 读回落算子；
+		逐材质覆盖经场景目标 alpha 携带，故该项只是未覆盖像素的默认值。
 		*/
-		state_ptr->hdr_bloom_threshold = (effective.hdr_bloom_threshold == effective.hdr_bloom_threshold)
-			? effective.hdr_bloom_threshold : 0.6f;
-		state_ptr->hdr_bloom_knee = (effective.hdr_bloom_knee == effective.hdr_bloom_knee
-			&& effective.hdr_bloom_knee >= 0.0f) ? effective.hdr_bloom_knee : 0.1f;
-		state_ptr->hdr_bloom_radius = effective.hdr_bloom_radius < 1.0f ? 1.0f
-			: (effective.hdr_bloom_radius > 4.0f ? 4.0f : effective.hdr_bloom_radius);
-		state_ptr->hdr_bloom_intensity = (effective.hdr_bloom_intensity == effective.hdr_bloom_intensity
-			&& effective.hdr_bloom_intensity > 0.0f && effective.hdr_bloom_intensity < 100.0f)
-			? effective.hdr_bloom_intensity : 1.0f;
-		//自动泛光半分辨率（第 765 轮；默认关闭，关闭时中间目标尺寸与第七百六十一轮一致）
-		state_ptr->hdr_bloom_half_res = effective.hdr_bloom_half_res;
+		state_ptr->bloom_param[3] = static_cast<float>(state_ptr->hdr_tone_operator);
 		/*
 		双轨色调映射参数（第 774 轮）
 		split 须在 (0,1)、band 须在 (0,0.5) 且小于 split；非法回落 0.5 / 0.1（与 773 的固常量一致）。

@@ -44,6 +44,24 @@ namespace engine
 		//逐物体材质金属度（合法域 [0, 1]；仅 pbr_override 为真时生效）
 		float pbr_metallic = 0.0f;
 		/*
+		逐物体 PBR 特性覆盖（第 777 轮；整改：特性归属从全局开关回到材质）
+		pbr_features_override 为真时，本材质的扩展特性按 pbr_features 位掩码决定，不再沿用场景全局开关：
+		bit0 多重散射能量补偿、bit1 Fresnel-roughness、bit2 各向异性、bit3 皮肤 SSS wrap、bit4 布料 sheen、bit5 光泽度映射。
+		pbr_gloss：光泽度（0..1）。bit5 置位且 pbr_gloss ≥ 0 时，按 roughness = clamp(1 − gloss, 0.05, 1) 覆盖本材质粗糙度
+		（并强制登记为逐物体 PBR 覆盖）；默认 -1 表示不启用。
+		默认（覆盖为假、gloss 为 -1）与引入前逐字节一致。
+		*/
+		bool pbr_features_override = false;
+		uint32_t pbr_features = 0;
+		float pbr_gloss = -1.0f;
+		/*
+		逐材质色调算子（第 779 轮 · 通用引擎化整改）
+		0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard、4 = AgX；0xFF = 继承全局默认（hdr_tone_operator）。
+		场景 pass 把编号写进 16F 场景目标的 alpha（(id+1)/255），末级通用色调映射片元按像素选择曲线；
+		故同一帧内写实物体与二次元物体可各自选算子。默认 0xFF 与引入前逐字节一致。
+		*/
+		uint8_t tone_operator = 0xFF;
+		/*
 		逐物体卡通参数（第四百零八轮）
 		toon_override 为真时，该材质绑定的后续绘制按本材质的卡通参数着色（随实例属性下发）；
 		否则沿用场景 UBO 的全局卡通参数（`pbr_params.w` 色阶数 / `sky_params.w` 边缘光 /

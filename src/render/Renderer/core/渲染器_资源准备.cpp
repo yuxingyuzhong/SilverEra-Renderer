@@ -407,37 +407,13 @@ namespace engine
 		{
 			uint64_t registered = 0;
 			/*
-			HDR 默认路径以色调映射收尾（第 757 轮）
+			HDR 默认路径以色调映射收尾（第 757 轮；第 779 轮改为逐材质算子）
 			hdr_targets 开启时场景写 16F 目标，末级须做色调映射把线性高光压回显示域；
-			关闭时保持既有直通片元，画面逐字节不变。
-			算子由 hdr_tone_operator 选择（第 759 轮；0 = ACES、1 = 胶片、2 = 指数、3 = 扩展 Reinhard）。
+			统一使用「材质色调映射」片元：全局算子经推送常量 w 下发为回落值，
+			逐材质算子由场景目标 alpha 携带（(id+1)/255），同一帧内不同物体可各选曲线。
+			关闭 hdr_targets 时保持既有直通片元，画面逐字节不变。
 			*/
-			const char* fragment = "后处理.frag.spv";
-			if (hdr_targets)
-			{
-				switch (hdr_tone_operator)
-				{
-				case 1:
-					fragment = "胶片色调映射.frag.spv";
-					break;
-				case 2:
-					fragment = "指数色调映射.frag.spv";
-					break;
-				case 3:
-					fragment = "Reinhard扩展色调映射.frag.spv";
-					break;
-				case 4:
-					fragment = "AgX色调映射.frag.spv";
-					break;
-				//双轨（第 773 轮）：左半 AgX / 右半逐通道 ACES，按屏幕横向区域过渡
-				case 5:
-					fragment = "双轨色调映射.frag.spv";
-					break;
-				default:
-					fragment = "色调映射.frag.spv";
-					break;
-				}
-			}
+			const char* fragment = hdr_targets ? "材质色调映射.frag.spv" : "后处理.frag.spv";
 			/*
 			末级呈现管线的颜色格式须显式取交换链格式（第 764 轮）
 			HDR 默认路径下管线上下文的全局颜色格式是 16F（供场景 pass 写 16F 目标），
@@ -604,157 +580,6 @@ namespace engine
 		hdr_scene_width = 0;
 		hdr_scene_height = 0;
 		hdr_scene_samples = 1;
-	}
-
-	/*
-	确保 HDR 自动泛光的中间目标与管线就绪（第 761 轮）
-	三个 16F 中间目标：提取输出 / 模糊输出 / 叠加输出；三条管线（颜色格式同为 16F）：
-	亮部提取、模糊、泛光叠加。末级色调映射复用默认后处理管线（写交换链）。
-	*/
-	bool Device_State::hdr_bloom_ensure(uint32_t width, uint32_t height)
-	{
-		//尺寸无效或该尺寸已失败过则直接返回
-		if (width == 0 || height == 0)
-			return false;
-		if (hdr_bloom_failed)
-			return false;
-		//尺寸未变化且资源齐备则复用
-		if (hdr_bloom_targets[0] != 0 && hdr_bloom_targets[1] != 0 && hdr_bloom_targets[2] != 0
-			&& hdr_bloom_pipelines[0] != 0 && hdr_bloom_pipelines[1] != 0 && hdr_bloom_pipelines[2] != 0
-			&& hdr_bloom_width == width && hdr_bloom_height == height)
-			return true;
-		//尺寸变化：等尽在途帧后销毁旧目标（管线与尺寸无关，保留）
-		if (hdr_bloom_targets[0] != 0 || hdr_bloom_targets[1] != 0 || hdr_bloom_targets[2] != 0)
-		{
-			frame.frames_wait();
-			for (std::size_t index = 0; index < 3; ++index)
-			{
-				if (hdr_bloom_targets[index] != 0)
-					owner->resource().render_target_release(hdr_bloom_targets[index]);
-				hdr_bloom_targets[index] = 0;
-			}
-			hdr_bloom_width = 0;
-			hdr_bloom_height = 0;
-		}
-		//按 16F 创建三个中间目标（第 765 轮：可选半分辨率）
-		for (std::size_t index = 0; index < 3; ++index)
-		{
-			/*
-			半分辨率策略（第 765 轮，默认关闭）
-			索引 0（亮部提取输出）与 1（模糊输出）取 1/2 边长；索引 2（叠加输出）恒取场景尺寸 ——
-			叠加级的宿随后被色调映射级按全屏采样，若也降半会让泛光在直边上出现块状边缘。
-			*/
-			uint32_t target_width = width;
-			uint32_t target_height = height;
-			if (hdr_bloom_half_res && index < 2)
-			{
-				target_width = width / 2 > 0 ? width / 2 : 1;
-				target_height = height / 2 > 0 ? height / 2 : 1;
-			}
-			if (!owner->resource().render_target_create_format(hdr_bloom_targets[index], target_width, target_height,
-				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
-				static_cast<uint32_t>(swapchain.depth_format_get())))
-			{
-				logger.warn("渲染器:: HDR 泛光中间目标创建失败（{}×{}，第 {} 个），本帧回落不泛光",
-					target_width, target_height, static_cast<uint32_t>(index));
-				hdr_bloom_failed = true;
-				return false;
-			}
-		}
-		//惰性登记三条 16F 后处理管线（颜色格式 = 16F，与中间目标一致）
-		const char* fragments[3] = { "亮部提取.frag.spv", "模糊.frag.spv", "泛光叠加.frag.spv" };
-		for (std::size_t index = 0; index < 3; ++index)
-		{
-			if (hdr_bloom_pipelines[index] != 0)
-				continue;
-			uint64_t registered = 0;
-			if (!owner->resource().pipeline_load_ex(registered, "后处理.vert.spv", fragments[index],
-				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 0,
-				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT)))
-			{
-				logger.warn("渲染器:: HDR 泛光管线登记失败（{}），本帧回落不泛光", fragments[index]);
-				hdr_bloom_failed = true;
-				return false;
-			}
-			hdr_bloom_pipelines[index] = registered;
-		}
-		hdr_bloom_width = width;
-		hdr_bloom_height = height;
-		logger.info("渲染器:: HDR 泛光资源已建立（{}×{}，16F）", width, height);
-		return true;
-	}
-
-	//销毁 HDR 自动泛光的中间目标（管线随资源域统一回收）
-	void Device_State::hdr_bloom_destroy(void)
-	{
-		for (std::size_t index = 0; index < 3; ++index)
-		{
-			if (hdr_bloom_targets[index] != 0)
-				owner->resource().render_target_release(hdr_bloom_targets[index]);
-			hdr_bloom_targets[index] = 0;
-		}
-		hdr_bloom_width = 0;
-		hdr_bloom_height = 0;
-		hdr_bloom_chain_active = false;
-	}
-
-	/*
-	本帧应用 HDR 自动泛光（第 761 轮）
-	先还原上一帧由本路径填充的链与额外目标（避免污染用户可见状态），
-	再在满足条件时填充「提取 → 模糊 → 叠加 → 色调映射」四级链与三个中间目标。
-	*/
-	void Device_State::hdr_bloom_frame_apply(void)
-	{
-		//还原上一帧自动填充的内容（仅当链仍是自动链时清除）
-		if (hdr_bloom_chain_active)
-		{
-			bool same = post_chain.size() == 4
-				&& post_chain[0] == hdr_bloom_pipelines[0]
-				&& post_chain[1] == hdr_bloom_pipelines[1]
-				&& post_chain[2] == hdr_bloom_pipelines[2]
-				&& post_chain[3] == post_pipeline;
-			if (same)
-			{
-				post_chain.clear();
-				present_extra.clear();
-			}
-			hdr_bloom_chain_active = false;
-		}
-		//未开启或已失败则不介入
-		if (!hdr_auto_bloom || hdr_bloom_failed)
-			return;
-		//用户已设链或额外目标时不介入（保留用户配置）
-		if (!post_chain.empty() || !present_extra.empty())
-			return;
-		//目标与三条管线就绪
-		if (!hdr_bloom_ensure(hdr_scene_width, hdr_scene_height))
-			return;
-		//末级色调映射管线（与默认路径共用；按算子选择片元）
-		if (!post_pipeline_ensure())
-			return;
-		//四级链
-		post_chain.clear();
-		post_chain.push_back(hdr_bloom_pipelines[0]);
-		post_chain.push_back(hdr_bloom_pipelines[1]);
-		post_chain.push_back(hdr_bloom_pipelines[2]);
-		post_chain.push_back(post_pipeline);
-		//三个中间目标（场景目标已在 effective_present_target）
-		present_extra.clear();
-		present_extra.push_back(hdr_bloom_targets[0]);
-		present_extra.push_back(hdr_bloom_targets[1]);
-		present_extra.push_back(hdr_bloom_targets[2]);
-		//逐级参数：提取（阈值 / 软膝）、模糊（半径）、叠加（强度）——第 763 轮参数化
-		owner->device().post_stage_param_set(0, hdr_bloom_threshold, hdr_bloom_knee, 1.0f);
-		/*
-		模糊半径按目标分辨率折算（第 765 轮）
-		半分辨率下半径按纹素计，若不折算会使泛光带宽翻倍；除以 2 后仍钳回 1..4（片元只接受该区间）。
-		*/
-		float blur_radius = hdr_bloom_half_res ? hdr_bloom_radius * 0.5f : hdr_bloom_radius;
-		if (blur_radius < 1.0f)
-			blur_radius = 1.0f;
-		owner->device().post_stage_param_set(1, hdr_bloom_threshold, hdr_bloom_knee, blur_radius);
-		owner->device().post_stage_param_set(2, hdr_bloom_threshold, hdr_bloom_knee, hdr_bloom_intensity);
-		hdr_bloom_chain_active = true;
 	}
 
 }

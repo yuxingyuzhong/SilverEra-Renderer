@@ -160,6 +160,132 @@ namespace engine
 		(*state_ptr).bloom_param[2] = intensity;
 	}
 
+	/*
+	建立泛光预设（第 778 轮 · 通用引擎化整改）
+	显式创建三个 16F 中间目标（提取 / 模糊 / 叠加）与三条 16F 管线（亮部提取 / 模糊 / 泛光叠加）；
+	不订阅后处理链与呈现链 —— 由调用方 post_chain_set 与 render_target_present_chain_set 自行装配。
+	若 preset 已持有资源则先释放，故可重复调用（尺寸变化时直接重建）。
+	*/
+	bool Render_Device::post_bloom_preset_build(Bloom_Preset& preset, const Bloom_Preset_Desc& desc)
+	{
+		//未初始化则失败
+		if (state_ptr == nullptr || !state_ptr->initialized)
+		{
+			logger.error("渲染器:: 泛光预设建立失败：尚未初始化");
+			return false;
+		}
+		//释放上一次建立的资源，保证可重复调用
+		post_bloom_preset_release(preset);
+		const uint32_t width = extent_width();
+		const uint32_t height = extent_height();
+		//若尺寸无效
+		if (width == 0 || height == 0)
+		{
+			logger.warn("渲染器:: 泛光预设建立失败：当前尺寸为 0");
+			return false;
+		}
+		//按 16F 创建三个中间目标（半分辨率时提取 / 模糊取 1/2 边长，叠加恒取全尺寸）
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			uint32_t target_width = width;
+			uint32_t target_height = height;
+			if (desc.half_res && index < 2)
+			{
+				target_width = width / 2 > 0 ? width / 2 : 1;
+				target_height = height / 2 > 0 ? height / 2 : 1;
+			}
+			if (!owner->resource().render_target_create_format(preset.targets[index], target_width, target_height,
+				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
+				static_cast<uint32_t>((*state_ptr).swapchain.depth_format_get())))
+			{
+				logger.warn("渲染器:: 泛光预设中间目标创建失败（{}×{}，第 {} 个）", target_width, target_height,
+					static_cast<uint32_t>(index));
+				post_bloom_preset_release(preset);
+				return false;
+			}
+		}
+		//登记三条 16F 后处理管线（颜色格式与中间目标一致）
+		const char* fragments[3] = { "亮部提取.frag.spv", "模糊.frag.spv", "泛光叠加.frag.spv" };
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			if (!owner->resource().pipeline_load_ex(preset.pipelines[index], "后处理.vert.spv", fragments[index],
+				Blend_Mode::Opaque, false, false, true, false, true, false, 0, 0,
+				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT)))
+			{
+				logger.warn("渲染器:: 泛光预设管线登记失败（{}）", fragments[index]);
+				post_bloom_preset_release(preset);
+				return false;
+			}
+		}
+		logger.info("渲染器:: 泛光预设已建立（{}×{}，{}）", width, height, desc.half_res ? "半分辨率" : "全分辨率");
+		return true;
+	}
+
+	/*
+	按描述下发泛光预设的三级参数（第 778 轮）
+	须先 post_chain_set，且链的前三级恰为本预设的提取 / 模糊 / 叠加管线；顺序不符时整次拒绝并告警。
+	*/
+	bool Render_Device::post_bloom_preset_params(const Bloom_Preset& preset, const Bloom_Preset_Desc& desc)
+	{
+		//未初始化则失败
+		if (state_ptr == nullptr || !state_ptr->initialized)
+		{
+			logger.error("渲染器:: 泛光预设参数下发失败：尚未初始化");
+			return false;
+		}
+		const std::vector<uint64_t>& chain = (*state_ptr).post_chain;
+		//链须已含本预设的前三级且顺序一致
+		if (chain.size() < 3 || chain[0] != preset.pipelines[0] || chain[1] != preset.pipelines[1]
+			|| chain[2] != preset.pipelines[2])
+		{
+			logger.warn("渲染器:: 泛光预设参数下发被拒绝：后处理链前三级不是本预设（请先 post_chain_set）");
+			return false;
+		}
+		//阈值 / 软膝 / 强度按合法域回落默认（与第七百六十一 / 763 轮口径一致）
+		const float threshold = (std::isfinite(desc.threshold) && desc.threshold > 0.0f) ? desc.threshold : 0.6f;
+		const float knee = (std::isfinite(desc.knee) && desc.knee >= 0.0f) ? desc.knee : 0.1f;
+		const float intensity = (std::isfinite(desc.intensity) && desc.intensity > 0.0f && desc.intensity < 100.0f)
+			? desc.intensity : 1.0f;
+		//半径钳到 1..4；半分辨率按纹素折算后再钳一次
+		float radius = desc.radius < 1.0f ? 1.0f : (desc.radius > 4.0f ? 4.0f : desc.radius);
+		if (desc.half_res)
+		{
+			radius *= 0.5f;
+			if (radius < 1.0f)
+				radius = 1.0f;
+		}
+		post_stage_param_set(0, threshold, knee, 1.0f);
+		post_stage_param_set(1, threshold, knee, radius);
+		post_stage_param_set(2, threshold, knee, intensity);
+		return true;
+	}
+
+	//释放泛光预设持有的中间目标与管线（调用方仍应先把链 / 呈现链中的引用摘除）
+	void Render_Device::post_bloom_preset_release(Bloom_Preset& preset)
+	{
+		//未初始化则只清句柄
+		if (state_ptr == nullptr)
+		{
+			for (std::size_t index = 0; index < 3; ++index)
+			{
+				preset.targets[index] = 0;
+				preset.pipelines[index] = 0;
+			}
+			return;
+		}
+		for (std::size_t index = 0; index < 3; ++index)
+		{
+			//中间目标交还资源域
+			if (preset.targets[index] != 0)
+				owner->resource().render_target_release(preset.targets[index]);
+			//管线交还资源域（内部摘除后处理链引用）
+			if (preset.pipelines[index] != 0)
+				owner->resource().pipeline_unload(preset.pipelines[index]);
+			preset.targets[index] = 0;
+			preset.pipelines[index] = 0;
+		}
+	}
+
 	void Render_Device::post_stage_param_set(uint32_t stage, float threshold, float knee, float intensity)
 	{
 		//未初始化则静默返回

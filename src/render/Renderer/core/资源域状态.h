@@ -17,6 +17,18 @@ namespace engine
 		float pbr_roughness = 1.0f;
 		//逐物体材质金属度（0..1；仅 pbr_override 为真时生效）
 		float pbr_metallic = 0.0f;
+		/*
+		逐物体 PBR 特性覆盖（第 777 轮）
+		pbr_features_override 为真时，本材质的扩展特性按 pbr_features 位掩码决定
+		（bit0 多散射 / bit1 Fresnel-roughness / bit2 各向异性 / bit3 皮肤 SSS / bit4 布料 sheen / bit5 光泽度映射）；
+		为假时沿用场景全局开关，画面与引入前逐字节一致。
+		*/
+		bool pbr_features_override = false;
+		uint32_t pbr_features = 0;
+		//逐物体光泽度（第 777 轮；≥ 0 且 bit5 置位时按 roughness = clamp(1 − gloss) 覆盖本材质粗糙度；< 0 = 不启用）
+		float pbr_gloss = -1.0f;
+		//逐材质色调算子（第 779 轮；0..4 = 具体曲线，0xFF = 继承全局默认）
+		uint8_t tone_operator = 0xFF;
 		//是否覆盖全局卡通参数（第四百零八轮；false 时沿用场景 UBO 的全局卡通参数）
 		bool toon_override = false;
 		//逐物体色阶数（0..8；仅 toon_override 为真时生效）
@@ -179,6 +191,20 @@ namespace engine
 
 		//逐物体材质金属度（0..1）
 		float material_pbr_metallic = 0.0f;
+
+		/*
+		逐物体 PBR 特性覆盖（第 777 轮）
+		false 时片元按场景 UBO 的全局开关判定，画面与引入前逐字节一致；
+		true 时按 material_pbr_features 位掩码逐特性覆盖（bit0 多散射 / bit1 Fresnel-roughness /
+		bit2 各向异性 / bit3 皮肤 SSS / bit4 布料 sheen / bit5 光泽度映射）。
+		*/
+		bool material_pbr_features_active = false;
+
+		//逐物体 PBR 特性位掩码（仅 material_pbr_features_active 为真时生效）
+		uint32_t material_pbr_features = 0;
+
+		//逐材质色调算子（第 779 轮；0..4 = 具体曲线，0xFF = 继承全局默认）
+		uint8_t material_tone_operator = 0xFF;
 
 		//逐物体卡通参数覆盖开关（第四百零八轮；false 时沿用场景 UBO 的全局卡通参数）
 		bool material_toon_active = false;

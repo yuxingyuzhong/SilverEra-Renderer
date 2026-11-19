@@ -20,12 +20,13 @@
 
 namespace engine
 {
-	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 ＋ 卡通 4 ＋ 暗部色调 4 浮点 / 个），返回首个实例的字节偏移
+	//把一批模型矩阵追加入待绘制实例存储（列主序 16 浮点 / 个，材质 4 ＋ 卡通 4 ＋ 暗部色调 4 ＋ PBR 特性 4 浮点 / 个），返回首个实例的字节偏移
 	//（文件内辅助函数；容量是否足够由调用方先行校验，此处不重复检查）
 	static VkDeviceSize instance_matrices_append(std::vector<std::array<float, INSTANCE_FLOAT_COUNT>>& store,
 		const float* transforms, uint32_t count, bool material_active, float roughness, float metallic,
 		float emissive, bool toon_active, float toon_steps, float toon_rim, float toon_specular,
-		float toon_tint_r, float toon_tint_g, float toon_tint_b)
+		float toon_tint_r, float toon_tint_g, float toon_tint_b,
+		bool pbr_features_active, uint32_t pbr_features, float tone_operator)
 	{
 		//首个实例的字节偏移（追加前的元素个数 × 实例步长）
 		VkDeviceSize offset = static_cast<VkDeviceSize>(store.size()) * INSTANCE_STRIDE_BYTES;
@@ -82,6 +83,16 @@ namespace engine
 			target[INSTANCE_TOON_TINT_OFFSET + 1] = toon_tint_g;
 			target[INSTANCE_TOON_TINT_OFFSET + 2] = toon_tint_b;
 			target[INSTANCE_TOON_TINT_OFFSET + 3] = 0.0f;
+			/*
+			逐物体 PBR 特性覆盖（第 777 轮）
+			x = 覆盖标志（0 = 不覆盖，片元回落场景 UBO 的全局开关）、y = 位掩码（仅覆盖标志为真时被读取）；
+			zw 保留为 0，故未设置覆盖的绘制项与引入前逐字节一致。
+			*/
+			target[INSTANCE_PBR_FEATURES_OFFSET + 0] = pbr_features_active ? 1.0f : 0.0f;
+			target[INSTANCE_PBR_FEATURES_OFFSET + 1] = pbr_features_active ? static_cast<float>(pbr_features) : 0.0f;
+			//z = 逐材质色调算子（第 779 轮；0..4 = 具体曲线、255 = 继承全局默认）
+			target[INSTANCE_PBR_FEATURES_OFFSET + 2] = tone_operator;
+			target[INSTANCE_PBR_FEATURES_OFFSET + 3] = 0.0f;
 		}
 		return offset;
 	}
@@ -167,6 +178,11 @@ namespace engine
 		values.pbr_active = state.material_pbr_active;
 		values.pbr_roughness = state.material_pbr_roughness;
 		values.pbr_metallic = state.material_pbr_metallic;
+		values.pbr_features_active = state.material_pbr_features_active;
+		values.pbr_features = state.material_pbr_features;
+		//逐材质色调算子（第 779 轮；0xFF = 继承全局默认）
+		values.tone_operator = state.material_tone_operator <= 4
+			? static_cast<float>(state.material_tone_operator) : 255.0f;
 		values.emissive = state.material_emissive;
 		values.toon_active = state.material_toon_active;
 		values.toon_steps = state.material_toon_steps;
@@ -204,7 +220,8 @@ namespace engine
 		instance_offset = static_cast<uint64_t>(instance_matrices_append(state_ptr->pending_instances, transform, 1,
 			material.pbr_active, material.pbr_roughness, material.pbr_metallic, material.emissive,
 			material.toon_active, material.toon_steps, material.toon_rim, material.toon_specular,
-			material.toon_tint[0], material.toon_tint[1], material.toon_tint[2]));
+			material.toon_tint[0], material.toon_tint[1], material.toon_tint[2],
+			material.pbr_features_active, material.pbr_features, material.tone_operator));
 		registered = true;
 		return true;
 	}
@@ -300,7 +317,8 @@ namespace engine
 		instance_offset = static_cast<uint64_t>(instance_matrices_append(state_ptr->pending_instances,
 			visible_transforms, visible_count, material.pbr_active, material.pbr_roughness, material.pbr_metallic,
 			material.emissive, material.toon_active, material.toon_steps, material.toon_rim, material.toon_specular,
-			material.toon_tint[0], material.toon_tint[1], material.toon_tint[2]));
+			material.toon_tint[0], material.toon_tint[1], material.toon_tint[2],
+			material.pbr_features_active, material.pbr_features, material.tone_operator));
 		return true;
 	}
 

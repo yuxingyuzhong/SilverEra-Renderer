@@ -13,8 +13,8 @@ Vulkan 头
 //游戏引擎命名空间
 namespace engine
 {
-	//单个实例的浮点数（模型矩阵 16 ＋ 材质 4 ＋ 逐物体卡通 4 ＋ 逐物体暗部色调 4；第四百零八 / 四百零九轮）
-	constexpr uint32_t INSTANCE_FLOAT_COUNT = 28;
+	//单个实例的浮点数（模型矩阵 16 ＋ 材质 4 ＋ 逐物体卡通 4 ＋ 逐物体暗部色调 4 ＋ 逐物体 PBR 特性 4；第 777 轮）
+	constexpr uint32_t INSTANCE_FLOAT_COUNT = 32;
 	//单个实例的字节步长（图形管线实例绑定步长与渲染层实例缓冲共用，避免两侧漂移）
 	constexpr uint32_t INSTANCE_STRIDE_BYTES = INSTANCE_FLOAT_COUNT * 4;
 	//实例材质在单个实例内的浮点偏移（模型矩阵之后）
@@ -23,6 +23,12 @@ namespace engine
 	constexpr uint32_t INSTANCE_TOON_OFFSET = 20;
 	//逐物体卡通暗部色调在单个实例内的浮点偏移（卡通参数之后；第四百零九轮）
 	constexpr uint32_t INSTANCE_TOON_TINT_OFFSET = 24;
+	/*
+	逐物体 PBR 特性覆盖（第 777 轮）
+	x = 覆盖标志（> 0.5 时按 y 的位掩码逐特性覆盖全局开关）、y = 位掩码（bit0 多散射 / bit1 Fresnel-roughness /
+	bit2 各向异性 / bit3 皮肤 SSS / bit4 布料 sheen / bit5 光泽度映射）、z/w 保留；默认全 0 = 沿用全局，画面逐字节不变。
+	*/
+	constexpr uint32_t INSTANCE_PBR_FEATURES_OFFSET = 28;
 
 	//图形管线配置
 	struct Pipeline_Config
