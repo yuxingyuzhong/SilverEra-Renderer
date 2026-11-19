@@ -363,6 +363,30 @@ namespace engine
 		(*state_ptr).post_stage_param_valid[stage] = true;
 	}
 
+	/*
+	读取后处理链某一级生效的色调算子（第 805 轮）
+	口径：该级有专设参数时取其第四分量（0..5）；未专设时回落全局默认算子；
+	级序无效（未初始化 / 链外）返回 0，与"越界按 ACES"一致。
+	*/
+	uint32_t Render_Device::post_stage_tone_operator_get(uint32_t stage) const
+	{
+		//未初始化或级序无效则按 0
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return 0;
+		if (stage >= (*state_ptr).post_chain.size() || stage >= POST_CHAIN_MAX_STAGES)
+			return 0;
+		//该级已专设则取专设值
+		if ((*state_ptr).post_stage_param_valid[stage])
+		{
+			float value = (*state_ptr).post_stage_param[stage][3];
+			if (!(value == value) || value < 0.0f || value > 5.0f)
+				return 0;
+			return static_cast<uint32_t>(value + 0.5f);
+		}
+		//否则回落全局默认算子
+		return state_ptr->hdr_tone_operator <= 5 ? state_ptr->hdr_tone_operator : 0;
+	}
+
 	void Render_Device::post_stage_param4_set(uint32_t stage, float x, float y, float z, float w)
 	{
 		//未初始化则静默返回

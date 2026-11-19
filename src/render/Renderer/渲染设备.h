@@ -90,6 +90,8 @@ namespace engine
 		未覆盖像素用该值，逐材质覆盖仍按场景 alpha 优先。越界按 0（ACES）。
 		*/
 		void post_stage_tone_operator_set(uint32_t stage, uint32_t tone_operator);
+		//读取后处理链某一级生效的色调算子（第 805 轮；未专设时回落全局默认值，级序无效返回 0）
+		uint32_t post_stage_tone_operator_get(uint32_t stage) const;
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
 		void post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w);
