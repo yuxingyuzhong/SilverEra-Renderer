@@ -48,9 +48,13 @@ void main()
 	ivec2 scene_coord = clamp(ivec2(gl_FragCoord.xy * scene_scale), ivec2(0), scene_size - ivec2(1));
 	//亮部层与场景原色
 	vec3 bloom = texelFetch(bloom_image, coord, 0).rgb;
-	vec3 scene = texelFetch(scene_image, scene_coord, 0).rgb;
+	vec4 scene_texel = texelFetch(scene_image, scene_coord, 0);
 	//强度缩放（门面参数，默认 1.0）
 	bloom *= push_post.bloom_param.z;
-	//相加并只钳下界（保留 HDR 高光；8 位宿主写入时自行饱和）
-	out_color = vec4(max(scene + bloom, vec3(0.0)), 1.0);
+	/*
+	相加并只钳下界（保留 HDR 高光；8 位宿主写入时自行饱和）
+	alpha 透传场景值（第 788 轮）：逐材质色调编号借场景 alpha 传递，若此处恒写 1 会在泛光链上丢失，
+	导致末级对所有物体回落到全局算子。普通场景（alpha = 反照率 / 1）行为与之前一致。
+	*/
+	out_color = vec4(max(scene_texel.rgb + bloom, vec3(0.0)), scene_texel.a);
 }
