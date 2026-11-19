@@ -16,6 +16,19 @@ namespace engine
 	using Material_Handle = uint64_t;
 
 	/*
+	逐材质 PBR 特性位（第 786 轮）
+	与 Material_Data::pbr_features 的位一一对应；写材质时用这些常量替代裸位号，
+	GLOSS_MAPPING 还需配 Material_Data::pbr_gloss（≥ 0）。ALL 为可接受的掩码上限。
+	*/
+	inline constexpr uint32_t PBR_FEATURE_MULTISCATTER = 1u << 0;
+	inline constexpr uint32_t PBR_FEATURE_FRESNEL_ROUGHNESS = 1u << 1;
+	inline constexpr uint32_t PBR_FEATURE_ANISO = 1u << 2;
+	inline constexpr uint32_t PBR_FEATURE_SKIN_SSS = 1u << 3;
+	inline constexpr uint32_t PBR_FEATURE_SHEEN = 1u << 4;
+	inline constexpr uint32_t PBR_FEATURE_GLOSS_MAPPING = 1u << 5;
+	inline constexpr uint32_t PBR_FEATURE_ALL = 0x3Fu;
+
+	/*
 	材质描述（Vulkan-free）
 	聚合「图形管线 ＋ 纹理 ＋ 混合档」，供上层以数据驱动方式提交绘制，替代逐项散装绑定
 	（pipeline_bind_set ＋ texture_bind_set 的散装调用）。

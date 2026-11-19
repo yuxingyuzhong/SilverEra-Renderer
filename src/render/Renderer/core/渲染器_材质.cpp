@@ -221,7 +221,7 @@ namespace engine
 		光泽度映射按 roughness = clamp(1 − gloss, 0.05, 1) 覆盖本材质粗糙度，并强制登记为逐物体 PBR 覆盖。
 		*/
 		record.pbr_features_override = data.pbr_features_override;
-		record.pbr_features = data.pbr_features & 0x3Fu;
+		record.pbr_features = data.pbr_features & PBR_FEATURE_ALL;
 		//逐材质色调算子（第 779 轮；0..4 有效，其余按继承全局）
 		record.tone_operator = data.tone_operator <= 4 ? data.tone_operator : 0xFF;
 		//色调编号借用 alpha 传递：仅默认管线 ＋ 不透明档 ＋ 未启用覆盖率写入时才安全（第 780 轮）
