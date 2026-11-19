@@ -166,7 +166,8 @@ namespace engine
 	不订阅后处理链与呈现链 —— 由调用方 post_chain_set 与 render_target_present_chain_set 自行装配。
 	若 preset 已持有资源则先释放，故可重复调用（尺寸变化时直接重建）。
 	*/
-	bool Render_Device::post_bloom_preset_build(Bloom_Preset& preset, const Bloom_Preset_Desc& desc)
+	bool Render_Device::post_bloom_preset_build(Bloom_Preset& preset, const Bloom_Preset_Desc& desc,
+		uint32_t width, uint32_t height)
 	{
 		//未初始化则失败
 		if (state_ptr == nullptr || !state_ptr->initialized)
@@ -176,23 +177,24 @@ namespace engine
 		}
 		//释放上一次建立的资源，保证可重复调用
 		post_bloom_preset_release(preset);
-		const uint32_t width = extent_width();
-		const uint32_t height = extent_height();
+		//显式尺寸为 0 时取当前客户区
+		const uint32_t preset_width = width != 0 ? width : extent_width();
+		const uint32_t preset_height = height != 0 ? height : extent_height();
 		//若尺寸无效
-		if (width == 0 || height == 0)
+		if (preset_width == 0 || preset_height == 0)
 		{
-			logger.warn("渲染器:: 泛光预设建立失败：当前尺寸为 0");
+			logger.warn("渲染器:: 泛光预设建立失败：尺寸为 0");
 			return false;
 		}
 		//按 16F 创建三个中间目标（半分辨率时提取 / 模糊取 1/2 边长，叠加恒取全尺寸）
 		for (std::size_t index = 0; index < 3; ++index)
 		{
-			uint32_t target_width = width;
-			uint32_t target_height = height;
+			uint32_t target_width = preset_width;
+			uint32_t target_height = preset_height;
 			if (desc.half_res && index < 2)
 			{
-				target_width = width / 2 > 0 ? width / 2 : 1;
-				target_height = height / 2 > 0 ? height / 2 : 1;
+				target_width = preset_width / 2 > 0 ? preset_width / 2 : 1;
+				target_height = preset_height / 2 > 0 ? preset_height / 2 : 1;
 			}
 			if (!owner->resource().render_target_create_format(preset.targets[index], target_width, target_height,
 				static_cast<uint32_t>(VK_FORMAT_R16G16B16A16_SFLOAT),
@@ -217,7 +219,8 @@ namespace engine
 				return false;
 			}
 		}
-		logger.info("渲染器:: 泛光预设已建立（{}×{}，{}）", width, height, desc.half_res ? "半分辨率" : "全分辨率");
+		logger.info("渲染器:: 泛光预设已建立（{}×{}，{}）", preset_width, preset_height,
+			desc.half_res ? "半分辨率" : "全分辨率");
 		return true;
 	}
 
@@ -246,8 +249,9 @@ namespace engine
 		const float knee = (std::isfinite(desc.knee) && desc.knee >= 0.0f) ? desc.knee : 0.1f;
 		const float intensity = (std::isfinite(desc.intensity) && desc.intensity > 0.0f && desc.intensity < 100.0f)
 			? desc.intensity : 1.0f;
-		//半径钳到 1..4；半分辨率按纹素折算后再钳一次
-		float radius = desc.radius < 1.0f ? 1.0f : (desc.radius > 4.0f ? 4.0f : desc.radius);
+		//半径钳到 1..4（非有限值回落默认 4）；半分辨率按纹素折算后再钳一次
+		float radius = std::isfinite(desc.radius) ? desc.radius : 4.0f;
+		radius = radius < 1.0f ? 1.0f : (radius > 4.0f ? 4.0f : radius);
 		if (desc.half_res)
 		{
 			radius *= 0.5f;

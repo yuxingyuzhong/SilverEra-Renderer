@@ -61,12 +61,14 @@ namespace engine
 		bool render_target_present_chain_set(const uint64_t* handles, uint32_t count);
 		bool post_chain_set(const uint64_t* handles, uint32_t count);
 		/*
-		泛光预设（第 778 轮 · 通用引擎化整改）
+		泛光预设（第 778 轮 · 通用引擎化整改；第 783 轮支持显式尺寸）
 		泛光不再由引擎在背后自动介入配置：调用方显式调用 build 建立三个 16F 中间目标与三条管线，
 		再用 post_chain_set([提取,模糊,叠加,末级],4) 与 render_target_present_chain_set([场景,目标0,目标1,目标2],4)
-		自行装配，最后用 params 按描述下发三级参数。build 为空描述时按默认值建立。
+		自行装配，最后用 params 按描述下发三级参数。build 为空描述时按默认值建立；
+		width / height 为 0 时取当前客户区尺寸，非 0 时按该尺寸建立（供离屏 / SSAA / 自定义分辨率使用）。
 		*/
-		bool post_bloom_preset_build(Bloom_Preset& preset, const Bloom_Preset_Desc& desc = Bloom_Preset_Desc());
+		bool post_bloom_preset_build(Bloom_Preset& preset, const Bloom_Preset_Desc& desc = Bloom_Preset_Desc(),
+			uint32_t width = 0, uint32_t height = 0);
 		bool post_bloom_preset_params(const Bloom_Preset& preset, const Bloom_Preset_Desc& desc);
 		void post_bloom_preset_release(Bloom_Preset& preset);
 		uint32_t post_chain_count(void) const;
