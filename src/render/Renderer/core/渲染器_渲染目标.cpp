@@ -169,6 +169,12 @@ namespace engine
 		msaa_depth.image_allocation = record.msaa_depth_alloc;
 		msaa_depth.view = record.msaa_depth_view;
 		entry.memory_resources.push_back(msaa_depth);
+		//色调编号附件（第 801 轮；未启用时句柄为空，释放时自动跳过）
+		Deferred_Memory_Resource tone_id{};
+		tone_id.image = record.tone_id_image;
+		tone_id.image_allocation = record.tone_id_alloc;
+		tone_id.view = record.tone_id_view;
+		entry.memory_resources.push_back(tone_id);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
 		core->frame.deferred_push(std::move(entry), core->frame.in_flight_count_get() + 1);
 	}

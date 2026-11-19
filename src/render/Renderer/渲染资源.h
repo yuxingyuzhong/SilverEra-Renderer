@@ -257,6 +257,16 @@ namespace engine
 			uint64_t scene_view, uint64_t depth_view, uint64_t shadow_view);
 		bool render_target_create_format(uint64_t& handle_out, uint32_t width, uint32_t height,
 			uint32_t color_format, uint32_t depth_format, uint32_t sample_count = 0);
+		/*
+		按显式格式创建渲染目标（含可选色调编号附件，第 801 轮）
+		tone_id_format = 0 时与上面的接口等价；非 0 且采样数为 1 时额外创建一个单采样编号附件
+		（建议 VK_FORMAT_R8_UINT），用于 8 位路径的逐材质色调（段 1：仅资源，后续段接入管线与帧链路）。
+		*/
+		bool render_target_create_format_ex(uint64_t& handle_out, uint32_t width, uint32_t height,
+			uint32_t color_format, uint32_t depth_format, uint32_t tone_id_format, uint32_t sample_count = 0);
+		//查询色调编号附件（未启用或句柄无效返回假；出参为原生句柄，仅供层内 / 测试）
+		bool render_target_tone_id_get(uint64_t handle, uint64_t& image_out, uint64_t& view_out,
+			uint32_t& format_out) const;
 		bool render_target_native_get(uint64_t handle, Render_Target_Native_Info& info_out) const;
 		void render_target_release(uint64_t handle);
 		bool texture_native_get(uint64_t handle, uint64_t& view_out, uint64_t& sampler_out) const;

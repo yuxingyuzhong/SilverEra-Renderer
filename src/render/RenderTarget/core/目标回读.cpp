@@ -55,9 +55,24 @@ namespace engine
 		depth_barrier.srcAccessMask = 0;
 		depth_barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-		//屏障集合（基础两条 ＋ MSAA 两条）
-		VkImageMemoryBarrier barriers[4] = { color_barrier, depth_barrier, {}, {} };
+		//屏障集合（基础两条 ＋ MSAA 两条 ＋ 色调编号一条）
+		VkImageMemoryBarrier barriers[5] = { color_barrier, depth_barrier, {}, {}, {} };
 		uint32_t barrier_count = 2;
+		//若启用逐材质色调编号附件（第 801 轮；未定义 → 着色器可读）
+		if (record.tone_id_image != VK_NULL_HANDLE)
+		{
+			VkImageMemoryBarrier tone_id_barrier{};
+			tone_id_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			tone_id_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			tone_id_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			tone_id_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			tone_id_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			tone_id_barrier.image = record.tone_id_image;
+			tone_id_barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			tone_id_barrier.srcAccessMask = 0;
+			tone_id_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			barriers[barrier_count++] = tone_id_barrier;
+		}
 		//若启用 MSAA
 		if (record.sample_count > 1)
 		{

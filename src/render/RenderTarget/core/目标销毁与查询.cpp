@@ -112,6 +112,28 @@ namespace engine
 		return records[handle - 1].valid;
 	}
 
+	bool Render_Target_Context::target_tone_id_get(uint64_t handle, VkImage& image_out,
+		VkImageView& view_out, VkFormat& format_out) const
+	{
+		//出参先复位
+		image_out = VK_NULL_HANDLE;
+		view_out = VK_NULL_HANDLE;
+		format_out = VK_FORMAT_UNDEFINED;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空或未启用编号附件均返回假
+		if (!record.valid || record.tone_id_image == VK_NULL_HANDLE)
+			return false;
+		//写出附件
+		image_out = record.tone_id_image;
+		view_out = record.tone_id_view;
+		format_out = record.tone_id_format;
+		return true;
+	}
+
 	//取目标颜色 / 深度格式
 	bool Render_Target_Context::target_format_get(uint64_t handle, VkFormat& color_format_out, VkFormat& depth_format_out) const
 	{

@@ -79,7 +79,7 @@ namespace engine
 	}
 
 	bool Render_Target_Context::target_create(uint64_t& handle_out, uint32_t width, uint32_t height,
-		VkFormat color_format, VkFormat depth_format, uint32_t sample_count)
+		VkFormat color_format, VkFormat depth_format, uint32_t sample_count, VkFormat tone_id_format)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -143,6 +143,34 @@ namespace engine
 			logger.error("渲染目标:: MSAA 附件创建失败");
 			record_resources_destroy(record);
 			return false;
+		}
+		/*
+		逐材质色调编号附件（第 801 轮 · MRT 段 1）
+		仅单采样目标可用（多重采样需配套 MSAA id 附件与解析，留待后续段）；
+		采样数 > 1 时忽略该参数并告警，目标本身仍按原路径创建。
+		*/
+		if (tone_id_format != VK_FORMAT_UNDEFINED && record.sample_count == 1)
+		{
+			if (!memory->image_create(record.tone_id_image, record.tone_id_alloc, width, height,
+				tone_id_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT))
+			{
+				logger.error("渲染目标:: 色调编号附件创建失败");
+				record_resources_destroy(record);
+				return false;
+			}
+			if (!memory->image_view_create(record.tone_id_view, record.tone_id_image, tone_id_format,
+				VK_IMAGE_ASPECT_COLOR_BIT))
+			{
+				logger.error("渲染目标:: 色调编号附件视图创建失败");
+				record_resources_destroy(record);
+				return false;
+			}
+			record.tone_id_format = tone_id_format;
+		}
+		else if (tone_id_format != VK_FORMAT_UNDEFINED)
+		{
+			logger.warn("渲染目标:: 色调编号附件暂不支持多重采样（采样数 {}），本次按未启用处理",
+				record.sample_count);
 		}
 		//一次性布局转换（颜色 → 着色器可读；深度 → 深度附件；MSAA 附件 → 对应附件布局）
 		if (!target_transition(record))
@@ -365,6 +393,11 @@ namespace engine
 		//内存模块就绪时逐个归还
 		if (memory != nullptr)
 		{
+			//色调编号附件视图 / 图像（第 801 轮）
+			if (record.tone_id_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(record.tone_id_view);
+			if (record.tone_id_image != VK_NULL_HANDLE)
+				memory->image_destroy(record.tone_id_image, record.tone_id_alloc);
 			//深度视图 / 深度图像
 			if (record.depth_view != VK_NULL_HANDLE)
 				memory->image_view_destroy(record.depth_view);
@@ -377,6 +410,10 @@ namespace engine
 				memory->image_destroy(record.color_image, record.color_alloc);
 		}
 		//复位句柄（保留 extent 由调用方决定是否清空）
+		record.tone_id_image = VK_NULL_HANDLE;
+		record.tone_id_alloc = VK_NULL_HANDLE;
+		record.tone_id_view = VK_NULL_HANDLE;
+		record.tone_id_format = VK_FORMAT_UNDEFINED;
 		record.color_image = VK_NULL_HANDLE;
 		record.color_alloc = VK_NULL_HANDLE;
 		record.color_view = VK_NULL_HANDLE;

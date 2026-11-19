@@ -772,6 +772,39 @@ namespace engine
 			static_cast<VkFormat>(color_format), static_cast<VkFormat>(depth_format), sample_count);
 	}
 
+	/*
+	按显式格式创建渲染目标（含用户名调编号附件，第 801 轮）
+	tone_id_format = VK_FORMAT_UNDEFINED 时与 render_target_create_format 完全一致；
+	非 0 且采样数为 1 时额外创建单采样编号附件（建议 VK_FORMAT_R8_UINT），供 8 位路径逐材质色调使用。
+	段 1 仅提供资源，管线与帧链路在后续段接入。
+	*/
+	bool Render_Resource::render_target_create_format_ex(uint64_t& handle_out, uint32_t width, uint32_t height,
+		uint32_t color_format, uint32_t depth_format, uint32_t tone_id_format, uint32_t sample_count)
+	{
+		return (*state_ptr).render_target.target_create(handle_out, width, height,
+			static_cast<VkFormat>(color_format), static_cast<VkFormat>(depth_format), sample_count,
+			static_cast<VkFormat>(tone_id_format));
+	}
+
+	//查询渲染目标的色调编号附件（第 801 轮；未启用返回假）
+	bool Render_Resource::render_target_tone_id_get(uint64_t handle, uint64_t& image_out,
+		uint64_t& view_out, uint32_t& format_out) const
+	{
+		//出参先复位
+		image_out = 0;
+		view_out = 0;
+		format_out = 0;
+		VkImage image = VK_NULL_HANDLE;
+		VkImageView view = VK_NULL_HANDLE;
+		VkFormat format = VK_FORMAT_UNDEFINED;
+		if (!(*state_ptr).render_target.target_tone_id_get(handle, image, view, format))
+			return false;
+		image_out = reinterpret_cast<uint64_t>(image);
+		view_out = reinterpret_cast<uint64_t>(view);
+		format_out = static_cast<uint32_t>(format);
+		return true;
+	}
+
 	//读取渲染目标原生附件值快照
 	bool Render_Resource::render_target_native_get(uint64_t handle, Render_Target_Native_Info& info_out) const
 	{

@@ -48,6 +48,16 @@ namespace engine
 		//颜色 / 深度格式（重建采样数时复用）
 		VkFormat color_format = VK_FORMAT_UNDEFINED;
 		VkFormat depth_format = VK_FORMAT_UNDEFINED;
+		/*
+		逐材质色调编号附件（第 801 轮 · 8 位路径 MRT 段 1）
+		可选单采样颜色附件（通常 R8_UINT），供场景 pass 写逐像素色调编号；
+		VK_NULL_HANDLE = 未启用（默认，行为与引入前逐字节一致）。
+		段 1 只提供资源创建 / 销毁 / 查询；管线与帧链路在后续段接入。
+		*/
+		VkImage tone_id_image = VK_NULL_HANDLE;
+		VmaAllocation tone_id_alloc = VK_NULL_HANDLE;
+		VkImageView tone_id_view = VK_NULL_HANDLE;
+		VkFormat tone_id_format = VK_FORMAT_UNDEFINED;
 		//采样数（1 = 关闭）
 		uint32_t sample_count = 1;
 		//是否跟随上下文的默认采样数（假 = 固定采样数，如阴影目标固定 1）
@@ -93,7 +103,8 @@ namespace engine
 		sample_count（第九十六轮）：0 = 跟随上下文默认采样数；非 0 = 该目标固定按此采样数创建。
 		*/
 		bool target_create(uint64_t& handle_out, uint32_t width, uint32_t height,
-			VkFormat color_format, VkFormat depth_format, uint32_t sample_count = 0);
+			VkFormat color_format, VkFormat depth_format, uint32_t sample_count = 0,
+			VkFormat tone_id_format = VK_FORMAT_UNDEFINED);
 		/*
 		设置上下文默认采样数（第九十六轮）
 		变化时重建全部「跟随默认采样数」的目标（句柄保持不变）；固定采样数的目标不受影响。
@@ -115,6 +126,9 @@ namespace engine
 			VkImageView& depth_view_out, VkExtent2D& extent_out) const;
 		//取渲染目标尺寸（第七十七轮新增；句柄无效返回假且出参归零）
 		bool target_extent_get(uint64_t handle, VkExtent2D& extent_out) const;
+		//取逐材质色调编号附件（第 801 轮；未启用时返回假且出参为空）
+		bool target_tone_id_get(uint64_t handle, VkImage& image_out, VkImageView& view_out,
+			VkFormat& format_out) const;
 		/*
 		取渲染目标的深度图像与视图（第一百二十三轮新增）
 		供后处理阶段（景深）以纹理方式采样深度；句柄无效或记录已空时返回假且出参为空。
