@@ -300,6 +300,19 @@ namespace engine
 		return static_cast<uint32_t>(state_ptr->swapchain.format_get());
 	}
 
+	/*
+	当前场景管线的颜色格式（第 826 轮）
+	场景管线在图形成功建立时按该格式烘焙；调用方用 render_target_create_format_ex 建离屏目标时
+	应取此值，否则动态渲染的颜色附件格式与管线声明不一致（校验层 VUID-08910）。
+	*/
+	uint32_t Render_Device::scene_color_format(void) const
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return 0;
+		return static_cast<uint32_t>(state_ptr->scene_color_format());
+	}
+
 	//请求改变窗口客户区尺寸
 	bool Render_Device::window_size_set(uint32_t width, uint32_t height)
 	{

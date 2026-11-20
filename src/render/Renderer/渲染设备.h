@@ -53,6 +53,8 @@ namespace engine
 		uint32_t extent_height(void) const;
 		//当前交换链颜色格式（第 817 轮；供调用方按同格式创建离屏目标，避免动态渲染格式不一致）
 		uint32_t swapchain_format(void) const;
+		//当前场景管线的颜色格式（第 826 轮；HDR 默认路径为 16F，否则同交换链格式）
+		uint32_t scene_color_format(void) const;
 		bool window_size_set(uint32_t width, uint32_t height);
 		bool window_fullscreen_set(bool fullscreen);
 		bool window_fullscreen(void) const;
