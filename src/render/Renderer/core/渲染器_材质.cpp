@@ -224,8 +224,13 @@ namespace engine
 		record.pbr_features = data.pbr_features & PBR_FEATURE_ALL;
 		//逐材质色调算子（第 779 轮；0..4 有效，其余按继承全局）
 		record.tone_operator = data.tone_operator <= 4 ? data.tone_operator : 0xFF;
-		//色调编号借用 alpha 传递：仅默认管线 ＋ 不透明档 ＋ 未启用覆盖率写入时才安全（第 780 轮）
-		record.tone_alpha_opaque = data.pipeline == 0 && data.blend == Blend_Mode::Opaque
+		/*
+		色调编号借用 alpha 传递：默认场景管线或「场景管线变体」＋ 不透明档 ＋ 未启用覆盖率写入时才安全
+		（第 780 轮；第 831 轮补场景管线变体——它用场景着色器对，alpha 语义与默认管线一致）
+		*/
+		const bool tone_carrier_pipeline = data.pipeline == 0
+			|| owner->resource().pipeline_scene_variant(data.pipeline);
+		record.tone_alpha_opaque = tone_carrier_pipeline && data.blend == Blend_Mode::Opaque
 			&& !data.alpha_to_coverage;
 		/*
 		关闭 HDR 默认路径时的能力边界（第 794 轮）

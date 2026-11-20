@@ -124,6 +124,12 @@ namespace engine
 		bool alpha_to_coverage = false;
 		//图形管线
 		VkPipeline pipeline = VK_NULL_HANDLE;
+		/*
+		是否「场景管线变体」（第 831 轮）
+		以场景着色器对登记、仅颜色格式 / 采样数 / 深度格式不同的不透明管线；
+		材质引用该句柄时仍可携带逐材质色调编号（借用场景目标 alpha），故与普通具名管线区分。
+		*/
+		bool scene_variant = false;
 	};
 
 	/*
@@ -183,6 +189,10 @@ namespace engine
 		uint32_t pipeline_count(void) const;
 		//句柄是否已登记
 		bool pipeline_has(uint64_t handle) const;
+		//标记指定句柄为「场景管线变体」（第 831 轮；未登记返回假）
+		bool pipeline_mark_scene_variant(uint64_t handle);
+		//句柄是否为「场景管线变体」（未登记返回假）
+		bool pipeline_scene_variant(uint64_t handle) const;
 
 		//获取当前激活图形管线
 		VkPipeline pipeline_get(void) const;

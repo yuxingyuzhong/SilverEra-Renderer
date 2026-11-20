@@ -95,6 +95,51 @@ namespace engine
 		return true;
 	}
 
+	/*
+	登记场景管线变体（第 831 轮）
+	场景着色器对 ＋ 不透明档，仅颜色 / 深度格式与采样数可改；随后标记为「场景管线变体」，
+	使引用该管线的材质仍可把逐材质色调编号写入场景目标 alpha。
+	*/
+	bool Render_Resource::scene_pipeline_variant_load(uint64_t& handle_out, uint32_t color_format,
+		uint32_t sample_count, uint32_t depth_format)
+	{
+		//默认无有效句柄
+		handle_out = 0;
+		//尚未初始化
+		if (owner == nullptr || !owner->device().valid())
+		{
+			logger.error("渲染器:: 场景管线变体登记失败：尚未初始化");
+			return false;
+		}
+		//颜色格式缺省时跟随场景管线口径
+		const uint32_t effective_color = color_format != 0 ? color_format
+			: static_cast<uint32_t>(owner->device().scene_color_format());
+		//深度格式缺省时跟随交换链
+		const uint32_t effective_depth = depth_format != 0 ? depth_format
+			: static_cast<uint32_t>(core->swapchain.depth_format_get());
+		//按场景口径登记（背面剔除、深度测试与写入均开，混合档不透明）
+		if (!pipeline_load_ex(handle_out, "场景.vert.spv", "场景.frag.spv", Blend_Mode::Opaque,
+			false, false, true, false, true, true, effective_depth, sample_count, effective_color))
+			return false;
+		//标记为场景管线变体（失败则回收，避免留下「普通具名管线」）
+		if (!(*state_ptr).pipeline.pipeline_mark_scene_variant(handle_out))
+		{
+			pipeline_unload(handle_out);
+			handle_out = 0;
+			logger.error("渲染器:: 场景管线变体标记失败");
+			return false;
+		}
+		logger.info("渲染器:: 场景管线变体已登记（句柄 {}，颜色格式 {}，采样数 {}）",
+			handle_out, effective_color, sample_count);
+		return true;
+	}
+
+	//句柄是否为场景管线变体（第 831 轮）
+	bool Render_Resource::pipeline_scene_variant(uint64_t handle) const
+	{
+		return (*state_ptr).pipeline.pipeline_scene_variant(handle);
+	}
+
 	//追加反向外扩描边项
 	void Device_State::outline_item_push(const Frame_Render_Item& item)
 	{

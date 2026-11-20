@@ -404,6 +404,23 @@ namespace engine
 		}
 	}
 
+	bool Pipeline_Context::pipeline_mark_scene_variant(uint64_t handle)
+	{
+		//按句柄查找条目（未登记则拒绝）
+		Pipeline_Entry* entry = entry_find(handle);
+		if (entry == nullptr)
+			return false;
+		entry->scene_variant = true;
+		return true;
+	}
+
+	bool Pipeline_Context::pipeline_scene_variant(uint64_t handle) const
+	{
+		//按句柄查找条目（未登记按否）
+		const Pipeline_Entry* entry = entry_find(handle);
+		return entry != nullptr && entry->scene_variant;
+	}
+
 	bool Pipeline_Context::pipeline_rebuild(VkFormat color_format, VkFormat depth_format, uint32_t sample_count)
 	{
 		//无任何条目则无需处理

@@ -208,6 +208,16 @@ namespace engine
 			uint32_t color_format = 0, uint32_t tone_id_format = 0, bool depth_lequal = false);
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
 			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
+		/*
+		登记场景管线变体（第 831 轮）
+		以 场景.vert / 场景.frag 登记一条不透明场景管线，只改颜色格式 / 采样数 / 深度格式；
+		材质 Material_Data.pipeline 指向该句柄时仍可携带逐材质色调编号（借用场景目标 alpha）。
+		color_format = 0 跟随 scene_color_format()；sample_count = 0 跟随上下文；depth_format = 0 跟随交换链深度格式。
+		*/
+		bool scene_pipeline_variant_load(uint64_t& handle_out, uint32_t color_format = 0,
+			uint32_t sample_count = 0, uint32_t depth_format = 0);
+		//句柄是否为场景管线变体（第 831 轮；未登记返回假）
+		bool pipeline_scene_variant(uint64_t handle) const;
 		//卸载具名图形管线
 		void pipeline_unload(uint64_t handle);
 		//设置后续绘制所用图形管线
