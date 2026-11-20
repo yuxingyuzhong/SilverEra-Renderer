@@ -455,8 +455,6 @@ namespace engine
 		const bool text_drawing = owner->ui().text_drawing();
 		item.cast_shadow = !text_drawing;
 		item.transparent = (*state_ptr).pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
-		//alpha 裁剪材质不参与编号预通道（第 814 轮；编号通道无法复现 discard）
-		item.alpha_clip = !text_drawing && (*state_ptr).material_alpha_cutoff > 0.0f;
 		//文字保持描边参数、恒等 UV 与零清漆；非文字保持显式色、吸附色调、白色的优先顺序
 		const float* push_color = color;
 		if (push_color == nullptr && !text_drawing)
@@ -671,8 +669,6 @@ namespace engine
 		item.draw_metallic = (*state_ptr).material_views[4];
 		item.cast_shadow = !owner->ui().text_drawing();
 		item.transparent = (*state_ptr).pipeline.pipeline_blend_mode_get() != Blend_Mode::Opaque;
-		//alpha 裁剪材质不参与编号预通道（第 814 轮；编号通道无法复现 discard）
-		item.alpha_clip = !owner->ui().text_drawing() && (*state_ptr).material_alpha_cutoff > 0.0f;
 		std::array<float, 32> push{};
 		push.fill(0.0f);
 		push[0] = 1.0f;

@@ -83,20 +83,28 @@ namespace engine
 		for (uint32_t index = 0; index < item_count; ++index)
 		{
 			const Frame_Render_Item& item = items[index];
-			//透明项 / 非实例项 / 间接项 / alpha 裁剪材质不承载「稳定的」逐材质编号，跳过
-			if (item.transparent || item.alpha_clip || !item.instance_input || item.gpu_indirect)
+			//透明项 / 非实例项 / 间接项不承载「稳定的」逐材质编号，跳过
+			if (item.transparent || !item.instance_input || item.gpu_indirect)
 				continue;
 			//管线或缓冲缺失、索引数或实例数为 0 的项跳过（与主通道同口径）
 			if (item.vertex_buffer == VK_NULL_HANDLE || item.index_buffer == VK_NULL_HANDLE
 				|| item.instance_buffer == VK_NULL_HANDLE || item.index_count == 0 || item.instance_count == 0)
 				continue;
-			//绑定描述符集（编号着色器只需 set0 的场景 UBO）
+			//绑定描述符集（编号着色器需要 set0 场景 UBO 与 set1 反照率）
 			if (item.descriptor_set_count > 0 && item.scene_set != VK_NULL_HANDLE)
 			{
 				const VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
 				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
 					0, item.descriptor_set_count, sets, 0, nullptr);
 			}
+			/*
+			推送材质参数（第 819 轮；alpha 裁剪需要阈值 / UV 变换 / 色调 alpha）
+			与主通道同一批推送常量，编号片元按同一式判定 discard。
+			*/
+			if (item.push_constants != nullptr && item.push_constant_size > 0)
+				vkCmdPushConstants(command_buffer, item.layout,
+					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+					item.push_constant_offset, item.push_constant_size, item.push_constants);
 			//绑定顶点与实例缓冲（实例缓冲偏移由绘制项给出）
 			VkBuffer vertex_buffers[2] = { item.vertex_buffer, item.instance_buffer };
 			VkDeviceSize vertex_offsets[2] = { 0, item.instance_offset };
