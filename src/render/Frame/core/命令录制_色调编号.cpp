@@ -16,15 +16,18 @@ namespace engine
 		if (pipeline == VK_NULL_HANDLE || target.tone_id_view == VK_NULL_HANDLE)
 			return;
 		/*
-		附件选择（第 822 轮：多重采样）
+		附件选择（第 822 轮：多重采样；第 827 轮：布局口径修正）
 		单采样：编号直接写 tone_id_image；
-		多重采样：写 msaa 编号图，pass 结束时按「样本 0」解析到单采样编号图；
+		多重采样：写 msaa 编号图（创建即颜色附件、此后常驻该布局），pass 结束时按「样本 0」解析到单采样编号图；
+		单采样编号图在多重采样路径下是解析目标，需在 pass 前后做「着色器可读 ↔ 颜色附件」往返；
 		深度取与主 pass 相同的深度附件（MSAA 用多重采样深度）。
 		*/
 		VkImage tone_image = target.tone_id_image;
 		VkImageView tone_view = target.tone_id_view;
 		VkImageView depth_view = target.depth_view;
 		VkImageView resolve_view = VK_NULL_HANDLE;
+		//多重采样路径下需要在 pass 前后做布局往返的图（单采样编号图）
+		VkImage transition_image = tone_image;
 		if (target.sample_count > 1)
 		{
 			//缺少多重采样编号图则回到不录制（保持既有行为）
@@ -33,18 +36,19 @@ namespace engine
 			tone_image = target.tone_id_msaa_image;
 			tone_view = target.tone_id_msaa_view;
 			resolve_view = target.tone_id_view;
+			transition_image = target.tone_id_image;
 			if (target.msaa_depth_view != VK_NULL_HANDLE)
 				depth_view = target.msaa_depth_view;
 		}
 
-		//布局屏障（编号附件：着色器可读 → 颜色附件）
+		//布局屏障（编号附件：着色器可读 → 颜色附件；多重采样时作用于单采样解析图）
 		VkImageMemoryBarrier barrier{};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.image = tone_image;
+		barrier.image = transition_image;
 		barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 		barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -144,9 +148,10 @@ namespace engine
 		//结束编号通道
 		vkCmdEndRendering(command_buffer);
 
-		//布局屏障（编号附件：颜色附件 → 着色器可读，供末级采样）
+		//布局屏障（编号附件：颜色附件 → 着色器可读，供末级采样；多重采样时作用于单采样解析图）
 		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		barrier.image = transition_image;
 		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
