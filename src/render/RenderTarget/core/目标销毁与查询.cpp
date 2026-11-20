@@ -199,6 +199,11 @@ namespace engine
 		default_tone_id_image = VK_NULL_HANDLE;
 		default_tone_id_alloc = VK_NULL_HANDLE;
 
+		//归还编号附件采样器（第 832 轮）
+		if (device != VK_NULL_HANDLE && tone_id_sampler != VK_NULL_HANDLE)
+			vkDestroySampler(device, tone_id_sampler, nullptr);
+		tone_id_sampler = VK_NULL_HANDLE;
+
 		//归还一次性资源
 		if (device != VK_NULL_HANDLE)
 		{

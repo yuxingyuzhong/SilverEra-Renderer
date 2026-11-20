@@ -140,6 +140,12 @@ namespace engine
 		//取多重采样编号附件（第 821 轮；采样数 = 1 时返回假且出参为空）
 		bool target_tone_id_msaa_get(uint64_t handle, VkImage& image_out, VkImageView& view_out) const;
 		/*
+		取编号附件专用采样器（第 832 轮）
+		编号附件为 R8_UINT 等整数格式，线性过滤不合法；该采样器惰性创建（最近邻 ＋ 夹取边缘），
+		供后处理采样集 binding 10 使用。设备未就绪时返回假。
+		*/
+		bool tone_id_sampler_get(VkSampler& sampler_out);
+		/*
 		取渲染目标的深度图像与视图（第一百二十三轮新增）
 		供后处理阶段（景深）以纹理方式采样深度；句柄无效或记录已空时返回假且出参为空。
 		注意：采样前调用方须把深度转入 SHADER_READ_ONLY_OPTIMAL，用完转回 DEPTH_ATTACHMENT_OPTIMAL。
@@ -249,5 +255,7 @@ namespace engine
 		VkImage default_tone_id_image = VK_NULL_HANDLE;
 		VmaAllocation default_tone_id_alloc = VK_NULL_HANDLE;
 		VkImageView default_tone_id_view = VK_NULL_HANDLE;
+		//编号附件专用采样器（第 832 轮；最近邻 ＋ 夹取边缘，惰性创建）
+		VkSampler tone_id_sampler = VK_NULL_HANDLE;
 	};
 }

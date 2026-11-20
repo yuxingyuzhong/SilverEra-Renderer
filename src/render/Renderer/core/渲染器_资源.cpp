@@ -773,12 +773,19 @@ namespace engine
 			result = (*state_ptr).pipeline.post_shadow_bind(slot, native_sampler,
 				reinterpret_cast<VkImageView>(shadow_view), stage) && result;
 		/*
-		逐材质色调编号附件（第八百一十二轮）
+		逐材质色调编号附件（第八百一十二轮；第 832 轮改用最近邻采样器）
 		启用编号通道时为目标编号视图，否则为 1×1 零图；两者都写，保证材质色调映射片元的 binding 10 恒有效。
+		编号附件为整数格式，线性过滤不合法，故不复用材质的线性采样器。
 		*/
 		if (tone_id_view != 0)
-			result = (*state_ptr).pipeline.post_tone_id_bind(slot, native_sampler,
+		{
+			//编号附件专用采样器（取不到时回落材质采样器）
+			VkSampler tone_sampler = VK_NULL_HANDLE;
+			if (!(*state_ptr).render_target.tone_id_sampler_get(tone_sampler))
+				tone_sampler = native_sampler;
+			result = (*state_ptr).pipeline.post_tone_id_bind(slot, tone_sampler,
 				reinterpret_cast<VkImageView>(tone_id_view), stage) && result;
+		}
 		return result;
 	}
 

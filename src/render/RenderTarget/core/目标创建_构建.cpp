@@ -31,6 +31,45 @@ namespace engine
 		return true;
 	}
 
+	/*
+	编号附件专用采样器（第 832 轮）
+	R8_UINT 等整数格式不支持线性过滤，后处理 binding 10 若沿用材质的线性采样器会被校验层拒绝；
+	此处惰性创建「最近邻 ＋ 夹取边缘」采样器，编号解码只用 texelFetch，与过滤方式无关。
+	*/
+	bool Render_Target_Context::tone_id_sampler_get(VkSampler& sampler_out)
+	{
+		//出参先复位
+		sampler_out = VK_NULL_HANDLE;
+		//设备未就绪则无法创建
+		if (device == VK_NULL_HANDLE)
+			return false;
+		//已创建则直接复用
+		if (tone_id_sampler != VK_NULL_HANDLE)
+		{
+			sampler_out = tone_id_sampler;
+			return true;
+		}
+		//采样器信息（最近邻、夹取边缘、无各向异性）
+		VkSamplerCreateInfo sampler_info{};
+		sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		sampler_info.magFilter = VK_FILTER_NEAREST;
+		sampler_info.minFilter = VK_FILTER_NEAREST;
+		sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+		sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		sampler_info.maxLod = 0.0f;
+		//若创建失败
+		if (!vk_result_check(vkCreateSampler(device, &sampler_info, nullptr, &tone_id_sampler),
+			"渲染目标:: 创建编号附件采样器"))
+		{
+			tone_id_sampler = VK_NULL_HANDLE;
+			return false;
+		}
+		sampler_out = tone_id_sampler;
+		return true;
+	}
+
 	bool Render_Target_Context::valid(void) const
 	{
 		return device != VK_NULL_HANDLE && memory != nullptr;
