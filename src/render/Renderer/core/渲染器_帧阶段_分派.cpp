@@ -350,7 +350,8 @@ namespace engine
 					if (state.tone_id_pass && state.tone_id_pipeline != 0
 						&& targets[0].tone_id_view != VK_NULL_HANDLE)
 						chain_tone_pipeline = reinterpret_cast<VkPipeline>(
-							owner->resource().pipeline_native_get(state.tone_id_pipeline));
+							owner->resource().pipeline_native_get(
+								owner->device().tone_id_pipeline_for(targets[0].sample_count)));
 					//场景 pass ＋ N 级后处理 pass（目标轮转）＋ UI ＋ 呈现（单级路径即本函数 N = 1 的特例）
 					if (!state.frame.render_chain_present(state.swapchain, targets.data(),
 						static_cast<uint32_t>(targets.size()),
@@ -401,7 +402,8 @@ namespace engine
 				*/
 				VkPipeline tone_id_pipeline = VK_NULL_HANDLE;
 				if (state.tone_id_pass && state.tone_id_pipeline != 0 && target.tone_id_view != VK_NULL_HANDLE)
-					tone_id_pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get(state.tone_id_pipeline));
+					tone_id_pipeline = reinterpret_cast<VkPipeline>(owner->resource().pipeline_native_get(
+						owner->device().tone_id_pipeline_for(target.sample_count)));
 				//渲染到离屏目标（不取交换链图像、不呈现）
 				if (!state.frame.render_to_target(target, state.pending_items.data(),
 					static_cast<uint32_t>(state.pending_items.size()), clear_color,

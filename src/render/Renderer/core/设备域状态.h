@@ -195,5 +195,8 @@ namespace engine
 		*/
 		uint64_t tone_id_pipeline = 0;
 		bool tone_id_pass = false;
+		//多重采样编号管线（第 822 轮；按目标采样数烘焙，采样数变化时重建）
+		uint64_t tone_id_pipeline_msaa = 0;
+		uint32_t tone_id_pipeline_msaa_samples = 0;
 	};
 }

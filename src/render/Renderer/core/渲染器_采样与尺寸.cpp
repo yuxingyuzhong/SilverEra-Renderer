@@ -189,6 +189,44 @@ namespace engine
 		return state_ptr->tone_id_pass;
 	}
 
+	/*
+	取指定采样数的编号管线（第 822 轮）
+	单采样直接返回既有句柄；多重采样按目标采样数烘焙并在变化时重建。
+	*/
+	uint64_t Render_Device::tone_id_pipeline_for(uint32_t samples)
+	{
+		//若尚未初始化
+		if (state_ptr == nullptr || !state_ptr->initialized)
+			return 0;
+		//单采样走既有管线
+		if (samples <= 1)
+			return state_ptr->tone_id_pipeline;
+		//采样数一致则复用
+		if (state_ptr->tone_id_pipeline_msaa != 0 && state_ptr->tone_id_pipeline_msaa_samples == samples)
+			return state_ptr->tone_id_pipeline_msaa;
+		//采样数变化：先归还旧管线
+		if (state_ptr->tone_id_pipeline_msaa != 0)
+		{
+			owner->resource().pipeline_unload(state_ptr->tone_id_pipeline_msaa);
+			state_ptr->tone_id_pipeline_msaa = 0;
+			state_ptr->tone_id_pipeline_msaa_samples = 0;
+		}
+		//按目标采样数登记（与单采样管线同口径，仅采样数不同）
+		uint64_t handle = 0;
+		if (!owner->resource().pipeline_load_ex(handle, "色调编号.vert.spv", "色调编号.frag.spv",
+			Blend_Mode::Opaque, false, false, false, false, true, true,
+			static_cast<uint32_t>(state_ptr->swapchain.depth_format_get()), samples,
+			static_cast<uint32_t>(VK_FORMAT_R8_UINT), 0, true))
+		{
+			logger.error("渲染器:: 多重采样编号管线登记失败（采样数 {}）", samples);
+			return 0;
+		}
+		state_ptr->tone_id_pipeline_msaa = handle;
+		state_ptr->tone_id_pipeline_msaa_samples = samples;
+		logger.info("渲染器:: 多重采样编号管线已登记（采样数 {}，句柄 {}）", samples, handle);
+		return handle;
+	}
+
 	//当前 MSAA 深度解析开关（第一百九十轮）
 	bool Render_Device::msaa_depth_resolve(void) const
 	{

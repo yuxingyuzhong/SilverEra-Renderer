@@ -12,10 +12,30 @@ namespace engine
 	void Frame_Context::tone_id_pass_record(VkCommandBuffer command_buffer, const Frame_Render_Target& target,
 		const Frame_Render_Item* items, uint32_t item_count, VkPipeline pipeline)
 	{
-		//编号附件 / 深度 / 管线任一缺失，或多重采样（编号附件只在单采样目标创建）则跳过
-		if (pipeline == VK_NULL_HANDLE || target.tone_id_view == VK_NULL_HANDLE
-			|| target.depth_view == VK_NULL_HANDLE || target.sample_count > 1)
+		//编号附件 / 管线任一缺失则跳过
+		if (pipeline == VK_NULL_HANDLE || target.tone_id_view == VK_NULL_HANDLE)
 			return;
+		/*
+		附件选择（第 822 轮：多重采样）
+		单采样：编号直接写 tone_id_image；
+		多重采样：写 msaa 编号图，pass 结束时按「样本 0」解析到单采样编号图；
+		深度取与主 pass 相同的深度附件（MSAA 用多重采样深度）。
+		*/
+		VkImage tone_image = target.tone_id_image;
+		VkImageView tone_view = target.tone_id_view;
+		VkImageView depth_view = target.depth_view;
+		VkImageView resolve_view = VK_NULL_HANDLE;
+		if (target.sample_count > 1)
+		{
+			//缺少多重采样编号图则回到不录制（保持既有行为）
+			if (target.tone_id_msaa_view == VK_NULL_HANDLE || target.depth_view == VK_NULL_HANDLE)
+				return;
+			tone_image = target.tone_id_msaa_image;
+			tone_view = target.tone_id_msaa_view;
+			resolve_view = target.tone_id_view;
+			if (target.msaa_depth_view != VK_NULL_HANDLE)
+				depth_view = target.msaa_depth_view;
+		}
 
 		//布局屏障（编号附件：着色器可读 → 颜色附件）
 		VkImageMemoryBarrier barrier{};
@@ -24,7 +44,7 @@ namespace engine
 		barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		barrier.image = target.tone_id_image;
+		barrier.image = tone_image;
 		barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 		barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
 		barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -34,16 +54,23 @@ namespace engine
 		//编号附件信息（清 0；0 = 无覆盖）
 		VkRenderingAttachmentInfo tone_attachment{};
 		tone_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		tone_attachment.imageView = target.tone_id_view;
+		tone_attachment.imageView = tone_view;
 		tone_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		tone_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		tone_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		tone_attachment.clearValue.color.uint32[0] = 0;
+		//多重采样：按样本 0 解析（编号不做平均，避免两种算子混出第三种）
+		if (resolve_view != VK_NULL_HANDLE)
+		{
+			tone_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+			tone_attachment.resolveImageView = resolve_view;
+			tone_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
 
 		//深度附件信息（保留场景深度；本通道不写深度）
 		VkRenderingAttachmentInfo depth_attachment{};
 		depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-		depth_attachment.imageView = target.depth_view;
+		depth_attachment.imageView = depth_view;
 		depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 		depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 		depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

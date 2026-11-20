@@ -109,6 +109,12 @@ namespace engine
 		*/
 		void tone_id_pass_set(bool enabled);
 		bool tone_id_pass(void) const;
+		/*
+		取指定采样数的编号管线（第 822 轮）
+		samples = 1 → 单采样编号管线；> 1 → 按该采样数烘焙的多重采样编号管线（变化时重建），
+		供帧链路按目标采样数选择；返回 0 表示不可用。
+		*/
+		uint64_t tone_id_pipeline_for(uint32_t samples);
 		uint32_t post_stage_param_get(uint32_t stage, float out[4]) const;
 		void post_stage_param4_set(uint32_t stage, float x, float y, float z, float w);
 		void post_stage_vec4_set(uint32_t stage, float x, float y, float z, float w);

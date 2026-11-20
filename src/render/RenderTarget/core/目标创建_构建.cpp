@@ -252,6 +252,20 @@ namespace engine
 		if (!memory->image_view_create(record.msaa_depth_view, record.msaa_depth_image,
 			record.depth_format, VK_IMAGE_ASPECT_DEPTH_BIT))
 			return false;
+		/*
+		多重采样编号图（第 822 轮；采样数切换时随 MSAA 附件一起重建）
+		编号格式启用且尚未创建时补建，避免采样数变化后指向已销毁图像。
+		*/
+		if (record.tone_id_format != VK_FORMAT_UNDEFINED && record.msaa_tone_id_image == VK_NULL_HANDLE)
+		{
+			if (!memory->image_create(record.msaa_tone_id_image, record.msaa_tone_id_alloc,
+				record.extent.width, record.extent.height, record.tone_id_format,
+				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 1, samples))
+				return false;
+			if (!memory->image_view_create(record.msaa_tone_id_view, record.msaa_tone_id_image,
+				record.tone_id_format, VK_IMAGE_ASPECT_COLOR_BIT))
+				return false;
+		}
 		return true;
 	}
 
@@ -260,6 +274,11 @@ namespace engine
 		//内存模块就绪时归还图像与视图
 		if (memory != nullptr)
 		{
+			//多重采样编号附件（第 822 轮）
+			if (record.msaa_tone_id_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(record.msaa_tone_id_view);
+			if (record.msaa_tone_id_image != VK_NULL_HANDLE)
+				memory->image_destroy(record.msaa_tone_id_image, record.msaa_tone_id_alloc);
 			if (record.msaa_depth_view != VK_NULL_HANDLE)
 				memory->image_view_destroy(record.msaa_depth_view);
 			if (record.msaa_depth_image != VK_NULL_HANDLE)
@@ -275,6 +294,9 @@ namespace engine
 		record.msaa_depth_image = VK_NULL_HANDLE;
 		record.msaa_depth_alloc = VK_NULL_HANDLE;
 		record.msaa_depth_view = VK_NULL_HANDLE;
+		record.msaa_tone_id_image = VK_NULL_HANDLE;
+		record.msaa_tone_id_alloc = VK_NULL_HANDLE;
+		record.msaa_tone_id_view = VK_NULL_HANDLE;
 	}
 
 	bool Render_Target_Context::sample_count_set(uint32_t count)
