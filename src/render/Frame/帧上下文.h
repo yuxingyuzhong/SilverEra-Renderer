@@ -257,6 +257,9 @@ namespace engine
 		VkImage tone_id_image = VK_NULL_HANDLE;
 		VkImageView tone_id_view = VK_NULL_HANDLE;
 		VkFormat tone_id_format = VK_FORMAT_UNDEFINED;
+		//多重采样编号附件（第 821 轮；采样数 = 1 时为空）
+		VkImage tone_id_msaa_image = VK_NULL_HANDLE;
+		VkImageView tone_id_msaa_view = VK_NULL_HANDLE;
 		/*
 		颜色 / 深度格式（第二百轮）
 		供并行录制时次级命令缓冲的 VkCommandBufferInheritanceRenderingInfo 使用；

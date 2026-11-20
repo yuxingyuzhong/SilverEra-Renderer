@@ -189,6 +189,12 @@ namespace engine
 		tone_id.image_allocation = record.tone_id_alloc;
 		tone_id.view = record.tone_id_view;
 		entry.memory_resources.push_back(tone_id);
+		//多重采样编号附件（第 821 轮；单采样时句柄为空）
+		Deferred_Memory_Resource msaa_tone_id{};
+		msaa_tone_id.image = record.msaa_tone_id_image;
+		msaa_tone_id.image_allocation = record.msaa_tone_id_alloc;
+		msaa_tone_id.view = record.msaa_tone_id_view;
+		entry.memory_resources.push_back(msaa_tone_id);
 		//压入帧延迟队列（延迟 = 在途帧数 + 1，保证在途帧用尽后才释放）
 		core->frame.deferred_push(std::move(entry), core->frame.in_flight_count_get() + 1);
 	}

@@ -484,6 +484,9 @@ namespace engine
 		*/
 		state_ptr->render_target.target_tone_id_get(handle, target_out.tone_id_image,
 			target_out.tone_id_view, target_out.tone_id_format);
+		//多重采样编号附件（第 821 轮；单采样目标取不到，保持空）
+		state_ptr->render_target.target_tone_id_msaa_get(handle, target_out.tone_id_msaa_image,
+			target_out.tone_id_msaa_view);
 		return true;
 	}
 
@@ -791,6 +794,26 @@ namespace engine
 		VkImageView view = VK_NULL_HANDLE;
 		if (!(*state_ptr).render_target.tone_id_default_get(view))
 			return false;
+		view_out = reinterpret_cast<uint64_t>(view);
+		return true;
+	}
+
+	//取多重采样编号附件（第 821 轮）
+	bool Render_Resource::render_target_tone_id_msaa_get(uint64_t handle, uint64_t& image_out,
+		uint64_t& view_out) const
+	{
+		//出参先复位
+		image_out = 0;
+		view_out = 0;
+		//若尚未初始化
+		if (state_ptr == nullptr)
+			return false;
+		//转交渲染目标模块
+		VkImage image = VK_NULL_HANDLE;
+		VkImageView view = VK_NULL_HANDLE;
+		if (!(*state_ptr).render_target.target_tone_id_msaa_get(handle, image, view))
+			return false;
+		image_out = reinterpret_cast<uint64_t>(image);
 		view_out = reinterpret_cast<uint64_t>(view);
 		return true;
 	}

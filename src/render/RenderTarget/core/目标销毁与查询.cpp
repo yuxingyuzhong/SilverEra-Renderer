@@ -134,6 +134,27 @@ namespace engine
 		return true;
 	}
 
+	//取多重采样编号附件（第 821 轮；采样数 = 1 或未启用时返回假）
+	bool Render_Target_Context::target_tone_id_msaa_get(uint64_t handle, VkImage& image_out,
+		VkImageView& view_out) const
+	{
+		//出参先复位
+		image_out = VK_NULL_HANDLE;
+		view_out = VK_NULL_HANDLE;
+		//句柄无效则返回假
+		if (handle == 0 || handle > records.size())
+			return false;
+		//取目标记录
+		const Render_Target_Record& record = records[handle - 1];
+		//已空或无多重采样编号附件均返回假
+		if (!record.valid || record.msaa_tone_id_image == VK_NULL_HANDLE)
+			return false;
+		//写出附件
+		image_out = record.msaa_tone_id_image;
+		view_out = record.msaa_tone_id_view;
+		return true;
+	}
+
 	//取目标颜色 / 深度格式
 	bool Render_Target_Context::target_format_get(uint64_t handle, VkFormat& color_format_out, VkFormat& depth_format_out) const
 	{

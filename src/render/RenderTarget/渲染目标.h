@@ -58,6 +58,14 @@ namespace engine
 		VmaAllocation tone_id_alloc = VK_NULL_HANDLE;
 		VkImageView tone_id_view = VK_NULL_HANDLE;
 		VkFormat tone_id_format = VK_FORMAT_UNDEFINED;
+		/*
+		多重采样编号附件（第 821 轮）
+		采样数 > 1 时，编号先写入该多重采样图像，pass 结束时按「样本 0」解析到 tone_id_image；
+		采样数 = 1 时为空（编号直接写 tone_id_image）。
+		*/
+		VkImage msaa_tone_id_image = VK_NULL_HANDLE;
+		VmaAllocation msaa_tone_id_alloc = VK_NULL_HANDLE;
+		VkImageView msaa_tone_id_view = VK_NULL_HANDLE;
 		//采样数（1 = 关闭）
 		uint32_t sample_count = 1;
 		//是否跟随上下文的默认采样数（假 = 固定采样数，如阴影目标固定 1）
@@ -129,6 +137,8 @@ namespace engine
 		//取逐材质色调编号附件（第 801 轮；未启用时返回假且出参为空）
 		bool target_tone_id_get(uint64_t handle, VkImage& image_out, VkImageView& view_out,
 			VkFormat& format_out) const;
+		//取多重采样编号附件（第 821 轮；采样数 = 1 时返回假且出参为空）
+		bool target_tone_id_msaa_get(uint64_t handle, VkImage& image_out, VkImageView& view_out) const;
 		/*
 		取渲染目标的深度图像与视图（第一百二十三轮新增）
 		供后处理阶段（景深）以纹理方式采样深度；句柄无效或记录已空时返回假且出参为空。

@@ -245,6 +245,8 @@ namespace engine
 			uint32_t* width_out, uint32_t* height_out);
 		//取默认编号附件视图（第八百一十二轮；1×1 R8_UINT 零图，未启用编号通道时占位 binding 10）
 		bool render_target_tone_id_default_get(uint64_t& view_out);
+		//取多重采样编号附件（第 821 轮；采样数 = 1 时返回假）
+		bool render_target_tone_id_msaa_get(uint64_t handle, uint64_t& image_out, uint64_t& view_out) const;
 		//把离屏渲染目标颜色绑定为当前纹理
 		void texture_bind_target(uint64_t handle);
 

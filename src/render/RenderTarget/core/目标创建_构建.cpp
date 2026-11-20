@@ -145,11 +145,11 @@ namespace engine
 			return false;
 		}
 		/*
-		逐材质色调编号附件（第 801 轮 · MRT 段 1）
-		仅单采样目标可用（多重采样需配套 MSAA id 附件与解析，留待后续段）；
-		采样数 > 1 时忽略该参数并告警，目标本身仍按原路径创建。
+		逐材质色调编号附件（第 801 轮 · MRT 段 1；第 821 轮支持多重采样）
+		单采样图始终创建（作解析目标 / 读回源）；采样数 > 1 时再建同格式的多重采样图，
+		编号先写入多重采样图、pass 结束时按「样本 0」解析到单采样图。
 		*/
-		if (tone_id_format != VK_FORMAT_UNDEFINED && record.sample_count == 1)
+		if (tone_id_format != VK_FORMAT_UNDEFINED)
 		{
 			if (!memory->image_create(record.tone_id_image, record.tone_id_alloc, width, height,
 				tone_id_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -166,12 +166,26 @@ namespace engine
 				record_resources_destroy(record);
 				return false;
 			}
+			//多重采样编号图（采样数 > 1）
+			if (record.sample_count > 1)
+			{
+				if (!memory->image_create(record.msaa_tone_id_image, record.msaa_tone_id_alloc, width, height,
+					tone_id_format, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 1,
+					static_cast<VkSampleCountFlagBits>(record.sample_count)))
+				{
+					logger.error("渲染目标:: 多重采样色调编号附件创建失败");
+					record_resources_destroy(record);
+					return false;
+				}
+				if (!memory->image_view_create(record.msaa_tone_id_view, record.msaa_tone_id_image, tone_id_format,
+					VK_IMAGE_ASPECT_COLOR_BIT))
+				{
+					logger.error("渲染目标:: 多重采样色调编号附件视图创建失败");
+					record_resources_destroy(record);
+					return false;
+				}
+			}
 			record.tone_id_format = tone_id_format;
-		}
-		else if (tone_id_format != VK_FORMAT_UNDEFINED)
-		{
-			logger.warn("渲染目标:: 色调编号附件暂不支持多重采样（采样数 {}），本次按未启用处理",
-				record.sample_count);
 		}
 		//一次性布局转换（颜色 → 着色器可读；深度 → 深度附件；MSAA 附件 → 对应附件布局）
 		if (!target_transition(record))
@@ -394,6 +408,11 @@ namespace engine
 		//内存模块就绪时逐个归还
 		if (memory != nullptr)
 		{
+			//多重采样编号附件视图 / 图像（第 821 轮）
+			if (record.msaa_tone_id_view != VK_NULL_HANDLE)
+				memory->image_view_destroy(record.msaa_tone_id_view);
+			if (record.msaa_tone_id_image != VK_NULL_HANDLE)
+				memory->image_destroy(record.msaa_tone_id_image, record.msaa_tone_id_alloc);
 			//色调编号附件视图 / 图像（第 801 轮）
 			if (record.tone_id_view != VK_NULL_HANDLE)
 				memory->image_view_destroy(record.tone_id_view);

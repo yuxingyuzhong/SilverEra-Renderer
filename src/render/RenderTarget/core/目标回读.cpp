@@ -55,8 +55,8 @@ namespace engine
 		depth_barrier.srcAccessMask = 0;
 		depth_barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-		//屏障集合（基础两条 ＋ MSAA 两条 ＋ 色调编号一条）
-		VkImageMemoryBarrier barriers[5] = { color_barrier, depth_barrier, {}, {}, {} };
+		//屏障集合（基础两条 ＋ 色调编号一条 ＋ MSAA 三条）
+		VkImageMemoryBarrier barriers[6] = { color_barrier, depth_barrier, {}, {}, {}, {} };
 		uint32_t barrier_count = 2;
 		//若启用逐材质色调编号附件（第 801 轮；未定义 → 着色器可读）
 		if (record.tone_id_image != VK_NULL_HANDLE)
@@ -76,6 +76,17 @@ namespace engine
 		//若启用 MSAA
 		if (record.sample_count > 1)
 		{
+			//多重采样编号屏障（第 821 轮；未定义 → 颜色附件）
+			if (record.msaa_tone_id_image != VK_NULL_HANDLE)
+			{
+				VkImageMemoryBarrier msaa_tone_barrier = color_barrier;
+				msaa_tone_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				msaa_tone_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				msaa_tone_barrier.image = record.msaa_tone_id_image;
+				msaa_tone_barrier.srcAccessMask = 0;
+				msaa_tone_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				barriers[barrier_count++] = msaa_tone_barrier;
+			}
 			//MSAA 颜色屏障（未定义 → 颜色附件）
 			VkImageMemoryBarrier msaa_color_barrier{};
 			msaa_color_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
