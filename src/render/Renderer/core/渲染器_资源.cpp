@@ -892,6 +892,13 @@ namespace engine
 		info_out.width = extent.width;
 		info_out.height = extent.height;
 		info_out.sample_count = sample_count;
+		//颜色 / 深度格式（第 828 轮）
+		VkFormat color_format = VK_FORMAT_UNDEFINED;
+		VkFormat depth_format = VK_FORMAT_UNDEFINED;
+		if (!(*state_ptr).render_target.target_format_get(handle, color_format, depth_format))
+			return false;
+		info_out.color_format = static_cast<uint32_t>(color_format);
+		info_out.depth_format = static_cast<uint32_t>(depth_format);
 		return true;
 	}
 

@@ -464,6 +464,9 @@ namespace engine
 		uint32_t width = 0;
 		uint32_t height = 0;
 		uint32_t sample_count = 1;
+		//颜色 / 深度格式（第 828 轮；供调用方核对目标格式与场景管线一致）
+		uint32_t color_format = 0;
+		uint32_t depth_format = 0;
 	};
 
 	//单批实例登记所需的材质值快照
