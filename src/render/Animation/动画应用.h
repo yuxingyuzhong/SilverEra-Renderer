@@ -27,4 +27,15 @@ namespace engine
 	bool animation_clip_pose_blend(const Animation_Clip& clip_a, const Animation_Clip& clip_b,
 		const Animation_Skeleton& skeleton, float time_a, float time_b, float weight,
 		bool loop_a, bool loop_b, Animation_Pose& pose);
+
+	/*
+	叠加层应用（方向十 · 收敛轮 872）
+	把 overlay 相对绑定姿态的偏移按 weight（0..1，越界夹紧）叠加到 base：
+	  平移：base_t + (overlay_t - bind_t) × w；
+	  缩放：base_s × (1 + (overlay_s / bind_s - 1) × w)（bind 分量为 0 时按 1）；
+	  旋转：nlerp(单位, overlay_r × inverse(bind_r), w) × base_r，归一化。
+	骨架 / 尺寸不符、非有限权重返回假；成功后重算世界矩阵。
+	*/
+	bool animation_pose_layer_apply(const Animation_Skeleton& skeleton, const Animation_Pose& base,
+		const Animation_Pose& overlay, float weight, Animation_Pose& pose);
 }

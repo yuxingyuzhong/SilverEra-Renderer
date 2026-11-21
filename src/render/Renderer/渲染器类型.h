@@ -657,6 +657,16 @@ namespace engine
 		float blend_weight = 1.0f;
 		//过渡速度（每秒权重增量；0 = 无过渡）
 		float blend_speed = 0.0f;
+		/*
+		叠加层（方向十 · 收敛轮 872）
+		overlay_clip 非空且 overlay_weight > 0 时，其相对绑定姿态的偏移叠加到主片段姿态；
+		过渡进行中优先走双片段混合，叠加层暂不参与（避免两套混合语义叠加）。
+		*/
+		std::shared_ptr<const Animation_Clip> overlay_clip;
+		//叠加层播放时间（秒）
+		float overlay_time = 0.0f;
+		//叠加层权重（0..1）
+		float overlay_weight = 0.0f;
 	};
 
 	/*

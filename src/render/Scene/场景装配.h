@@ -73,4 +73,12 @@ namespace engine
 	bool level_bridge_animation_pause(Asset_Scene& scene, const std::string& actor_name, bool paused);
 	bool level_bridge_animation_speed_set(Asset_Scene& scene, const std::string& actor_name, float speed);
 	bool level_bridge_animation_time_set(Asset_Scene& scene, const std::string& actor_name, float time_seconds);
+
+	/*
+	设置演员叠加层（方向十 · 收敛轮 872）
+	clip 为空表示清除叠加层；weight 须在 0..1（非有限或越界拒绝）。
+	叠加层只在无过渡时参与写入；过渡进行中优先双片段混合。
+	*/
+	bool level_bridge_animation_layer_set(Asset_Scene& scene, const std::string& actor_name,
+		const std::shared_ptr<const Animation_Clip>& clip, float weight);
 }

@@ -44,6 +44,13 @@ namespace engine
 		*/
 		bool actor_blend_write(uint32_t offset, const Animation_Clip& clip_a, const Animation_Clip& clip_b,
 			const Animation_Skeleton& skeleton, float time_a, float time_b, float weight, bool loop);
+		/*
+		按叠加层写演员调色板（方向十 · 收敛轮 872）
+		base 片段决定主姿态，overlay 片段按 weight 叠加其相对绑定姿态的偏移（平移 / 缩放 / 旋转）；
+		与过渡混合互斥：过渡进行中调用方应走 `actor_blend_write`。
+		*/
+		bool actor_layer_write(uint32_t offset, const Animation_Clip& base_clip, const Animation_Clip& overlay_clip,
+			const Animation_Skeleton& skeleton, float base_time, float overlay_time, float weight, bool loop);
 
 	private:
 		//渲染器根门面

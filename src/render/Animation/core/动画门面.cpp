@@ -103,4 +103,27 @@ namespace engine
 			return false;
 		return actor_palette_write(offset, skeleton, pose);
 	}
+
+	//按叠加层写演员调色板
+	bool Render_Animation::actor_layer_write(uint32_t offset, const Animation_Clip& base_clip,
+		const Animation_Clip& overlay_clip, const Animation_Skeleton& skeleton, float base_time,
+		float overlay_time, float weight, bool loop)
+	{
+		if (owner == nullptr)
+			return false;
+		if (actors.find(offset) == actors.end())
+			return false;
+		//两份源姿态
+		Animation_Pose base_pose;
+		Animation_Pose overlay_pose;
+		if (!animation_clip_pose_build(base_clip, skeleton, base_time, loop, base_pose))
+			return false;
+		if (!animation_clip_pose_build(overlay_clip, skeleton, overlay_time, loop, overlay_pose))
+			return false;
+		//叠加
+		Animation_Pose pose;
+		if (!animation_pose_layer_apply(skeleton, base_pose, overlay_pose, weight, pose))
+			return false;
+		return actor_palette_write(offset, skeleton, pose);
+	}
 }

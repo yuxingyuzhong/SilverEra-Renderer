@@ -427,11 +427,29 @@ namespace engine
 				else if (演员.blend_from_time > 时长)
 					演员.blend_from_time = 时长;
 			}
+			//推进叠加层时间（与主片段同口径）
+			if (演员.overlay_clip && 演员.overlay_clip->duration > 0.0f)
+			{
+				const float 时长 = 演员.overlay_clip->duration;
+				演员.overlay_time += 步长;
+				if (演员.loop)
+					演员.overlay_time = std::fmod(演员.overlay_time, 时长);
+				else if (演员.overlay_time > 时长)
+					演员.overlay_time = 时长;
+			}
 			//过渡中：双片段混合
 			if (演员.blend_from && 演员.clip)
 			{
 				if (renderer.animation().actor_blend_write(演员.palette_offset, *演员.blend_from, *演员.clip,
 					*演员.skeleton, 演员.blend_from_time, 演员.time_seconds, 演员.blend_weight, 演员.loop))
+					更新数 += 1;
+				continue;
+			}
+			//叠加层：主片段姿态 ＋ 叠加偏移
+			if (演员.overlay_clip && 演员.overlay_weight > 0.0f && 演员.clip && 演员.clip->duration > 0.0f)
+			{
+				if (renderer.animation().actor_layer_write(演员.palette_offset, *演员.clip, *演员.overlay_clip,
+					*演员.skeleton, 演员.time_seconds, 演员.overlay_time, 演员.overlay_weight, 演员.loop))
 					更新数 += 1;
 				continue;
 			}
@@ -570,6 +588,25 @@ namespace engine
 						source = item.blend_from->duration;
 					item.blend_from_time = source;
 				}
+				return true;
+			}
+		return false;
+	}
+
+	//设置演员叠加层
+	bool level_bridge_animation_layer_set(Asset_Scene& scene, const std::string& actor_name,
+		const std::shared_ptr<const Animation_Clip>& clip, float weight)
+	{
+		//权重须有限且在 0..1
+		if (!std::isfinite(weight) || weight < 0.0f || weight > 1.0f)
+			return false;
+		for (Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				//空片段清除叠加层
+				item.overlay_clip = clip;
+				item.overlay_weight = clip ? weight : 0.0f;
+				item.overlay_time = 0.0f;
 				return true;
 			}
 		return false;
