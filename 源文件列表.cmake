@@ -22,6 +22,7 @@
 # =============================================================================
 #
 target_sources(EngineRenderer PRIVATE
+    "src/render/Animation/core/动画姿态.cpp"
     "src/render/Animation/core/动画播放器.cpp"
     "src/render/Animation/core/动画片段.cpp"
     "src/render/Animation/core/动画采样.cpp"
@@ -157,6 +158,7 @@ target_sources(EngineRenderer PRIVATE
 # 使头文件改名 / 迁移时 VS 也能改写引用
 target_sources(EngineRenderer PRIVATE
     "common/前置头文件包含.h"
+    "src/render/Animation/动画姿态.h"
     "src/render/Animation/动画播放器.h"
     "src/render/Animation/动画数据.h"
     "src/render/Animation/动画片段.h"
