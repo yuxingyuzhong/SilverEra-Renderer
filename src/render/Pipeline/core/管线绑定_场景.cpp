@@ -84,4 +84,34 @@ namespace engine
 		vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
 		return true;
 	}
+
+	bool Pipeline_Context::palette_bind(uint32_t slot, VkBuffer buffer)
+	{
+		//前置：设备、目标集、缓冲齐备
+		if (device == VK_NULL_HANDLE || slot >= scene_sets.size() || scene_sets[slot] == VK_NULL_HANDLE || buffer == VK_NULL_HANDLE)
+		{
+			logger.error("管线:: 蒙皮调色板绑定参数不完整（帧槽 {}）", slot);
+			return false;
+		}
+
+		//整条缓冲可见（容量由门面按调色板契约分配）
+		VkDescriptorBufferInfo buffer_info{};
+		buffer_info.buffer = buffer;
+		buffer_info.offset = 0;
+		buffer_info.range = VK_WHOLE_SIZE;
+
+		//描述符写（set 0 binding 5）
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = scene_sets[slot];
+		write.dstBinding = 5;
+		write.dstArrayElement = 0;
+		write.descriptorCount = 1;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		write.pBufferInfo = &buffer_info;
+
+		//更新描述符集
+		vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+		return true;
+	}
 }

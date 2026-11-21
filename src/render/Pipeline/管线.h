@@ -260,6 +260,11 @@ namespace engine
 		*/
 		bool scene_cluster_bind(uint32_t slot, VkBuffer light_buffer, VkBuffer counts_buffer,
 			VkBuffer offsets_buffer, VkBuffer list_buffer);
+		/*
+		向第 slot 帧槽写蒙皮调色板存储缓冲（set 0 binding 5；方向十阶段 A 第 3 轮）
+		每帧槽一条，初始为单位矩阵；蒙皮未启用时着色器不读取，画面与引入前一致。
+		*/
+		bool palette_bind(uint32_t slot, VkBuffer buffer);
 		//向第 slot 帧槽写采样器（set 1 binding 0；binding 1 由 shadow_bind 独立维护）
 		bool texture_bind(uint32_t slot, VkSampler sampler, VkImageView view);
 		/*

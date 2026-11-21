@@ -104,9 +104,9 @@ namespace engine
 		pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		//场景集 ＋ 粒子专用集（第三百四十一轮：每帧槽各一条 UBO 绑定）
 		pool_sizes[0].descriptorCount = config.frame_overlap * 2;
-		//簇数据存储缓冲（第二百八十八轮；每帧槽四条绑定）＋ 粒子专用集四条（第三百四十一轮）
+		//簇数据存储缓冲（第二百八十八轮；每帧槽四条绑定）＋ 粒子专用集四条（第三百四十一轮）＋ 蒙皮调色板一条（方向十阶段 A）
 		pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-		pool_sizes[1].descriptorCount = config.frame_overlap * 8;
+		pool_sizes[1].descriptorCount = config.frame_overlap * 9;
 		pool_sizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		//采样器类描述符按「场景集 ＋ UI 集 ＋ 后处理集 ＋ 逐绘制项集」四部分计
 		//每帧槽 18 个采样器（10 个单值 ＋ 8 个聚光灯阴影数组元素；第八百一十二轮由 17 扩为 18，含编号附件）

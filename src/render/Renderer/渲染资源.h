@@ -268,6 +268,10 @@ namespace engine
 		//按帧槽绑定 Cluster 图形描述符（原生缓冲以 uint64_t 承载）
 		bool scene_cluster_bind(uint32_t slot, uint64_t light_buffer, uint64_t counts_buffer,
 			uint64_t offsets_buffer, uint64_t list_buffer);
+		//按帧槽绑定蒙皮调色板存储缓冲（set 0 binding 5；方向十阶段 A 第 3 轮）
+		bool scene_palette_bind(uint32_t slot, uint64_t palette_buffer);
+		//每帧槽调色板容量（mat4 条数；上层据此规划演员与骨骼数量）
+		uint32_t animation_palette_capacity(void) const;
 		//初始化、帧描述符与资源生命周期协作
 		void frame_inputs_reserve(void);
 		bool scene_shaders_load(const std::string& shader_dir, uint32_t& vertex_input_locations);

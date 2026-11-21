@@ -22,6 +22,7 @@
 # =============================================================================
 #
 target_sources(EngineRenderer PRIVATE
+    "src/render/Animation/core/调色板数据.cpp"
     "src/render/Asset/core/mtl文件加载.cpp"
     "src/render/Asset/core/obj文件加载.cpp"
     "src/render/Asset/资产缓存.cpp"
@@ -153,6 +154,7 @@ target_sources(EngineRenderer PRIVATE
 # 使头文件改名 / 迁移时 VS 也能改写引用
 target_sources(EngineRenderer PRIVATE
     "common/前置头文件包含.h"
+    "src/render/Animation/动画数据.h"
     "src/render/Asset/局部命名空间使用.h"
     "src/render/Asset/资产加载.h"
     "src/render/Asset/资产缓存.h"

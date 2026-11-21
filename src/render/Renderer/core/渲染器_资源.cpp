@@ -3,6 +3,8 @@
 #include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
+//获取调色板容量契约（方向十阶段 A 第 3 轮）
+#include "src/render/Animation/动画数据.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -1010,5 +1012,17 @@ namespace engine
 		return (*state_ptr).pipeline.scene_cluster_bind(slot,
 			reinterpret_cast<VkBuffer>(light_buffer), reinterpret_cast<VkBuffer>(counts_buffer),
 			reinterpret_cast<VkBuffer>(offsets_buffer), reinterpret_cast<VkBuffer>(list_buffer));
+	}
+
+	//按帧槽绑定蒙皮调色板存储缓冲
+	bool Render_Resource::scene_palette_bind(uint32_t slot, uint64_t palette_buffer)
+	{
+		return (*state_ptr).pipeline.palette_bind(slot, reinterpret_cast<VkBuffer>(palette_buffer));
+	}
+
+	//每帧槽调色板容量
+	uint32_t Render_Resource::animation_palette_capacity(void) const
+	{
+		return ANIMATION_PALETTE_CAPACITY;
 	}
 }

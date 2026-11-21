@@ -139,6 +139,13 @@ namespace engine
 				state_ptr->memory.buffer_destroy(state_ptr->scene_ubos[slot], state_ptr->scene_ubo_allocs[slot]);
 		state_ptr->scene_ubos.clear();
 		state_ptr->scene_ubo_allocs.clear();
+		//蒙皮调色板缓冲依赖内存模块，须先于 memory 销毁（方向十阶段 A 第 3 轮）
+		if (state_ptr->memory.valid())
+			for (size_t slot = 0; slot < state_ptr->palette_buffers.size(); ++slot)
+				//归还调色板缓冲与其内存
+				state_ptr->memory.buffer_destroy(state_ptr->palette_buffers[slot], state_ptr->palette_allocations[slot]);
+		state_ptr->palette_buffers.clear();
+		state_ptr->palette_allocations.clear();
 		//实例缓冲依赖内存模块，须先于 memory 销毁
 		if (state_ptr->memory.valid())
 			for (size_t slot = 0; slot < state_ptr->instance_buffers.size(); ++slot)
