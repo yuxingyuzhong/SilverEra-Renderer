@@ -34,6 +34,8 @@ namespace engine
 				receiver = Animation_Interpolation::Linear;
 			else if (text == "step")
 				receiver = Animation_Interpolation::Step;
+			else if (text == "smooth")
+				receiver = Animation_Interpolation::Smooth;
 			else
 				return false;
 			return true;

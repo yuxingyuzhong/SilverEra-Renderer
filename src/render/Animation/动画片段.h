@@ -19,6 +19,8 @@ namespace engine
 		Linear = 0,
 		//阶跃插值（保持前一关键帧的值）
 		Step = 1,
+		//平滑插值（smoothstep：两端一阶导为零；收敛轮 873）
+		Smooth = 2,
 	};
 
 	//轨道通道

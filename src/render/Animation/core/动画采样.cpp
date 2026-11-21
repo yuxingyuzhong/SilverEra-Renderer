@@ -72,9 +72,11 @@ namespace engine
 				out[component] = left.value[component];
 			return true;
 		}
-		//线性插值
+		//线性插值（平滑档先对权重做 smoothstep）
 		const float span = right.time - left.time;
-		const float alpha = span > 0.0f ? (sample_time - left.time) / span : 0.0f;
+		float alpha = span > 0.0f ? (sample_time - left.time) / span : 0.0f;
+		if (track.interpolation == Animation_Interpolation::Smooth)
+			alpha = alpha * alpha * (3.0f - 2.0f * alpha);
 		for (uint32_t component = 0; component < 4; ++component)
 			out[component] = left.value[component] + (right.value[component] - left.value[component]) * alpha;
 		//旋转通道按四元数长度归一化
