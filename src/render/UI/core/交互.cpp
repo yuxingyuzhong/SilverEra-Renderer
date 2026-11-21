@@ -220,7 +220,16 @@ namespace engine
 			focus_navigate(!input.modifiers.shift);
 
 		//刷新悬停目标（窗口失焦时不命中）
+		const Ui_Handle previous_hovered = hovered;
 		hovered = input.window_focused ? hit_test(input.pointer.x, input.pointer.y) : 0;
+		//悬停目标变化：发布域内事件（只走域内总线，不翻译为 Input/MouseFocus）
+		if (hovered != previous_hovered)
+		{
+			nlohmann::json config = nlohmann::json::object();
+			config[ui_event::field_handle] = hovered;
+			config[ui_event::field_inside] = hovered != 0;
+			bus_get().publish(ui_event::hover, config);
+		}
 		for (Ui_Node& node : nodes)
 			node.hovered = node.alive && node.handle == hovered && node_focusable(node);
 
