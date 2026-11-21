@@ -532,6 +532,17 @@ namespace engine
 			logger.error("渲染器:: 蒙皮绘制失败：网格 {} 不是蒙皮网格", handle);
 			return false;
 		}
+		//网格声明的骨骼数（0 = 未声明）
+		uint32_t bone_count = 0;
+		if (!(*state_ptr).mesh.mesh_skinned_bone_count_get(handle, bone_count))
+			return false;
+		//区间须完整容纳该网格引用的全部骨骼
+		if (bone_count > 0 && static_cast<uint64_t>(palette_offset) + bone_count > animation_palette_capacity())
+		{
+			logger.error("渲染器:: 蒙皮绘制失败：区间 {} + 骨骼数 {} 超出调色板容量 {}",
+				palette_offset, bone_count, animation_palette_capacity());
+			return false;
+		}
 		//取蒙皮管线原生句柄
 		VkPipeline skinned = (*state_ptr).pipeline.pipeline_by_handle_get((*state_ptr).skinned_pipeline);
 		if (skinned == VK_NULL_HANDLE)

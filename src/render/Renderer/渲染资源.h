@@ -88,12 +88,12 @@ namespace engine
 		//实例化绘制网格
 		bool mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count);
 		/*
-		蒙皮网格（方向十 · 收敛轮 859；收敛轮 863 增加调色板区间选择）
-		mesh_load_skinned 按 48 字节步长上传 Skinned_Vertex；mesh_draw_skinned 用蒙皮管线绘制，
-		顶点位置 / 法线经 set0 binding5 调色板变换后再乘实例模型矩阵。
+		蒙皮网格（方向十 · 收敛轮 859；收敛轮 863 增加调色板区间选择；收敛轮 867 增加骨骼数声明）
+		mesh_load_skinned 按 48 字节步长上传 Skinned_Vertex；bone_count > 0 时校验关节下标上界；
+		mesh_draw_skinned 用蒙皮管线绘制，顶点位置 / 法线经 set0 binding5 调色板变换后再乘实例模型矩阵。
 		palette_offset 为调色板起始条目（演员区间偏移，0 = 首段）；命令录制时换算为字节动态偏移。
 		*/
-		bool mesh_load_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data);
+		bool mesh_load_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data, uint32_t bone_count = 0);
 		bool mesh_draw_skinned(Mesh_Handle handle, const float* transform, uint32_t palette_offset = 0);
 
 		//=== 原纹理接口方法（签名原样照抄）===

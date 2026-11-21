@@ -36,6 +36,8 @@ namespace engine
 		uint32_t vertex_count = 0;
 		//顶点步长（收敛轮 859：静态 32 / 蒙皮 48；绘制管线布局据此对齐）
 		uint32_t vertex_stride = sizeof(Vertex);
+		//蒙皮骨骼数上限（收敛轮 867：0 = 未声明，跳过关节越界校验）
+		uint32_t skinned_bones = 0;
 		/*
 		局部包围盒（创建时按顶点位置一次算出；第二十二轮新增）
 		供门面做实例级视锥剔除；空网格（不应出现）时取全零，等价于「保守保留」。
@@ -77,12 +79,14 @@ namespace engine
 		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data,
 			const std::vector<Mesh_Section>& sections = {});
 		/*
-		创建蒙皮网格（方向十 · 收敛轮 859）
+		创建蒙皮网格（方向十 · 收敛轮 859；收敛轮 867 增加骨骼数声明）
 		顶点按 48 字节步长上传（Skinned_Vertex），索引与分段规则同 mesh_create；
 		记录 vertex_stride = 48，供绘制入口选择蒙皮管线。
+		bone_count > 0 时校验每个顶点的关节下标（须小于骨骼数），越界整次拒绝；
+		bone_count = 0 表示未声明，跳过关节校验（兼容旧数据与无骨骼信息的资产）。
 		*/
 		bool mesh_create_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data,
-			const std::vector<Mesh_Section>& sections = {});
+			const std::vector<Mesh_Section>& sections = {}, uint32_t bone_count = 0);
 		//销毁网格
 		void mesh_destroy(Mesh_Handle handle);
 		/*
@@ -97,6 +101,8 @@ namespace engine
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
 		//取网格顶点步长（收敛轮 859；句柄无效返回假且出参归零）
 		bool mesh_vertex_stride_get(Mesh_Handle handle, uint32_t& stride_out) const;
+		//取蒙皮网格骨骼数声明（收敛轮 867；句柄无效返回假且出参归零；0 = 未声明）
+		bool mesh_skinned_bone_count_get(Mesh_Handle handle, uint32_t& bone_count_out) const;
 		//取网格顶点 / 索引数量（第九十三轮新增；句柄无效返回假且出参归零）
 		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;
 		//取网格分段描述（第四百一十四轮；句柄无效返回假并清空出参；无分段时返回真且出参为空）

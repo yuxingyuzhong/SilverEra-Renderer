@@ -3,6 +3,8 @@
 #include "src/render/Renderer/core/结果检查.h"
 //内存上下文完整定义（缓冲创建 / 上传 / 销毁）
 #include "src/render/Memory/内存上下文.h"
+//单演员调色板骨骼数上限（蒙皮骨骼声明校验）
+#include "src/render/Animation/动画数据.h"
 //memcpy
 
 namespace engine
@@ -181,7 +183,7 @@ namespace engine
 
 	//创建蒙皮网格
 	bool Mesh_Context::mesh_create_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data,
-		const std::vector<Mesh_Section>& sections)
+		const std::vector<Mesh_Section>& sections, uint32_t bone_count)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -196,6 +198,28 @@ namespace engine
 		{
 			logger.error("网格缓冲:: 蒙皮网格顶点或索引为空，无法创建");
 			return false;
+		}
+		//骨骼数声明上限（单演员调色板区间）
+		if (bone_count > ANIMATION_ACTOR_BONES_MAX)
+		{
+			logger.error("网格缓冲:: 蒙皮网格骨骼数 {} 超出上限 {}", bone_count, ANIMATION_ACTOR_BONES_MAX);
+			return false;
+		}
+		/*
+		关节下标校验（收敛轮 867）
+		未声明骨骼数（bone_count = 0）时跳过；声明后任一关节越界即整次拒绝，
+		避免着色器读到相邻演员或缓冲外条目。
+		*/
+		if (bone_count > 0)
+		{
+			for (const Skinned_Vertex& vertex : data.vertices)
+				for (uint32_t component = 0; component < 4; ++component)
+					if (static_cast<uint32_t>(vertex.joint[component]) >= bone_count)
+					{
+						logger.error("网格缓冲:: 蒙皮网格关节下标 {} 越界（骨骼数 {}）",
+							static_cast<uint32_t>(vertex.joint[component]), bone_count);
+						return false;
+					}
 		}
 		//校验索引不越界
 		for (uint32_t index : data.indices)
@@ -232,6 +256,8 @@ namespace engine
 		record.index_count = static_cast<uint32_t>(data.indices.size());
 		record.vertex_count = static_cast<uint32_t>(data.vertices.size());
 		record.vertex_stride = sizeof(Skinned_Vertex);
+		//骨骼数声明（0 = 未声明）
+		record.skinned_bones = bone_count;
 		//局部包围盒（位置分量与静态顶点同偏移）
 		record.bounds_min[0] = record.bounds_max[0] = data.vertices[0].position[0];
 		record.bounds_min[1] = record.bounds_max[1] = data.vertices[0].position[1];
@@ -377,6 +403,20 @@ namespace engine
 		if (!records[handle - 1].valid)
 			return false;
 		stride_out = records[handle - 1].vertex_stride;
+		return true;
+	}
+
+	//取蒙皮网格骨骼数声明
+	bool Mesh_Context::mesh_skinned_bone_count_get(Mesh_Handle handle, uint32_t& bone_count_out) const
+	{
+		bone_count_out = 0;
+		//句柄为零或越界
+		if (handle == 0 || handle > records.size())
+			return false;
+		//记录无效
+		if (!records[handle - 1].valid)
+			return false;
+		bone_count_out = records[handle - 1].skinned_bones;
 		return true;
 	}
 

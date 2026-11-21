@@ -130,7 +130,8 @@ namespace engine
 	}
 
 	//创建蒙皮网格
-	bool Render_Resource::mesh_load_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data)
+	bool Render_Resource::mesh_load_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data,
+		uint32_t bone_count)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -140,8 +141,8 @@ namespace engine
 			logger.error("渲染器:: 蒙皮网格加载失败：尚未初始化");
 			return false;
 		}
-		//转交网格模块（48 字节步长）
-		return (*state_ptr).mesh.mesh_create_skinned(handle_out, data);
+		//转交网格模块（48 字节步长；骨骼数用于关节下标校验）
+		return (*state_ptr).mesh.mesh_create_skinned(handle_out, data, {}, bone_count);
 	}
 
 	bool Render_Resource::mesh_load_sections(Mesh_Handle& handle_out, const Mesh_Data& data,
