@@ -56,4 +56,12 @@ namespace engine
 	*/
 	bool level_bridge_animation_transition(Asset_Scene& scene, const std::string& actor_name,
 		const std::shared_ptr<const Animation_Clip>& target, float duration_seconds);
+
+	/*
+	收集演员在时间区间内命中的动画事件名（方向十 · 收敛轮 866）
+	按片段事件表筛选 [from_time, to_time)；loop 时跨末尾回绕（尾段 → 头段）。
+	演员不存在、无片段、区间非法或片段无事件返回假且不清空输出。
+	*/
+	bool level_bridge_animation_events(const Asset_Scene& scene, const std::string& actor_name,
+		float from_time, float to_time, bool loop, std::vector<std::string>& names_out);
 }

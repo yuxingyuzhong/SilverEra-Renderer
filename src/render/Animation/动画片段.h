@@ -54,6 +54,15 @@ namespace engine
 		std::vector<Animation_Key> keys;
 	};
 
+	//动画事件（方向十 · 收敛轮 866；触发点，不参与姿态求值）
+	struct Animation_Event
+	{
+		//触发时间（秒；须非负且有限）
+		float time = 0.0f;
+		//事件名（非空）
+		std::string name;
+	};
+
 	//动画片段
 	struct Animation_Clip
 	{
@@ -63,12 +72,23 @@ namespace engine
 		float duration = 0.0f;
 		//轨道集合
 		std::vector<Animation_Track> tracks;
+		//事件触发点（按时间非递减；可空）
+		std::vector<Animation_Event> events;
 	};
 
 	//单轨道合法性（至少一帧；时间非负有限且严格递增；值有限）
 	bool animation_track_valid(const Animation_Track& track);
 	//片段合法性（至少一轨道；全部轨道合法；时长有限且覆盖所有关键帧）
 	bool animation_clip_valid(const Animation_Clip& clip);
+	//事件合法性（时间非负有限、名称非空、时间非递减）
+	bool animation_events_valid(const Animation_Clip& clip);
+	/*
+	收集时间区间 [begin, end) 内的事件（方向十 · 收敛轮 866）
+	loop 为真时按 duration 回绕：区间可能跨过片段末尾，结果按「尾段 → 头段」顺序追加。
+	非有限入参、空片段或 end <= begin（归一化后）时返回假且不改动 out；命中事件以指针形式追加。
+	*/
+	bool animation_events_collect(const Animation_Clip& clip, float begin, float end, bool loop,
+		std::vector<const Animation_Event*>& out);
 	//片段关键帧最大时间（无关键帧返回 0）
 	float animation_clip_key_time_max(const Animation_Clip& clip);
 	//按骨骼名与通道查找轨道（不存在返回空指针）

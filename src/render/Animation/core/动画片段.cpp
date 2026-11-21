@@ -93,8 +93,33 @@ namespace engine
 		for (const Animation_Track& track : clip.tracks)
 			if (!animation_track_valid(track))
 				return false;
+		//事件触发点合法性
+		if (!animation_events_valid(clip))
+			return false;
 		//时长须覆盖全部关键帧
 		return clip.duration >= animation_clip_key_time_max(clip);
+	}
+
+	//事件合法性
+	bool animation_events_valid(const Animation_Clip& clip)
+	{
+		//上一事件时间（首项无前驱）
+		float previous_time = 0.0f;
+		for (std::size_t index = 0; index < clip.events.size(); ++index)
+		{
+			const Animation_Event& event = clip.events[index];
+			//时间非负有限
+			if (!std::isfinite(event.time) || event.time < 0.0f)
+				return false;
+			//名称非空
+			if (event.name.empty())
+				return false;
+			//时间非递减
+			if (index > 0 && event.time < previous_time)
+				return false;
+			previous_time = event.time;
+		}
+		return true;
 	}
 
 	//按骨骼名与通道查找轨道
@@ -185,6 +210,25 @@ namespace engine
 				}
 				clip.tracks.push_back(std::move(track));
 			}
+			//事件可选（时间 + 名称；合法性在整体校验中判定）
+			if (config.contains("events"))
+			{
+				if (!config["events"].is_array())
+					return false;
+				for (const nlohmann::json& event_config : config["events"])
+				{
+					if (!event_config.is_object())
+						return false;
+					if (!event_config.contains("time") || !event_config["time"].is_number())
+						return false;
+					if (!event_config.contains("name") || !event_config["name"].is_string())
+						return false;
+					Animation_Event event;
+					event.time = event_config["time"].get<float>();
+					event.name = event_config["name"].get<std::string>();
+					clip.events.push_back(std::move(event));
+				}
+			}
 		}
 		catch (...)
 		{
@@ -221,5 +265,56 @@ namespace engine
 		if (config.is_discarded())
 			return false;
 		return animation_clip_build(config, receiver);
+	}
+
+	//收集时间区间内的事件
+	bool animation_events_collect(const Animation_Clip& clip, float begin, float end, bool loop,
+		std::vector<const Animation_Event*>& out)
+	{
+		//入参前置
+		if (!std::isfinite(begin) || !std::isfinite(end) || end <= begin || clip.events.empty())
+			return false;
+		const float duration = clip.duration;
+		//时长缺失时无法回绕
+		if (duration <= 0.0f)
+			return false;
+		//区间长度不短于整段：全部事件按序命中一次
+		if (end - begin >= duration)
+		{
+			for (const Animation_Event& event : clip.events)
+				out.push_back(&event);
+			return true;
+		}
+		//非循环：夹紧到 [0, duration] 后单段筛选
+		if (!loop)
+		{
+			const float from = begin < 0.0f ? 0.0f : begin;
+			const float to = end > duration ? duration : end;
+			for (const Animation_Event& event : clip.events)
+				if (event.time >= from && event.time < to)
+					out.push_back(&event);
+			return true;
+		}
+		//循环：归一化起点后可能跨过片段末尾
+		float from = std::fmod(begin, duration);
+		if (from < 0.0f)
+			from += duration;
+		float to = from + (end - begin);
+		if (to <= duration)
+		{
+			for (const Animation_Event& event : clip.events)
+				if (event.time >= from && event.time < to)
+					out.push_back(&event);
+			return true;
+		}
+		//跨末尾：先收 [from, duration)，再收 [0, to - duration)
+		const float tail = to - duration;
+		for (const Animation_Event& event : clip.events)
+			if (event.time >= from)
+				out.push_back(&event);
+		for (const Animation_Event& event : clip.events)
+			if (event.time < tail)
+				out.push_back(&event);
+		return true;
 	}
 }

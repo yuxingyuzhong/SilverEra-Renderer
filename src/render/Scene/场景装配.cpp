@@ -488,4 +488,27 @@ namespace engine
 		演员->blend_speed = 1.0f / duration_seconds;
 		return true;
 	}
+
+	//收集演员时间区间内的动画事件名
+	bool level_bridge_animation_events(const Asset_Scene& scene, const std::string& actor_name,
+		float from_time, float to_time, bool loop, std::vector<std::string>& names_out)
+	{
+		//查找演员
+		const Asset_Actor* 演员 = nullptr;
+		for (const Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				演员 = &item;
+				break;
+			}
+		if (演员 == nullptr || !演员->clip)
+			return false;
+		//按片段事件表筛选
+		std::vector<const Animation_Event*> 命中;
+		if (!animation_events_collect(*演员->clip, from_time, to_time, loop, 命中))
+			return false;
+		for (const Animation_Event* event : 命中)
+			names_out.push_back(event->name);
+		return true;
+	}
 }
