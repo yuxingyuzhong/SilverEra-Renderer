@@ -88,4 +88,19 @@ namespace engine
 			return false;
 		return actor_palette_write(offset, skeleton, pose);
 	}
+
+	//按双片段混合写演员调色板
+	bool Render_Animation::actor_blend_write(uint32_t offset, const Animation_Clip& clip_a,
+		const Animation_Clip& clip_b, const Animation_Skeleton& skeleton, float time_a, float time_b,
+		float weight, bool loop)
+	{
+		if (owner == nullptr)
+			return false;
+		if (actors.find(offset) == actors.end())
+			return false;
+		Animation_Pose pose;
+		if (!animation_clip_pose_blend(clip_a, clip_b, skeleton, time_a, time_b, weight, loop, loop, pose))
+			return false;
+		return actor_palette_write(offset, skeleton, pose);
+	}
 }

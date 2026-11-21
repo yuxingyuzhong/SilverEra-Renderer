@@ -37,6 +37,13 @@ namespace engine
 		//按片段时间写演员调色板（采样 → 姿态 → 调色板）
 		bool actor_clip_write(uint32_t offset, const Animation_Clip& clip, const Animation_Skeleton& skeleton,
 			float time, bool loop);
+		/*
+		按双片段混合写演员调色板（方向十 · 收敛轮 864）
+		weight ∈ [0,1]：0 取 clip_a、1 取 clip_b、中间为混合姿态；越界夹紧。
+		门面只做编排与上传，混合规则在 `animation_clip_pose_blend`。
+		*/
+		bool actor_blend_write(uint32_t offset, const Animation_Clip& clip_a, const Animation_Clip& clip_b,
+			const Animation_Skeleton& skeleton, float time_a, float time_b, float weight, bool loop);
 
 	private:
 		//渲染器根门面
