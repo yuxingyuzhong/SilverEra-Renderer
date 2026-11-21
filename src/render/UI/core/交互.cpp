@@ -1,4 +1,6 @@
 #include "../局部命名空间使用.h"
+//UI 域内总线（控件事件路由中心）
+#include "UI本地总线.h"
 /*
 SDL3 头
 本实现需要扫描码常量（退格 / 删除 / 左右移动）做文本框编辑；
@@ -138,6 +140,11 @@ namespace engine
 			return false;
 		//写值并通知
 		node.value = ratio;
+		//发布域内取值事件（回调保留为本地快捷订阅）
+		nlohmann::json config = nlohmann::json::object();
+		config[ui_event::field_handle] = node.handle;
+		config[ui_event::field_value] = node.value;
+		bus_get().publish(ui_event::value, config);
 		if (node.on_value != nullptr)
 			node.on_value(node.handle, node.value, node.user);
 		return true;
@@ -265,6 +272,10 @@ namespace engine
 				if (node->type == Ui_Node_Type::Button)
 				{
 					node->clicked = true;
+					//发布域内点击事件（回调保留为本地快捷订阅）
+					nlohmann::json config = nlohmann::json::object();
+					config[ui_event::field_handle] = node->handle;
+					bus_get().publish(ui_event::click, config);
 					if (node->on_click != nullptr)
 						node->on_click(node->handle, node->user);
 				}
@@ -273,6 +284,11 @@ namespace engine
 				{
 					node->checked = !node->checked;
 					node->clicked = true;
+					//发布域内切换事件
+					nlohmann::json config = nlohmann::json::object();
+					config[ui_event::field_handle] = node->handle;
+					config[ui_event::field_checked] = node->checked;
+					bus_get().publish(ui_event::toggle, config);
 					if (node->on_toggle != nullptr)
 						node->on_toggle(node->handle, node->checked, node->user);
 				}
@@ -296,6 +312,10 @@ namespace engine
 			if (activate && focus_node->type == Ui_Node_Type::Button)
 			{
 				focus_node->clicked = true;
+				//发布域内点击事件（键盘激活）
+				nlohmann::json config = nlohmann::json::object();
+				config[ui_event::field_handle] = focus_node->handle;
+				bus_get().publish(ui_event::click, config);
 				if (focus_node->on_click != nullptr)
 					focus_node->on_click(focus_node->handle, focus_node->user);
 			}
@@ -303,6 +323,11 @@ namespace engine
 			{
 				focus_node->checked = !focus_node->checked;
 				focus_node->clicked = true;
+				//发布域内切换事件（键盘激活）
+				nlohmann::json config = nlohmann::json::object();
+				config[ui_event::field_handle] = focus_node->handle;
+				config[ui_event::field_checked] = focus_node->checked;
+				bus_get().publish(ui_event::toggle, config);
 				if (focus_node->on_toggle != nullptr)
 					focus_node->on_toggle(focus_node->handle, focus_node->checked, focus_node->user);
 			}
@@ -310,12 +335,13 @@ namespace engine
 			else if (focus_node->type == Ui_Node_Type::Text_Box)
 				text_edit(*focus_node, input);
 		}
+		//派发本帧域内事件（遍历结束后统一送达订阅者）
+		bus_get().frame_flush();
 	}
 
 	//语义命令分发到绑定控件
 	bool Ui_Context::command_dispatch(const std::string& command)
-	{
-		//查找命令绑定
+	{		//查找命令绑定
 		auto it = command_bindings.find(command);
 		if (it == command_bindings.end())
 			return false;
@@ -328,6 +354,11 @@ namespace engine
 		if (node->type == Ui_Node_Type::Button)
 		{
 			node->clicked = true;
+			//网关命令激活：发布带来源标记的域内点击事件（网关不回译，避免环）
+			nlohmann::json config = nlohmann::json::object();
+			config[ui_event::field_handle] = node->handle;
+			config[ui_event::field_origin] = ui_event::origin_gateway;
+			bus_get().publish(ui_event::click, config);
 			if (node->on_click != nullptr)
 				node->on_click(node->handle, node->user);
 			return true;
@@ -337,11 +368,29 @@ namespace engine
 		{
 			node->checked = !node->checked;
 			node->clicked = true;
+			//网关命令激活：发布带来源标记的域内切换事件
+			nlohmann::json config = nlohmann::json::object();
+			config[ui_event::field_handle] = node->handle;
+			config[ui_event::field_checked] = node->checked;
+			config[ui_event::field_origin] = ui_event::origin_gateway;
+			bus_get().publish(ui_event::toggle, config);
 			if (node->on_toggle != nullptr)
 				node->on_toggle(node->handle, node->checked, node->user);
 			return true;
 		}
 		return false;
+	}
+
+	//控件绑定的语义命令
+	std::string Ui_Context::command_of(Ui_Handle handle) const
+	{
+		//反查命令绑定表
+		for (const auto& item : command_bindings)
+		{
+			if (item.second == handle)
+				return item.first;
+		}
+		return std::string{};
 	}
 
 	//把系统焦点状态映射到控件

@@ -1,11 +1,27 @@
 #include "../局部命名空间使用.h"
+//UI 域内总线（控件事件路由中心）
+#include "UI本地总线.h"
 
 namespace engine
 {
-	//构造（建立根节点）
+	//构造（建立根节点与域内总线）
 	Ui_Context::Ui_Context(void)
 	{
+		//创建域内总线（控件事件统一经它派发）
+		local_bus = std::make_unique<Ui_Local_Bus>();
 		build();
+	}
+
+	//析构
+	Ui_Context::~Ui_Context(void) = default;
+
+	//UI 域内总线
+	Ui_Local_Bus& Ui_Context::bus_get(void)
+	{
+		//懒创建，保证任何调用路径都可用
+		if (!local_bus)
+			local_bus = std::make_unique<Ui_Local_Bus>();
+		return *local_bus;
 	}
 
 	//复位控件树并重建根节点

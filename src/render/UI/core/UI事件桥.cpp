@@ -1,6 +1,8 @@
 #include "../局部命名空间使用.h"
 //UI 事件桥声明（含系统层输入事件词汇）
 #include "Engine/EngineRenderer/src/render/UI/UI事件桥.h"
+//UI 域内总线与协议（网关翻译）
+#include "UI本地总线.h"
 //系统输入桥（Raw 载荷构造）
 #include "Engine/EngineRenderer/src/render/Input/系统输入桥.h"
 //中转站协议（订阅登记 / 订阅者退出）
@@ -192,9 +194,56 @@ namespace engine
 		return true;
 	}
 
+	//绑定域内总线（幂等）
+	void Ui_Event_Bridge::bus_bind(Ui_Context& ui)
+	{
+		//同一上下文只注册一次
+		if (bound_ui == &ui)
+			return;
+		//旧上下文解绑
+		if (bound_ui != nullptr)
+			bound_ui->bus_get().unsubscribe("ui_gateway");
+		bound_ui = &ui;
+		//注册网关翻译器（持久订阅域内事件）
+		ui.bus_get().subscribe("ui_gateway",
+			[this](const std::string& tag, const nlohmann::json& config)
+			{
+				this->translate_out(tag, config);
+			});
+	}
+
+	//域内事件 → 外部协议翻译
+	void Ui_Event_Bridge::translate_out(const std::string& tag, const nlohmann::json& config)
+	{
+		//未接入事件系统不翻译
+		if (!attached_flag)
+			return;
+		//网关自身的产物不回译（防环）
+		const std::string origin = config.value(ui_event::field_origin, std::string{});
+		if (origin == ui_event::origin_gateway)
+			return;
+		//只有点击 / 切换 / 取值需要转成对外命令
+		if (tag != ui_event::click && tag != ui_event::toggle && tag != ui_event::value)
+			return;
+		//取控件句柄
+		const Ui_Handle handle = config.value(ui_event::field_handle, static_cast<Ui_Handle>(0));
+		if (handle == 0 || bound_ui == nullptr)
+			return;
+		//未绑定命令的控件不外发（应用层可继续用本地回调）
+		const std::string command = bound_ui->command_of(handle);
+		if (command.empty())
+			return;
+		//构造命令载荷并广播（receiver 为空 = 广播）
+		nlohmann::json payload = nlohmann::json::object();
+		payload["command"] = command;
+		event_send(input_event::command, payload, "");
+	}
+
 	//帧前准备
 	void Ui_Event_Bridge::text_route_prepare(Ui_Context& ui)
 	{
+		//绑定域内总线（幂等）
+		bus_bind(ui);
 		/*
 		键盘总闸：系统焦点只有落在 UI 主对象上时控件才消费键盘；
 		未配置 UI 主对象名时保持开启，供未接入系统的独立使用。
@@ -338,6 +387,9 @@ namespace engine
 			else
 				++it;
 		}
+
+		//派发命令激活产生的带来源标记域内事件（网关不回译）
+		ui.bus_get().frame_flush();
 	}
 
 	//系统文本模式

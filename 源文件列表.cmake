@@ -143,6 +143,7 @@ target_sources(EngineRenderer PRIVATE
     "src/render/Texture/core/采样器创建.cpp"
     "src/render/Thread/core/作业分派.cpp"
     "src/render/UI/core/UI事件桥.cpp"
+    "src/render/UI/core/UI本地总线.cpp"
     "src/render/UI/core/UI渲染器.cpp"
     "src/render/UI/core/交互.cpp"
     "src/render/UI/core/控件树.cpp"
@@ -233,6 +234,8 @@ target_sources(EngineRenderer PRIVATE
     "src/render/Thread/线程池.h"
     "src/render/UI/UI事件桥.h"
     "src/render/UI/UI渲染器.h"
+    "src/render/UI/common/UI事件协议.h"
+    "src/render/UI/core/UI本地总线.h"
     "src/render/UI/局部命名空间使用.h"
     "src/render/UI/用户界面.h"
 )

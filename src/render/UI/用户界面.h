@@ -7,6 +7,9 @@
 //游戏引擎命名空间
 namespace engine
 {
+	//UI 域内总线（定义在 core/UI本地总线.h）
+	class Ui_Local_Bus;
+
 	//UI 控件句柄（0 = 无效）
 	using Ui_Handle = uint64_t;
 
@@ -116,13 +119,16 @@ namespace engine
 	class Ui_Context
 	{
 	public:
-		//构造（自动建立根节点）
+		//构造（自动建立根节点与域内总线）
 		Ui_Context(void);
-		//析构（复位控件树）
-		~Ui_Context(void) = default;
+		//析构（复位控件树与域内总线）
+		~Ui_Context(void);
 		//不可拷贝、不可移动（持有控件集合）
 		Ui_Context(const Ui_Context&) = delete;
 		Ui_Context& operator=(const Ui_Context&) = delete;
+
+		//UI 域内总线（首次访问时创建；控件事件统一经它派发）
+		Ui_Local_Bus& bus_get(void);
 
 		//复位控件树并重建根节点
 		void build(void);
@@ -213,6 +219,8 @@ namespace engine
 		void command_bind(const std::string& command, Ui_Handle handle);
 		void command_unbind(const std::string& command);
 		bool command_dispatch(const std::string& command);
+		//控件绑定的语义命令（未绑定返回空串）
+		std::string command_of(Ui_Handle handle) const;
 		void system_focus_apply(const std::string& main, const std::string& child,
 			const std::string& modal, bool text);
 		bool system_focused_get(Ui_Handle handle) const;
@@ -243,6 +251,8 @@ namespace engine
 		void frame_begin(const Input_Frame& input);
 
 	private:
+		//UI 域内总线（控件树内部事件的路由中心）
+		std::unique_ptr<Ui_Local_Bus> local_bus{};
 		//控件集合（下标 + 1 = 句柄）
 		std::vector<Ui_Node> nodes{};
 		//当前悬停控件

@@ -74,12 +74,18 @@ namespace engine
 		//取一条未消费的文本语义（队首）
 		bool text_pop(std::string& text);
 	private:
+		//绑定域内总线（幂等：同一上下文只注册一次翻译器）
+		void bus_bind(Ui_Context& ui);
+		//域内事件 → 外部协议翻译（命令绑定控件才外发；网关产物不回译）
+		void translate_out(const std::string& tag, const nlohmann::json& config);
 		//事件处理入口
 		void event_process(std::shared_ptr<Event> evt);
 		//发送一条事件（失败仅告警）
 		bool event_send(const std::string& tag, const nlohmann::json& config, const std::string& receiver);
 
 	private:
+		//已绑定域内总线的 UI 上下文
+		Ui_Context* bound_ui = nullptr;
 		//订阅者名
 		std::string subscriber{};
 		//权限密钥
