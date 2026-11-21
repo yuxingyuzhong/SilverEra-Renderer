@@ -64,4 +64,13 @@ namespace engine
 	*/
 	bool level_bridge_animation_events(const Asset_Scene& scene, const std::string& actor_name,
 		float from_time, float to_time, bool loop, std::vector<std::string>& names_out);
+
+	/*
+	演员播放控制（方向十 · 收敛轮 871）
+	pause 设置暂停；speed_set 设置倍率（0..8，非有限或越界拒绝）；time_set 跳转主片段时间
+	（循环回绕、非循环夹紧，并同步过渡源时间）。演员不存在返回假且不改动状态。
+	*/
+	bool level_bridge_animation_pause(Asset_Scene& scene, const std::string& actor_name, bool paused);
+	bool level_bridge_animation_speed_set(Asset_Scene& scene, const std::string& actor_name, float speed);
+	bool level_bridge_animation_time_set(Asset_Scene& scene, const std::string& actor_name, float time_seconds);
 }

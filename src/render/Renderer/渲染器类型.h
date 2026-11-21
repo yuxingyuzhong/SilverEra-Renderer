@@ -638,6 +638,14 @@ namespace engine
 		//是否循环播放
 		bool loop = true;
 		/*
+		播放控制（方向十 · 收敛轮 871）
+		speed 为时间推进倍率（0..8）；paused 为真时时间不推进但保留当前姿态；
+		跳转由装配层接口写入 time_seconds 并同步过渡源时间。
+		*/
+		float speed = 1.0f;
+		//是否暂停
+		bool paused = false;
+		/*
 		过渡状态（方向十 · 收敛轮 865）
 		blend_from 非空时按 blend_weight（0 = 源片段，1 = 当前片段）混合两份姿态；
 		权重按 blend_speed（每秒增量）推进，到 1 后自动清空源片段。

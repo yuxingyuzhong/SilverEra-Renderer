@@ -394,10 +394,12 @@ namespace engine
 			//骨架缺失（装配阶段不会出现，防御直接跳过）
 			if (!演员.skeleton)
 				continue;
+			//有效步长（暂停时为 0；变速按倍率缩放）
+			const float 步长 = 演员.paused ? 0.0f : delta_seconds * 演员.speed;
 			//过渡权重推进（到 1 后清空源片段）
 			if (演员.blend_from && 演员.blend_speed > 0.0f)
 			{
-				演员.blend_weight += 演员.blend_speed * delta_seconds;
+				演员.blend_weight += 演员.blend_speed * 步长;
 				if (演员.blend_weight >= 1.0f)
 				{
 					演员.blend_weight = 1.0f;
@@ -409,7 +411,7 @@ namespace engine
 			if (演员.clip && 演员.clip->duration > 0.0f)
 			{
 				const float 时长 = 演员.clip->duration;
-				演员.time_seconds += delta_seconds;
+				演员.time_seconds += 步长;
 				if (演员.loop)
 					演员.time_seconds = std::fmod(演员.time_seconds, 时长);
 				else if (演员.time_seconds > 时长)
@@ -419,7 +421,7 @@ namespace engine
 			if (演员.blend_from && 演员.blend_from->duration > 0.0f)
 			{
 				const float 时长 = 演员.blend_from->duration;
-				演员.blend_from_time += delta_seconds;
+				演员.blend_from_time += 步长;
 				if (演员.loop)
 					演员.blend_from_time = std::fmod(演员.blend_from_time, 时长);
 				else if (演员.blend_from_time > 时长)
@@ -510,5 +512,66 @@ namespace engine
 		for (const Animation_Event* event : 命中)
 			names_out.push_back(event->name);
 		return true;
+	}
+
+	//设置演员暂停
+	bool level_bridge_animation_pause(Asset_Scene& scene, const std::string& actor_name, bool paused)
+	{
+		for (Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				item.paused = paused;
+				return true;
+			}
+		return false;
+	}
+
+	//设置演员播放倍率
+	bool level_bridge_animation_speed_set(Asset_Scene& scene, const std::string& actor_name, float speed)
+	{
+		//倍率须有限且在 0..8
+		if (!std::isfinite(speed) || speed < 0.0f || speed > 8.0f)
+			return false;
+		for (Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				item.speed = speed;
+				return true;
+			}
+		return false;
+	}
+
+	//跳转演员时间
+	bool level_bridge_animation_time_set(Asset_Scene& scene, const std::string& actor_name, float time_seconds)
+	{
+		//时间须有限
+		if (!std::isfinite(time_seconds))
+			return false;
+		for (Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				//无片段时无可跳转的时间轴
+				if (!item.clip || item.clip->duration <= 0.0f)
+					return false;
+				//主片段归一化：负值夹到 0，循环回绕、非循环夹紧
+				float target = time_seconds < 0.0f ? 0.0f : time_seconds;
+				if (item.loop)
+					target = std::fmod(target, item.clip->duration);
+				else if (target > item.clip->duration)
+					target = item.clip->duration;
+				item.time_seconds = target;
+				//过渡源时间同步到同一起点，避免混合两端错位
+				if (item.blend_from && item.blend_from->duration > 0.0f)
+				{
+					float source = target;
+					if (item.loop)
+						source = std::fmod(source, item.blend_from->duration);
+					else if (source > item.blend_from->duration)
+						source = item.blend_from->duration;
+					item.blend_from_time = source;
+				}
+				return true;
+			}
+		return false;
 	}
 }
