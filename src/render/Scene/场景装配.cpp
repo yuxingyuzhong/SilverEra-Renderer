@@ -3,6 +3,9 @@
 
 //日志系统
 #include "Engine/EngineFoundation/src/log/日志系统运行包.h"
+//骨架 / 片段资产加载与姿态求值（演员装配）
+#include "Engine/EngineRenderer/src/render/Animation/动画片段.h"
+#include "Engine/EngineRenderer/src/render/Animation/动画姿态.h"
 
 //浮动与整数
 
@@ -21,6 +24,14 @@ namespace engine
 			std::vector<Material_Handle> handles;
 		};
 
+		//回退本次已建的演员调色板区间
+		void 演员回退(Renderer& renderer, Asset_Scene& scene_out)
+		{
+			for (const Asset_Actor& 演员 : scene_out.actors)
+				renderer.animation().actor_destroy(演员.palette_offset);
+			scene_out.actors.clear();
+		}
+
 		//回退本次已建的网格与材质
 		void 资产回退(Renderer& renderer, const std::vector<std::pair<std::string, Mesh_Handle>>& 网格表,
 			const std::vector<材质库项>& 材质表, Asset_Scene& scene_out)
@@ -32,6 +43,8 @@ namespace engine
 			//回退网格
 			for (const std::pair<std::string, Mesh_Handle>& item : 网格表)
 				renderer.resource().mesh_unload(item.second);
+			//回退演员调色板区间
+			演员回退(renderer, scene_out);
 			scene_out.meshes.clear();
 			scene_out.materials.clear();
 			scene_out.objects.clear();
@@ -189,6 +202,59 @@ namespace engine
 			}
 			return true;
 		}
+
+		/*
+		按关卡演员声明装配（方向十 · 收敛轮 861）
+		逐演员加载骨架（必需）与片段（可选），分配调色板区间并登记到场景。
+		任一演员失败即返回假；调用方统一回退（资产回退会一并回收已登记的演员区间）。
+		*/
+		bool 演员装配(Renderer& renderer, const std::vector<Level_Actor>& 声明, const std::string& 目录,
+			Asset_Scene& scene_out)
+		{
+			for (const Level_Actor& 项 : 声明)
+			{
+				//骨架路径未声明
+				if (项.骨架.empty())
+				{
+					logger.warn("关卡装配:: 演员 {} 未声明骨架", 项.名称);
+					return false;
+				}
+				//骨架资产
+				auto 骨架 = std::make_shared<Animation_Skeleton>();
+				if (!animation_skeleton_load_file(目录 + 项.骨架, *骨架))
+				{
+					logger.warn("关卡装配:: 演员 {} 骨架加载失败（{}）", 项.名称, 项.骨架);
+					return false;
+				}
+				//片段资产（可选）
+				std::shared_ptr<const Animation_Clip> 片段;
+				if (!项.动画.empty())
+				{
+					auto 数据 = std::make_shared<Animation_Clip>();
+					if (!animation_clip_load_file(目录 + 项.动画, *数据))
+					{
+						logger.warn("关卡装配:: 演员 {} 片段加载失败（{}）", 项.名称, 项.动画);
+						return false;
+					}
+					片段 = 数据;
+				}
+				//分配调色板区间
+				uint32_t 偏移 = 0;
+				if (!renderer.animation().actor_create(骨架->bone_count(), 偏移))
+				{
+					logger.warn("关卡装配:: 演员 {} 调色板区间分配失败（骨骼数 {}）", 项.名称, 骨架->bone_count());
+					return false;
+				}
+				Asset_Actor 演员;
+				演员.name = 项.名称;
+				演员.palette_offset = 偏移;
+				演员.bone_count = 骨架->bone_count();
+				演员.skeleton = 骨架;
+				演员.clip = 片段;
+				scene_out.actors.push_back(std::move(演员));
+			}
+			return true;
+		}
 	}
 
 	//装载关卡
@@ -245,6 +311,14 @@ namespace engine
 			}
 		}
 
+		//装配演员（方向十 · 收敛轮 861；失败时连同已建资产整体回退）
+		if (!level_out.actors.empty() && !演员装配(renderer, level_out.actors, 目录, scene_out))
+		{
+			level_bridge_unload(renderer, scene_out);
+			level_out = Level_Data();
+			return false;
+		}
+
 		//应用相机 / 光照 / 雾（相机已校验，三组必然生效；仅当调用方要求时）
 		if (apply_scene)
 			renderer.scene().scene_apply(level_out.camera, level_out.light, level_out.fog);
@@ -260,6 +334,8 @@ namespace engine
 		//材质
 		for (Material_Handle 句柄 : scene.materials)
 			renderer.resource().material_unload(句柄);
+		//演员调色板区间（方向十 · 收敛轮 861）
+		演员回退(renderer, scene);
 		scene.meshes.clear();
 		scene.materials.clear();
 		scene.objects.clear();
@@ -304,5 +380,43 @@ namespace engine
 				登记数 += 1;
 		}
 		return 登记数;
+	}
+
+	//推进演员动画并写入调色板
+	uint32_t level_bridge_animation_update(Renderer& renderer, Asset_Scene& scene, float delta_seconds)
+	{
+		//非法步长按静止处理
+		if (!std::isfinite(delta_seconds) || delta_seconds < 0.0f)
+			delta_seconds = 0.0f;
+		uint32_t 更新数 = 0;
+		for (Asset_Actor& 演员 : scene.actors)
+		{
+			//骨架缺失（装配阶段不会出现，防御直接跳过）
+			if (!演员.skeleton)
+				continue;
+			//有片段：推进时间后按片段采样
+			if (演员.clip && 演员.clip->duration > 0.0f)
+			{
+				const float 时长 = 演员.clip->duration;
+				演员.time_seconds += delta_seconds;
+				//循环回绕
+				if (演员.loop)
+					演员.time_seconds = std::fmod(演员.time_seconds, 时长);
+				//非循环夹紧到末帧
+				else if (演员.time_seconds > 时长)
+					演员.time_seconds = 时长;
+				if (renderer.animation().actor_clip_write(演员.palette_offset, *演员.clip, *演员.skeleton,
+					演员.time_seconds, 演员.loop))
+					更新数 += 1;
+				continue;
+			}
+			//无片段：按绑定姿态写调色板
+			Animation_Pose 姿态;
+			if (!姿态.build(*演员.skeleton))
+				continue;
+			if (renderer.animation().actor_palette_write(演员.palette_offset, *演员.skeleton, 姿态))
+				更新数 += 1;
+		}
+		return 更新数;
 	}
 }

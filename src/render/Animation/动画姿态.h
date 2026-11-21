@@ -1,6 +1,8 @@
 #pragma once
 //预编译头
 #include "Engine/EngineRenderer/common/前置头文件包含.h"
+//骨架资产 JSON
+#include <nlohmann/json.hpp>
 
 /*
 渲染动画 · 骨架与姿态（方向十 · 阶段 B 第 8 轮）
@@ -86,4 +88,13 @@ namespace engine
 	*/
 	bool animation_skin_palette_build(const Animation_Skeleton& skeleton, const Animation_Pose& pose,
 		float* palette, uint32_t count);
+	/*
+	骨架资产加载（方向十 · 收敛轮 861）
+	JSON：{"bones":[{"name":"root","parent":-1,"bind_translation":[x,y,z],"bind_rotation":[x,y,z,w],
+	"bind_scale":[sx,sy,sz],"inverse_bind":[16 个数]}]}
+	父下标缺省 -1；bind_* 缺省为单位值；inverse_bind 缺省为单位矩阵。
+	任一字段非法或骨架不合法（父下标不小于自身）整体拒绝并清空输出。
+	*/
+	bool animation_skeleton_build(const nlohmann::json& config, Animation_Skeleton& receiver);
+	bool animation_skeleton_load_file(const std::string& path, Animation_Skeleton& receiver);
 }

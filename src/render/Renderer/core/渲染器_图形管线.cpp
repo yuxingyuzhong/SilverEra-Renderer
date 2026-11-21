@@ -49,7 +49,7 @@ namespace engine
 		const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 		bool depth_write, bool cull_front, bool depth_test, bool depth_format_override,
 		uint32_t depth_format, uint32_t sample_count, uint32_t color_format,
-		uint32_t tone_id_format, bool depth_lequal)
+		uint32_t tone_id_format, bool depth_lequal, bool skinned)
 	{
 		//默认无有效句柄
 		handle_out = 0;
@@ -75,7 +75,7 @@ namespace engine
 		if (!state_ptr->pipeline.pipeline_register(handle, vert_module, frag_module, blend_mode,
 			static_cast<VkFormat>(color_format), cull_none, sample_count, vert_input_locations, depth_write,
 			depth_lequal, alpha_to_coverage, cull_front, depth_test, depth_format_override,
-			static_cast<VkFormat>(depth_format), static_cast<VkFormat>(tone_id_format)))
+			static_cast<VkFormat>(depth_format), static_cast<VkFormat>(tone_id_format), skinned))
 		{
 			logger.error("渲染器:: 管线登记失败：图形管线创建失败");
 			//回收两个着色器模块，避免泄漏
@@ -92,6 +92,42 @@ namespace engine
 		//写出句柄
 		handle_out = handle;
 		logger.info("渲染器:: 具名管线已登记（句柄 {}）", handle);
+		return true;
+	}
+
+	/*
+	登记蒙皮图形管线（方向十 · 收敛轮 859）
+	顶点布局按 Skinned_Vertex（步长 48，location 11 / 12）；其余口径与不透明具名管线一致。
+	*/
+	bool Render_Resource::pipeline_load_skinned(uint64_t& handle_out, const std::string& vert_shader,
+		const std::string& frag_shader, Blend_Mode blend_mode)
+	{
+		/*
+		仅校验门面归属
+		蒙皮管线在初始化早期登记（设备域 valid 尚未置位），故不能沿用 device().valid() 判据；
+		着色器与管线模块此时已可用，失败由下游逐层返回。
+		*/
+		if (owner == nullptr)
+		{
+			handle_out = 0;
+			logger.error("渲染器:: 蒙皮管线登记失败：门面缺失");
+			return false;
+		}
+		//背面剔除、深度测试与写入均开；蒙皮布局
+		return pipeline_load_ex(handle_out, vert_shader, frag_shader, blend_mode, false, false,
+			true, false, true, false, 0, 0, 0, 0, false, true);
+	}
+
+	/*
+	登记蒙皮场景管线（方向十 · 收敛轮 859）
+	以 场景蒙皮.vert / 场景.frag 登记一条 48 字节顶点布局的不透明管线；失败仅告警，不阻断初始化。
+	*/
+	bool Render_Resource::scene_skinned_pipeline_build(void)
+	{
+		uint64_t handle = 0;
+		if (!pipeline_load_skinned(handle, "场景蒙皮.vert.spv", "场景.frag.spv"))
+			return false;
+		(*state_ptr).skinned_pipeline = handle;
 		return true;
 	}
 

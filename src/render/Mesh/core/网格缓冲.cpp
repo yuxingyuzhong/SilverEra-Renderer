@@ -122,6 +122,8 @@ namespace engine
 		record.index_offset = vertex_bytes;
 		record.index_count = static_cast<uint32_t>(data.indices.size());
 		record.vertex_count = static_cast<uint32_t>(data.vertices.size());
+		//静态顶点步长
+		record.vertex_stride = sizeof(Vertex);
 		/*
 		局部包围盒：按顶点位置逐轴取极值
 		只在创建时算一次（句柄有效期间只读）；顶点位置来自 Vertex::position（vec3）。
@@ -177,9 +179,100 @@ namespace engine
 		return true;
 	}
 
-	//销毁网格
-	void Mesh_Context::mesh_destroy(Mesh_Handle handle)
+	//创建蒙皮网格
+	bool Mesh_Context::mesh_create_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data,
+		const std::vector<Mesh_Section>& sections)
 	{
+		//默认无有效句柄
+		handle_out = 0;
+		//前置：内存模块必须就绪
+		if (memory == nullptr || !memory->valid())
+		{
+			logger.error("网格缓冲:: 内存上下文尚未构建，无法创建蒙皮网格");
+			return false;
+		}
+		//前置：顶点与索引均不得为空
+		if (data.vertices.empty() || data.indices.empty())
+		{
+			logger.error("网格缓冲:: 蒙皮网格顶点或索引为空，无法创建");
+			return false;
+		}
+		//校验索引不越界
+		for (uint32_t index : data.indices)
+			if (index >= data.vertices.size())
+			{
+				logger.error("网格缓冲:: 蒙皮网格索引 {} 越界（顶点数 {}）", index, static_cast<uint32_t>(data.vertices.size()));
+				return false;
+			}
+		//顶点区 / 索引区与总字节数（蒙皮顶点 48 字节步长）
+		const VkDeviceSize vertex_bytes = static_cast<VkDeviceSize>(sizeof(Skinned_Vertex)) * data.vertices.size();
+		const VkDeviceSize index_bytes = static_cast<VkDeviceSize>(sizeof(uint32_t)) * data.indices.size();
+		const VkDeviceSize total_bytes = vertex_bytes + index_bytes;
+		//创建顶点 / 索引共用缓冲
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		if (!memory->buffer_create(buffer, allocation, total_bytes,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false))
+			return false;
+		//拼装主机侧连续数据
+		std::vector<uint8_t> combined(static_cast<std::size_t>(total_bytes));
+		std::memcpy(combined.data(), data.vertices.data(), static_cast<std::size_t>(vertex_bytes));
+		std::memcpy(combined.data() + vertex_bytes, data.indices.data(), static_cast<std::size_t>(index_bytes));
+		//一次性上传
+		if (!memory->upload_buffer(buffer, combined.data(), total_bytes, 0))
+		{
+			memory->buffer_destroy(buffer, allocation);
+			return false;
+		}
+		//登记网格记录
+		Mesh_Record record;
+		record.buffer = buffer;
+		record.allocation = allocation;
+		record.index_offset = vertex_bytes;
+		record.index_count = static_cast<uint32_t>(data.indices.size());
+		record.vertex_count = static_cast<uint32_t>(data.vertices.size());
+		record.vertex_stride = sizeof(Skinned_Vertex);
+		//局部包围盒（位置分量与静态顶点同偏移）
+		record.bounds_min[0] = record.bounds_max[0] = data.vertices[0].position[0];
+		record.bounds_min[1] = record.bounds_max[1] = data.vertices[0].position[1];
+		record.bounds_min[2] = record.bounds_max[2] = data.vertices[0].position[2];
+		for (const Skinned_Vertex& vertex : data.vertices)
+			for (std::size_t axis = 0; axis < 3; ++axis)
+			{
+				if (vertex.position[axis] < record.bounds_min[axis])
+					record.bounds_min[axis] = vertex.position[axis];
+				if (vertex.position[axis] > record.bounds_max[axis])
+					record.bounds_max[axis] = vertex.position[axis];
+			}
+		//分段描述校验（与静态路径同口径）
+		for (const Mesh_Section& section : sections)
+		{
+			if (section.index_count % 3u != 0u)
+			{
+				logger.error("网格缓冲:: 蒙皮网格分段索引数 {} 不是 3 的倍数，创建被拒", section.index_count);
+				memory->buffer_destroy(record.buffer, record.allocation);
+				return false;
+			}
+			if (static_cast<std::size_t>(section.first_index) + section.index_count
+				> static_cast<std::size_t>(data.indices.size()))
+			{
+				logger.error("网格缓冲:: 蒙皮网格分段区间越界（首 {} ＋ 长 {}，索引数 {}），创建被拒",
+					section.first_index, section.index_count, static_cast<uint32_t>(data.indices.size()));
+				memory->buffer_destroy(record.buffer, record.allocation);
+				return false;
+			}
+		}
+		record.sections = sections;
+		record.valid = true;
+		records.push_back(record);
+		handle_out = static_cast<Mesh_Handle>(records.size());
+		logger.info("网格缓冲:: 蒙皮网格已建立（句柄 {}，顶点 {}，索引 {}）",
+			handle_out, static_cast<uint32_t>(data.vertices.size()), record.index_count);
+		return true;
+	}
+
+	//销毁网格
+	void Mesh_Context::mesh_destroy(Mesh_Handle handle)	{
 		//句柄为零或越界即视为无需销毁（销毁幂等）
 		if (handle == 0 || handle > records.size())
 			return;
@@ -270,6 +363,20 @@ namespace engine
 		buffer_out = record.buffer;
 		index_offset_out = record.index_offset;
 		index_count_out = record.index_count;
+		return true;
+	}
+
+	//取网格顶点步长
+	bool Mesh_Context::mesh_vertex_stride_get(Mesh_Handle handle, uint32_t& stride_out) const
+	{
+		stride_out = 0;
+		//句柄为零或越界
+		if (handle == 0 || handle > records.size())
+			return false;
+		//记录无效
+		if (!records[handle - 1].valid)
+			return false;
+		stride_out = records[handle - 1].vertex_stride;
 		return true;
 	}
 

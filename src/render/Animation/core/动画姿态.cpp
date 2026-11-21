@@ -2,9 +2,34 @@
 #include "../动画姿态.h"
 //std::isfinite / std::sqrt（参数校验与四元数归一化）
 #include <cmath>
+//路径转换与可用性校验（骨架 JSON 加载）
+#include "Engine/EngineFoundation/src/detail/methods/路径字符串转换.h"
+#include "Engine/EngineFoundation/src/detail/methods/文件路径可用性校验.h"
 
 namespace engine
 {
+	namespace
+	{
+		//骨架文件体量上限（16 MB）
+		constexpr uintmax_t SKELETON_FILE_LIMIT = 16ull * 1024ull * 1024ull;
+
+		//读取指定长度的浮点数组（类型与有限性校验）
+		bool float_array_read(const nlohmann::json& value, float* out, std::size_t count)
+		{
+			if (!value.is_array() || value.size() != count)
+				return false;
+			for (std::size_t index = 0; index < count; ++index)
+			{
+				if (!value[index].is_number())
+					return false;
+				out[index] = value[index].get<float>();
+				if (!std::isfinite(out[index]))
+					return false;
+			}
+			return true;
+		}
+	}
+
 	//TRS 合成
 	void animation_trs_compose(const float translation[3], const float rotation[4], const float scale[3],
 		float out[16])
@@ -234,5 +259,82 @@ namespace engine
 			animation_matrix_multiply(pose.world.data() + static_cast<std::size_t>(index) * 16,
 				skeleton.bones[index].inverse_bind, palette + static_cast<std::size_t>(index) * 16);
 		return true;
+	}
+
+	//从 JSON 构建骨架
+	bool animation_skeleton_build(const nlohmann::json& config, Animation_Skeleton& receiver)
+	{
+		receiver.bones.clear();
+		if (!config.is_object() || !config.contains("bones") || !config["bones"].is_array())
+			return false;
+		try
+		{
+			for (const nlohmann::json& bone_config : config["bones"])
+			{
+				if (!bone_config.is_object())
+					return false;
+				if (!bone_config.contains("name") || !bone_config["name"].is_string())
+					return false;
+				Animation_Bone bone;
+				bone.name = bone_config["name"].get<std::string>();
+				if (bone.name.empty())
+					return false;
+				//父下标（可选）
+				if (bone_config.contains("parent"))
+				{
+					if (!bone_config["parent"].is_number_integer())
+						return false;
+					bone.parent = bone_config["parent"].get<int32_t>();
+				}
+				//绑定 TRS（可选）
+				if (bone_config.contains("bind_translation")
+					&& !float_array_read(bone_config["bind_translation"], bone.bind_translation, 3))
+					return false;
+				if (bone_config.contains("bind_rotation")
+					&& !float_array_read(bone_config["bind_rotation"], bone.bind_rotation, 4))
+					return false;
+				if (bone_config.contains("bind_scale")
+					&& !float_array_read(bone_config["bind_scale"], bone.bind_scale, 3))
+					return false;
+				if (bone_config.contains("inverse_bind")
+					&& !float_array_read(bone_config["inverse_bind"], bone.inverse_bind, 16))
+					return false;
+				receiver.bones.push_back(std::move(bone));
+			}
+		}
+		catch (...)
+		{
+			receiver.bones.clear();
+			return false;
+		}
+		//整体合法性（父下标须小于自身）
+		if (!receiver.valid())
+		{
+			receiver.bones.clear();
+			return false;
+		}
+		return true;
+	}
+
+	//从文件加载骨架
+	bool animation_skeleton_load_file(const std::string& path, Animation_Skeleton& receiver)
+	{
+		receiver.bones.clear();
+		//路径与体量
+		if (!detail::path_check(path))
+			return false;
+		uintmax_t size = 0;
+		std::error_code error_info;
+		if (!detail::file_size_get(path, size, error_info) || size == 0 || size > SKELETON_FILE_LIMIT)
+			return false;
+		//整文件读取
+		std::ifstream file(detail::string_to_path(path), std::ios::binary);
+		if (!file.is_open())
+			return false;
+		std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		nlohmann::json config = nlohmann::json::parse(text.begin(), text.end(), nullptr, false);
+		if (config.is_discarded())
+			return false;
+		return animation_skeleton_build(config, receiver);
 	}
 }

@@ -19,6 +19,8 @@ namespace engine
 		scene_domain.reset(new(std::nothrow) Render_Scene(this, *core));
 		particle_domain.reset(new(std::nothrow) Render_Particle(this, *core));
 		ui_domain.reset(new(std::nothrow) Render_Ui(this, *core));
+		//动画门面（方向十 · 收敛轮 861；不持有 GPU 资源）
+		animation_domain.reset(new(std::nothrow) Render_Animation(this));
 	}
 
 	//门面析构（设备域统一按依赖顺序关闭）
@@ -52,6 +54,10 @@ namespace engine
 	Render_Scene& Renderer::scene(void) { return *scene_domain; }
 	//场景域（只读）
 	const Render_Scene& Renderer::scene(void) const { return *scene_domain; }
+	//动画门面（方向十 · 收敛轮 861）
+	Render_Animation& Renderer::animation(void) { return *animation_domain; }
+	//动画门面（只读）
+	const Render_Animation& Renderer::animation(void) const { return *animation_domain; }
 
 	//初始化
 	bool Renderer::init(const Renderer_Config& config) { return device().init(config); }

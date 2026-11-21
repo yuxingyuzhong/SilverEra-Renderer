@@ -33,6 +33,9 @@ namespace engine
 			owner->device().shutdown();
 			return false;
 		}
+		//⑫.0 蒙皮场景管线（收敛轮 859；着色器缺失时仅告警，不影响静态路径）
+		if (!owner->resource().scene_skinned_pipeline_build())
+			logger.warn("渲染器:: 蒙皮场景管线登记失败（蒙皮绘制不可用）");
 		/*
 		⑫.1 反向外扩描边管线（第二百二十八轮）
 		剔除正面的场景管线（沿法线外扩后只剩背面），与默认场景管线共享布局与描述符集布局；

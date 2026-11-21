@@ -433,7 +433,9 @@ namespace engine
 		if (!registered)
 			return true;
 		Frame_Render_Item item{};
-		item.pipeline = (*state_ptr).pipeline.pipeline_get();
+		//强制管线（蒙皮绘制）优先，否则用当前激活管线
+		item.pipeline = (*state_ptr).forced_pipeline != VK_NULL_HANDLE
+			? (*state_ptr).forced_pipeline : (*state_ptr).pipeline.pipeline_get();
 		item.layout = (*state_ptr).pipeline.layout_get();
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
@@ -497,6 +499,36 @@ namespace engine
 		}
 		owner->device().mesh_item_push(item, push_ptr);
 		return true;
+	}
+
+	//绘制蒙皮网格
+	bool Render_Resource::mesh_draw_skinned(Mesh_Handle handle, const float* transform)
+	{
+		//蒙皮管线未登记
+		if ((*state_ptr).skinned_pipeline == 0)
+		{
+			logger.error("渲染器:: 蒙皮绘制失败：蒙皮管线未登记");
+			return false;
+		}
+		//网格须按 48 字节步长上传
+		uint32_t stride = 0;
+		if (!(*state_ptr).mesh.mesh_vertex_stride_get(handle, stride) || stride != sizeof(Skinned_Vertex))
+		{
+			logger.error("渲染器:: 蒙皮绘制失败：网格 {} 不是蒙皮网格", handle);
+			return false;
+		}
+		//取蒙皮管线原生句柄
+		VkPipeline skinned = (*state_ptr).pipeline.pipeline_by_handle_get((*state_ptr).skinned_pipeline);
+		if (skinned == VK_NULL_HANDLE)
+		{
+			logger.error("渲染器:: 蒙皮绘制失败：蒙皮管线句柄无效");
+			return false;
+		}
+		//临时覆盖本条绘制项管线，登记后立即复位
+		(*state_ptr).forced_pipeline = skinned;
+		const bool drawn = mesh_draw_range(handle, transform, nullptr, 0u, 0u);
+		(*state_ptr).forced_pipeline = VK_NULL_HANDLE;
+		return drawn;
 	}
 
 	bool Render_Resource::mesh_draw_sections(Mesh_Handle handle, const float* transform,

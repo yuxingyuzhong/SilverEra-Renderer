@@ -1119,4 +1119,40 @@ namespace engine
 			matrices, static_cast<VkDeviceSize>(count) * ANIMATION_PALETTE_MATRIX_BYTES,
 			static_cast<VkDeviceSize>(offset) * ANIMATION_PALETTE_MATRIX_BYTES);
 	}
+
+	//演员调色板区间分配
+	bool Render_Resource::animation_palette_allocate(uint32_t bone_count, uint32_t& offset_out)
+	{
+		offset_out = 0;
+		//骨骼数须在单演员上限内
+		if (bone_count == 0 || bone_count > ANIMATION_ACTOR_BONES_MAX)
+			return false;
+		//区间分配
+		const uint32_t offset = (*state_ptr).palette_pool.allocate(bone_count);
+		if (offset == UINT32_MAX)
+			return false;
+		//新区间写入单位矩阵（新演员从绑定姿态开始）
+		std::vector<float> identity(static_cast<std::size_t>(bone_count) * ANIMATION_PALETTE_MATRIX_FLOATS, 0.0f);
+		palette_identity_fill(identity.data(), bone_count);
+		if (!animation_palette_upload(identity.data(), bone_count, offset))
+		{
+			(*state_ptr).palette_pool.release(offset);
+			return false;
+		}
+		offset_out = offset;
+		return true;
+	}
+
+	//演员调色板区间回收
+	bool Render_Resource::animation_palette_release(uint32_t offset)
+	{
+		uint32_t count = 0;
+		if (!(*state_ptr).palette_pool.release(offset, &count))
+			return false;
+		//区间复位为单位矩阵，避免后续演员读到旧数据
+		std::vector<float> identity(static_cast<std::size_t>(count) * ANIMATION_PALETTE_MATRIX_FLOATS, 0.0f);
+		palette_identity_fill(identity.data(), count);
+		animation_palette_upload(identity.data(), count, offset);
+		return true;
+	}
 }

@@ -16,6 +16,10 @@ namespace engine
 	static_assert(offsetof(Vertex, position) == 0, "Mesh::Vertex::position 偏移须为 0");
 	static_assert(offsetof(Vertex, uv) == 12, "Mesh::Vertex::uv 偏移须为 12");
 	static_assert(offsetof(Vertex, normal) == 20, "Mesh::Vertex::normal 偏移须为 20");
+	//蒙皮顶点布局（收敛轮 859）：joint u16×4 @32、weight u16×4 @40，步长 48
+	static_assert(sizeof(Skinned_Vertex) == 48, "Skinned_Vertex 步长须为 48 字节");
+	static_assert(offsetof(Skinned_Vertex, joint) == 32, "Skinned_Vertex::joint 偏移须为 32");
+	static_assert(offsetof(Skinned_Vertex, weight) == 40, "Skinned_Vertex::weight 偏移须为 40");
 
 	/*
 	创建图形管线
@@ -28,7 +32,7 @@ namespace engine
 	bool Pipeline_Context::graphics_pipeline_create(VkShaderModule vert_module, VkShaderModule frag_module, Blend_Mode blend_mode, VkPipeline& pipeline_out,
 		VkFormat color_format, bool cull_none, uint32_t sample_count, uint32_t input_locations, bool depth_write, bool depth_lequal,
 		bool alpha_to_coverage, bool cull_front,
-		bool depth_test, bool depth_format_override, VkFormat depth_format, VkFormat tone_id_format)
+		bool depth_test, bool depth_format_override, VkFormat depth_format, VkFormat tone_id_format, bool skinned)
 	{
 		//着色器阶段（顶点 / 片元）
 		VkPipelineShaderStageCreateInfo stages[2]{};
@@ -47,8 +51,8 @@ namespace engine
 		只在位集命中时声明对应属性，避免校验层「属性未被消费」告警。
 		*/
 		uint32_t declared_locations = input_locations == 0 ? 0xFF : input_locations;
-		//属性集合（最多 11 条：0..10）
-		VkVertexInputAttributeDescription vertex_attributes[11]{};
+		//属性集合（最多 13 条：0..10 静态顶点 / 11..12 蒙皮关节与权重）
+		VkVertexInputAttributeDescription vertex_attributes[13]{};
 		uint32_t attribute_count = 0;
 		//是否需要顶点绑定 0 / 实例绑定 1
 		bool use_vertex_binding = false;
@@ -85,6 +89,12 @@ namespace engine
 		add_attribute(9, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_TOON_TINT_OFFSET * 4);
 		//逐物体 PBR 特性覆盖（第 777 轮；location 10，偏移 112）
 		add_attribute(10, 1, VK_FORMAT_R32G32B32A32_SFLOAT, INSTANCE_PBR_FEATURES_OFFSET * 4);
+		//蒙皮关节与权重（收敛轮 859；location 11 / 12，顶点绑定 0）
+		if (skinned)
+		{
+			add_attribute(11, 0, VK_FORMAT_R16G16B16A16_UINT, 32);
+			add_attribute(12, 0, VK_FORMAT_R16G16B16A16_UNORM, 40);
+		}
 
 		//顶点绑定（binding 0：顶点属性，步长 = sizeof(Vertex)；binding 1：实例步长 80）
 		VkVertexInputBindingDescription vertex_bindings[2]{};
@@ -93,7 +103,8 @@ namespace engine
 		if (use_vertex_binding)
 		{
 			vertex_bindings[binding_count].binding = 0;
-			vertex_bindings[binding_count].stride = sizeof(Vertex);
+			//蒙皮管线按 48 字节步长，静态管线保持 32 字节
+			vertex_bindings[binding_count].stride = skinned ? sizeof(Skinned_Vertex) : sizeof(Vertex);
 			vertex_bindings[binding_count].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 			++binding_count;
 		}

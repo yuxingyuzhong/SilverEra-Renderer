@@ -9,6 +9,8 @@
 #include "渲染场景.h"
 #include "渲染粒子.h"
 #include "渲染界面.h"
+//动画门面（方向十 · 收敛轮 861）
+#include "Engine/EngineRenderer/src/render/Animation/动画门面.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -41,6 +43,9 @@ namespace engine
 		const Render_Device& device(void) const;
 		Render_Scene& scene(void);
 		const Render_Scene& scene(void) const;
+		//动画门面（片段 / 演员调色板 / 桥接）
+		Render_Animation& animation(void);
+		const Render_Animation& animation(void) const;
 
 		bool init(const Renderer_Config& config);
 		void shutdown(void);
@@ -65,5 +70,6 @@ namespace engine
 		std::unique_ptr<Render_Scene> scene_domain;
 		std::unique_ptr<Render_Particle> particle_domain;
 		std::unique_ptr<Render_Ui> ui_domain;
+		std::unique_ptr<Render_Animation> animation_domain;
 	};
 }

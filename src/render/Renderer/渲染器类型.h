@@ -612,6 +612,33 @@ namespace engine
 		float rotation_deg[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
+	//骨架与片段（完整定义见 Animation 模块；此处仅前置声明，保持本公共头零资产解析依赖）
+	struct Animation_Skeleton;
+	struct Animation_Clip;
+
+	/*
+	演员动画登记（方向十 · 收敛轮 861）
+	场景装配按关卡 `skeleton` / `anim` 声明创建：持有骨架与片段，记录调色板区间与播放时间。
+	本结构只保存纯数据与共享指针，不持有 GPU 句柄；调色板区间由门面分配并回收。
+	*/
+	struct Asset_Actor
+	{
+		//演员名（关卡内唯一）
+		std::string name;
+		//调色板区间起始偏移（门面登记键）
+		uint32_t palette_offset = 0;
+		//骨骼数（与区间分配时一致）
+		uint32_t bone_count = 0;
+		//骨架（装配时加载；空表示未装载）
+		std::shared_ptr<const Animation_Skeleton> skeleton;
+		//动画片段（`anim` 行；空表示无片段，按绑定姿态写调色板）
+		std::shared_ptr<const Animation_Clip> clip;
+		//播放时间（秒；无片段时保持 0）
+		float time_seconds = 0.0f;
+		//是否循环播放
+		bool loop = true;
+	};
+
 	/*
 	场景绘制清单（第四百二十四轮）
 	由应用层装配后交给渲染层：`objects` 按装配顺序给出待绘制对象，
@@ -625,5 +652,7 @@ namespace engine
 		std::vector<Mesh_Handle> meshes;
 		//本次创建的材质（同上）
 		std::vector<Material_Handle> materials;
+		//演员动画登记（方向十 · 收敛轮 861；由装配层创建并释放调色板区间）
+		std::vector<Asset_Actor> actors;
 	};
 }

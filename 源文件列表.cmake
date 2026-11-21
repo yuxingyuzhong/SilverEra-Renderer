@@ -23,9 +23,12 @@
 #
 target_sources(EngineRenderer PRIVATE
     "src/render/Animation/core/动画姿态.cpp"
+    "src/render/Animation/core/动画应用.cpp"
     "src/render/Animation/core/动画播放器.cpp"
     "src/render/Animation/core/动画片段.cpp"
+    "src/render/Animation/core/动画调色板池.cpp"
     "src/render/Animation/core/动画采样.cpp"
+    "src/render/Animation/core/动画门面.cpp"
     "src/render/Animation/core/调色板数据.cpp"
     "src/render/Asset/core/mtl文件加载.cpp"
     "src/render/Asset/core/obj文件加载.cpp"
@@ -159,10 +162,13 @@ target_sources(EngineRenderer PRIVATE
 target_sources(EngineRenderer PRIVATE
     "common/前置头文件包含.h"
     "src/render/Animation/动画姿态.h"
+    "src/render/Animation/动画应用.h"
     "src/render/Animation/动画播放器.h"
     "src/render/Animation/动画数据.h"
     "src/render/Animation/动画片段.h"
+    "src/render/Animation/动画调色板池.h"
     "src/render/Animation/动画采样.h"
+    "src/render/Animation/动画门面.h"
     "src/render/Asset/局部命名空间使用.h"
     "src/render/Asset/资产加载.h"
     "src/render/Asset/资产缓存.h"

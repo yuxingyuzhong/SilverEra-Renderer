@@ -130,6 +130,12 @@ namespace engine
 		材质引用该句柄时仍可携带逐材质色调编号（借用场景目标 alpha），故与普通具名管线区分。
 		*/
 		bool scene_variant = false;
+		/*
+		蒙皮顶点布局（方向十 · 收敛轮 859）
+		为真时顶点绑定步长按 48 字节（Skinned_Vertex）并声明 location 11（joint，uvec4）与 12（weight，vec4）；
+		为假时沿用 32 字节静态顶点布局，行为与引入前一致。
+		*/
+		bool skinned = false;
 	};
 
 	/*
@@ -171,7 +177,7 @@ namespace engine
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
 			bool alpha_to_coverage = false, bool cull_front = false,
 			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED,
-			VkFormat tone_id_format = VK_FORMAT_UNDEFINED);
+			VkFormat tone_id_format = VK_FORMAT_UNDEFINED, bool skinned = false);
 		//切换当前激活管线（句柄不存在则返回假并保持激活不变）
 		bool pipeline_activate(uint64_t handle);
 		//注销具名管线（句柄 0 忽略；一并销毁其图形管线，不触碰着色器模块 —— 所有权在调用方）
@@ -383,7 +389,7 @@ namespace engine
 			uint32_t input_locations = 0xFF, bool depth_write = true, bool depth_lequal = false,
 			bool alpha_to_coverage = false, bool cull_front = false,
 			bool depth_test = true, bool depth_format_override = false, VkFormat depth_format = VK_FORMAT_UNDEFINED,
-			VkFormat tone_id_format = VK_FORMAT_UNDEFINED);
+			VkFormat tone_id_format = VK_FORMAT_UNDEFINED, bool skinned = false);
 		//按句柄查找条目（未找到返回 nullptr）
 		Pipeline_Entry* entry_find(uint64_t handle);
 		//按句柄查找条目（只读）

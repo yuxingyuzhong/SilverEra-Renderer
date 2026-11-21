@@ -87,6 +87,13 @@ namespace engine
 			const Material_Instance_Data* instances = nullptr);
 		//实例化绘制网格
 		bool mesh_draw_instanced(Mesh_Handle handle, const float* transforms, uint32_t count);
+		/*
+		蒙皮网格（方向十 · 收敛轮 859）
+		mesh_load_skinned 按 48 字节步长上传 Skinned_Vertex；mesh_draw_skinned 用蒙皮管线绘制，
+		顶点位置 / 法线经 set0 binding5 调色板变换后再乘实例模型矩阵。
+		*/
+		bool mesh_load_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data);
+		bool mesh_draw_skinned(Mesh_Handle handle, const float* transform);
 
 		//=== 原纹理接口方法（签名原样照抄）===
 		//纹理加载（RGBA8 紧排像素）
@@ -205,7 +212,14 @@ namespace engine
 			const std::string& frag_shader, Blend_Mode blend_mode, bool alpha_to_coverage, bool cull_none,
 			bool depth_write = true, bool cull_front = false, bool depth_test = true,
 			bool depth_format_override = false, uint32_t depth_format = 0, uint32_t sample_count = 0,
-			uint32_t color_format = 0, uint32_t tone_id_format = 0, bool depth_lequal = false);
+			uint32_t color_format = 0, uint32_t tone_id_format = 0, bool depth_lequal = false,
+			bool skinned = false);
+		/*
+		登记蒙皮图形管线（方向十 · 收敛轮 859）
+		顶点布局按 Skinned_Vertex（步长 48，location 11 = joint、12 = weight）；其余与不透明具名管线一致。
+		*/
+		bool pipeline_load_skinned(uint64_t& handle_out, const std::string& vert_shader,
+			const std::string& frag_shader, Blend_Mode blend_mode = Blend_Mode::Opaque);
 		bool pipeline_load(uint64_t& handle_out, const std::string& vert_shader, const std::string& frag_shader,
 			Blend_Mode blend_mode = Blend_Mode::Opaque, bool alpha_to_coverage = false);
 		/*
@@ -284,12 +298,21 @@ namespace engine
 		bool animation_palette_upload(const float* matrices, uint32_t count, uint32_t offset = 0);
 		//蒙皮调色板读回（取首帧槽；供验证与诊断；越界 / 空指针返回假）
 		bool animation_palette_readback(float* matrices, uint32_t count, uint32_t offset = 0);
+		/*
+		演员调色板区间分配 / 回收（收敛轮 860）
+		bone_count 须在 (0, ANIMATION_ACTOR_BONES_MAX] 内；成功时该区间写入单位矩阵并返回起始偏移。
+		释放按起始偏移定位；释放后区间内容复位为单位矩阵，供后续演员复用。
+		*/
+		bool animation_palette_allocate(uint32_t bone_count, uint32_t& offset_out);
+		bool animation_palette_release(uint32_t offset);
 		//初始化、帧描述符与资源生命周期协作
 		void frame_inputs_reserve(void);
 		bool scene_shaders_load(const std::string& shader_dir, uint32_t& vertex_input_locations);
 		bool scene_pipeline_infrastructure_build(uint32_t color_format, uint32_t depth_format,
 			uint32_t frame_overlap, uint32_t sample_count, uint32_t max_push_constant_size);
 		bool scene_pipeline_build(uint32_t vertex_input_locations);
+		//登记蒙皮场景管线（场景蒙皮.vert ＋ 场景.frag；失败仅告警，不阻断初始化）
+		bool scene_skinned_pipeline_build(void);
 		bool scene_buffer_bind(uint32_t slot, uint64_t scene_buffer);
 		bool scene_shadow_bind(uint32_t slot, uint64_t sampler, uint64_t shadow_view);
 		bool scene_spot_shadow_bind(uint32_t slot, uint64_t sampler, uint64_t shadow_view, uint32_t tile);

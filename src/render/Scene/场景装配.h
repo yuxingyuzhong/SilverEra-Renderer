@@ -40,4 +40,12 @@ namespace engine
 
 	//逐对象构造变换矩阵并逐段绑材质（返回成功登记的对象数）
 	uint32_t level_bridge_draw(Renderer& renderer, const Asset_Scene& scene);
+
+	/*
+	推进演员动画并写入调色板（方向十 · 收敛轮 861）
+	有片段的演员按 `delta_seconds` 推进播放时间（loop 回绕、非 loop 夹紧到片段时长）后写调色板；
+	无片段的演员按绑定姿态写调色板。`delta_seconds` 非有限或为负按 0 处理。
+	返回成功写入调色板的演员数；需在初始化完成且本批次未发生资源失败时调用。
+	*/
+	uint32_t level_bridge_animation_update(Renderer& renderer, Asset_Scene& scene, float delta_seconds);
 }

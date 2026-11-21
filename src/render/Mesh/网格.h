@@ -34,6 +34,8 @@ namespace engine
 		uint32_t index_count = 0;
 		//顶点数（第九十三轮新增；只读查询用）
 		uint32_t vertex_count = 0;
+		//顶点步长（收敛轮 859：静态 32 / 蒙皮 48；绘制管线布局据此对齐）
+		uint32_t vertex_stride = sizeof(Vertex);
 		/*
 		局部包围盒（创建时按顶点位置一次算出；第二十二轮新增）
 		供门面做实例级视锥剔除；空网格（不应出现）时取全零，等价于「保守保留」。
@@ -74,6 +76,13 @@ namespace engine
 		//sections 为可选分段描述（第四百一十六轮；空表示整段），随记录保存供多材质绘制入口使用
 		bool mesh_create(Mesh_Handle& handle_out, const Mesh_Data& data,
 			const std::vector<Mesh_Section>& sections = {});
+		/*
+		创建蒙皮网格（方向十 · 收敛轮 859）
+		顶点按 48 字节步长上传（Skinned_Vertex），索引与分段规则同 mesh_create；
+		记录 vertex_stride = 48，供绘制入口选择蒙皮管线。
+		*/
+		bool mesh_create_skinned(Mesh_Handle& handle_out, const Skinned_Mesh_Data& data,
+			const std::vector<Mesh_Section>& sections = {});
 		//销毁网格
 		void mesh_destroy(Mesh_Handle handle);
 		/*
@@ -86,6 +95,8 @@ namespace engine
 		uint32_t mesh_count(void) const;
 		//句柄是否有效（实现见 core/网格缓冲.cpp）
 		bool mesh_record_get(Mesh_Handle handle, VkBuffer& buffer_out, VkDeviceSize& index_offset_out, uint32_t& index_count_out) const;
+		//取网格顶点步长（收敛轮 859；句柄无效返回假且出参归零）
+		bool mesh_vertex_stride_get(Mesh_Handle handle, uint32_t& stride_out) const;
 		//取网格顶点 / 索引数量（第九十三轮新增；句柄无效返回假且出参归零）
 		bool mesh_counts_get(Mesh_Handle handle, uint32_t& vertex_count_out, uint32_t& index_count_out) const;
 		//取网格分段描述（第四百一十四轮；句柄无效返回假并清空出参；无分段时返回真且出参为空）

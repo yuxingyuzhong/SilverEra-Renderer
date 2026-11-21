@@ -1,5 +1,7 @@
 #pragma once
 //依赖：渲染器内部状态.h 已提供模块类型
+//调色板区间分配器（方向十 · 收敛轮 860）
+#include "Engine/EngineRenderer/src/render/Animation/动画调色板池.h"
 
 //游戏引擎命名空间
 namespace engine
@@ -257,5 +259,14 @@ namespace engine
 
 		//调色板缓冲内存（与 palette_buffers 一一对应）
 		std::vector<VmaAllocation> palette_allocations;
+
+		//蒙皮场景管线句柄（收敛轮 859；0 = 未登记）
+		uint64_t skinned_pipeline = 0;
+
+		//单次绘制强制管线（收敛轮 859；mesh_draw_skinned 临时覆盖，注册后立即复位）
+		VkPipeline forced_pipeline = VK_NULL_HANDLE;
+
+		//蒙皮调色板区间分配器（收敛轮 860；多演员共存）
+		Animation_Palette_Pool palette_pool;
 	};
 }
