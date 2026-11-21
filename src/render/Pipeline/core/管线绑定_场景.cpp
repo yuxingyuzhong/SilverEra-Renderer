@@ -94,7 +94,7 @@ namespace engine
 			return false;
 		}
 
-		//整条缓冲可见（容量由门面按调色板契约分配）
+		//整条缓冲可见（收敛轮 863：绑定类型随布局改为动态存储缓冲，实际偏移由绘制时传入）
 		VkDescriptorBufferInfo buffer_info{};
 		buffer_info.buffer = buffer;
 		buffer_info.offset = 0;
@@ -107,7 +107,7 @@ namespace engine
 		write.dstBinding = 5;
 		write.dstArrayElement = 0;
 		write.descriptorCount = 1;
-		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
 		write.pBufferInfo = &buffer_info;
 
 		//更新描述符集

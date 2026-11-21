@@ -125,8 +125,10 @@ namespace engine
 			if (item.descriptor_set_count > 0 && item.scene_set != VK_NULL_HANDLE)
 			{
 				const VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
+				//set0 binding5 动态偏移（编号通道不消费调色板，按条目原值传入以保持参数完整）
+				const uint32_t palette_offset = static_cast<uint32_t>(item.palette_offset);
 				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
-					0, item.descriptor_set_count, sets, 0, nullptr);
+					0, item.descriptor_set_count, sets, 1, &palette_offset);
 			}
 			/*
 			推送材质参数（第 819 轮；alpha 裁剪需要阈值 / UV 变换 / 色调 alpha）

@@ -3,6 +3,8 @@
 #include "渲染器内部状态.h"
 //获取结果检查出口（含日志系统）
 #include "src/render/Renderer/core/结果检查.h"
+//调色板条目字节数（蒙皮绘制偏移换算）
+#include "src/render/Animation/动画数据.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
 #include "src/render/Asset/资产加载.h"
 //系统输入桥（原始输入载荷构造）
@@ -436,6 +438,8 @@ namespace engine
 		//强制管线（蒙皮绘制）优先，否则用当前激活管线
 		item.pipeline = (*state_ptr).forced_pipeline != VK_NULL_HANDLE
 			? (*state_ptr).forced_pipeline : (*state_ptr).pipeline.pipeline_get();
+		//set0 binding5 动态偏移（蒙皮绘制按演员区间写入，静态路径恒 0）
+		item.palette_offset = (*state_ptr).forced_palette_offset;
 		item.layout = (*state_ptr).pipeline.layout_get();
 		item.scene_set = VK_NULL_HANDLE;
 		item.sampler_set = VK_NULL_HANDLE;
@@ -502,12 +506,23 @@ namespace engine
 	}
 
 	//绘制蒙皮网格
-	bool Render_Resource::mesh_draw_skinned(Mesh_Handle handle, const float* transform)
+	bool Render_Resource::mesh_draw_skinned(Mesh_Handle handle, const float* transform, uint32_t palette_offset)
 	{
 		//蒙皮管线未登记
 		if ((*state_ptr).skinned_pipeline == 0)
 		{
 			logger.error("渲染器:: 蒙皮绘制失败：蒙皮管线未登记");
+			return false;
+		}
+		/*
+		调色板起始条目校验
+		条目在缓冲内（< 容量）且字节偏移满足常见设备对齐（64 字节条目天然对齐）；
+		越界直接拒绝，避免着色器读到相邻演员或缓冲外。
+		*/
+		if (palette_offset >= animation_palette_capacity())
+		{
+			logger.error("渲染器:: 蒙皮绘制失败：调色板起始条目 {} 越界（容量 {}）",
+				palette_offset, animation_palette_capacity());
 			return false;
 		}
 		//网格须按 48 字节步长上传
@@ -524,10 +539,13 @@ namespace engine
 			logger.error("渲染器:: 蒙皮绘制失败：蒙皮管线句柄无效");
 			return false;
 		}
-		//临时覆盖本条绘制项管线，登记后立即复位
+		//临时覆盖本条绘制项管线与调色板偏移，登记后立即复位
 		(*state_ptr).forced_pipeline = skinned;
+		(*state_ptr).forced_palette_offset =
+			static_cast<VkDeviceSize>(palette_offset) * ANIMATION_PALETTE_MATRIX_BYTES;
 		const bool drawn = mesh_draw_range(handle, transform, nullptr, 0u, 0u);
 		(*state_ptr).forced_pipeline = VK_NULL_HANDLE;
+		(*state_ptr).forced_palette_offset = 0;
 		return drawn;
 	}
 

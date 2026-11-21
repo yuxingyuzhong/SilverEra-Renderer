@@ -15,6 +15,8 @@ namespace engine
 		uint32_t bound_set_count = 0;
 		//当前已绑定的描述符集（set0 在前，set1 在后）
 		VkDescriptorSet bound_sets[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+		//当前已绑定的 set0 binding5 动态偏移（收敛轮 863）
+		VkDeviceSize bound_palette = 0;
 		/*
 		间接录制（第二百五十二轮）
 		就近连续且状态一致的渲染项合并为一条 vkCmdDrawIndexedIndirect：
@@ -123,20 +125,24 @@ namespace engine
 					//若存在可绑定描述符集
 					if (item.descriptor_set_count > 0)
 					{
-						//仅在与当前已绑定（布局 + 数量 + 集合）不同时重绑
+						//仅在与当前已绑定（布局 + 数量 + 集合 + 调色板偏移）不同时重绑
 						if (item.layout != bound_layout || item.descriptor_set_count != bound_set_count
-							|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1])
+							|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1]
+							|| item.palette_offset != bound_palette)
 						{
 							//待绑定描述符集数组（set0 在前，set1 在后）
 							VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
+							//set0 binding5 动态偏移（静态项恒 0）
+							const uint32_t palette_offset = static_cast<uint32_t>(item.palette_offset);
 							//绑定描述符集
 							vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
-								0, item.descriptor_set_count, sets, 0, nullptr);
+								0, item.descriptor_set_count, sets, 1, &palette_offset);
 							//记录当前已绑定的布局与描述符集
 							bound_layout = item.layout;
 							bound_set_count = item.descriptor_set_count;
 							bound_sets[0] = item.scene_set;
 							bound_sets[1] = item.sampler_set;
+							bound_palette = item.palette_offset;
 						}
 					}
 
@@ -204,20 +210,24 @@ namespace engine
 			//若存在可绑定描述符集
 			if (item.descriptor_set_count > 0)
 			{
-				//仅在与当前已绑定（布局 + 数量 + 集合）不同时重绑
+				//仅在与当前已绑定（布局 + 数量 + 集合 + 调色板偏移）不同时重绑
 				if (item.layout != bound_layout || item.descriptor_set_count != bound_set_count
-					|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1])
+					|| item.scene_set != bound_sets[0] || item.sampler_set != bound_sets[1]
+					|| item.palette_offset != bound_palette)
 				{
 					//待绑定描述符集数组（set0 在前，set1 在后）
 					VkDescriptorSet sets[2] = { item.scene_set, item.sampler_set };
+					//set0 binding5 动态偏移（静态项恒 0）
+					const uint32_t palette_offset = static_cast<uint32_t>(item.palette_offset);
 					//绑定描述符集
 					vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, item.layout,
-						0, item.descriptor_set_count, sets, 0, nullptr);
+						0, item.descriptor_set_count, sets, 1, &palette_offset);
 					//记录当前已绑定的布局与描述符集
 					bound_layout = item.layout;
 					bound_set_count = item.descriptor_set_count;
 					bound_sets[0] = item.scene_set;
 					bound_sets[1] = item.sampler_set;
+					bound_palette = item.palette_offset;
 				}
 			}
 

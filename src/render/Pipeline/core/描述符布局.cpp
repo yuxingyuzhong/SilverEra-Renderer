@@ -34,9 +34,9 @@ namespace engine
 			*/
 			scene_bindings[binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 		}
-		//蒙皮调色板仅顶点阶段读取（方向十阶段 A 第 3 轮）
+		//蒙皮调色板仅顶点阶段读取（方向十阶段 A 第 3 轮；收敛轮 863 改为动态偏移选段）
 		scene_bindings[5].binding = 5;
-		scene_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		scene_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
 		scene_bindings[5].descriptorCount = 1;
 		scene_bindings[5].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 

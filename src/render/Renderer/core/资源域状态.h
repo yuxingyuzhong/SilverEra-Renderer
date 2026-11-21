@@ -266,6 +266,12 @@ namespace engine
 		//单次绘制强制管线（收敛轮 859；mesh_draw_skinned 临时覆盖，注册后立即复位）
 		VkPipeline forced_pipeline = VK_NULL_HANDLE;
 
+		/*
+		单次绘制调色板字节偏移（收敛轮 863；mesh_draw_skinned 临时设置，注册后立即复位）
+		静态绘制恒 0；蒙皮绘制按演员区间写入「起始条目 × 64」，命令录制时作为 set0 binding5 动态偏移。
+		*/
+		VkDeviceSize forced_palette_offset = 0;
+
 		//蒙皮调色板区间分配器（收敛轮 860；多演员共存）
 		Animation_Palette_Pool palette_pool;
 	};

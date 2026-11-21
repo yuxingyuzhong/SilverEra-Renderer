@@ -122,6 +122,12 @@ namespace engine
 		//描述符集数量（0/1/2）
 		uint32_t descriptor_set_count = 0;
 		/*
+		set0 binding5 动态偏移（收敛轮 863）
+		仅蒙皮绘制非零：字节偏移 = 演员起始条目 × 64；静态 / UI / 后处理恒 0。
+		命令录制时作为 pDynamicOffsets 传入 vkCmdBindDescriptorSets。
+		*/
+		VkDeviceSize palette_offset = 0;
+		/*
 		逐绘制项采样状态（第一百七十四轮）
 		登记绘制项时从门面的当前绑定状态快照，帧渲染阶段据此写一条专属采样器集；
 		使同帧内不同绘制项可各自采样不同纹理（含文字图集与场景纹理共存）。
