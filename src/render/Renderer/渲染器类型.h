@@ -637,6 +637,18 @@ namespace engine
 		float time_seconds = 0.0f;
 		//是否循环播放
 		bool loop = true;
+		/*
+		过渡状态（方向十 · 收敛轮 865）
+		blend_from 非空时按 blend_weight（0 = 源片段，1 = 当前片段）混合两份姿态；
+		权重按 blend_speed（每秒增量）推进，到 1 后自动清空源片段。
+		*/
+		std::shared_ptr<const Animation_Clip> blend_from;
+		//过渡源片段播放时间（秒）
+		float blend_from_time = 0.0f;
+		//过渡权重（0..1）
+		float blend_weight = 1.0f;
+		//过渡速度（每秒权重增量；0 = 无过渡）
+		float blend_speed = 0.0f;
 	};
 
 	/*

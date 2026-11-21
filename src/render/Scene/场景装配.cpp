@@ -394,17 +394,48 @@ namespace engine
 			//骨架缺失（装配阶段不会出现，防御直接跳过）
 			if (!演员.skeleton)
 				continue;
-			//有片段：推进时间后按片段采样
+			//过渡权重推进（到 1 后清空源片段）
+			if (演员.blend_from && 演员.blend_speed > 0.0f)
+			{
+				演员.blend_weight += 演员.blend_speed * delta_seconds;
+				if (演员.blend_weight >= 1.0f)
+				{
+					演员.blend_weight = 1.0f;
+					演员.blend_from.reset();
+					演员.blend_speed = 0.0f;
+				}
+			}
+			//推进主片段时间（循环回绕 / 非循环夹紧）
 			if (演员.clip && 演员.clip->duration > 0.0f)
 			{
 				const float 时长 = 演员.clip->duration;
 				演员.time_seconds += delta_seconds;
-				//循环回绕
 				if (演员.loop)
 					演员.time_seconds = std::fmod(演员.time_seconds, 时长);
-				//非循环夹紧到末帧
 				else if (演员.time_seconds > 时长)
 					演员.time_seconds = 时长;
+			}
+			//推进过渡源片段时间
+			if (演员.blend_from && 演员.blend_from->duration > 0.0f)
+			{
+				const float 时长 = 演员.blend_from->duration;
+				演员.blend_from_time += delta_seconds;
+				if (演员.loop)
+					演员.blend_from_time = std::fmod(演员.blend_from_time, 时长);
+				else if (演员.blend_from_time > 时长)
+					演员.blend_from_time = 时长;
+			}
+			//过渡中：双片段混合
+			if (演员.blend_from && 演员.clip)
+			{
+				if (renderer.animation().actor_blend_write(演员.palette_offset, *演员.blend_from, *演员.clip,
+					*演员.skeleton, 演员.blend_from_time, 演员.time_seconds, 演员.blend_weight, 演员.loop))
+					更新数 += 1;
+				continue;
+			}
+			//单片段：按片段时间采样
+			if (演员.clip && 演员.clip->duration > 0.0f)
+			{
 				if (renderer.animation().actor_clip_write(演员.palette_offset, *演员.clip, *演员.skeleton,
 					演员.time_seconds, 演员.loop))
 					更新数 += 1;
@@ -418,5 +449,43 @@ namespace engine
 				更新数 += 1;
 		}
 		return 更新数;
+	}
+
+	//切换演员动画片段
+	bool level_bridge_animation_transition(Asset_Scene& scene, const std::string& actor_name,
+		const std::shared_ptr<const Animation_Clip>& target, float duration_seconds)
+	{
+		//目标片段与时长前置
+		if (!target || !std::isfinite(duration_seconds))
+			return false;
+		//查找演员
+		Asset_Actor* 演员 = nullptr;
+		for (Asset_Actor& item : scene.actors)
+			if (item.name == actor_name)
+			{
+				演员 = &item;
+				break;
+			}
+		if (演员 == nullptr)
+			return false;
+		//立即切换（无当前片段或时长非正）
+		if (duration_seconds <= 0.0f || !演员->clip)
+		{
+			演员->clip = target;
+			演员->time_seconds = 0.0f;
+			演员->blend_from.reset();
+			演员->blend_from_time = 0.0f;
+			演员->blend_weight = 1.0f;
+			演员->blend_speed = 0.0f;
+			return true;
+		}
+		//淡入：当前片段转为过渡源，按秒数推进权重
+		演员->blend_from = 演员->clip;
+		演员->blend_from_time = 演员->time_seconds;
+		演员->clip = target;
+		演员->time_seconds = 0.0f;
+		演员->blend_weight = 0.0f;
+		演员->blend_speed = 1.0f / duration_seconds;
+		return true;
 	}
 }

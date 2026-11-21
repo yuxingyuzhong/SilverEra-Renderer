@@ -48,4 +48,12 @@ namespace engine
 	返回成功写入调色板的演员数；需在初始化完成且本批次未发生资源失败时调用。
 	*/
 	uint32_t level_bridge_animation_update(Renderer& renderer, Asset_Scene& scene, float delta_seconds);
+
+	/*
+	切换演员动画片段（方向十 · 收敛轮 865）
+	duration_seconds <= 0 立即切换；否则把当前片段记为过渡源，按该秒数线性淡入目标片段。
+	演员不存在、目标为空或时长非有限返回假且不改动状态。
+	*/
+	bool level_bridge_animation_transition(Asset_Scene& scene, const std::string& actor_name,
+		const std::shared_ptr<const Animation_Clip>& target, float duration_seconds);
 }
