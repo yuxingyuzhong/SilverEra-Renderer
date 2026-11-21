@@ -5,8 +5,6 @@
 #include "src/render/Renderer/core/结果检查.h"
 //OBJ 网格文件解析（第四百二十二轮；资产加载模块）
 #include "src/render/Asset/资产加载.h"
-//调色板容量与单位矩阵填充（方向十阶段 A 第 3 轮）
-#include "src/render/Animation/动画数据.h"
 //系统输入桥（原始输入载荷构造）
 #include "Engine/EngineRenderer/src/render/Input/系统输入桥.h"
 //中转站协议（订阅者退出事件）
@@ -61,9 +59,6 @@ namespace engine
 		*/
 		state.scene_ubos.resize(effective.frame_overlap);
 		state.scene_ubo_allocs.resize(effective.frame_overlap);
-		//蒙皮调色板缓冲按帧槽各一（方向十阶段 A 第 3 轮；主机可见，初始为单位矩阵）
-		state.palette_buffers.resize(effective.frame_overlap);
-		state.palette_allocations.resize(effective.frame_overlap);
 		//实例缓冲按帧槽各一（主机可见，逐帧写入本帧全部实例模型矩阵）
 		state.instance_buffers.resize(effective.frame_overlap);
 		state.instance_allocations.resize(effective.frame_overlap);
@@ -80,10 +75,6 @@ namespace engine
 			owner->device().shutdown();
 			return false;
 		}
-		//单位矩阵调色板初值（全部帧槽共用一份主机副本）
-		std::vector<float> palette_initial(
-			static_cast<std::size_t>(ANIMATION_PALETTE_CAPACITY) * ANIMATION_PALETTE_MATRIX_FLOATS, 0.0f);
-		palette_identity_fill(palette_initial.data(), ANIMATION_PALETTE_CAPACITY);
 		for (uint32_t slot = 0; slot < effective.frame_overlap; ++slot)
 		{
 			//创建场景 UBO（主机可见、统一缓冲用途；第一百二十五轮由 1072 扩为 1088 字节：追加天空盒参数；第一百四十六轮扩为 1168；第一百七十九轮扩为 1184：追加卡通高光参数）
@@ -205,26 +196,17 @@ namespace engine
 				return false;
 			}
 			/*
-			蒙皮调色板缓冲（方向十阶段 A 第 3 轮）
-			主机可见存储缓冲，容量 = 每条 64 字节 × 1024 条；写入单位矩阵后绑定 set0 binding 5。
+			蒙皮调色板缓冲（方向十 · 收敛轮 858；资源域持有）
+			主机可见存储缓冲，容量 = 每条 64 字节 × 1024 条；创建时写满单位矩阵并绑定 set0 binding 5。
 			*/
-			if (!state.memory.buffer_create(state.palette_buffers[slot], state.palette_allocations[slot],
-				static_cast<VkDeviceSize>(ANIMATION_PALETTE_CAPACITY) * ANIMATION_PALETTE_MATRIX_BYTES,
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true))
+			uint64_t palette_buffer = 0;
+			if (!owner->resource().animation_palette_resource_create(static_cast<uint32_t>(slot), palette_buffer))
 			{
 				logger.error("渲染器:: 蒙皮调色板缓冲创建失败（帧槽 {}）", slot);
 				owner->device().shutdown();
 				return false;
 			}
-			if (!state.memory.buffer_write(state.palette_buffers[slot], state.palette_allocations[slot],
-				palette_initial.data(),
-				static_cast<VkDeviceSize>(ANIMATION_PALETTE_CAPACITY) * ANIMATION_PALETTE_MATRIX_BYTES, 0))
-			{
-				logger.error("渲染器:: 蒙皮调色板初值写入失败（帧槽 {}）", slot);
-				owner->device().shutdown();
-				return false;
-			}
-			if (!owner->resource().scene_palette_bind(slot, reinterpret_cast<uint64_t>(state.palette_buffers[slot])))
+			if (!owner->resource().scene_palette_bind(slot, palette_buffer))
 			{
 				logger.error("渲染器:: 蒙皮调色板绑定失败（帧槽 {}）", slot);
 				owner->device().shutdown();

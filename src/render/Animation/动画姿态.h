@@ -79,4 +79,11 @@ namespace engine
 		float out[16]);
 	//矩阵乘（列主序；out = left × right）
 	void animation_matrix_multiply(const float left[16], const float right[16], float out[16]);
+	/*
+	蒙皮调色板求值（阶段 B 第 9 轮 / 收敛轮 858）
+	palette[i] = world_matrix[i] × inverse_bind[i]（列主序），调色板条目与骨骼下标一一对应。
+	count 须等于骨骼数量；骨架非法、姿态世界矩阵尺寸不符或空输出返回假。
+	*/
+	bool animation_skin_palette_build(const Animation_Skeleton& skeleton, const Animation_Pose& pose,
+		float* palette, uint32_t count);
 }

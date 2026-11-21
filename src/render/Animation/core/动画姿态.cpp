@@ -215,4 +215,24 @@ namespace engine
 			out[component] = world[bone * 16 + component];
 		return true;
 	}
+
+	//蒙皮调色板求值
+	bool animation_skin_palette_build(const Animation_Skeleton& skeleton, const Animation_Pose& pose,
+		float* palette, uint32_t count)
+	{
+		//空输出或零骨骼
+		if (palette == nullptr || count == 0)
+			return false;
+		//骨架须合法且数量一致
+		if (!skeleton.valid() || skeleton.bones.size() != count)
+			return false;
+		//姿态世界矩阵须与骨骼数量一致
+		if (pose.world.size() != static_cast<std::size_t>(count) * 16)
+			return false;
+		//逐骨骼求 world × inverse_bind
+		for (uint32_t index = 0; index < count; ++index)
+			animation_matrix_multiply(pose.world.data() + static_cast<std::size_t>(index) * 16,
+				skeleton.bones[index].inverse_bind, palette + static_cast<std::size_t>(index) * 16);
+		return true;
+	}
 }

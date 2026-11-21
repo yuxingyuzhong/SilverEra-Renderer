@@ -272,6 +272,18 @@ namespace engine
 		bool scene_palette_bind(uint32_t slot, uint64_t palette_buffer);
 		//每帧槽调色板容量（mat4 条数；上层据此规划演员与骨骼数量）
 		uint32_t animation_palette_capacity(void) const;
+		//创建一条帧槽调色板缓冲并写满单位矩阵（返回原生句柄；供初始化流程调用）
+		bool animation_palette_resource_create(uint32_t slot, uint64_t& buffer_out);
+		//归还全部调色板缓冲（关闭流程调用，须先于内存模块销毁）
+		void animation_palette_resource_destroy(void);
+		/*
+		蒙皮调色板写入（阶段 B 第 9 轮 / 收敛轮 858）
+		offset / count 以「条」计，写入全部帧槽（保证在途帧一致）；越界、空指针或缓冲缺失返回假。
+		count 为 0 视为空操作并返回真。
+		*/
+		bool animation_palette_upload(const float* matrices, uint32_t count, uint32_t offset = 0);
+		//蒙皮调色板读回（取首帧槽；供验证与诊断；越界 / 空指针返回假）
+		bool animation_palette_readback(float* matrices, uint32_t count, uint32_t offset = 0);
 		//初始化、帧描述符与资源生命周期协作
 		void frame_inputs_reserve(void);
 		bool scene_shaders_load(const std::string& shader_dir, uint32_t& vertex_input_locations);

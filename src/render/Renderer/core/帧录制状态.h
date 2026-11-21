@@ -132,16 +132,6 @@ namespace engine
 		std::vector<VmaAllocation> scene_ubo_allocs;
 
 		/*
-		蒙皮调色板缓冲（方向十阶段 A 第 3 轮）
-		每帧槽一条，主机可见存储缓冲，容量 = ANIMATION_PALETTE_CAPACITY 条 mat4；
-		初始全部为单位矩阵，绑定到该帧槽 set0 binding 5；蒙皮未启用时着色器不读取。
-		*/
-		std::vector<VkBuffer> palette_buffers;
-
-		//调色板缓冲内存（与 palette_buffers 一一对应）
-		std::vector<VmaAllocation> palette_allocations;
-
-		/*
 		场景 UBO 上传缓存（第六十轮）
 		逐帧槽保存上一次已写入的 160 浮点（每个槽一段），用于按变化区间写入；
 		scene_block_cached 标记该槽缓存是否已建立（首次访问须整块写入）。

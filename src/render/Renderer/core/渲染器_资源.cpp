@@ -136,6 +136,8 @@ namespace engine
 	*/
 	void Render_Resource::shutdown(void)
 	{
+		//蒙皮调色板缓冲依赖内存模块，须先于 memory 销毁（收敛轮 858）
+		animation_palette_resource_destroy();
 		//网格缓冲依赖内存模块，须先于 memory 销毁
 		(*state_ptr).mesh.destroy();
 		//纹理依赖设备与内存，须先于两者销毁
@@ -1024,5 +1026,97 @@ namespace engine
 	uint32_t Render_Resource::animation_palette_capacity(void) const
 	{
 		return ANIMATION_PALETTE_CAPACITY;
+	}
+
+	//创建一条帧槽调色板缓冲
+	bool Render_Resource::animation_palette_resource_create(uint32_t slot, uint64_t& buffer_out)
+	{
+		buffer_out = 0;
+		//内存模块须可用
+		if (!core->memory.valid())
+			return false;
+		//按帧槽序创建（只允许追加到末尾）
+		if (slot > (*state_ptr).palette_buffers.size())
+			return false;
+		if (slot == (*state_ptr).palette_buffers.size())
+		{
+			(*state_ptr).palette_buffers.push_back(VK_NULL_HANDLE);
+			(*state_ptr).palette_allocations.push_back(VK_NULL_HANDLE);
+		}
+		//创建主机可见存储缓冲
+		VkBuffer buffer = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		const VkDeviceSize bytes = static_cast<VkDeviceSize>(ANIMATION_PALETTE_CAPACITY) * ANIMATION_PALETTE_MATRIX_BYTES;
+		if (!core->memory.buffer_create(buffer, allocation, bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true))
+			return false;
+		//写入单位矩阵初值
+		std::vector<float> initial(static_cast<std::size_t>(ANIMATION_PALETTE_CAPACITY) * ANIMATION_PALETTE_MATRIX_FLOATS,
+			0.0f);
+		palette_identity_fill(initial.data(), ANIMATION_PALETTE_CAPACITY);
+		if (!core->memory.buffer_write(buffer, allocation, initial.data(), bytes, 0))
+		{
+			core->memory.buffer_destroy(buffer, allocation);
+			return false;
+		}
+		(*state_ptr).palette_buffers[slot] = buffer;
+		(*state_ptr).palette_allocations[slot] = allocation;
+		buffer_out = reinterpret_cast<uint64_t>(buffer);
+		return true;
+	}
+
+	//归还全部调色板缓冲
+	void Render_Resource::animation_palette_resource_destroy(void)
+	{
+		//依赖内存模块，须先于 memory 销毁
+		if (core->memory.valid())
+			for (std::size_t slot = 0; slot < (*state_ptr).palette_buffers.size(); ++slot)
+				//归还有效缓冲
+				if ((*state_ptr).palette_buffers[slot] != VK_NULL_HANDLE)
+					core->memory.buffer_destroy((*state_ptr).palette_buffers[slot],
+						(*state_ptr).palette_allocations[slot]);
+		(*state_ptr).palette_buffers.clear();
+		(*state_ptr).palette_allocations.clear();
+	}
+
+	//蒙皮调色板写入
+	bool Render_Resource::animation_palette_upload(const float* matrices, uint32_t count, uint32_t offset)
+	{
+		//空操作
+		if (count == 0)
+			return true;
+		//空指针或越界整体拒绝
+		if (matrices == nullptr || offset > ANIMATION_PALETTE_CAPACITY
+			|| count > ANIMATION_PALETTE_CAPACITY - offset)
+			return false;
+		//缓冲未建立
+		if (!core->memory.valid() || (*state_ptr).palette_buffers.empty())
+			return false;
+		const VkDeviceSize byte_offset = static_cast<VkDeviceSize>(offset) * ANIMATION_PALETTE_MATRIX_BYTES;
+		const VkDeviceSize byte_size = static_cast<VkDeviceSize>(count) * ANIMATION_PALETTE_MATRIX_BYTES;
+		//逐帧槽写入相同内容
+		for (std::size_t slot = 0; slot < (*state_ptr).palette_buffers.size(); ++slot)
+			if (!core->memory.buffer_write((*state_ptr).palette_buffers[slot],
+				(*state_ptr).palette_allocations[slot], matrices, byte_size, byte_offset))
+				return false;
+		return true;
+	}
+
+	//蒙皮调色板读回
+	bool Render_Resource::animation_palette_readback(float* matrices, uint32_t count, uint32_t offset)
+	{
+		//空操作
+		if (count == 0)
+			return true;
+		//空指针或越界整体拒绝
+		if (matrices == nullptr || offset > ANIMATION_PALETTE_CAPACITY
+			|| count > ANIMATION_PALETTE_CAPACITY - offset)
+			return false;
+		//缓冲未建立
+		if (!core->memory.valid() || (*state_ptr).palette_buffers.empty())
+			return false;
+		//首帧槽读回（各帧槽由写入接口同步更新）
+		return core->memory.buffer_read((*state_ptr).palette_buffers[0], (*state_ptr).palette_allocations[0],
+			matrices, static_cast<VkDeviceSize>(count) * ANIMATION_PALETTE_MATRIX_BYTES,
+			static_cast<VkDeviceSize>(offset) * ANIMATION_PALETTE_MATRIX_BYTES);
 	}
 }

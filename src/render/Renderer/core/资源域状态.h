@@ -247,5 +247,15 @@ namespace engine
 
 		//逐绘制项采样集批量写入的输入缓冲（第二百二十一轮；复用，避免每帧分配）
 		std::vector<Pipeline_Context::Draw_Set_Views> draw_set_inputs;
+
+		/*
+		蒙皮调色板缓冲（方向十 · 收敛轮 858）
+		每帧槽一条主机可见存储缓冲，容量 = ANIMATION_PALETTE_CAPACITY 条 mat4；初始全部为单位矩阵。
+		所有权在资源域，绑定到各帧槽 set0 binding 5；上传 / 读回经本域接口。
+		*/
+		std::vector<VkBuffer> palette_buffers;
+
+		//调色板缓冲内存（与 palette_buffers 一一对应）
+		std::vector<VmaAllocation> palette_allocations;
 	};
 }
