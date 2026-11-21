@@ -1,6 +1,8 @@
 #pragma once
 //预编译头
 #include "Engine/EngineRenderer/common/前置头文件包含.h"
+//获取 JSON 解析（.anim 资产加载）
+#include <nlohmann/json.hpp>
 
 /*
 渲染动画 · 动画片段数据结构（方向十 · 阶段 B 第 4 轮）
@@ -72,4 +74,14 @@ namespace engine
 	//按骨骼名与通道查找轨道（不存在返回空指针）
 	const Animation_Track* animation_track_find(const Animation_Clip& clip, const std::string& bone,
 		Animation_Channel channel);
+	/*
+	从 JSON 配置构建片段（.anim；失败时清空输出）
+	字段：name（可选）、duration（必填，非负有限）、tracks（非空数组）；
+	轨道：bone（非空）、channel（translation / rotation / scale）、interpolation（linear / step，可选，默认 linear）、
+	keys（非空，时间非负有限且严格递增）；关键帧 value 为 3 或 4 个有限数。
+	任一字段非法即整体拒绝，不做部分构建。
+	*/
+	bool animation_clip_build(const nlohmann::json& config, Animation_Clip& receiver);
+	//从 .anim 文件加载片段（失败时清空输出）
+	bool animation_clip_load_file(const std::string& path, Animation_Clip& receiver);
 }

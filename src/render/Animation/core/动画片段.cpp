@@ -2,9 +2,44 @@
 #include "../动画片段.h"
 //std::isfinite（关键帧时间与值的有限性校验）
 #include <cmath>
+//路径转换与可用性校验（.anim 文件加载）
+#include "Engine/EngineFoundation/src/detail/methods/路径字符串转换.h"
+#include "Engine/EngineFoundation/src/detail/methods/文件路径可用性校验.h"
 
 namespace engine
 {
+	namespace
+	{
+		//片段文件体量上限（16 MB）
+		constexpr uintmax_t ANIMATION_CLIP_FILE_LIMIT = 16ull * 1024ull * 1024ull;
+
+		//通道字符串解析（仅接受固定小写写法）
+		bool channel_parse(const std::string& text, Animation_Channel& receiver)
+		{
+			if (text == "translation")
+				receiver = Animation_Channel::Translation;
+			else if (text == "rotation")
+				receiver = Animation_Channel::Rotation;
+			else if (text == "scale")
+				receiver = Animation_Channel::Scale;
+			else
+				return false;
+			return true;
+		}
+
+		//插值字符串解析（仅接受固定小写写法）
+		bool interpolation_parse(const std::string& text, Animation_Interpolation& receiver)
+		{
+			if (text == "linear")
+				receiver = Animation_Interpolation::Linear;
+			else if (text == "step")
+				receiver = Animation_Interpolation::Step;
+			else
+				return false;
+			return true;
+		}
+	}
+
 	//单轨道合法性
 	bool animation_track_valid(const Animation_Track& track)
 	{
@@ -71,5 +106,120 @@ namespace engine
 			if (track.channel == channel && track.bone == bone)
 				return &track;
 		return nullptr;
+	}
+
+	//从 JSON 配置构建片段
+	bool animation_clip_build(const nlohmann::json& config, Animation_Clip& receiver)
+	{
+		//先清空输出
+		receiver = Animation_Clip();
+		//根须为对象
+		if (!config.is_object())
+			return false;
+		//时长必填且为数值
+		if (!config.contains("duration") || !config["duration"].is_number())
+			return false;
+		Animation_Clip clip;
+		//名称可选
+		if (config.contains("name"))
+		{
+			if (!config["name"].is_string())
+				return false;
+			clip.name = config["name"].get<std::string>();
+		}
+		//轨道必填且为非空数组
+		if (!config.contains("tracks") || !config["tracks"].is_array() || config["tracks"].empty())
+			return false;
+		try
+		{
+			clip.duration = config["duration"].get<float>();
+			for (const nlohmann::json& track_config : config["tracks"])
+			{
+				//逐轨道字段校验
+				if (!track_config.is_object())
+					return false;
+				if (!track_config.contains("bone") || !track_config["bone"].is_string())
+					return false;
+				if (!track_config.contains("channel") || !track_config["channel"].is_string())
+					return false;
+				Animation_Track track;
+				track.bone = track_config["bone"].get<std::string>();
+				//空骨骼名视为非法
+				if (track.bone.empty())
+					return false;
+				//通道解析
+				if (!channel_parse(track_config["channel"].get<std::string>(), track.channel))
+					return false;
+				//插值可选（默认线性）
+				if (track_config.contains("interpolation"))
+				{
+					if (!track_config["interpolation"].is_string())
+						return false;
+					if (!interpolation_parse(track_config["interpolation"].get<std::string>(), track.interpolation))
+						return false;
+				}
+				//关键帧必填
+				if (!track_config.contains("keys") || !track_config["keys"].is_array())
+					return false;
+				for (const nlohmann::json& key_config : track_config["keys"])
+				{
+					if (!key_config.is_object())
+						return false;
+					if (!key_config.contains("time") || !key_config["time"].is_number())
+						return false;
+					if (!key_config.contains("value") || !key_config["value"].is_array())
+						return false;
+					//值须为 3 或 4 个分量
+					const nlohmann::json& values = key_config["value"];
+					if (values.size() != 3 && values.size() != 4)
+						return false;
+					Animation_Key key;
+					key.time = key_config["time"].get<float>();
+					for (std::size_t component = 0; component < values.size(); ++component)
+					{
+						if (!values[component].is_number())
+							return false;
+						key.value[component] = values[component].get<float>();
+					}
+					track.keys.push_back(key);
+				}
+				clip.tracks.push_back(std::move(track));
+			}
+		}
+		catch (...)
+		{
+			//数值越界等转换异常一律拒绝
+			return false;
+		}
+		//整体合法性（时间递增、时长覆盖等）
+		if (!animation_clip_valid(clip))
+			return false;
+		receiver = std::move(clip);
+		return true;
+	}
+
+	//从 .anim 文件加载片段
+	bool animation_clip_load_file(const std::string& path, Animation_Clip& receiver)
+	{
+		//先清空输出
+		receiver = Animation_Clip();
+		//路径有效性
+		if (!detail::path_check(path))
+			return false;
+		//文件体量须在合法区间
+		uintmax_t size = 0;
+		std::error_code error_info;
+		if (!detail::file_size_get(path, size, error_info) || size == 0 || size > ANIMATION_CLIP_FILE_LIMIT)
+			return false;
+		//整文件读取
+		std::ifstream file(detail::string_to_path(path), std::ios::binary);
+		if (!file.is_open())
+			return false;
+		std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		//解析 JSON（不抛异常）
+		nlohmann::json config = nlohmann::json::parse(text.begin(), text.end(), nullptr, false);
+		if (config.is_discarded())
+			return false;
+		return animation_clip_build(config, receiver);
 	}
 }
