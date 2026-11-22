@@ -90,6 +90,8 @@ namespace engine
 				continue;
 			//按父矩形重算
 			node.rect = ui_layout_rect_resolve(parent->rect, node.layout);
+			//记录基准矩形（滚动偏移前的坐标）
+			node.rect_base = node.rect;
 		}
 	}
 
@@ -145,7 +147,38 @@ namespace engine
 						child.rect.x += (content_width - child.rect.w) * align_factor;
 					cursor += child.rect.h + gap;
 				}
+				//排列结果即滚动偏移前的基准矩形
+				child.rect_base = child.rect;
 			}
+		}
+	}
+
+	//按祖先滚动偏移平移各节点矩形（逐帧执行，幂等）
+	void Ui_Context::scroll_apply(void)
+	{
+		//各槽位的累计滚动偏移（下标 = 句柄 - 1；父先于子，一次正序即可传播）
+		std::vector<float> offset_x(nodes.size(), 0.0f);
+		std::vector<float> offset_y(nodes.size(), 0.0f);
+		for (std::size_t index = 0; index < nodes.size(); ++index)
+		{
+			Ui_Node& node = nodes[index];
+			//跳过空槽与已销毁节点
+			if (node.handle == 0 || !node.alive)
+				continue;
+			//继承父节点的累计偏移（无父节点时为零）
+			float inherited_x = 0.0f;
+			float inherited_y = 0.0f;
+			if (node.parent != 0 && node.parent <= nodes.size())
+			{
+				inherited_x = offset_x[static_cast<std::size_t>(node.parent - 1)];
+				inherited_y = offset_y[static_cast<std::size_t>(node.parent - 1)];
+			}
+			//最终矩形 = 基准矩形 - 继承偏移
+			node.rect = Ui_Rect{ node.rect_base.x - inherited_x, node.rect_base.y - inherited_y,
+				node.rect_base.w, node.rect_base.h };
+			//本节点滚动继续作用于后代
+			offset_x[index] = inherited_x + node.scroll_x;
+			offset_y[index] = inherited_y + node.scroll_y;
 		}
 	}
 }

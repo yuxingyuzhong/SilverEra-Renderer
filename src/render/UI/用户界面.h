@@ -214,8 +214,13 @@ namespace engine
 		Ui_Handle parent = 0;
 		//控件类型
 		Ui_Node_Type type = Ui_Node_Type::Root;
-		//像素矩形
+		//像素矩形（已叠加滚动偏移；绘制与命中共用）
 		Ui_Rect rect{};
+		//滚动偏移前的基准矩形（内部使用；每帧滚动重算据此还原）
+		Ui_Rect rect_base{};
+		//内容滚动偏移（像素；>=0；作用于全部后代，第八百八十九轮）
+		float scroll_x = 0.0f;
+		float scroll_y = 0.0f;
 		//锚点布局（active 为真时由控件树按父矩形重算 rect）
 		Ui_Layout layout{};
 		//排列方向（None 时不排列直接子节点）
@@ -348,6 +353,14 @@ namespace engine
 		//设置 / 读取排列交叉轴对齐（未知句柄设置返回假；读取返回 Start）
 		bool flow_align_set(Ui_Handle handle, Ui_Align align);
 		Ui_Align flow_align_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取内容滚动偏移（第八百八十九轮）
+		偏移单位为像素，负值按 0；作用于该节点的全部后代（矩形在帧内统一平移），
+		配合 `clip_children_set(handle, true)` 即构成滚动容器。
+		未知句柄设置返回假；读取返回 (0,0)。
+		*/
+		bool scroll_set(Ui_Handle handle, float x, float y);
+		bool scroll_get(Ui_Handle handle, float& x_out, float& y_out) const;
 		//布局重算次数（观测用；根尺寸 / 节点集合 / 布局设置变化时递增）
 		uint64_t layout_apply_count(void) const;
 		//设置 / 读取主题色板（第八百八十三轮）
@@ -527,6 +540,8 @@ namespace engine
 		void layout_apply(void);
 		//按创建顺序排列各容器的直接子节点（位于布局重算之后）
 		void flow_apply(void);
+		//按祖先滚动偏移平移各节点矩形（位于布局 / 排列之后，逐帧执行）
+		void scroll_apply(void);
 		//焦点设置（0 = 清除焦点）
 		void focus_set(Ui_Handle handle);
 		//控件是否可获得焦点（按钮 / 文本框 / 复选框 / 滑动条）

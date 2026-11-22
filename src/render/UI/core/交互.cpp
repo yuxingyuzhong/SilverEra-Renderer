@@ -206,6 +206,8 @@ namespace engine
 				layout_dirty = true;
 			}
 			root->rect = root_rect;
+			//根节点无滚动偏移，基准矩形同步
+			root->rect_base = root_rect;
 		}
 		//节点集合变化（创建 / 销毁）标记布局待重算
 		if (nodes.size() != layout_node_count)
@@ -213,14 +215,23 @@ namespace engine
 			layout_node_count = nodes.size();
 			layout_dirty = true;
 		}
-		//仅脏时重算：先锚点布局（父先于子），再排列容器直接子节点
+		//仅脏时重算：先还原基准矩形，再锚点布局（父先于子），最后排列容器直接子节点
 		if (layout_dirty)
 		{
+			for (Ui_Node& node : nodes)
+			{
+				//已销毁槽位不参与
+				if (node.handle == 0 || !node.alive)
+					continue;
+				node.rect = node.rect_base;
+			}
 			layout_apply();
 			flow_apply();
 			layout_dirty = false;
 			layout_apply_count_value += 1;
 		}
+		//按滚动偏移平移矩形（逐帧执行，保证命中与绘制一致）
+		scroll_apply();
 
 		//清除上一帧的单击标记
 		for (Ui_Node& node : nodes)

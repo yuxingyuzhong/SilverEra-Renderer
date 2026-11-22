@@ -175,6 +175,7 @@ namespace engine
 			node.parent = parent;
 			node.type = type;
 			node.rect = rect;
+			node.rect_base = rect;
 			node.color = Ui_Color{ 0.0f, 0.0f, 0.0f, 0.0f };
 			node.text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 			nodes[index] = node;
@@ -187,6 +188,7 @@ namespace engine
 		node.parent = parent;
 		node.type = type;
 		node.rect = rect;
+		node.rect_base = rect;
 		node.color = Ui_Color{ 0.0f, 0.0f, 0.0f, 0.0f };
 		node.text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		nodes.push_back(node);
@@ -335,6 +337,7 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->rect = rect;
+		node->rect_base = rect;
 		//显式矩形优先：取消锚点布局
 		node->layout.active = false;
 		//矩形变化需重算布局
@@ -366,7 +369,10 @@ namespace engine
 		{
 			const Ui_Node* parent = node_find(node->parent);
 			if (parent != nullptr)
+			{
 				node->rect = ui_layout_rect_resolve(parent->rect, layout);
+				node->rect_base = node->rect;
+			}
 		}
 		return true;
 	}
@@ -432,6 +438,33 @@ namespace engine
 		if (node == nullptr)
 			return Ui_Align::Start;
 		return node->flow_align;
+	}
+
+	//设置内容滚动偏移
+	bool Ui_Context::scroll_set(Ui_Handle handle, float x, float y)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//负偏移按 0
+		node->scroll_x = x > 0.0f ? x : 0.0f;
+		node->scroll_y = y > 0.0f ? y : 0.0f;
+		return true;
+	}
+
+	//读取内容滚动偏移
+	bool Ui_Context::scroll_get(Ui_Handle handle, float& x_out, float& y_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+		{
+			x_out = 0.0f;
+			y_out = 0.0f;
+			return false;
+		}
+		x_out = node->scroll_x;
+		y_out = node->scroll_y;
+		return true;
 	}
 
 	//设置主题色板
