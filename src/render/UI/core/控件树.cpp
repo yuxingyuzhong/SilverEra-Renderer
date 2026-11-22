@@ -467,6 +467,21 @@ namespace engine
 		return true;
 	}
 
+	//绑定滚动条到目标容器
+	bool Ui_Context::scroll_bar_bind(Ui_Handle bar, Ui_Handle target, float content_extent, bool vertical)
+	{
+		Ui_Node* node = node_find(bar);
+		if (node == nullptr)
+			return false;
+		//非零目标必须存在
+		if (target != 0 && node_find(target) == nullptr)
+			return false;
+		node->scroll_target = target;
+		node->scroll_content = content_extent > 0.0f ? content_extent : 0.0f;
+		node->scroll_vertical = vertical;
+		return true;
+	}
+
 	//设置主题色板
 	void Ui_Context::theme_set(const Ui_Theme& theme)
 	{

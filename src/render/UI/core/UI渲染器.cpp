@@ -621,21 +621,37 @@ namespace engine
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{
-				//轨道（高 4 像素，垂直居中；样式角色启用时取主题色）
-				const float track_y = node->rect.y + node->rect.h * 0.5f - 2.0f;
-				const Ui_Rect track_rect{ node->rect.x, track_y, node->rect.w, 4.0f };
+				//纵向滚动条（绑定目标且声明纵向）
+				const bool vertical = node->scroll_target != 0 && node->scroll_vertical;
+				//轨道（纵向高 4 像素宽 / 横向宽 4 像素高；样式角色启用时取主题色）
+				const Ui_Rect track_rect = vertical
+					? Ui_Rect{ node->rect.x + node->rect.w * 0.5f - 2.0f, node->rect.y, 4.0f, node->rect.h }
+					: Ui_Rect{ node->rect.x, node->rect.y + node->rect.h * 0.5f - 2.0f, node->rect.w, 4.0f };
 				const Ui_Color track_color = node->role == Ui_Role::Custom ? node->color
 					: ui_theme_color(ui.theme_get(), node->role,
 						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
 				quad_append(track_rect, with_opacity(track_color, node->opacity));
 				//已选进度
-				const float fill_width = node->rect.w * node->value;
-				if (fill_width > 0.0f)
-					quad_append(Ui_Rect{ node->rect.x, track_y, fill_width, 4.0f },
-						with_opacity(focus_color, node->opacity));
-				//滑块（10 × 18，居中于当前值）
-				const float knob_x = node->rect.x + node->rect.w * node->value - 5.0f;
-				Ui_Rect knob_rect{ knob_x, node->rect.y + node->rect.h * 0.5f - 9.0f, 10.0f, 18.0f };
+				if (vertical)
+				{
+					const float fill_height = node->rect.h * node->value;
+					if (fill_height > 0.0f)
+						quad_append(Ui_Rect{ track_rect.x, node->rect.y, 4.0f, fill_height },
+							with_opacity(focus_color, node->opacity));
+				}
+				else
+				{
+					const float fill_width = node->rect.w * node->value;
+					if (fill_width > 0.0f)
+						quad_append(Ui_Rect{ node->rect.x, track_rect.y, fill_width, 4.0f },
+							with_opacity(focus_color, node->opacity));
+				}
+				//滑块（横向 10 × 18，纵向 18 × 10，居中于当前值）
+				const Ui_Rect knob_rect = vertical
+					? Ui_Rect{ node->rect.x + node->rect.w * 0.5f - 9.0f,
+						node->rect.y + node->rect.h * node->value - 5.0f, 18.0f, 10.0f }
+					: Ui_Rect{ node->rect.x + node->rect.w * node->value - 5.0f,
+						node->rect.y + node->rect.h * 0.5f - 9.0f, 10.0f, 18.0f };
 				Ui_Color knob_color{ 0.85f, 0.88f, 0.95f, 1.0f };
 				if (node->pressed || node->hovered)
 				{

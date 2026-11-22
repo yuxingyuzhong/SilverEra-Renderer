@@ -221,6 +221,12 @@ namespace engine
 		//内容滚动偏移（像素；>=0；作用于全部后代，第八百八十九轮）
 		float scroll_x = 0.0f;
 		float scroll_y = 0.0f;
+		//滚动目标容器句柄（0 = 非滚动条；第八百九十轮）
+		Ui_Handle scroll_target = 0;
+		//滚动内容长度（像素；滚动条用于换算最大偏移）
+		float scroll_content = 0.0f;
+		//滚动条是否纵向（真 = 按指针纵坐标取值，假 = 横坐标）
+		bool scroll_vertical = true;
 		//锚点布局（active 为真时由控件树按父矩形重算 rect）
 		Ui_Layout layout{};
 		//排列方向（None 时不排列直接子节点）
@@ -361,6 +367,13 @@ namespace engine
 		*/
 		bool scroll_set(Ui_Handle handle, float x, float y);
 		bool scroll_get(Ui_Handle handle, float& x_out, float& y_out) const;
+		/*
+		绑定滚动条（第八百九十轮）
+		bar 通常为滑动条控件；拖动其取值按 0..1 映射到 target 的滚动偏移，
+		最大偏移 = max(0, content_extent - target 视口尺寸)；vertical 决定按纵 / 横坐标取值。
+		任一未知句柄返回假；解绑用 target = 0。
+		*/
+		bool scroll_bar_bind(Ui_Handle bar, Ui_Handle target, float content_extent, bool vertical = true);
 		//布局重算次数（观测用；根尺寸 / 节点集合 / 布局设置变化时递增）
 		uint64_t layout_apply_count(void) const;
 		//设置 / 读取主题色板（第八百八十三轮）
@@ -549,7 +562,9 @@ namespace engine
 		//Tab 焦点导航（forward 为真向前，否则向后）
 		void focus_navigate(bool forward);
 		//滑动条按指针横坐标更新取值（返回是否发生变化）
-		bool slider_value_apply(Ui_Node& node, float pointer_x);
+		bool slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y);
+		//滚动条取值同步到目标容器（返回是否有偏移变化）
+		bool scroll_bar_sync(void);
 		//文本框文本编辑（消费本帧文本与编辑键）
 		void text_edit(Ui_Node& node, const Input_Frame& input);
 	};

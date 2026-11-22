@@ -123,13 +123,18 @@ namespace engine
 		focus_set(focusables[target]);
 	}
 
-	//滑动条按指针横坐标更新取值
-	bool Ui_Context::slider_value_apply(Ui_Node& node, float pointer_x)
+	//滑动条按指针坐标更新取值
+	bool Ui_Context::slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y)
 	{
-		//归一化位置（矩形宽度为零时按 0）
+		//纵向滚动条按纵坐标取值，其余按横坐标
+		const bool vertical = node.scroll_target != 0 && node.scroll_vertical;
+		const float pointer = vertical ? pointer_y : pointer_x;
+		const float origin = vertical ? node.rect.y : node.rect.x;
+		const float length = vertical ? node.rect.h : node.rect.w;
+		//归一化位置（矩形长度为零时按 0）
 		float ratio = 0.0f;
-		if (node.rect.w > 0.0f)
-			ratio = (pointer_x - node.rect.x) / node.rect.w;
+		if (length > 0.0f)
+			ratio = (pointer - origin) / length;
 		//钳到 0..1
 		if (!(ratio >= 0.0f))
 			ratio = 0.0f;
@@ -290,7 +295,7 @@ namespace engine
 				if (node->type == Ui_Node_Type::Slider)
 				{
 					slider_drag = node->handle;
-					slider_value_apply(*node, input.pointer.x);
+					slider_value_apply(*node, input.pointer.x, input.pointer.y);
 				}
 			}
 			//点击空白或面板：清除焦点
@@ -303,7 +308,7 @@ namespace engine
 		{
 			Ui_Node* node = node_find(slider_drag);
 			if (node != nullptr && node->visible && node->enabled)
-				slider_value_apply(*node, input.pointer.x);
+				slider_value_apply(*node, input.pointer.x, input.pointer.y);
 		}
 
 		//鼠标左键抬起沿：同一目标上抬起即判定单击
@@ -379,8 +384,46 @@ namespace engine
 			else if (focus_node->type == Ui_Node_Type::Text_Box)
 				text_edit(*focus_node, input);
 		}
+		//滚动条取值同步到目标容器（拖动后当帧生效）
+		if (scroll_bar_sync())
+			scroll_apply();
 		//派发本帧域内事件（遍历结束后统一送达订阅者）
 		bus_get().frame_flush();
+	}
+
+	//滚动条取值同步到目标容器
+	bool Ui_Context::scroll_bar_sync(void)
+	{
+		//是否有偏移发生变化
+		bool changed = false;
+		for (Ui_Node& bar : nodes)
+		{
+			//跳过空槽、已销毁与非滚动条
+			if (bar.handle == 0 || !bar.alive || bar.scroll_target == 0)
+				continue;
+			Ui_Node* target = node_find(bar.scroll_target);
+			if (target == nullptr)
+				continue;
+			//视口尺寸取基准矩形（滚动偏移只改 rect）
+			const float viewport = bar.scroll_vertical ? target->rect_base.h : target->rect_base.w;
+			const float maximum = bar.scroll_content > viewport ? bar.scroll_content - viewport : 0.0f;
+			const float offset = bar.value * maximum;
+			//写回目标滚动偏移
+			if (bar.scroll_vertical)
+			{
+				if (offset != target->scroll_y)
+				{
+					target->scroll_y = offset;
+					changed = true;
+				}
+			}
+			else if (offset != target->scroll_x)
+			{
+				target->scroll_x = offset;
+				changed = true;
+			}
+		}
+		return changed;
 	}
 
 	//语义命令分发到绑定控件
