@@ -330,6 +330,56 @@ namespace engine
 		rounded_quad_append(inner, inner_radius, fill_color);
 	}
 
+	//追加一个纹理矩形并登记纹理绘制
+	void Ui_Renderer::quad_textured_append(uint64_t texture, const Ui_Rect& rect, const Ui_Color& color)
+	{
+		//零面积或无效纹理不产生几何
+		if (texture == 0 || rect.w <= 0.0f || rect.h <= 0.0f)
+			return;
+		//顶点基址与索引基址
+		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
+		const uint32_t index_base = static_cast<uint32_t>(cpu_indices.size());
+
+		//矩形边界
+		const float x0 = rect.x;
+		const float y0 = rect.y;
+		const float x1 = rect.x + rect.w;
+		const float y1 = rect.y + rect.h;
+
+		//四角顶点（UV 铺满 0..1）
+		Vertex vertex{};
+		vertex.position[0] = x0; vertex.position[1] = y0; vertex.position[2] = 0.0f;
+		vertex.uv[0] = 0.0f; vertex.uv[1] = 0.0f;
+		cpu_vertices.push_back(vertex);
+		vertex.position[0] = x1; vertex.position[1] = y0;
+		vertex.uv[0] = 1.0f; vertex.uv[1] = 0.0f;
+		cpu_vertices.push_back(vertex);
+		vertex.position[0] = x1; vertex.position[1] = y1;
+		vertex.uv[0] = 1.0f; vertex.uv[1] = 1.0f;
+		cpu_vertices.push_back(vertex);
+		vertex.position[0] = x0; vertex.position[1] = y1;
+		vertex.uv[0] = 0.0f; vertex.uv[1] = 1.0f;
+		cpu_vertices.push_back(vertex);
+
+		//两个三角形
+		cpu_indices.push_back(base + 0);
+		cpu_indices.push_back(base + 1);
+		cpu_indices.push_back(base + 2);
+		cpu_indices.push_back(base + 0);
+		cpu_indices.push_back(base + 2);
+		cpu_indices.push_back(base + 3);
+
+		//登记纹理绘制记录
+		Draw_Record record{};
+		record.first_index = index_base;
+		record.index_count = 6;
+		record.color = color;
+		record.texture = texture;
+		record.text = false;
+		record.clip = current_clip;
+		draws.push_back(record);
+	}
+
 	//追加文本
 	bool Ui_Renderer::text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 		float center_area_width, const Ui_Color& color)
@@ -383,6 +433,7 @@ namespace engine
 		draw_record.first_index = index_base;
 		draw_record.index_count = static_cast<uint32_t>(text_scratch.indices.size());
 		draw_record.color = color;
+		draw_record.texture = record->atlas_texture;
 		draw_record.text = true;
 		draw_record.clip = current_clip;
 		draws.push_back(draw_record);
@@ -488,6 +539,10 @@ namespace engine
 				text_append(font_handle, node->text, node->rect.x,
 					node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f,
 					with_opacity(node->text_color, node->opacity));
+				break;
+			//图片：纹理铺满矩形（不参与交互）
+			case Ui_Node_Type::Image:
+				quad_textured_append(node->texture, node->rect, with_opacity(node->color, node->opacity));
 				break;
 			//按钮：背景 + 居中标签
 			case Ui_Node_Type::Button:
@@ -733,21 +788,21 @@ namespace engine
 				continue;
 			vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-			//文字绘制
-			if (record.text)
+			//纹理绘制（文字或图片）
+			if (record.text || record.texture != 0)
 			{
-				//无文字管线或字形图集则跳过
-				if (text_vk == VK_NULL_HANDLE || text_atlas == 0 || texture == nullptr)
+				//无纹理管线或纹理句柄无效则跳过
+				if (text_vk == VK_NULL_HANDLE || record.texture == 0 || texture == nullptr)
 					continue;
-				//字形图集变化时重写 UI 专用描述符集
-				if (buffers.bound_atlas != text_atlas)
+				//纹理变化时重写 UI 专用描述符集
+				if (buffers.bound_atlas != record.texture)
 				{
 					VkImageView view = VK_NULL_HANDLE;
 					VkSampler sampler = VK_NULL_HANDLE;
-					if (texture->texture_bind_get(text_atlas, view, sampler))
+					if (texture->texture_bind_get(record.texture, view, sampler))
 					{
 						pipeline->ui_texture_bind(slot, sampler, view);
-						buffers.bound_atlas = text_atlas;
+						buffers.bound_atlas = record.texture;
 					}
 				}
 				//取 UI 专用采样集

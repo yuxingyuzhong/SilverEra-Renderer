@@ -76,6 +76,8 @@ namespace engine
 			uint32_t index_count = 0;
 			//颜色（纯色 / 文字共用）
 			Ui_Color color{};
+			//纹理句柄（0 = 纯色；文字与图片使用纹理管线）
+			uint64_t texture = 0;
 			//是否文字绘制（真 = 文字管线 + 图集采样）
 			bool text = false;
 			//该条绘制的裁剪矩形（窗口像素；阶段录制时转为 scissor）
@@ -86,6 +88,8 @@ namespace engine
 		bool slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count);
 		//追加一个矩形（像素坐标）并登记纯色绘制
 		void quad_append(const Ui_Rect& rect, const Ui_Color& color);
+		//追加一个纹理矩形（UV 铺满 0..1）并登记纹理绘制（第八百九十三轮）
+		void quad_textured_append(uint64_t texture, const Ui_Rect& rect, const Ui_Color& color);
 		/*
 		追加一个圆角矩形（第八百八十七轮）
 		radius <= 0 时退化为 quad_append（保证直角路径逐字节不变）；

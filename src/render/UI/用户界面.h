@@ -26,6 +26,8 @@ namespace engine
 		Text_Box,
 		//纯文本标签（不参与交互）
 		Label,
+		//图片（纹理四边形，不参与交互；第八百九十三轮）
+		Image,
 		//复选框（方框 + 勾选 + 右侧标签）
 		Checkbox,
 		//滑动条（轨道 + 滑块，值域 0..1）
@@ -253,6 +255,8 @@ namespace engine
 		Ui_Color text_color{};
 		//按钮标签
 		std::string label{};
+		//图片纹理句柄（0 = 不绘制；第八百九十三轮）
+		uint64_t texture = 0;
 		//文本框内容（UTF-8）
 		std::string text{};
 		//文本框光标（字节偏移）
@@ -327,6 +331,11 @@ namespace engine
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });
+		//创建图片（纹理铺满矩形；texture 为纹理模块句柄，0 = 暂不绘制）
+		Ui_Handle image_create(Ui_Handle parent, const Ui_Rect& rect, uint64_t texture);
+		//设置 / 读取图片纹理（未知句柄设置返回假）
+		bool image_texture_set(Ui_Handle handle, uint64_t texture);
+		uint64_t image_texture_get(Ui_Handle handle) const;
 		//创建复选框（rect 左侧为方框，右侧为标签）
 		Ui_Handle checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 			bool checked = false, void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);

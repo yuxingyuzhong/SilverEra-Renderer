@@ -258,6 +258,40 @@ namespace engine
 		return handle;
 	}
 
+	//创建图片
+	Ui_Handle Ui_Context::image_create(Ui_Handle parent, const Ui_Rect& rect, uint64_t texture)
+	{
+		//创建图片节点
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Image);
+		//写入纹理与默认着色（白色按原样采样）
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->texture = texture;
+			node->color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
+	//设置图片纹理
+	bool Ui_Context::image_texture_set(Ui_Handle handle, uint64_t texture)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->texture = texture;
+		return true;
+	}
+
+	//读取图片纹理
+	uint64_t Ui_Context::image_texture_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->texture;
+	}
+
 	//创建复选框
 	Ui_Handle Ui_Context::checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 		bool checked, void (*on_toggle)(Ui_Handle, bool, void*), void* user)
