@@ -36,6 +36,16 @@ namespace engine
 		return &(*state_ptr).ui;
 	}
 
+	//最近一帧 UI 绘制统计
+	const Ui_Render_Stats& Render_Ui::ui_render_stats(void) const
+	{
+		//静态全零结果（未初始化时返回）
+		static const Ui_Render_Stats empty{};
+		if (state_ptr == nullptr)
+			return empty;
+		return (*state_ptr).ui_render.stats_get();
+	}
+
 	//帧输入聚合器
 	Input_Aggregator* Render_Ui::input_aggregator(void)
 	{

@@ -21,6 +21,25 @@ Vulkan 与 VMA 头
 namespace engine
 {
 	/*
+	UI 单帧绘制统计（第八百九十九轮）
+	顶点 / 索引为 CPU 侧生成的几何量；draws 为绘制记录数；
+	text_draws 为文字记录数；texture_binds 为本帧重写的 UI 描述符次数。
+	*/
+	struct Ui_Render_Stats
+	{
+		//顶点数
+		uint32_t vertices = 0;
+		//索引数
+		uint32_t indices = 0;
+		//绘制记录数
+		uint32_t draws = 0;
+		//文字绘制记录数
+		uint32_t text_draws = 0;
+		//纹理描述符重写次数
+		uint32_t texture_binds = 0;
+	};
+
+	/*
 	UI 渲染器（每帧把控件树转成绘制命令）
 	只负责 GPU 侧：每帧槽一组动态顶点 / 索引缓冲、两个 UI 管线（纯色 / 文字）与字形图集绑定；
 	控件树与交互由 Ui_Context 维护。
@@ -51,6 +70,8 @@ namespace engine
 		无可见控件时不产生任何绘制命令；字体未设置或字符无字形时只绘制纯色部分。
 		*/
 		void draw(const Ui_Context& ui, VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t slot);
+		//最近一帧绘制统计（第八百九十九轮）
+		const Ui_Render_Stats& stats_get(void) const;
 	private:
 		//单帧槽缓冲
 		struct Slot_Buffers
@@ -143,5 +164,7 @@ namespace engine
 		std::vector<Ui_Rect> inherited_clips{};
 		//当前控件的裁剪矩形（追加几何时写入绘制记录）
 		Ui_Rect current_clip{};
+		//最近一帧绘制统计
+		Ui_Render_Stats stats{};
 	};
 }

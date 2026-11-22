@@ -106,6 +106,12 @@ namespace engine
 		return device != VK_NULL_HANDLE && memory != nullptr && pipeline != nullptr && !slots.empty();
 	}
 
+	//最近一帧绘制统计
+	const Ui_Render_Stats& Ui_Renderer::stats_get(void) const
+	{
+		return stats;
+	}
+
 	//确保帧槽缓冲容量足够
 	bool Ui_Renderer::slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count)
 	{
@@ -570,6 +576,9 @@ namespace engine
 		if (extent.width == 0 || extent.height == 0)
 			return;
 
+		//复位本帧统计
+		stats = Ui_Render_Stats{};
+
 		//复位本帧 CPU 数据
 		cpu_vertices.clear();
 		cpu_indices.clear();
@@ -849,6 +858,16 @@ namespace engine
 			}
 		}
 
+		//记录本帧几何统计
+		stats.vertices = static_cast<uint32_t>(cpu_vertices.size());
+		stats.indices = static_cast<uint32_t>(cpu_indices.size());
+		stats.draws = static_cast<uint32_t>(draws.size());
+		for (const Draw_Record& record : draws)
+		{
+			if (record.text)
+				++stats.text_draws;
+		}
+
 		//无任何绘制内容
 		if (cpu_indices.empty())
 			return;
@@ -924,6 +943,7 @@ namespace engine
 					{
 						pipeline->ui_texture_bind(slot, sampler, view);
 						buffers.bound_atlas = record.texture;
+						++stats.texture_binds;
 					}
 				}
 				//取 UI 专用采样集

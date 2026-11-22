@@ -8,6 +8,7 @@ namespace engine
 	struct Render_Core_Context;
 	class Renderer;
 	struct Ui_State;
+	struct Ui_Render_Stats;
 
 	/*
 	渲染器域：界面
@@ -30,6 +31,8 @@ namespace engine
 		Ui_Channel_Context* ui_channel(void);
 		//原生 UI 上下文（保留模式控件树；未初始化时返回空）
 		Ui_Context* ui_context(void);
+		//最近一帧 UI 绘制统计（第八百九十九轮；未初始化时返回全零）
+		const Ui_Render_Stats& ui_render_stats(void) const;
 		//帧输入聚合器（渲染层自持原始输入；未初始化时返回空）
 		Input_Aggregator* input_aggregator(void);
 		//系统输入 / UI 事件终端（供应用层绑定中转站）
