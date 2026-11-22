@@ -576,10 +576,8 @@ namespace engine
 		draws.clear();
 		text_atlas = 0;
 
-		//UI 字体与字体高度
+		//UI 全局字体句柄（控件未单独指定时使用）
 		const uint64_t font_handle = ui.font_get();
-		const Font_Record* font_record = (font != nullptr && font_handle != 0) ? font->font_get(font_handle) : nullptr;
-		const float text_height = font_record != nullptr ? static_cast<float>(font_record->pixel_height) : 0.0f;
 
 		//焦点环（4 条 2 像素边框；颜色固定为强调蓝）
 		const Ui_Color focus_color{ 0.35f, 0.65f, 1.0f, 1.0f };
@@ -637,6 +635,12 @@ namespace engine
 			//本控件后续几何按此裁剪
 			current_clip = clip;
 
+			//控件专用字体（0 回退全局字体）与字体高度
+			const uint64_t node_font = node->text_font != 0 ? node->text_font : font_handle;
+			const Font_Record* node_record = (font != nullptr && node_font != 0) ? font->font_get(node_font) : nullptr;
+			const float node_text_height = node_record != nullptr
+				? static_cast<float>(node_record->pixel_height) : 0.0f;
+
 			switch (node->type)
 			{
 			//面板：矩形背景（样式角色启用时取主题色）
@@ -653,7 +657,7 @@ namespace engine
 			}
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
-				text_append_block(font_handle, node->text, node->rect, node->line_height,
+				text_append_block(node_font, node->text, node->rect, node->line_height,
 					node->text_wrap, node->text_ellipsis, node->text_valign,
 					with_opacity(node->text_color, node->opacity));
 				break;
@@ -694,8 +698,8 @@ namespace engine
 					with_opacity(color, node->opacity));
 				//标签垂直居中
 				if (!node->label.empty())
-					text_append(font_handle, node->label, node->rect.x,
-						node->rect.y + (node->rect.h - text_height) * 0.5f, node->rect.w,
+					text_append(node_font, node->label, node->rect.x,
+						node->rect.y + (node->rect.h - node_text_height) * 0.5f, node->rect.w,
 						with_opacity(node->text_color, node->opacity));
 				//焦点环
 				if (node->focused)
@@ -716,8 +720,8 @@ namespace engine
 					with_opacity(box_color, node->opacity));
 				const float padding = 6.0f;
 				const float text_x = node->rect.x + padding;
-				const float text_y = node->rect.y + (node->rect.h - text_height) * 0.5f;
-				text_append(font_handle, node->text, text_x, text_y, 0.0f,
+				const float text_y = node->rect.y + (node->rect.h - node_text_height) * 0.5f;
+				text_append(node_font, node->text, text_x, text_y, 0.0f,
 					with_opacity(node->text_color, node->opacity));
 				//焦点态绘制光标
 				if (node->focused)
@@ -725,8 +729,8 @@ namespace engine
 					uint32_t caret_width = 0;
 					uint32_t caret_height = 0;
 					//度量光标之前的文本宽度（空串按 0）
-					if (font_record != nullptr && node->caret > 0 && node->caret <= node->text.size())
-						Font_Context::text_measure(*font_record, node->text.substr(0, node->caret),
+					if (node_record != nullptr && node->caret > 0 && node->caret <= node->text.size())
+						Font_Context::text_measure(*node_record, node->text.substr(0, node->caret),
 							caret_width, caret_height);
 					Ui_Rect caret_rect{};
 					caret_rect.x = text_x + static_cast<float>(caret_width);
@@ -779,8 +783,8 @@ namespace engine
 				}
 				//右侧标签
 				if (!node->label.empty())
-					text_append(font_handle, node->label, box_rect.x + box_rect.w + 6.0f,
-						node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f,
+					text_append(node_font, node->label, box_rect.x + box_rect.w + 6.0f,
+						node->rect.y + (node->rect.h - node_text_height) * 0.5f, 0.0f,
 						with_opacity(node->text_color, node->opacity));
 				//焦点环
 				if (node->focused)
@@ -926,14 +930,19 @@ namespace engine
 				const VkDescriptorSet ui_set = pipeline->ui_set_get(slot);
 				if (ui_set == VK_NULL_HANDLE)
 					continue;
-				//切换管线与采样集
+				//切换管线
 				if (active_pipeline != 2)
 				{
 					vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, text_vk);
-					vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
-						1, 1, &ui_set, 0, nullptr);
 					active_pipeline = 2;
 				}
+				/*
+				每条纹理绘制都重绑描述符集
+				同帧内不同控件可能使用不同字体 / 图片纹理，描述符集内容是逐条重写的；
+				已绑定的描述符集在重写后必须重新绑定才会生效。
+				*/
+				vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
+					1, 1, &ui_set, 0, nullptr);
 			}
 			//纯色绘制
 			else

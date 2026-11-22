@@ -267,6 +267,8 @@ namespace engine
 		Ui_Align text_valign = Ui_Align::Center;
 		//单行超宽时尾部省略（第八百九十五轮；仅非自动换行时生效）
 		bool text_ellipsis = false;
+		//控件专用字体句柄（0 = 使用 UI 全局字体；第八百九十六轮）
+		uint64_t text_font = 0;
 		//文本框光标（字节偏移）
 		std::size_t caret = 0;
 		//是否可见
@@ -433,6 +435,12 @@ namespace engine
 		//设置 / 读取单行省略（未知句柄设置返回假，读取返回假）
 		bool text_ellipsis_set(Ui_Handle handle, bool ellipsis);
 		bool text_ellipsis_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取控件专用字体（第八百九十六轮）
+		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。
+		*/
+		bool text_font_set(Ui_Handle handle, uint64_t font);
+		uint64_t text_font_get(Ui_Handle handle) const;
 		//取文本框内容
 		bool text_get(Ui_Handle handle, std::string& text_out) const;
 		//复选框选中状态读取 / 设置

@@ -713,6 +713,25 @@ namespace engine
 		return node->text_ellipsis;
 	}
 
+	//设置控件专用字体
+	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_font = font;
+		return true;
+	}
+
+	//读取控件专用字体
+	uint64_t Ui_Context::text_font_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->text_font;
+	}
+
 	//复选框选中状态读取
 	bool Ui_Context::checked_get(Ui_Handle handle) const
 	{
