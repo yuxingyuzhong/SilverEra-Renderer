@@ -41,6 +41,10 @@ namespace engine
 		uint32_t cache_hits = 0;
 		//本帧是否跳过缓冲上传（1 = 当前槽内容已是最新）
 		uint32_t upload_skips = 0;
+		//本帧文本几何缓存命中次数（第九百零二轮）
+		uint32_t text_cache_hits = 0;
+		//本帧文本几何缓存未命中次数
+		uint32_t text_cache_misses = 0;
 	};
 
 	/*
@@ -112,6 +116,22 @@ namespace engine
 			//该条绘制的裁剪矩形（窗口像素；阶段录制时转为 scissor）
 			Ui_Rect clip{};
 		};
+		//文本几何缓存条目（第九百零二轮）
+		struct Text_Cache_Entry
+		{
+			//字体句柄（键）
+			uint64_t font_handle = 0;
+			//文本内容（键）
+			std::string text{};
+			//居中区宽度（键）
+			float center_area_width = 0.0f;
+			//度量宽度（命中时省去重新度量）
+			uint32_t width = 0;
+			//已生成的文字几何（原点在文本左上角）
+			Mesh_Data mesh{};
+			//最近使用序号（淘汰最久未使用者）
+			uint64_t stamp = 0;
+		};
 
 		//确保帧槽缓冲容量足够（不足时重建）
 		bool slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count);
@@ -142,6 +162,12 @@ namespace engine
 		void text_atlas_mark(uint64_t font_handle);
 		//计算控件树绘制相关字段的指纹（稳定帧缓存判定，第九百轮）
 		uint64_t fingerprint_build(const Ui_Context& ui) const;
+		//查找文本几何缓存条目（未命中返回空；第九百零二轮）
+		Text_Cache_Entry* text_cache_find(uint64_t font_handle, const std::string& text,
+			float center_area_width);
+		//写入文本几何缓存条目并返回其指针（超出容量时淘汰最久未使用者）
+		Text_Cache_Entry* text_cache_insert(uint64_t font_handle, const std::string& text,
+			float center_area_width, Mesh_Data&& mesh, uint32_t width);
 
 	private:
 		//逻辑设备
@@ -166,8 +192,12 @@ namespace engine
 		std::vector<uint32_t> cpu_indices{};
 		//本帧绘制记录
 		std::vector<Draw_Record> draws{};
-		//文字几何临时数据（复用）
-		Mesh_Data text_scratch{};
+		//文本几何缓存（第九百零二轮）
+		std::vector<Text_Cache_Entry> text_cache{};
+		//文本几何缓存容量上限
+		static constexpr std::size_t text_cache_capacity = 64;
+		//最近一次缓存使用序号（淘汰依据）
+		uint64_t text_cache_stamp = 0;
 		//本帧使用的字形图集纹理句柄（0 = 无文字）
 		uint64_t text_atlas = 0;
 		//各槽位的继承裁剪（下标 = 句柄 - 1；逐帧复用，第八百八十八轮）

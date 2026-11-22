@@ -108,7 +108,8 @@ namespace engine
 		cpu_indices.clear();
 		draws.clear();
 		inherited_clips.clear();
-		text_scratch = Mesh_Data{};
+		text_cache.clear();
+		text_cache_stamp = 0;
 		text_atlas = 0;
 		device = VK_NULL_HANDLE;
 		memory = nullptr;
@@ -451,6 +452,49 @@ namespace engine
 		draws.push_back(record);
 	}
 
+	//查找文本几何缓存条目
+	Ui_Renderer::Text_Cache_Entry* Ui_Renderer::text_cache_find(uint64_t font_handle, const std::string& text,
+		float center_area_width)
+	{
+		for (Text_Cache_Entry& entry : text_cache)
+		{
+			//键：字体句柄 + 文本 + 居中区宽度
+			if (entry.font_handle != font_handle || entry.center_area_width != center_area_width)
+				continue;
+			//文本一致即命中
+			if (entry.text == text)
+				return &entry;
+		}
+		return nullptr;
+	}
+
+	//写入文本几何缓存条目
+	Ui_Renderer::Text_Cache_Entry* Ui_Renderer::text_cache_insert(uint64_t font_handle, const std::string& text,
+		float center_area_width, Mesh_Data&& mesh, uint32_t width)
+	{
+		//容量已满则淘汰最久未使用条目
+		if (text_cache.size() >= text_cache_capacity)
+		{
+			std::size_t oldest = 0;
+			for (std::size_t index = 1; index < text_cache.size(); ++index)
+			{
+				if (text_cache[index].stamp < text_cache[oldest].stamp)
+					oldest = index;
+			}
+			text_cache.erase(text_cache.begin() + static_cast<std::ptrdiff_t>(oldest));
+		}
+		//登记新条目
+		Text_Cache_Entry entry{};
+		entry.font_handle = font_handle;
+		entry.text = text;
+		entry.center_area_width = center_area_width;
+		entry.width = width;
+		entry.mesh = std::move(mesh);
+		entry.stamp = ++text_cache_stamp;
+		text_cache.push_back(std::move(entry));
+		return &text_cache.back();
+	}
+
 	//追加文本
 	bool Ui_Renderer::text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 		float center_area_width, const Ui_Color& color)
@@ -470,25 +514,38 @@ namespace engine
 		//惰性补烘所需字形（含中文）
 		font->glyphs_ensure(*record, text);
 
-		//生成文字几何（像素坐标，原点在文本左上角）
-		text_scratch = Mesh_Data{};
-		if (!Font_Context::text_geometry_build(text_scratch, *record, text))
-			return false;
-
-		//度量单行宽度用于居中
-		uint32_t width = 0;
-		uint32_t height = 0;
-		Font_Context::text_measure(*record, text, width, height);
+		//查询文本几何缓存
+		Text_Cache_Entry* entry = text_cache_find(font_handle, text, center_area_width);
+		if (entry != nullptr)
+		{
+			//刷新使用序号并计命中
+			entry->stamp = ++text_cache_stamp;
+			++stats.text_cache_hits;
+		}
+		else
+		{
+			++stats.text_cache_misses;
+			//生成文字几何（像素坐标，原点在文本左上角）
+			Mesh_Data mesh{};
+			if (!Font_Context::text_geometry_build(mesh, *record, text))
+				return false;
+			//度量单行宽度用于居中
+			uint32_t width = 0;
+			uint32_t height = 0;
+			Font_Context::text_measure(*record, text, width, height);
+			//写入缓存并取条目
+			entry = text_cache_insert(font_handle, text, center_area_width, std::move(mesh), width);
+		}
 
 		//居中时按目标区宽度平移
 		float offset_x = pixel_x;
 		if (center_area_width > 0.0f)
-			offset_x += (center_area_width - static_cast<float>(width)) * 0.5f;
+			offset_x += (center_area_width - static_cast<float>(entry->width)) * 0.5f;
 
 		//写入顶点与索引（索引按当前顶点基址偏移，绘制记录取索引基址）
 		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
 		const uint32_t index_base = static_cast<uint32_t>(cpu_indices.size());
-		for (const Vertex& source : text_scratch.vertices)
+		for (const Vertex& source : entry->mesh.vertices)
 		{
 			Vertex vertex = source;
 			vertex.position[0] += offset_x;
@@ -496,13 +553,13 @@ namespace engine
 			vertex.position[2] = 0.0f;
 			cpu_vertices.push_back(vertex);
 		}
-		for (uint32_t index : text_scratch.indices)
+		for (uint32_t index : entry->mesh.indices)
 			cpu_indices.push_back(base + index);
 
 		//登记文字绘制记录
 		Draw_Record draw_record{};
 		draw_record.first_index = index_base;
-		draw_record.index_count = static_cast<uint32_t>(text_scratch.indices.size());
+		draw_record.index_count = static_cast<uint32_t>(entry->mesh.indices.size());
 		draw_record.color = color;
 		draw_record.texture = record->atlas_texture;
 		draw_record.text = true;
