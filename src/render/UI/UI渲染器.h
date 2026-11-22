@@ -86,6 +86,15 @@ namespace engine
 		bool slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count);
 		//追加一个矩形（像素坐标）并登记纯色绘制
 		void quad_append(const Ui_Rect& rect, const Ui_Color& color);
+		/*
+		追加一个圆角矩形（第八百八十七轮）
+		radius <= 0 时退化为 quad_append（保证直角路径逐字节不变）；
+		否则按四角圆弧分段 + 中心扇形三角化。
+		*/
+		void rounded_quad_append(const Ui_Rect& rect, float radius, const Ui_Color& color);
+		//追加带描边的背景（先描边后填充；border_width <= 0 时只填充）
+		void background_append(const Ui_Rect& rect, float radius, float border_width,
+			const Ui_Color& border_color, const Ui_Color& fill_color);
 		//追加文本（返回是否登记了绘制；字体未设置 / 无字形时返回假）
 		bool text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 			float center_area_width, const Ui_Color& color);

@@ -230,6 +230,12 @@ namespace engine
 		Ui_Role role = Ui_Role::Custom;
 		//不透明度（0..1；第八百八十五轮）
 		float opacity = 1.0f;
+		//圆角半径（像素；0 = 直角；第八百八十七轮）
+		float corner_radius = 0.0f;
+		//描边宽度（像素；<=0 = 无描边）
+		float border_width = 0.0f;
+		//描边颜色
+		Ui_Color border_color{ 0.0f, 0.0f, 0.0f, 1.0f };
 		//背景色（面板 / 按钮 / 文本框）
 		Ui_Color color{};
 		//文本色（按钮标签 / 文本框内容）
@@ -351,6 +357,20 @@ namespace engine
 		//设置 / 读取控件不透明度（0..1，越界夹紧；未知句柄设置返回假）
 		bool opacity_set(Ui_Handle handle, float opacity);
 		float opacity_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取圆角半径（第八百八十七轮）
+		半径单位像素，负值按 0；绘制时再按短边一半夹紧。
+		未知句柄设置返回假，读取返回 0。
+		*/
+		bool corner_radius_set(Ui_Handle handle, float radius);
+		float corner_radius_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取描边
+		width <= 0 表示无描边；未知句柄设置返回假，读取宽度返回 0、颜色返回黑色。
+		*/
+		bool border_set(Ui_Handle handle, float width, const Ui_Color& color);
+		float border_width_get(Ui_Handle handle) const;
+		Ui_Color border_color_get(Ui_Handle handle) const;
 		//设置背景色
 		bool color_set(Ui_Handle handle, const Ui_Color& color);
 		//设置按钮标签

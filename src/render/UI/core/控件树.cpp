@@ -489,6 +489,58 @@ namespace engine
 		return node->opacity;
 	}
 
+	//设置控件圆角半径
+	bool Ui_Context::corner_radius_set(Ui_Handle handle, float radius)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//负半径按直角处理
+		if (radius < 0.0f)
+			radius = 0.0f;
+		node->corner_radius = radius;
+		return true;
+	}
+
+	//读取控件圆角半径
+	float Ui_Context::corner_radius_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->corner_radius;
+	}
+
+	//设置控件描边
+	bool Ui_Context::border_set(Ui_Handle handle, float width, const Ui_Color& color)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//负宽度按无描边处理
+		node->border_width = width > 0.0f ? width : 0.0f;
+		node->border_color = color;
+		return true;
+	}
+
+	//读取控件描边宽度
+	float Ui_Context::border_width_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->border_width;
+	}
+
+	//读取控件描边颜色
+	Ui_Color Ui_Context::border_color_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Color{ 0.0f, 0.0f, 0.0f, 1.0f };
+		return node->border_color;
+	}
+
 	//设置背景色
 	bool Ui_Context::color_set(Ui_Handle handle, const Ui_Color& color)
 	{

@@ -203,6 +203,119 @@ namespace engine
 		draws.push_back(record);
 	}
 
+	//追加一个圆角矩形并登记纯色绘制
+	void Ui_Renderer::rounded_quad_append(const Ui_Rect& rect, float radius, const Ui_Color& color)
+	{
+		//零面积 / 非正半径按直角矩形处理（既有路径逐字节不变）
+		if (rect.w <= 0.0f || rect.h <= 0.0f || radius <= 0.0f)
+		{
+			quad_append(rect, color);
+			return;
+		}
+		//半径不超过短边一半
+		const float short_side = std::min(rect.w, rect.h);
+		float r = std::min(radius, short_side * 0.5f);
+		//极限半径不足半像素时仍按直角处理
+		if (r < 0.5f)
+		{
+			quad_append(rect, color);
+			return;
+		}
+
+		//矩形边界
+		const float x0 = rect.x;
+		const float y0 = rect.y;
+		const float x1 = rect.x + rect.w;
+		const float y1 = rect.y + rect.h;
+		//每角圆弧分段数
+		const int segments = 8;
+		//圆周率
+		const float pi = 3.14159265358979323846f;
+
+		//周长采样点（顺时针，屏幕坐标 Y 向下）
+		std::vector<float> points_x{};
+		std::vector<float> points_y{};
+		/*
+		追加一个 90 度圆弧（含首尾）
+		cx / cy 为圆心，start_deg 为起始角；角度按屏幕坐标（Y 向下）解释。
+		*/
+		auto arc_append = [&](float cx, float cy, float start_deg) -> void
+			{
+				for (int i = 0; i <= segments; ++i)
+				{
+					const float degree = start_deg + 90.0f * static_cast<float>(i) / static_cast<float>(segments);
+					const float radian = degree * pi / 180.0f;
+					points_x.push_back(cx + r * std::cos(radian));
+					points_y.push_back(cy + r * std::sin(radian));
+				}
+			};
+		//右上 → 右下 → 左下 → 左上（首尾相接构成闭合轮廓）
+		arc_append(x1 - r, y0 + r, -90.0f);
+		arc_append(x1 - r, y1 - r, 0.0f);
+		arc_append(x0 + r, y1 - r, 90.0f);
+		arc_append(x0 + r, y0 + r, 180.0f);
+
+		//顶点基址与索引基址
+		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
+		const uint32_t index_base = static_cast<uint32_t>(cpu_indices.size());
+		//中心点（凸形状，扇形三角化）
+		Vertex center{};
+		center.position[0] = (x0 + x1) * 0.5f;
+		center.position[1] = (y0 + y1) * 0.5f;
+		center.position[2] = 0.0f;
+		cpu_vertices.push_back(center);
+		//周长点
+		for (std::size_t i = 0; i < points_x.size(); ++i)
+		{
+			Vertex vertex{};
+			vertex.position[0] = points_x[i];
+			vertex.position[1] = points_y[i];
+			vertex.position[2] = 0.0f;
+			cpu_vertices.push_back(vertex);
+		}
+		//扇形三角形
+		const uint32_t point_count = static_cast<uint32_t>(points_x.size());
+		for (uint32_t i = 0; i < point_count; ++i)
+		{
+			const uint32_t current = base + 1 + i;
+			const uint32_t next = base + 1 + (i + 1) % point_count;
+			cpu_indices.push_back(base);
+			cpu_indices.push_back(current);
+			cpu_indices.push_back(next);
+		}
+
+		//登记绘制记录
+		Draw_Record record{};
+		record.first_index = index_base;
+		record.index_count = point_count * 3;
+		record.color = color;
+		record.text = false;
+		record.clip = current_clip;
+		draws.push_back(record);
+	}
+
+	//追加带描边的背景（先描边后填充）
+	void Ui_Renderer::background_append(const Ui_Rect& rect, float radius, float border_width,
+		const Ui_Color& border_color, const Ui_Color& fill_color)
+	{
+		//无描边：直接填充
+		if (border_width <= 0.0f)
+		{
+			rounded_quad_append(rect, radius, fill_color);
+			return;
+		}
+		//描边宽不超过短边一半，避免内矩形反向
+		const float short_side = std::min(rect.w, rect.h);
+		const float width = std::min(border_width, short_side * 0.5f);
+		//外圈描边
+		rounded_quad_append(rect, radius, border_color);
+		//内圈填充（半径随内缩递减）
+		const Ui_Rect inner{ rect.x + width, rect.y + width,
+			rect.w - width * 2.0f, rect.h - width * 2.0f };
+		const float inner_radius = radius > width ? radius - width : 0.0f;
+		rounded_quad_append(inner, inner_radius, fill_color);
+	}
+
 	//追加文本
 	bool Ui_Renderer::text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 		float center_area_width, const Ui_Color& color)
@@ -343,7 +456,10 @@ namespace engine
 				const Ui_Color panel_color = node->role == Ui_Role::Custom ? node->color
 					: ui_theme_color(ui.theme_get(), node->role,
 						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
-				quad_append(node->rect, with_opacity(panel_color, node->opacity));
+				//圆角与描边由背景辅助处理（半径 0 时退回直角路径）
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(panel_color, node->opacity));
 				break;
 			}
 			//纯文本标签：居左、垂直居中
@@ -380,7 +496,9 @@ namespace engine
 					color.g = std::min(1.0f, color.g + 0.12f);
 					color.b = std::min(1.0f, color.b + 0.12f);
 				}
-				quad_append(node->rect, with_opacity(color, node->opacity));
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(color, node->opacity));
 				//标签垂直居中
 				if (!node->label.empty())
 					text_append(font_handle, node->label, node->rect.x,
@@ -400,7 +518,9 @@ namespace engine
 				const Ui_Color box_color = node->role == Ui_Role::Custom ? node->color
 					: ui_theme_color(ui.theme_get(), node->role,
 						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
-				quad_append(node->rect, with_opacity(box_color, node->opacity));
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(box_color, node->opacity));
 				const float padding = 6.0f;
 				const float text_x = node->rect.x + padding;
 				const float text_y = node->rect.y + (node->rect.h - text_height) * 0.5f;
@@ -453,7 +573,9 @@ namespace engine
 					box_color.g = std::min(1.0f, box_color.g + 0.20f);
 					box_color.b = std::min(1.0f, box_color.b + 0.20f);
 				}
-				quad_append(box_rect, with_opacity(box_color, node->opacity));
+				background_append(box_rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(box_color, node->opacity));
 				//选中态绘制内块
 				if (node->checked)
 				{
@@ -500,7 +622,7 @@ namespace engine
 					knob_color.g = 1.0f;
 					knob_color.b = 1.0f;
 				}
-				quad_append(knob_rect, with_opacity(knob_color, node->opacity));
+				rounded_quad_append(knob_rect, node->corner_radius, with_opacity(knob_color, node->opacity));
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);
