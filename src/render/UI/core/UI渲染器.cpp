@@ -112,6 +112,11 @@ namespace engine
 		text_cache_stamp = 0;
 		block_cache.clear();
 		block_cache_stamp = 0;
+		round_points_x.clear();
+		round_points_y.clear();
+		arc_cos.clear();
+		arc_sin.clear();
+		arc_table_ready = false;
 		text_atlas = 0;
 		device = VK_NULL_HANDLE;
 		memory = nullptr;
@@ -317,31 +322,49 @@ namespace engine
 		const float y1 = rect.y + rect.h;
 		//每角圆弧分段数
 		const int segments = 8;
-		//圆周率
-		const float pi = 3.14159265358979323846f;
-
-		//周长采样点（顺时针，屏幕坐标 Y 向下）
-		std::vector<float> points_x{};
-		std::vector<float> points_y{};
-		/*
-		追加一个 90 度圆弧（含首尾）
-		cx / cy 为圆心，start_deg 为起始角；角度按屏幕坐标（Y 向下）解释。
-		*/
-		auto arc_append = [&](float cx, float cy, float start_deg) -> void
+		//单位圆采样表惰性预算（4 角 × (分段 + 1)，角度公式与旧实现一致）
+		if (!arc_table_ready)
+		{
+			const float pi = 3.14159265358979323846f;
+			const float starts[4] = { -90.0f, 0.0f, 90.0f, 180.0f };
+			const std::size_t per_corner = static_cast<std::size_t>(segments) + 1;
+			arc_cos.assign(per_corner * 4, 0.0f);
+			arc_sin.assign(per_corner * 4, 0.0f);
+			for (std::size_t corner = 0; corner < 4; ++corner)
 			{
 				for (int i = 0; i <= segments; ++i)
 				{
-					const float degree = start_deg + 90.0f * static_cast<float>(i) / static_cast<float>(segments);
+					const float degree = starts[corner] + 90.0f * static_cast<float>(i) / static_cast<float>(segments);
 					const float radian = degree * pi / 180.0f;
-					points_x.push_back(cx + r * std::cos(radian));
-					points_y.push_back(cy + r * std::sin(radian));
+					arc_cos[corner * per_corner + static_cast<std::size_t>(i)] = std::cos(radian);
+					arc_sin[corner * per_corner + static_cast<std::size_t>(i)] = std::sin(radian);
+				}
+			}
+			arc_table_ready = true;
+		}
+
+		//周长采样点（复用成员缓冲，顺时针，屏幕坐标 Y 向下）
+		round_points_x.clear();
+		round_points_y.clear();
+		const std::size_t per_corner = static_cast<std::size_t>(segments) + 1;
+		/*
+		追加一个 90 度圆弧（含首尾）
+		cx / cy 为圆心，corner 选采样表起始段；角度按屏幕坐标（Y 向下）解释。
+		*/
+		auto arc_append = [&](float cx, float cy, std::size_t corner) -> void
+			{
+				for (int i = 0; i <= segments; ++i)
+				{
+					const std::size_t sample = corner * per_corner + static_cast<std::size_t>(i);
+					round_points_x.push_back(cx + r * arc_cos[sample]);
+					round_points_y.push_back(cy + r * arc_sin[sample]);
 				}
 			};
 		//右上 → 右下 → 左下 → 左上（首尾相接构成闭合轮廓）
-		arc_append(x1 - r, y0 + r, -90.0f);
-		arc_append(x1 - r, y1 - r, 0.0f);
-		arc_append(x0 + r, y1 - r, 90.0f);
-		arc_append(x0 + r, y0 + r, 180.0f);
+		arc_append(x1 - r, y0 + r, 0);
+		arc_append(x1 - r, y1 - r, 1);
+		arc_append(x0 + r, y1 - r, 2);
+		arc_append(x0 + r, y0 + r, 3);
 
 		//顶点基址与索引基址
 		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
@@ -353,16 +376,16 @@ namespace engine
 		center.position[2] = 0.0f;
 		cpu_vertices.push_back(center);
 		//周长点
-		for (std::size_t i = 0; i < points_x.size(); ++i)
+		for (std::size_t i = 0; i < round_points_x.size(); ++i)
 		{
 			Vertex vertex{};
-			vertex.position[0] = points_x[i];
-			vertex.position[1] = points_y[i];
+			vertex.position[0] = round_points_x[i];
+			vertex.position[1] = round_points_y[i];
 			vertex.position[2] = 0.0f;
 			cpu_vertices.push_back(vertex);
 		}
 		//扇形三角形
-		const uint32_t point_count = static_cast<uint32_t>(points_x.size());
+		const uint32_t point_count = static_cast<uint32_t>(round_points_x.size());
 		for (uint32_t i = 0; i < point_count; ++i)
 		{
 			const uint32_t current = base + 1 + i;

@@ -236,6 +236,14 @@ namespace engine
 		static constexpr std::size_t block_cache_capacity = 32;
 		//最近一次块缓存使用序号
 		uint64_t block_cache_stamp = 0;
+		//圆角轮廓采样缓冲（复用；第九百零四轮）
+		std::vector<float> round_points_x{};
+		std::vector<float> round_points_y{};
+		//圆角单位圆采样表（4 角 × 每角分段 + 1 的 cos / sin）
+		std::vector<float> arc_cos{};
+		std::vector<float> arc_sin{};
+		//采样表是否已预算
+		bool arc_table_ready = false;
 		//本帧使用的字形图集纹理句柄（0 = 无文字）
 		uint64_t text_atlas = 0;
 		//各槽位的继承裁剪（下标 = 句柄 - 1；逐帧复用，第八百八十八轮）
