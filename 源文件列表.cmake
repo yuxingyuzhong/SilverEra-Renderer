@@ -22,7 +22,6 @@
 # =============================================================================
 #
 target_sources(EngineRenderer PRIVATE
-    "src/render/Animation/core/动画姿态.cpp"
     "src/render/Animation/core/动画层.cpp"
     "src/render/Animation/core/动画应用.cpp"
     "src/render/Animation/core/动画播放器.cpp"

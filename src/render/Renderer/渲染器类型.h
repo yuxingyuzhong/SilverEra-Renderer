@@ -612,8 +612,8 @@ namespace engine
 		float rotation_deg[3] = { 0.0f, 0.0f, 0.0f };
 	};
 
-	//骨架与片段（完整定义见 Animation 模块；此处仅前置声明，保持本公共头零资产解析依赖）
-	struct Animation_Skeleton;
+	//骨架与片段（完整定义见 Animation / 系统层骨骼模块；此处仅前置声明，保持本公共头零资产解析依赖）
+	class Skeleton_Asset;
 	struct Animation_Clip;
 
 	/*
@@ -630,7 +630,7 @@ namespace engine
 		//骨骼数（与区间分配时一致）
 		uint32_t bone_count = 0;
 		//骨架（装配时加载；空表示未装载）
-		std::shared_ptr<const Animation_Skeleton> skeleton;
+		std::shared_ptr<const Skeleton_Asset> skeleton;
 		//动画片段（`anim` 行；空表示无片段，按绑定姿态写调色板）
 		std::shared_ptr<const Animation_Clip> clip;
 		//播放时间（秒；无片段时保持 0）

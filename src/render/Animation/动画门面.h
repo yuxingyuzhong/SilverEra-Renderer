@@ -33,24 +33,27 @@ namespace engine
 		//回收演员区间（未登记偏移返回假）
 		bool actor_destroy(uint32_t offset);
 		//按姿态写演员调色板（骨骼数与登记一致；内部求 world × inverse_bind 后上传）
-		bool actor_palette_write(uint32_t offset, const Animation_Skeleton& skeleton, const Animation_Pose& pose);
+		bool actor_palette_write(uint32_t offset, const std::shared_ptr<const Animation_Skeleton>& skeleton,
+			Animation_Pose& pose);
 		//按片段时间写演员调色板（采样 → 姿态 → 调色板）
-		bool actor_clip_write(uint32_t offset, const Animation_Clip& clip, const Animation_Skeleton& skeleton,
-			float time, bool loop);
+		bool actor_clip_write(uint32_t offset, const Animation_Clip& clip,
+			const std::shared_ptr<const Animation_Skeleton>& skeleton, float time, bool loop);
 		/*
 		按双片段混合写演员调色板（方向十 · 收敛轮 864）
 		weight ∈ [0,1]：0 取 clip_a、1 取 clip_b、中间为混合姿态；越界夹紧。
 		门面只做编排与上传，混合规则在 `animation_clip_pose_blend`。
 		*/
 		bool actor_blend_write(uint32_t offset, const Animation_Clip& clip_a, const Animation_Clip& clip_b,
-			const Animation_Skeleton& skeleton, float time_a, float time_b, float weight, bool loop);
+			const std::shared_ptr<const Animation_Skeleton>& skeleton, float time_a, float time_b, float weight,
+			bool loop);
 		/*
 		按叠加层写演员调色板（方向十 · 收敛轮 872）
 		base 片段决定主姿态，overlay 片段按 weight 叠加其相对绑定姿态的偏移（平移 / 缩放 / 旋转）；
 		与过渡混合互斥：过渡进行中调用方应走 `actor_blend_write`。
 		*/
 		bool actor_layer_write(uint32_t offset, const Animation_Clip& base_clip, const Animation_Clip& overlay_clip,
-			const Animation_Skeleton& skeleton, float base_time, float overlay_time, float weight, bool loop);
+			const std::shared_ptr<const Animation_Skeleton>& skeleton, float base_time, float overlay_time,
+			float weight, bool loop);
 
 	private:
 		//渲染器根门面

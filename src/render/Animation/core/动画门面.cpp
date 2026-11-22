@@ -54,30 +54,32 @@ namespace engine
 	}
 
 	//按姿态写演员调色板
-	bool Render_Animation::actor_palette_write(uint32_t offset, const Animation_Skeleton& skeleton,
-		const Animation_Pose& pose)
+	bool Render_Animation::actor_palette_write(uint32_t offset,
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, Animation_Pose& pose)
 	{
 		if (owner == nullptr)
 			return false;
 		auto it = actors.find(offset);
 		if (it == actors.end())
 			return false;
-		const uint32_t bone_count = skeleton.bone_count();
+		if (!skeleton)
+			return false;
+		const uint32_t bone_count = skeleton->bone_count();
 		//骨骼数须与登记一致
 		if (bone_count == 0 || bone_count != it->second)
 			return false;
-		//求 world × inverse_bind
-		std::vector<float> palette(
-			static_cast<std::size_t>(bone_count) * ANIMATION_PALETTE_MATRIX_FLOATS, 0.0f);
-		if (!animation_skin_palette_build(skeleton, pose, palette.data(), bone_count))
+		//先求世界矩阵再求 world × inverse_bind（系统层中立求值，蒙皮矩阵写入 pose.skin_matrix）
+		if (!skeleton_pose_world_update(pose) || !skeleton_pose_skin_build(pose))
+			return false;
+		if (pose.skin_matrix.size() < static_cast<std::size_t>(bone_count) * ANIMATION_PALETTE_MATRIX_FLOATS)
 			return false;
 		//上传到该演员区间
-		return owner->resource().animation_palette_upload(palette.data(), bone_count, offset);
+		return owner->resource().animation_palette_upload(pose.skin_matrix.data(), bone_count, offset);
 	}
 
 	//按片段时间写演员调色板
 	bool Render_Animation::actor_clip_write(uint32_t offset, const Animation_Clip& clip,
-		const Animation_Skeleton& skeleton, float time, bool loop)
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, float time, bool loop)
 	{
 		if (owner == nullptr)
 			return false;
@@ -91,8 +93,8 @@ namespace engine
 
 	//按双片段混合写演员调色板
 	bool Render_Animation::actor_blend_write(uint32_t offset, const Animation_Clip& clip_a,
-		const Animation_Clip& clip_b, const Animation_Skeleton& skeleton, float time_a, float time_b,
-		float weight, bool loop)
+		const Animation_Clip& clip_b, const std::shared_ptr<const Animation_Skeleton>& skeleton, float time_a,
+		float time_b, float weight, bool loop)
 	{
 		if (owner == nullptr)
 			return false;
@@ -106,8 +108,8 @@ namespace engine
 
 	//按叠加层写演员调色板
 	bool Render_Animation::actor_layer_write(uint32_t offset, const Animation_Clip& base_clip,
-		const Animation_Clip& overlay_clip, const Animation_Skeleton& skeleton, float base_time,
-		float overlay_time, float weight, bool loop)
+		const Animation_Clip& overlay_clip, const std::shared_ptr<const Animation_Skeleton>& skeleton,
+		float base_time, float overlay_time, float weight, bool loop)
 	{
 		if (owner == nullptr)
 			return false;

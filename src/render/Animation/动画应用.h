@@ -15,8 +15,8 @@
 namespace engine
 {
 	//按片段在 time 处构建姿态（loop 控制回绕 / 夹紧）
-	bool animation_clip_pose_build(const Animation_Clip& clip, const Animation_Skeleton& skeleton,
-		float time, bool loop, Animation_Pose& pose);
+	bool animation_clip_pose_build(const Animation_Clip& clip,
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, float time, bool loop, Animation_Pose& pose);
 
 	/*
 	双片段姿态混合（方向十 · 收敛轮 864）
@@ -25,7 +25,7 @@ namespace engine
 	任一片段 / 骨架非法、时间或权重非有限时返回假且不保证姿态内容。
 	*/
 	bool animation_clip_pose_blend(const Animation_Clip& clip_a, const Animation_Clip& clip_b,
-		const Animation_Skeleton& skeleton, float time_a, float time_b, float weight,
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, float time_a, float time_b, float weight,
 		bool loop_a, bool loop_b, Animation_Pose& pose);
 
 	/*
@@ -36,6 +36,6 @@ namespace engine
 	  旋转：nlerp(单位, overlay_r × inverse(bind_r), w) × base_r，归一化。
 	骨架 / 尺寸不符、非有限权重返回假；成功后重算世界矩阵。
 	*/
-	bool animation_pose_layer_apply(const Animation_Skeleton& skeleton, const Animation_Pose& base,
-		const Animation_Pose& overlay, float weight, Animation_Pose& pose);
+	bool animation_pose_layer_apply(const std::shared_ptr<const Animation_Skeleton>& skeleton,
+		const Animation_Pose& base, const Animation_Pose& overlay, float weight, Animation_Pose& pose);
 }

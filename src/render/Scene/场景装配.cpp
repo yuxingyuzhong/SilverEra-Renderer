@@ -219,9 +219,9 @@ namespace engine
 					logger.warn("关卡装配:: 演员 {} 未声明骨架", 项.名称);
 					return false;
 				}
-				//骨架资产
+				//骨架资产（复用系统层骨骼资产加载）
 				auto 骨架 = std::make_shared<Animation_Skeleton>();
-				if (!animation_skeleton_load_file(目录 + 项.骨架, *骨架))
+				if (!Animation_Skeleton::load_file(目录 + 项.骨架, *骨架))
 				{
 					logger.warn("关卡装配:: 演员 {} 骨架加载失败（{}）", 项.名称, 项.骨架);
 					return false;
@@ -441,7 +441,7 @@ namespace engine
 			if (演员.blend_from && 演员.clip)
 			{
 				if (renderer.animation().actor_blend_write(演员.palette_offset, *演员.blend_from, *演员.clip,
-					*演员.skeleton, 演员.blend_from_time, 演员.time_seconds, 演员.blend_weight, 演员.loop))
+					演员.skeleton, 演员.blend_from_time, 演员.time_seconds, 演员.blend_weight, 演员.loop))
 					更新数 += 1;
 				continue;
 			}
@@ -449,23 +449,23 @@ namespace engine
 			if (演员.overlay_clip && 演员.overlay_weight > 0.0f && 演员.clip && 演员.clip->duration > 0.0f)
 			{
 				if (renderer.animation().actor_layer_write(演员.palette_offset, *演员.clip, *演员.overlay_clip,
-					*演员.skeleton, 演员.time_seconds, 演员.overlay_time, 演员.overlay_weight, 演员.loop))
+					演员.skeleton, 演员.time_seconds, 演员.overlay_time, 演员.overlay_weight, 演员.loop))
 					更新数 += 1;
 				continue;
 			}
 			//单片段：按片段时间采样
 			if (演员.clip && 演员.clip->duration > 0.0f)
 			{
-				if (renderer.animation().actor_clip_write(演员.palette_offset, *演员.clip, *演员.skeleton,
+				if (renderer.animation().actor_clip_write(演员.palette_offset, *演员.clip, 演员.skeleton,
 					演员.time_seconds, 演员.loop))
 					更新数 += 1;
 				continue;
 			}
 			//无片段：按绑定姿态写调色板
 			Animation_Pose 姿态;
-			if (!姿态.build(*演员.skeleton))
+			if (!姿态.build(演员.skeleton))
 				continue;
-			if (renderer.animation().actor_palette_write(演员.palette_offset, *演员.skeleton, 姿态))
+			if (renderer.animation().actor_palette_write(演员.palette_offset, 演员.skeleton, 姿态))
 				更新数 += 1;
 		}
 		return 更新数;

@@ -8,19 +8,19 @@
 namespace engine
 {
 	//按片段在 time 处构建姿态
-	bool animation_clip_pose_build(const Animation_Clip& clip, const Animation_Skeleton& skeleton,
-		float time, bool loop, Animation_Pose& pose)
+	bool animation_clip_pose_build(const Animation_Clip& clip,
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, float time, bool loop, Animation_Pose& pose)
 	{
 		//片段、骨架与时间前置
-		if (!animation_clip_valid(clip) || !skeleton.valid() || !std::isfinite(time))
+		if (!animation_clip_valid(clip) || !skeleton || !skeleton->valid() || !std::isfinite(time))
 			return false;
-		//复位到绑定姿态
+		//复位到绑定姿态（复用系统层姿态容器）
 		if (!pose.build(skeleton))
 			return false;
 		//逐骨骼应用通道
-		for (uint32_t bone = 0; bone < skeleton.bone_count(); ++bone)
+		for (uint32_t bone = 0; bone < skeleton->bone_count(); ++bone)
 		{
-			const Animation_Bone* bone_data = skeleton.bone_get(bone);
+			const Animation_Bone* bone_data = skeleton->bone_get(bone);
 			if (bone_data == nullptr)
 				return false;
 			//局部 TRS（默认沿用绑定值）
@@ -59,13 +59,13 @@ namespace engine
 			if (!pose.local_set(bone, translation, rotation, scale))
 				return false;
 		}
-		//求值世界矩阵
-		return pose.world_update(skeleton);
+		//求值世界矩阵（系统层中立求值）
+		return skeleton_pose_world_update(pose);
 	}
 
 	//按两片段混合构建姿态
 	bool animation_clip_pose_blend(const Animation_Clip& clip_a, const Animation_Clip& clip_b,
-		const Animation_Skeleton& skeleton, float time_a, float time_b, float weight,
+		const std::shared_ptr<const Animation_Skeleton>& skeleton, float time_a, float time_b, float weight,
 		bool loop_a, bool loop_b, Animation_Pose& pose)
 	{
 		//时间与权重前置
@@ -86,7 +86,7 @@ namespace engine
 		//输出姿态按骨架初始化（尺寸基准）
 		if (!pose.build(skeleton))
 			return false;
-		const uint32_t bone_count = skeleton.bone_count();
+		const uint32_t bone_count = skeleton->bone_count();
 		//逐骨骼混合局部 TRS
 		for (uint32_t bone = 0; bone < bone_count; ++bone)
 		{
@@ -98,22 +98,22 @@ namespace engine
 			//平移与缩放：线性插值
 			for (uint32_t component = 0; component < 3; ++component)
 			{
-				translation[component] = pose_a.translation[trs3 + component] * (1.0f - weight)
-					+ pose_b.translation[trs3 + component] * weight;
-				scale[component] = pose_a.scale[trs3 + component] * (1.0f - weight)
-					+ pose_b.scale[trs3 + component] * weight;
+				translation[component] = pose_a.local_translation[trs3 + component] * (1.0f - weight)
+					+ pose_b.local_translation[trs3 + component] * weight;
+				scale[component] = pose_a.local_scale[trs3 + component] * (1.0f - weight)
+					+ pose_b.local_scale[trs3 + component] * weight;
 			}
 			//旋转：点积取反后线性混合（避免绕长弧插值）
-			float dot = pose_a.rotation[quat4] * pose_b.rotation[quat4]
-				+ pose_a.rotation[quat4 + 1] * pose_b.rotation[quat4 + 1]
-				+ pose_a.rotation[quat4 + 2] * pose_b.rotation[quat4 + 2]
-				+ pose_a.rotation[quat4 + 3] * pose_b.rotation[quat4 + 3];
+			float dot = pose_a.local_rotation[quat4] * pose_b.local_rotation[quat4]
+				+ pose_a.local_rotation[quat4 + 1] * pose_b.local_rotation[quat4 + 1]
+				+ pose_a.local_rotation[quat4 + 2] * pose_b.local_rotation[quat4 + 2]
+				+ pose_a.local_rotation[quat4 + 3] * pose_b.local_rotation[quat4 + 3];
 			const float sign = dot < 0.0f ? -1.0f : 1.0f;
 			float length_square = 0.0f;
 			for (uint32_t component = 0; component < 4; ++component)
 			{
-				rotation[component] = pose_a.rotation[quat4 + component] * (1.0f - weight)
-					+ pose_b.rotation[quat4 + component] * weight * sign;
+				rotation[component] = pose_a.local_rotation[quat4 + component] * (1.0f - weight)
+					+ pose_b.local_rotation[quat4 + component] * weight * sign;
 				length_square += rotation[component] * rotation[component];
 			}
 			//归一化（零长度退化为单位旋转）
@@ -133,6 +133,6 @@ namespace engine
 				return false;
 		}
 		//混合后统一求值世界矩阵
-		return pose.world_update(skeleton);
+		return skeleton_pose_world_update(pose);
 	}
 }

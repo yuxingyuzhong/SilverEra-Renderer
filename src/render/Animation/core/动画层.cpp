@@ -48,24 +48,24 @@ namespace engine
 	}
 
 	//叠加层应用
-	bool animation_pose_layer_apply(const Animation_Skeleton& skeleton, const Animation_Pose& base,
-		const Animation_Pose& overlay, float weight, Animation_Pose& pose)
+	bool animation_pose_layer_apply(const std::shared_ptr<const Animation_Skeleton>& skeleton,
+		const Animation_Pose& base, const Animation_Pose& overlay, float weight, Animation_Pose& pose)
 	{
 		//骨架与权重前置
-		if (!skeleton.valid() || !std::isfinite(weight))
+		if (!skeleton || !skeleton->valid() || !std::isfinite(weight))
 			return false;
 		//权重夹紧到 [0,1]
 		if (weight < 0.0f)
 			weight = 0.0f;
 		if (weight > 1.0f)
 			weight = 1.0f;
-		const uint32_t bone_count = skeleton.bone_count();
+		const uint32_t bone_count = skeleton->bone_count();
 		//尺寸校验（三组局部 TRS 均须与骨骼数一致）
 		const std::size_t trs3 = static_cast<std::size_t>(bone_count) * 3;
 		const std::size_t quat4 = static_cast<std::size_t>(bone_count) * 4;
-		if (base.translation.size() != trs3 || overlay.translation.size() != trs3
-			|| base.scale.size() != trs3 || overlay.scale.size() != trs3
-			|| base.rotation.size() != quat4 || overlay.rotation.size() != quat4)
+		if (base.local_translation.size() != trs3 || overlay.local_translation.size() != trs3
+			|| base.local_scale.size() != trs3 || overlay.local_scale.size() != trs3
+			|| base.local_rotation.size() != quat4 || overlay.local_rotation.size() != quat4)
 			return false;
 		//输出姿态按骨架初始化（尺寸基准）
 		if (!pose.build(skeleton))
@@ -73,7 +73,7 @@ namespace engine
 		//逐骨骼叠加
 		for (uint32_t bone = 0; bone < bone_count; ++bone)
 		{
-			const Animation_Bone* bone_data = skeleton.bone_get(bone);
+			const Animation_Bone* bone_data = skeleton->bone_get(bone);
 			if (bone_data == nullptr)
 				return false;
 			const std::size_t t3 = static_cast<std::size_t>(bone) * 3;
@@ -83,15 +83,15 @@ namespace engine
 			float scale[3] = {};
 			//平移：base + (overlay - bind) × w
 			for (uint32_t component = 0; component < 3; ++component)
-				translation[component] = base.translation[t3 + component]
-					+ (overlay.translation[t3 + component] - bone_data->bind_translation[component]) * weight;
+				translation[component] = base.local_translation[t3 + component]
+					+ (overlay.local_translation[t3 + component] - bone_data->bind_translation[component]) * weight;
 			//缩放：base × (1 + (overlay / bind - 1) × w)
 			for (uint32_t component = 0; component < 3; ++component)
 			{
 				const float bind_value = bone_data->bind_scale[component] != 0.0f
 					? bone_data->bind_scale[component] : 1.0f;
-				const float ratio = overlay.scale[t3 + component] / bind_value;
-				scale[component] = base.scale[t3 + component] * (1.0f + (ratio - 1.0f) * weight);
+				const float ratio = overlay.local_scale[t3 + component] / bind_value;
+				scale[component] = base.local_scale[t3 + component] * (1.0f + (ratio - 1.0f) * weight);
 			}
 			/*
 			旋转：delta = overlay × inverse(bind)，按权重向单位四元数插值，再乘 base
@@ -100,7 +100,8 @@ namespace engine
 			float bind_conjugate[4] = {};
 			quat_conjugate(bone_data->bind_rotation, bind_conjugate);
 			float overlay_local[4] = {
-				overlay.rotation[r4], overlay.rotation[r4 + 1], overlay.rotation[r4 + 2], overlay.rotation[r4 + 3] };
+				overlay.local_rotation[r4], overlay.local_rotation[r4 + 1],
+				overlay.local_rotation[r4 + 2], overlay.local_rotation[r4 + 3] };
 			float delta[4] = {};
 			quat_multiply(overlay_local, bind_conjugate, delta);
 			//向单位四元数线性插值（点积取反避免长弧）
@@ -110,7 +111,8 @@ namespace engine
 				delta[0] * weight * sign, delta[1] * weight * sign,
 				delta[2] * weight * sign, 1.0f + (delta[3] * sign - 1.0f) * weight };
 			float base_local[4] = {
-				base.rotation[r4], base.rotation[r4 + 1], base.rotation[r4 + 2], base.rotation[r4 + 3] };
+				base.local_rotation[r4], base.local_rotation[r4 + 1],
+				base.local_rotation[r4 + 2], base.local_rotation[r4 + 3] };
 			quat_multiply(scaled_delta, base_local, rotation);
 			//归一化后写回
 			quat_normalize(rotation);
@@ -118,6 +120,6 @@ namespace engine
 				return false;
 		}
 		//叠加后统一求值世界矩阵
-		return pose.world_update(skeleton);
+		return skeleton_pose_world_update(pose);
 	}
 }
