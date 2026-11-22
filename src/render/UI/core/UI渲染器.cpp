@@ -951,8 +951,16 @@ namespace engine
 		Slot_Buffers& buffers = slots[slot];
 		if (!slot_ensure(buffers, static_cast<uint32_t>(cpu_vertices.size()), static_cast<uint32_t>(cpu_indices.size())))
 			return;
-		std::memcpy(buffers.vertex_mapped, cpu_vertices.data(), cpu_vertices.size() * sizeof(Vertex));
-		std::memcpy(buffers.index_mapped, cpu_indices.data(), cpu_indices.size() * sizeof(uint32_t));
+		//该槽已有相同内容时跳过上传
+		if (buffers.uploaded && buffers.uploaded_fingerprint == fingerprint)
+			stats.upload_skips = 1;
+		else
+		{
+			std::memcpy(buffers.vertex_mapped, cpu_vertices.data(), cpu_vertices.size() * sizeof(Vertex));
+			std::memcpy(buffers.index_mapped, cpu_indices.data(), cpu_indices.size() * sizeof(uint32_t));
+			buffers.uploaded_fingerprint = fingerprint;
+			buffers.uploaded = true;
+		}
 
 		//取管线与布局
 		VkPipeline solid_vk = pipeline->pipeline_by_handle_get(solid_pipeline);

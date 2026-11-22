@@ -39,6 +39,8 @@ namespace engine
 		uint32_t texture_binds = 0;
 		//本帧是否命中稳定帧缓存（1 = 未重建几何）
 		uint32_t cache_hits = 0;
+		//本帧是否跳过缓冲上传（1 = 当前槽内容已是最新）
+		uint32_t upload_skips = 0;
 	};
 
 	/*
@@ -90,6 +92,10 @@ namespace engine
 			uint32_t index_capacity = 0;
 			//已绑定的字形图集纹理句柄（避免逐帧重写描述符）
 			uint64_t bound_atlas = 0;
+			//该槽已上传内容对应的指纹（第九百零一轮）
+			uint64_t uploaded_fingerprint = 0;
+			//该槽是否已上传过内容
+			bool uploaded = false;
 		};
 		//单条绘制记录
 		struct Draw_Record
