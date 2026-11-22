@@ -29,6 +29,25 @@ namespace engine
 				return Ui_Rect{};
 			return Ui_Rect{ x0, y0, x1 - x0, y1 - y0 };
 		}
+
+		//把一段字节混入 FNV-1a 指纹
+		void hash_bytes(uint64_t& hash, const void* data, std::size_t size)
+		{
+			const unsigned char* bytes = static_cast<const unsigned char*>(data);
+			for (std::size_t index = 0; index < size; ++index)
+			{
+				hash ^= static_cast<uint64_t>(bytes[index]);
+				hash *= 1099511628211ull;
+			}
+		}
+
+		//把字符串混入指纹
+		void hash_string(uint64_t& hash, const std::string& text)
+		{
+			const std::size_t size = text.size();
+			hash_bytes(hash, &size, sizeof(size));
+			hash_bytes(hash, text.data(), size);
+		}
 	}
 
 	//析构（归还每帧槽缓冲）
@@ -110,6 +129,52 @@ namespace engine
 	const Ui_Render_Stats& Ui_Renderer::stats_get(void) const
 	{
 		return stats;
+	}
+
+	//计算控件树绘制相关字段的指纹
+	uint64_t Ui_Renderer::fingerprint_build(const Ui_Context& ui) const
+	{
+		//FNV-1a 初值
+		uint64_t hash = 1469598103934665603ull;
+		const std::size_t count = ui.node_count();
+		hash_bytes(hash, &count, sizeof(count));
+		for (std::size_t index = 0; index < count; ++index)
+		{
+			const Ui_Node* node = ui.node_at(index);
+			//已销毁槽位不参与绘制
+			if (node == nullptr || !node->alive)
+				continue;
+			hash_bytes(hash, &node->handle, sizeof(node->handle));
+			hash_bytes(hash, &node->parent, sizeof(node->parent));
+			hash_bytes(hash, &node->type, sizeof(node->type));
+			hash_bytes(hash, &node->rect, sizeof(node->rect));
+			hash_bytes(hash, &node->color, sizeof(node->color));
+			hash_bytes(hash, &node->text_color, sizeof(node->text_color));
+			hash_bytes(hash, &node->border_color, sizeof(node->border_color));
+			hash_bytes(hash, &node->opacity, sizeof(node->opacity));
+			hash_bytes(hash, &node->corner_radius, sizeof(node->corner_radius));
+			hash_bytes(hash, &node->border_width, sizeof(node->border_width));
+			hash_bytes(hash, &node->role, sizeof(node->role));
+			hash_bytes(hash, &node->texture, sizeof(node->texture));
+			hash_bytes(hash, &node->text_font, sizeof(node->text_font));
+			hash_bytes(hash, &node->text_wrap, sizeof(node->text_wrap));
+			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
+			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
+			hash_bytes(hash, &node->text_ellipsis, sizeof(node->text_ellipsis));
+			hash_bytes(hash, &node->visible, sizeof(node->visible));
+			hash_bytes(hash, &node->enabled, sizeof(node->enabled));
+			hash_bytes(hash, &node->hovered, sizeof(node->hovered));
+			hash_bytes(hash, &node->pressed, sizeof(node->pressed));
+			hash_bytes(hash, &node->focused, sizeof(node->focused));
+			hash_bytes(hash, &node->system_focused, sizeof(node->system_focused));
+			hash_bytes(hash, &node->checked, sizeof(node->checked));
+			hash_bytes(hash, &node->value, sizeof(node->value));
+			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
+			hash_bytes(hash, &node->caret, sizeof(node->caret));
+			hash_string(hash, node->label);
+			hash_string(hash, node->text);
+		}
+		return hash;
 	}
 
 	//确保帧槽缓冲容量足够
@@ -579,14 +644,20 @@ namespace engine
 		//复位本帧统计
 		stats = Ui_Render_Stats{};
 
-		//复位本帧 CPU 数据
-		cpu_vertices.clear();
-		cpu_indices.clear();
-		draws.clear();
-		text_atlas = 0;
+		//稳定帧判定：绘制相关字段未变化时复用上一帧几何
+		const uint64_t fingerprint = fingerprint_build(ui);
+		const bool cache_hit = has_cache && fingerprint == last_fingerprint;
+		stats.cache_hits = cache_hit ? 1u : 0u;
+		if (!cache_hit)
+		{
+			//复位本帧 CPU 数据
+			cpu_vertices.clear();
+			cpu_indices.clear();
+			draws.clear();
+			text_atlas = 0;
 
-		//UI 全局字体句柄（控件未单独指定时使用）
-		const uint64_t font_handle = ui.font_get();
+			//UI 全局字体句柄（控件未单独指定时使用）
+			const uint64_t font_handle = ui.font_get();
 
 		//焦点环（4 条 2 像素边框；颜色固定为强调蓝）
 		const Ui_Color focus_color{ 0.35f, 0.65f, 1.0f, 1.0f };
@@ -856,6 +927,10 @@ namespace engine
 			default:
 				break;
 			}
+		}
+			//几何重建完成，记录指纹
+			last_fingerprint = fingerprint;
+			has_cache = true;
 		}
 
 		//记录本帧几何统计

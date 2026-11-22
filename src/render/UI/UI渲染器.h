@@ -37,6 +37,8 @@ namespace engine
 		uint32_t text_draws = 0;
 		//纹理描述符重写次数
 		uint32_t texture_binds = 0;
+		//本帧是否命中稳定帧缓存（1 = 未重建几何）
+		uint32_t cache_hits = 0;
 	};
 
 	/*
@@ -132,6 +134,8 @@ namespace engine
 			float line_height, bool wrap, bool ellipsis, Ui_Align valign, const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
+		//计算控件树绘制相关字段的指纹（稳定帧缓存判定，第九百轮）
+		uint64_t fingerprint_build(const Ui_Context& ui) const;
 
 	private:
 		//逻辑设备
@@ -166,5 +170,9 @@ namespace engine
 		Ui_Rect current_clip{};
 		//最近一帧绘制统计
 		Ui_Render_Stats stats{};
+		//最近一次几何重建对应的指纹
+		uint64_t last_fingerprint = 0;
+		//是否存在可复用的上一帧几何
+		bool has_cache = false;
 	};
 }
