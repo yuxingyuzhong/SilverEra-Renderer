@@ -248,6 +248,8 @@ namespace engine
 		std::size_t caret = 0;
 		//是否可见
 		bool visible = true;
+		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
+		bool clip_children = false;
 		//是否可用（不可用不参与命中）
 		bool enabled = true;
 		//是否悬停
@@ -387,6 +389,13 @@ namespace engine
 		bool value_set(Ui_Handle handle, float value);
 		//设置可见
 		bool visible_set(Ui_Handle handle, bool visible);
+		/*
+		设置 / 读取是否裁剪直接子节点（第八百八十八轮）
+		开启后子节点绘制被限制在本节点矩形与祖先裁剪的交集内；
+		未知句柄设置返回假，读取返回假。
+		*/
+		bool clip_children_set(Ui_Handle handle, bool clip);
+		bool clip_children_get(Ui_Handle handle) const;
 		//设置可用
 		bool enabled_set(Ui_Handle handle, bool enabled);
 		//取走单击标记（取走即清零）

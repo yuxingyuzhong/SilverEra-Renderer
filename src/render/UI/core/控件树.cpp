@@ -641,6 +641,25 @@ namespace engine
 		return true;
 	}
 
+	//设置是否裁剪直接子节点
+	bool Ui_Context::clip_children_set(Ui_Handle handle, bool clip)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->clip_children = clip;
+		return true;
+	}
+
+	//读取是否裁剪直接子节点
+	bool Ui_Context::clip_children_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->clip_children;
+	}
+
 	//设置可用
 	bool Ui_Context::enabled_set(Ui_Handle handle, bool enabled)
 	{

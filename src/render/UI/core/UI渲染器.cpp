@@ -16,6 +16,19 @@ namespace engine
 			result.a *= clamped;
 			return result;
 		}
+
+		//求两个矩形的交集（无重叠时返回零矩形）
+		Ui_Rect rect_intersect(const Ui_Rect& left, const Ui_Rect& right)
+		{
+			const float x0 = std::max(left.x, right.x);
+			const float y0 = std::max(left.y, right.y);
+			const float x1 = std::min(left.x + left.w, right.x + right.w);
+			const float y1 = std::min(left.y + left.h, right.y + right.h);
+			//无重叠
+			if (x1 <= x0 || y1 <= y0)
+				return Ui_Rect{};
+			return Ui_Rect{ x0, y0, x1 - x0, y1 - y0 };
+		}
 	}
 
 	//析构（归还每帧槽缓冲）
@@ -75,6 +88,7 @@ namespace engine
 		cpu_vertices.clear();
 		cpu_indices.clear();
 		draws.clear();
+		inherited_clips.clear();
 		text_scratch = Mesh_Data{};
 		text_atlas = 0;
 		device = VK_NULL_HANDLE;
@@ -424,24 +438,31 @@ namespace engine
 
 		//按创建顺序遍历控件（父先于子；逆序命中测试已在交互侧完成）
 		const std::size_t count = ui.node_count();
+		//窗口裁剪矩形
+		const Ui_Rect window_clip{ 0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height) };
+		//各槽位的继承裁剪（下标 = 句柄 - 1；父先于子，故一次正序即可传播）
+		inherited_clips.assign(count, window_clip);
 		for (std::size_t index = 0; index < count; ++index)
 		{
 			const Ui_Node* node = ui.node_at(index);
-			//跳过已销毁 / 不可见节点
-			if (node == nullptr || !node->visible)
-				continue;
-			//根节点不绘制
-			if (node->type == Ui_Node_Type::Root)
+			//跳过空槽与已销毁节点（其子节点随销毁一并失效）
+			if (node == nullptr)
 				continue;
 
-			//控件裁剪矩形（与渲染范围求交，避免 scissor 越界）
-			Ui_Rect clip{};
-			clip.x = std::max(node->rect.x, 0.0f);
-			clip.y = std::max(node->rect.y, 0.0f);
-			const float right = std::min(node->rect.x + node->rect.w, static_cast<float>(extent.width));
-			const float bottom = std::min(node->rect.y + node->rect.h, static_cast<float>(extent.height));
-			clip.w = std::max(right - clip.x, 0.0f);
-			clip.h = std::max(bottom - clip.y, 0.0f);
+			//自身矩形与窗口取交
+			const Ui_Rect own_clip = rect_intersect(node->rect, window_clip);
+			//父继承裁剪（根节点或无父节点时按窗口）
+			Ui_Rect inherit_clip = window_clip;
+			if (node->parent != 0 && node->parent <= count)
+				inherit_clip = inherited_clips[static_cast<std::size_t>(node->parent - 1)];
+			//有效裁剪 = 自身矩形 ∩ 继承裁剪
+			const Ui_Rect clip = rect_intersect(own_clip, inherit_clip);
+			//裁剪开关开启时，子节点继续承受本节点有效裁剪；否则仅向下传递已有继承
+			inherited_clips[index] = node->clip_children ? clip : inherit_clip;
+
+			//跳过不可见节点与根节点（其裁剪仍已向下传递）
+			if (!node->visible || node->type == Ui_Node_Type::Root)
+				continue;
 			//裁剪区域为空则不绘制（含文字溢出被完全裁掉的情形）
 			if (clip.w <= 0.0f || clip.h <= 0.0f)
 				continue;

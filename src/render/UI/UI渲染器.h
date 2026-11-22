@@ -128,6 +128,8 @@ namespace engine
 		Mesh_Data text_scratch{};
 		//本帧使用的字形图集纹理句柄（0 = 无文字）
 		uint64_t text_atlas = 0;
+		//各槽位的继承裁剪（下标 = 句柄 - 1；逐帧复用，第八百八十八轮）
+		std::vector<Ui_Rect> inherited_clips{};
 		//当前控件的裁剪矩形（追加几何时写入绘制记录）
 		Ui_Rect current_clip{};
 	};
