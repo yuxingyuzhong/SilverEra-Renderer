@@ -257,6 +257,11 @@ namespace engine
 		std::string label{};
 		//图片纹理句柄（0 = 不绘制；第八百九十三轮）
 		uint64_t texture = 0;
+		//图片九宫格切分（归一化 0..1；全 0 = 整图拉伸；第九百零六轮）
+		float slice_left = 0.0f;
+		float slice_top = 0.0f;
+		float slice_right = 0.0f;
+		float slice_bottom = 0.0f;
 		//文本框内容（UTF-8）
 		std::string text{};
 		//是否自动换行（仅标签；第八百九十四轮）
@@ -346,6 +351,15 @@ namespace engine
 		//设置 / 读取图片纹理（未知句柄设置返回假）
 		bool image_texture_set(Ui_Handle handle, uint64_t texture);
 		uint64_t image_texture_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取图片九宫格切分（第九百零六轮）
+		参数为归一化 UV 切分（0..1）：left / top 为左上切分，right / bottom 为右下切分；
+		负值按 0，且 left + right、top + bottom 各自不超过 1（超出按 1 截断）。
+		全 0 时退化为整图拉伸；未知句柄设置返回假，读取返回全 0。
+		*/
+		bool image_slice_set(Ui_Handle handle, float left, float top, float right, float bottom);
+		void image_slice_get(Ui_Handle handle, float& left_out, float& top_out,
+			float& right_out, float& bottom_out) const;
 		//创建复选框（rect 左侧为方框，右侧为标签）
 		Ui_Handle checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 			bool checked = false, void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);

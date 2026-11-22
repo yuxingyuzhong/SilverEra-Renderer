@@ -292,6 +292,36 @@ namespace engine
 		return node->texture;
 	}
 
+	//设置图片九宫格切分
+	bool Ui_Context::image_slice_set(Ui_Handle handle, float left, float top, float right, float bottom)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//负值按 0，超过 1 按 1
+		node->slice_left = std::max(0.0f, std::min(left, 1.0f));
+		node->slice_top = std::max(0.0f, std::min(top, 1.0f));
+		node->slice_right = std::max(0.0f, std::min(right, 1.0f));
+		node->slice_bottom = std::max(0.0f, std::min(bottom, 1.0f));
+		//左右 / 上下切分之和不超过 1
+		if (node->slice_left + node->slice_right > 1.0f)
+			node->slice_right = 1.0f - node->slice_left;
+		if (node->slice_top + node->slice_bottom > 1.0f)
+			node->slice_bottom = 1.0f - node->slice_top;
+		return true;
+	}
+
+	//读取图片九宫格切分
+	void Ui_Context::image_slice_get(Ui_Handle handle, float& left_out, float& top_out,
+		float& right_out, float& bottom_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		left_out = node != nullptr ? node->slice_left : 0.0f;
+		top_out = node != nullptr ? node->slice_top : 0.0f;
+		right_out = node != nullptr ? node->slice_right : 0.0f;
+		bottom_out = node != nullptr ? node->slice_bottom : 0.0f;
+	}
+
 	//创建复选框
 	Ui_Handle Ui_Context::checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 		bool checked, void (*on_toggle)(Ui_Handle, bool, void*), void* user)

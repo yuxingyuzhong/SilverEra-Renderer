@@ -164,6 +164,10 @@ namespace engine
 			hash_bytes(hash, &node->border_width, sizeof(node->border_width));
 			hash_bytes(hash, &node->role, sizeof(node->role));
 			hash_bytes(hash, &node->texture, sizeof(node->texture));
+			hash_bytes(hash, &node->slice_left, sizeof(node->slice_left));
+			hash_bytes(hash, &node->slice_top, sizeof(node->slice_top));
+			hash_bytes(hash, &node->slice_right, sizeof(node->slice_right));
+			hash_bytes(hash, &node->slice_bottom, sizeof(node->slice_bottom));
 			hash_bytes(hash, &node->text_font, sizeof(node->text_font));
 			hash_bytes(hash, &node->text_wrap, sizeof(node->text_wrap));
 			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
@@ -430,6 +434,14 @@ namespace engine
 	//追加一个纹理矩形并登记纹理绘制
 	void Ui_Renderer::quad_textured_append(uint64_t texture, const Ui_Rect& rect, const Ui_Color& color)
 	{
+		//整图路径：UV 铺满 0..1
+		quad_textured_append_uv(texture, rect, 0.0f, 0.0f, 1.0f, 1.0f, color);
+	}
+
+	//追加一个指定 UV 范围的纹理矩形
+	void Ui_Renderer::quad_textured_append_uv(uint64_t texture, const Ui_Rect& rect,
+		float u0, float v0, float u1, float v1, const Ui_Color& color)
+	{
 		//零面积或无效纹理不产生几何
 		if (texture == 0 || rect.w <= 0.0f || rect.h <= 0.0f)
 			return;
@@ -443,19 +455,19 @@ namespace engine
 		const float x1 = rect.x + rect.w;
 		const float y1 = rect.y + rect.h;
 
-		//四角顶点（UV 铺满 0..1）
+		//四角顶点（按给定 UV 范围取样）
 		Vertex vertex{};
 		vertex.position[0] = x0; vertex.position[1] = y0; vertex.position[2] = 0.0f;
-		vertex.uv[0] = 0.0f; vertex.uv[1] = 0.0f;
+		vertex.uv[0] = u0; vertex.uv[1] = v0;
 		cpu_vertices.push_back(vertex);
 		vertex.position[0] = x1; vertex.position[1] = y0;
-		vertex.uv[0] = 1.0f; vertex.uv[1] = 0.0f;
+		vertex.uv[0] = u1; vertex.uv[1] = v0;
 		cpu_vertices.push_back(vertex);
 		vertex.position[0] = x1; vertex.position[1] = y1;
-		vertex.uv[0] = 1.0f; vertex.uv[1] = 1.0f;
+		vertex.uv[0] = u1; vertex.uv[1] = v1;
 		cpu_vertices.push_back(vertex);
 		vertex.position[0] = x0; vertex.position[1] = y1;
-		vertex.uv[0] = 0.0f; vertex.uv[1] = 1.0f;
+		vertex.uv[0] = u0; vertex.uv[1] = v1;
 		cpu_vertices.push_back(vertex);
 
 		//两个三角形
@@ -475,6 +487,47 @@ namespace engine
 		record.text = false;
 		record.clip = current_clip;
 		draws.push_back(record);
+	}
+
+	//追加图片九宫格
+	void Ui_Renderer::image_slice_append(uint64_t texture, const Ui_Rect& rect,
+		float left, float top, float right, float bottom, const Ui_Color& color)
+	{
+		//无切分：按整图拉伸
+		if (left <= 0.0f && top <= 0.0f && right <= 0.0f && bottom <= 0.0f)
+		{
+			quad_textured_append(texture, rect, color);
+			return;
+		}
+		//切分之和不超过 1（控件侧已钳制，这里再兜底）
+		if (left + right > 1.0f)
+			right = 1.0f - left;
+		if (top + bottom > 1.0f)
+			bottom = 1.0f - top;
+
+		//目标矩形上的三列 / 三行边界
+		const float x0 = rect.x;
+		const float y0 = rect.y;
+		const float x1 = rect.x + rect.w;
+		const float y1 = rect.y + rect.h;
+		const float column[4] = { x0, x0 + rect.w * left, x1 - rect.w * right, x1 };
+		const float row[4] = { y0, y0 + rect.h * top, y1 - rect.h * bottom, y1 };
+		//UV 上的三列 / 三行边界（Y 向下，与顶点一致）
+		const float u[4] = { 0.0f, left, 1.0f - right, 1.0f };
+		const float v[4] = { 0.0f, top, 1.0f - bottom, 1.0f };
+
+		//九块子矩形（零宽 / 零高的块由几何追加函数自动跳过）
+		for (int row_index = 0; row_index < 3; ++row_index)
+		{
+			for (int column_index = 0; column_index < 3; ++column_index)
+			{
+				const Ui_Rect cell{ column[column_index], row[row_index],
+					column[column_index + 1] - column[column_index],
+					row[row_index + 1] - row[row_index] };
+				quad_textured_append_uv(texture, cell,
+					u[column_index], v[row_index], u[column_index + 1], v[row_index + 1], color);
+			}
+		}
 	}
 
 	//查找文本几何缓存条目
@@ -890,7 +943,9 @@ namespace engine
 				break;
 			//图片：纹理铺满矩形（不参与交互）
 			case Ui_Node_Type::Image:
-				quad_textured_append(node->texture, node->rect, with_opacity(node->color, node->opacity));
+				//九宫格切分全 0 时退化为整图拉伸
+				image_slice_append(node->texture, node->rect, node->slice_left, node->slice_top,
+					node->slice_right, node->slice_bottom, with_opacity(node->color, node->opacity));
 				break;
 			//按钮：背景 + 居中标签
 			case Ui_Node_Type::Button:
