@@ -6,6 +6,18 @@
 
 namespace engine
 {
+	namespace
+	{
+		//按节点不透明度调整颜色 alpha
+		Ui_Color with_opacity(const Ui_Color& color, float opacity)
+		{
+			Ui_Color result = color;
+			const float clamped = opacity < 0.0f ? 0.0f : (opacity > 1.0f ? 1.0f : opacity);
+			result.a *= clamped;
+			return result;
+		}
+	}
+
 	//析构（归还每帧槽缓冲）
 	Ui_Renderer::~Ui_Renderer(void)
 	{
@@ -325,21 +337,38 @@ namespace engine
 
 			switch (node->type)
 			{
-			//面板：矩形背景
+			//面板：矩形背景（样式角色启用时取主题色）
 			case Ui_Node_Type::Panel:
-				quad_append(node->rect, node->color);
+			{
+				const Ui_Color panel_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				quad_append(node->rect, with_opacity(panel_color, node->opacity));
 				break;
+			}
 			//纯文本标签：居左、垂直居中
 			case Ui_Node_Type::Label:
 				text_append(font_handle, node->text, node->rect.x,
-					node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f, node->text_color);
+					node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f,
+					with_opacity(node->text_color, node->opacity));
 				break;
 			//按钮：背景 + 居中标签
 			case Ui_Node_Type::Button:
 			{
-				//按悬停 / 按下调整背景亮度
+				//样式角色启用时按状态取主题色；自定义角色沿用亮度调整
 				Ui_Color color = node->color;
-				if (node->pressed)
+				if (node->role != Ui_Role::Custom)
+				{
+					Ui_Visual_State state = Ui_Visual_State::Normal;
+					if (!node->enabled)
+						state = Ui_Visual_State::Disabled;
+					else if (node->pressed)
+						state = Ui_Visual_State::Pressed;
+					else if (node->hovered)
+						state = Ui_Visual_State::Hovered;
+					color = ui_theme_color(ui.theme_get(), node->role, state);
+				}
+				else if (node->pressed)
 				{
 					color.r *= 0.72f;
 					color.g *= 0.72f;
@@ -351,11 +380,12 @@ namespace engine
 					color.g = std::min(1.0f, color.g + 0.12f);
 					color.b = std::min(1.0f, color.b + 0.12f);
 				}
-				quad_append(node->rect, color);
+				quad_append(node->rect, with_opacity(color, node->opacity));
 				//标签垂直居中
 				if (!node->label.empty())
 					text_append(font_handle, node->label, node->rect.x,
-						node->rect.y + (node->rect.h - text_height) * 0.5f, node->rect.w, node->text_color);
+						node->rect.y + (node->rect.h - text_height) * 0.5f, node->rect.w,
+						with_opacity(node->text_color, node->opacity));
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);
@@ -367,11 +397,15 @@ namespace engine
 			//文本框：背景 + 左对齐文本 + 光标
 			case Ui_Node_Type::Text_Box:
 			{
-				quad_append(node->rect, node->color);
+				const Ui_Color box_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				quad_append(node->rect, with_opacity(box_color, node->opacity));
 				const float padding = 6.0f;
 				const float text_x = node->rect.x + padding;
 				const float text_y = node->rect.y + (node->rect.h - text_height) * 0.5f;
-				text_append(font_handle, node->text, text_x, text_y, 0.0f, node->text_color);
+				text_append(font_handle, node->text, text_x, text_y, 0.0f,
+					with_opacity(node->text_color, node->opacity));
 				//焦点态绘制光标
 				if (node->focused)
 				{
@@ -387,7 +421,7 @@ namespace engine
 					caret_rect.w = 2.0f;
 					caret_rect.h = node->rect.h - 8.0f;
 					Ui_Color caret_color{ 1.0f, 1.0f, 1.0f, 1.0f };
-					quad_append(caret_rect, caret_color);
+					quad_append(caret_rect, with_opacity(caret_color, node->opacity));
 					focus_ring(node->rect);
 				}
 				//系统焦点环
@@ -402,27 +436,37 @@ namespace engine
 				const float box_size = std::min(node->rect.h, 20.0f);
 				Ui_Rect box_rect{ node->rect.x, node->rect.y + (node->rect.h - box_size) * 0.5f,
 					box_size, box_size };
-				//悬停 / 按下时方框略亮
+				//悬停 / 按下时方框略亮（样式角色启用时由主题状态色接管）
 				Ui_Color box_color = node->color;
-				if (node->pressed || node->hovered)
+				if (node->role != Ui_Role::Custom)
+				{
+					Ui_Visual_State state = Ui_Visual_State::Normal;
+					if (!node->enabled)
+						state = Ui_Visual_State::Disabled;
+					else if (node->pressed || node->hovered)
+						state = Ui_Visual_State::Hovered;
+					box_color = ui_theme_color(ui.theme_get(), node->role, state);
+				}
+				else if (node->pressed || node->hovered)
 				{
 					box_color.r = std::min(1.0f, box_color.r + 0.20f);
 					box_color.g = std::min(1.0f, box_color.g + 0.20f);
 					box_color.b = std::min(1.0f, box_color.b + 0.20f);
 				}
-				quad_append(box_rect, box_color);
+				quad_append(box_rect, with_opacity(box_color, node->opacity));
 				//选中态绘制内块
 				if (node->checked)
 				{
 					const float inset = 4.0f;
 					Ui_Rect inner_rect{ box_rect.x + inset, box_rect.y + inset,
 						box_rect.w - inset * 2.0f, box_rect.h - inset * 2.0f };
-					quad_append(inner_rect, focus_color);
+					quad_append(inner_rect, with_opacity(focus_color, node->opacity));
 				}
 				//右侧标签
 				if (!node->label.empty())
 					text_append(font_handle, node->label, box_rect.x + box_rect.w + 6.0f,
-						node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f, node->text_color);
+						node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f,
+						with_opacity(node->text_color, node->opacity));
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);
@@ -434,14 +478,18 @@ namespace engine
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{
-				//轨道（高 4 像素，垂直居中）
+				//轨道（高 4 像素，垂直居中；样式角色启用时取主题色）
 				const float track_y = node->rect.y + node->rect.h * 0.5f - 2.0f;
 				const Ui_Rect track_rect{ node->rect.x, track_y, node->rect.w, 4.0f };
-				quad_append(track_rect, node->color);
+				const Ui_Color track_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				quad_append(track_rect, with_opacity(track_color, node->opacity));
 				//已选进度
 				const float fill_width = node->rect.w * node->value;
 				if (fill_width > 0.0f)
-					quad_append(Ui_Rect{ node->rect.x, track_y, fill_width, 4.0f }, focus_color);
+					quad_append(Ui_Rect{ node->rect.x, track_y, fill_width, 4.0f },
+						with_opacity(focus_color, node->opacity));
 				//滑块（10 × 18，居中于当前值）
 				const float knob_x = node->rect.x + node->rect.w * node->value - 5.0f;
 				Ui_Rect knob_rect{ knob_x, node->rect.y + node->rect.h * 0.5f - 9.0f, 10.0f, 18.0f };
@@ -452,7 +500,7 @@ namespace engine
 					knob_color.g = 1.0f;
 					knob_color.b = 1.0f;
 				}
-				quad_append(knob_rect, knob_color);
+				quad_append(knob_rect, with_opacity(knob_color, node->opacity));
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);

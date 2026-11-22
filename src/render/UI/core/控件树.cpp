@@ -434,6 +434,61 @@ namespace engine
 		return node->flow_align;
 	}
 
+	//设置主题色板
+	void Ui_Context::theme_set(const Ui_Theme& theme)
+	{
+		this->theme = theme;
+	}
+
+	//读取主题色板
+	const Ui_Theme& Ui_Context::theme_get(void) const
+	{
+		return theme;
+	}
+
+	//设置控件样式角色
+	bool Ui_Context::role_set(Ui_Handle handle, Ui_Role role)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->role = role;
+		return true;
+	}
+
+	//读取控件样式角色
+	Ui_Role Ui_Context::role_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Role::Custom;
+		return node->role;
+	}
+
+	//设置控件不透明度
+	bool Ui_Context::opacity_set(Ui_Handle handle, float opacity)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//越界夹紧
+		if (opacity < 0.0f)
+			opacity = 0.0f;
+		if (opacity > 1.0f)
+			opacity = 1.0f;
+		node->opacity = opacity;
+		return true;
+	}
+
+	//读取控件不透明度
+	float Ui_Context::opacity_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 1.0f;
+		return node->opacity;
+	}
+
 	//设置背景色
 	bool Ui_Context::color_set(Ui_Handle handle, const Ui_Color& color)
 	{

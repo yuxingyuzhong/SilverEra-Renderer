@@ -157,6 +157,7 @@ target_sources(EngineRenderer PRIVATE
     "src/render/UI/core/交互.cpp"
     "src/render/UI/core/布局.cpp"
     "src/render/UI/core/控件树.cpp"
+    "src/render/UI/core/样式.cpp"
 )
 
 # 头文件不参与编译，只为让 IDE 建立文件索引；同样经 target_sources 列出，

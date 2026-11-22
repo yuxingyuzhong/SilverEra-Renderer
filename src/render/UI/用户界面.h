@@ -142,6 +142,69 @@ namespace engine
 		Stretch
 	};
 
+	//UI 样式角色（决定控件从主题取哪一组颜色）
+	enum class Ui_Role : uint8_t
+	{
+		//自定义（直接使用节点颜色）
+		Custom,
+		//面板
+		Panel,
+		//按钮
+		Button,
+		//文本框
+		Text_Box,
+		//标签
+		Label,
+		//复选框
+		Checkbox,
+		//滑动条
+		Slider
+	};
+
+	//UI 视觉状态（主题按状态给出颜色）
+	enum class Ui_Visual_State : uint8_t
+	{
+		//常态
+		Normal,
+		//悬停
+		Hovered,
+		//按下
+		Pressed,
+		//禁用
+		Disabled,
+		//焦点
+		Focused
+	};
+
+	/*
+	UI 主题色板（第八百八十三轮）
+	默认值与既有绘制观感对齐；节点通过 Ui_Role 引用，颜色不再写死在节点里。
+	*/
+	struct Ui_Theme
+	{
+		//面板背景
+		Ui_Color panel{ 0.12f, 0.12f, 0.16f, 1.0f };
+		//文本框背景
+		Ui_Color text_box{ 0.10f, 0.10f, 0.14f, 1.0f };
+		//按钮常态
+		Ui_Color button{ 0.20f, 0.20f, 0.50f, 1.0f };
+		//按钮悬停
+		Ui_Color button_hover{ 0.32f, 0.32f, 0.62f, 1.0f };
+		//按钮按下
+		Ui_Color button_pressed{ 0.14f, 0.14f, 0.36f, 1.0f };
+		//主文本
+		Ui_Color text{ 1.0f, 1.0f, 1.0f, 1.0f };
+		//次级文本（禁用）
+		Ui_Color text_dim{ 0.55f, 0.55f, 0.55f, 1.0f };
+		//强调色（选中 / 滑块 / 焦点）
+		Ui_Color accent{ 0.30f, 0.60f, 1.0f, 1.0f };
+		//禁用背景
+		Ui_Color disabled{ 0.35f, 0.35f, 0.35f, 1.0f };
+	};
+
+	//按角色与视觉状态取主题色（Custom 返回白色；未知组合回退到常态色）
+	Ui_Color ui_theme_color(const Ui_Theme& theme, Ui_Role role, Ui_Visual_State state);
+
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
 	struct Ui_Node
 	{
@@ -163,6 +226,10 @@ namespace engine
 		float flow_padding = 0.0f;
 		//排列交叉轴对齐
 		Ui_Align flow_align = Ui_Align::Start;
+		//样式角色（Custom = 直接使用下面的 color）
+		Ui_Role role = Ui_Role::Custom;
+		//不透明度（0..1；第八百八十五轮）
+		float opacity = 1.0f;
 		//背景色（面板 / 按钮 / 文本框）
 		Ui_Color color{};
 		//文本色（按钮标签 / 文本框内容）
@@ -275,6 +342,15 @@ namespace engine
 		Ui_Align flow_align_get(Ui_Handle handle) const;
 		//布局重算次数（观测用；根尺寸 / 节点集合 / 布局设置变化时递增）
 		uint64_t layout_apply_count(void) const;
+		//设置 / 读取主题色板（第八百八十三轮）
+		void theme_set(const Ui_Theme& theme);
+		const Ui_Theme& theme_get(void) const;
+		//设置 / 读取控件样式角色（未知句柄设置返回假；读取返回 Custom）
+		bool role_set(Ui_Handle handle, Ui_Role role);
+		Ui_Role role_get(Ui_Handle handle) const;
+		//设置 / 读取控件不透明度（0..1，越界夹紧；未知句柄设置返回假）
+		bool opacity_set(Ui_Handle handle, float opacity);
+		float opacity_get(Ui_Handle handle) const;
 		//设置背景色
 		bool color_set(Ui_Handle handle, const Ui_Color& color);
 		//设置按钮标签
@@ -407,6 +483,8 @@ namespace engine
 		//上次布局时的根尺寸
 		float layout_root_width = -1.0f;
 		float layout_root_height = -1.0f;
+		//主题色板
+		Ui_Theme theme{};
 
 		//按句柄查找控件 —— 非常量重载
 		Ui_Node* node_find(Ui_Handle handle);
