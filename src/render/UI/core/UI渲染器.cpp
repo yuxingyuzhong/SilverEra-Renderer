@@ -445,7 +445,7 @@ namespace engine
 
 	//追加多行文本块
 	bool Ui_Renderer::text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-		float line_height, bool wrap, Ui_Align valign, const Ui_Color& color)
+		float line_height, bool wrap, bool ellipsis, Ui_Align valign, const Ui_Color& color)
 	{
 		//字体未设置或字体模块缺失
 		if (font_handle == 0 || font == nullptr)
@@ -511,6 +511,35 @@ namespace engine
 				wrapped.push_back(cursor);
 			}
 			lines.swap(wrapped);
+		}
+
+		//单行省略：非自动换行时把超宽行尾部裁掉并追加省略号
+		if (ellipsis && !wrap && area.w > 0.0f)
+		{
+			const std::string ellipsis_text = "\xE2\x80\xA6";
+			font->glyphs_ensure(*record, ellipsis_text);
+			for (std::string& line : lines)
+			{
+				uint32_t measured_width = 0;
+				uint32_t measured_height = 0;
+				Font_Context::text_measure(*record, line, measured_width, measured_height);
+				//未超宽不处理
+				if (static_cast<float>(measured_width) <= area.w)
+					continue;
+				std::string base = line;
+				//逐码点从尾部回退，直到省略号可以放下
+				while (!base.empty())
+				{
+					std::size_t cut = base.size() - 1;
+					while (cut > 0 && (static_cast<unsigned char>(base[cut]) & 0xC0) == 0x80)
+						--cut;
+					base.erase(cut);
+					Font_Context::text_measure(*record, base + ellipsis_text, measured_width, measured_height);
+					if (static_cast<float>(measured_width) <= area.w)
+						break;
+				}
+				line = base + ellipsis_text;
+			}
 		}
 
 		//整体高度与起始纵坐标
@@ -625,7 +654,7 @@ namespace engine
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
 				text_append_block(font_handle, node->text, node->rect, node->line_height,
-					node->text_wrap, node->text_valign,
+					node->text_wrap, node->text_ellipsis, node->text_valign,
 					with_opacity(node->text_color, node->opacity));
 				break;
 			//图片：纹理铺满矩形（不参与交互）

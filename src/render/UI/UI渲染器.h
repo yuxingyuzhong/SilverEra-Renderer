@@ -108,7 +108,7 @@ namespace engine
 		valign 控制多行整体垂直对齐（Start / Center / End）。
 		*/
 		bool text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-			float line_height, bool wrap, Ui_Align valign, const Ui_Color& color);
+			float line_height, bool wrap, bool ellipsis, Ui_Align valign, const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
 

@@ -265,6 +265,8 @@ namespace engine
 		float line_height = 0.0f;
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
+		//单行超宽时尾部省略（第八百九十五轮；仅非自动换行时生效）
+		bool text_ellipsis = false;
 		//文本框光标（字节偏移）
 		std::size_t caret = 0;
 		//是否可见
@@ -428,6 +430,9 @@ namespace engine
 		*/
 		bool text_layout_set(Ui_Handle handle, bool wrap, float line_height, Ui_Align valign);
 		void text_layout_get(Ui_Handle handle, bool& wrap_out, float& line_height_out, Ui_Align& valign_out) const;
+		//设置 / 读取单行省略（未知句柄设置返回假，读取返回假）
+		bool text_ellipsis_set(Ui_Handle handle, bool ellipsis);
+		bool text_ellipsis_get(Ui_Handle handle) const;
 		//取文本框内容
 		bool text_get(Ui_Handle handle, std::string& text_out) const;
 		//复选框选中状态读取 / 设置

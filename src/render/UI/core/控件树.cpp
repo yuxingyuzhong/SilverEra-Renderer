@@ -694,6 +694,25 @@ namespace engine
 		valign_out = node->text_valign;
 	}
 
+	//设置单行省略
+	bool Ui_Context::text_ellipsis_set(Ui_Handle handle, bool ellipsis)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_ellipsis = ellipsis;
+		return true;
+	}
+
+	//读取单行省略
+	bool Ui_Context::text_ellipsis_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->text_ellipsis;
+	}
+
 	//复选框选中状态读取
 	bool Ui_Context::checked_get(Ui_Handle handle) const
 	{
