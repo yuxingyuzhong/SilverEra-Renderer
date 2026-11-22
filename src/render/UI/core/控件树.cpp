@@ -335,6 +335,8 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->rect = rect;
+		//显式矩形优先：取消锚点布局
+		node->layout.active = false;
 		return true;
 	}
 
@@ -345,6 +347,57 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		rect_out = node->rect;
+		return true;
+	}
+
+	//设置锚点布局
+	bool Ui_Context::layout_set(Ui_Handle handle, const Ui_Layout& layout)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->layout = layout;
+		//启用时立即按当前父矩形求一次，便于调用方当场读取
+		if (layout.active)
+		{
+			const Ui_Node* parent = node_find(node->parent);
+			if (parent != nullptr)
+				node->rect = ui_layout_rect_resolve(parent->rect, layout);
+		}
+		return true;
+	}
+
+	//取锚点布局
+	bool Ui_Context::layout_get(Ui_Handle handle, Ui_Layout& layout_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		layout_out = node->layout;
+		return true;
+	}
+
+	//设置排列容器
+	bool Ui_Context::flow_set(Ui_Handle handle, Ui_Flow flow, float gap, float padding)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->flow = flow;
+		node->flow_gap = gap > 0.0f ? gap : 0.0f;
+		node->flow_padding = padding > 0.0f ? padding : 0.0f;
+		return true;
+	}
+
+	//取排列设置
+	bool Ui_Context::flow_get(Ui_Handle handle, Ui_Flow& flow_out, float& gap_out, float& padding_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		flow_out = node->flow;
+		gap_out = node->flow_gap;
+		padding_out = node->flow_padding;
 		return true;
 	}
 

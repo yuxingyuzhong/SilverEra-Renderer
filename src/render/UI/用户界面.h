@@ -58,6 +58,77 @@ namespace engine
 		float a = 1.0f;
 	};
 
+	//UI 锚点（子控件相对父矩形的九个基准位置）
+	enum class Ui_Anchor : uint8_t
+	{
+		//左上
+		Top_Left,
+		//上中
+		Top,
+		//右上
+		Top_Right,
+		//左中
+		Left,
+		//正中
+		Center,
+		//右中
+		Right,
+		//左下
+		Bottom_Left,
+		//下中
+		Bottom,
+		//右下
+		Bottom_Right
+	};
+
+	/*
+	UI 锚点布局（纯数据；第八百七十六 / 八百七十七轮）
+	按 anchor 决定基准点，offset_x / offset_y 为相对基准点的像素偏移；
+	宽度取 width（>0）否则取 width_percent × 父宽，高度同口径；再按 min / max 夹紧。
+	active 为真时由控件树在根尺寸变化后统一重算 rect。
+	*/
+	struct Ui_Layout
+	{
+		//锚点
+		Ui_Anchor anchor = Ui_Anchor::Top_Left;
+		//相对锚点的水平偏移（像素）
+		float offset_x = 0.0f;
+		//相对锚点的垂直偏移（像素）
+		float offset_y = 0.0f;
+		//期望宽度（像素；<=0 时看 width_percent）
+		float width = 0.0f;
+		//期望高度（像素；<=0 时看 height_percent）
+		float height = 0.0f;
+		//百分比宽度（0..1；width <= 0 时生效，超出按 1 处理）
+		float width_percent = 0.0f;
+		//百分比高度（0..1；height <= 0 时生效，超出按 1 处理）
+		float height_percent = 0.0f;
+		//最小宽度（像素；<=0 表示不限制）
+		float min_width = 0.0f;
+		//最小高度（像素；<=0 表示不限制）
+		float min_height = 0.0f;
+		//最大宽度（像素；<=0 表示不限制）
+		float max_width = 0.0f;
+		//最大高度（像素；<=0 表示不限制）
+		float max_height = 0.0f;
+		//是否启用（假 = 使用节点自身矩形）
+		bool active = false;
+	};
+
+	//按父矩形与布局求子矩形（父矩形宽高非正时返回零矩形）
+	Ui_Rect ui_layout_rect_resolve(const Ui_Rect& parent, const Ui_Layout& layout);
+
+	//UI 排列方向（容器对直接子节点的排布方式）
+	enum class Ui_Flow : uint8_t
+	{
+		//不排列（子节点按自身布局 / 矩形定位）
+		None,
+		//横向排列
+		Horizontal,
+		//纵向排列
+		Vertical
+	};
+
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
 	struct Ui_Node
 	{
@@ -69,6 +140,14 @@ namespace engine
 		Ui_Node_Type type = Ui_Node_Type::Root;
 		//像素矩形
 		Ui_Rect rect{};
+		//锚点布局（active 为真时由控件树按父矩形重算 rect）
+		Ui_Layout layout{};
+		//排列方向（None 时不排列直接子节点）
+		Ui_Flow flow = Ui_Flow::None;
+		//排列间距（像素；负值按 0）
+		float flow_gap = 0.0f;
+		//排列内边距（像素；四边相同，负值按 0）
+		float flow_padding = 0.0f;
 		//背景色（面板 / 按钮 / 文本框）
 		Ui_Color color{};
 		//文本色（按钮标签 / 文本框内容）
@@ -160,6 +239,22 @@ namespace engine
 		bool rect_set(Ui_Handle handle, const Ui_Rect& rect);
 		//取矩形
 		bool rect_get(Ui_Handle handle, Ui_Rect& rect_out) const;
+		/*
+		设置锚点布局（第八百七十六轮）
+		启用后节点矩形由父矩形与布局决定；未知句柄返回假。
+		`rect_set` 会把该节点布局置为不启用（显式矩形优先）。
+		*/
+		bool layout_set(Ui_Handle handle, const Ui_Layout& layout);
+		//取锚点布局
+		bool layout_get(Ui_Handle handle, Ui_Layout& layout_out) const;
+		/*
+		设置排列容器（第八百七十八轮）
+		按创建顺序把直接子节点的位置排到父内容区内（保留各自尺寸）；
+		子节点若同时启用锚点布局，排列只覆盖位置，尺寸仍取布局结果。
+		*/
+		bool flow_set(Ui_Handle handle, Ui_Flow flow, float gap = 0.0f, float padding = 0.0f);
+		//取排列设置
+		bool flow_get(Ui_Handle handle, Ui_Flow& flow_out, float& gap_out, float& padding_out) const;
 		//设置背景色
 		bool color_set(Ui_Handle handle, const Ui_Color& color);
 		//设置按钮标签
@@ -292,6 +387,10 @@ namespace engine
 		void node_release(Ui_Handle handle);
 		//命中测试（返回最上层可见且可用的控件句柄；无命中返回 0）
 		Ui_Handle hit_test(float px, float py) const;
+		//按创建顺序重算启用布局的节点矩形（父先于子）
+		void layout_apply(void);
+		//按创建顺序排列各容器的直接子节点（位于布局重算之后）
+		void flow_apply(void);
 		//焦点设置（0 = 清除焦点）
 		void focus_set(Ui_Handle handle);
 		//控件是否可获得焦点（按钮 / 文本框 / 复选框 / 滑动条）

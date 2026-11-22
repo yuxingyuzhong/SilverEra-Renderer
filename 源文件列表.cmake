@@ -155,6 +155,7 @@ target_sources(EngineRenderer PRIVATE
     "src/render/UI/core/UI本地总线.cpp"
     "src/render/UI/core/UI渲染器.cpp"
     "src/render/UI/core/交互.cpp"
+    "src/render/UI/core/布局.cpp"
     "src/render/UI/core/控件树.cpp"
 )
 

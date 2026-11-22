@@ -198,6 +198,11 @@ namespace engine
 			root->rect = Ui_Rect{ 0.0f, 0.0f,
 				static_cast<float>(input.window_width), static_cast<float>(input.window_height) };
 
+		//根尺寸更新后重算锚点布局（父先于子）
+		layout_apply();
+		//布局结果之上再排列容器直接子节点
+		flow_apply();
+
 		//清除上一帧的单击标记
 		for (Ui_Node& node : nodes)
 			node.clicked = false;
