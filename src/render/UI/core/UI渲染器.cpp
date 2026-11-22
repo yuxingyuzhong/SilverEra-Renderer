@@ -110,6 +110,8 @@ namespace engine
 		inherited_clips.clear();
 		text_cache.clear();
 		text_cache_stamp = 0;
+		block_cache.clear();
+		block_cache_stamp = 0;
 		text_atlas = 0;
 		device = VK_NULL_HANDLE;
 		memory = nullptr;
@@ -495,6 +497,55 @@ namespace engine
 		return &text_cache.back();
 	}
 
+	//查找文本块布局缓存条目
+	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_find(uint64_t font_handle, const std::string& text,
+		float area_width, float line_height, bool wrap, bool ellipsis, Ui_Align valign)
+	{
+		for (Block_Cache_Entry& entry : block_cache)
+		{
+			//键：字体 + 文本 + 区域宽度 + 行高 + 换行 + 省略 + 对齐
+			if (entry.font_handle != font_handle || entry.area_width != area_width
+				|| entry.line_height != line_height || entry.wrap != wrap
+				|| entry.ellipsis != ellipsis || entry.valign != valign)
+				continue;
+			//文本一致即命中
+			if (entry.text == text)
+				return &entry;
+		}
+		return nullptr;
+	}
+
+	//写入文本块布局缓存条目
+	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_insert(uint64_t font_handle, const std::string& text,
+		float area_width, float line_height, bool wrap, bool ellipsis, Ui_Align valign,
+		std::vector<std::string>&& lines)
+	{
+		//容量已满则淘汰最久未使用条目
+		if (block_cache.size() >= block_cache_capacity)
+		{
+			std::size_t oldest = 0;
+			for (std::size_t index = 1; index < block_cache.size(); ++index)
+			{
+				if (block_cache[index].stamp < block_cache[oldest].stamp)
+					oldest = index;
+			}
+			block_cache.erase(block_cache.begin() + static_cast<std::ptrdiff_t>(oldest));
+		}
+		//登记新条目
+		Block_Cache_Entry entry{};
+		entry.font_handle = font_handle;
+		entry.text = text;
+		entry.area_width = area_width;
+		entry.line_height = line_height;
+		entry.wrap = wrap;
+		entry.ellipsis = ellipsis;
+		entry.valign = valign;
+		entry.lines = std::move(lines);
+		entry.stamp = ++block_cache_stamp;
+		block_cache.push_back(std::move(entry));
+		return &block_cache.back();
+	}
+
 	//追加文本
 	bool Ui_Renderer::text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 		float center_area_width, const Ui_Color& color)
@@ -584,94 +635,110 @@ namespace engine
 		//确保全部字形已烘焙（供换行度量使用）
 		font->glyphs_ensure(*record, text);
 
-		//行高（0 取字体高度）
-		const float height = line_height > 0.0f ? line_height : static_cast<float>(record->pixel_height);
-		//按换行符分行
-		std::vector<std::string> lines{};
-		std::string current{};
-		for (char ch : text)
+		//查询文本块布局缓存
+		Block_Cache_Entry* entry = block_cache_find(font_handle, text, area.w, line_height, wrap, ellipsis, valign);
+		if (entry != nullptr)
 		{
-			if (ch == '\n')
-			{
-				lines.push_back(current);
-				current.clear();
-			}
-			else
-				current.push_back(ch);
+			//刷新使用序号并计命中
+			entry->stamp = ++block_cache_stamp;
+			++stats.block_cache_hits;
 		}
-		lines.push_back(current);
-
-		//自动换行：按 UTF-8 码点贪心累积，超出区域宽度即另起一行
-		if (wrap && area.w > 0.0f)
+		else
 		{
-			std::vector<std::string> wrapped{};
-			for (const std::string& line : lines)
+			++stats.block_cache_misses;
+			//按换行符分行
+			std::vector<std::string> lines{};
+			std::string current{};
+			for (char ch : text)
 			{
-				std::string cursor{};
-				for (std::size_t index = 0; index < line.size();)
+				if (ch == '\n')
 				{
-					//按首字节推断 UTF-8 码点长度
-					const unsigned char lead = static_cast<unsigned char>(line[index]);
-					std::size_t length = 1;
-					if ((lead & 0xE0) == 0xC0)
-						length = 2;
-					else if ((lead & 0xF0) == 0xE0)
-						length = 3;
-					else if ((lead & 0xF8) == 0xF0)
-						length = 4;
-					//截断时回退到剩余长度
-					if (index + length > line.size())
-						length = line.size() - index;
-					const std::string candidate = cursor + line.substr(index, length);
+					lines.push_back(current);
+					current.clear();
+				}
+				else
+					current.push_back(ch);
+			}
+			lines.push_back(current);
+
+			//自动换行：按 UTF-8 码点贪心累积，超出区域宽度即另起一行
+			if (wrap && area.w > 0.0f)
+			{
+				std::vector<std::string> wrapped{};
+				for (const std::string& line : lines)
+				{
+					std::string cursor{};
+					for (std::size_t index = 0; index < line.size();)
+					{
+						//按首字节推断 UTF-8 码点长度
+						const unsigned char lead = static_cast<unsigned char>(line[index]);
+						std::size_t length = 1;
+						if ((lead & 0xE0) == 0xC0)
+							length = 2;
+						else if ((lead & 0xF0) == 0xE0)
+							length = 3;
+						else if ((lead & 0xF8) == 0xF0)
+							length = 4;
+						//截断时回退到剩余长度
+						if (index + length > line.size())
+							length = line.size() - index;
+						const std::string candidate = cursor + line.substr(index, length);
+						uint32_t measured_width = 0;
+						uint32_t measured_height = 0;
+						Font_Context::text_measure(*record, candidate, measured_width, measured_height);
+						//当前行非空且加入后超宽：本行收束并另起一行
+						if (!cursor.empty() && static_cast<float>(measured_width) > area.w)
+						{
+							wrapped.push_back(cursor);
+							cursor = line.substr(index, length);
+						}
+						else
+							cursor = candidate;
+						index += length;
+					}
+					wrapped.push_back(cursor);
+				}
+				lines.swap(wrapped);
+			}
+
+			//单行省略：非自动换行时把超宽行尾部裁掉并追加省略号
+			if (ellipsis && !wrap && area.w > 0.0f)
+			{
+				const std::string ellipsis_text = "\xE2\x80\xA6";
+				font->glyphs_ensure(*record, ellipsis_text);
+				for (std::string& line : lines)
+				{
 					uint32_t measured_width = 0;
 					uint32_t measured_height = 0;
-					Font_Context::text_measure(*record, candidate, measured_width, measured_height);
-					//当前行非空且加入后超宽：本行收束并另起一行
-					if (!cursor.empty() && static_cast<float>(measured_width) > area.w)
-					{
-						wrapped.push_back(cursor);
-						cursor = line.substr(index, length);
-					}
-					else
-						cursor = candidate;
-					index += length;
-				}
-				wrapped.push_back(cursor);
-			}
-			lines.swap(wrapped);
-		}
-
-		//单行省略：非自动换行时把超宽行尾部裁掉并追加省略号
-		if (ellipsis && !wrap && area.w > 0.0f)
-		{
-			const std::string ellipsis_text = "\xE2\x80\xA6";
-			font->glyphs_ensure(*record, ellipsis_text);
-			for (std::string& line : lines)
-			{
-				uint32_t measured_width = 0;
-				uint32_t measured_height = 0;
-				Font_Context::text_measure(*record, line, measured_width, measured_height);
-				//未超宽不处理
-				if (static_cast<float>(measured_width) <= area.w)
-					continue;
-				std::string base = line;
-				//逐码点从尾部回退，直到省略号可以放下
-				while (!base.empty())
-				{
-					std::size_t cut = base.size() - 1;
-					while (cut > 0 && (static_cast<unsigned char>(base[cut]) & 0xC0) == 0x80)
-						--cut;
-					base.erase(cut);
-					Font_Context::text_measure(*record, base + ellipsis_text, measured_width, measured_height);
+					Font_Context::text_measure(*record, line, measured_width, measured_height);
+					//未超宽不处理
 					if (static_cast<float>(measured_width) <= area.w)
-						break;
+						continue;
+					std::string base = line;
+					//逐码点从尾部回退，直到省略号可以放下
+					while (!base.empty())
+					{
+						std::size_t cut = base.size() - 1;
+						while (cut > 0 && (static_cast<unsigned char>(base[cut]) & 0xC0) == 0x80)
+							--cut;
+						base.erase(cut);
+						Font_Context::text_measure(*record, base + ellipsis_text, measured_width, measured_height);
+						if (static_cast<float>(measured_width) <= area.w)
+							break;
+					}
+					line = base + ellipsis_text;
 				}
-				line = base + ellipsis_text;
 			}
+
+			//写入布局缓存
+			entry = block_cache_insert(font_handle, text, area.w, line_height, wrap, ellipsis, valign,
+				std::move(lines));
 		}
 
+		//行高（0 取字体高度）
+		const float height = line_height > 0.0f ? line_height : static_cast<float>(record->pixel_height);
 		//整体高度与起始纵坐标
-		const float total_height = height * static_cast<float>(lines.size());
+		const float total_height = height * static_cast<float>(entry->lines.size());
 		float y = area.y;
 		if (valign == Ui_Align::Center)
 			y += (area.h - total_height) * 0.5f;
@@ -679,7 +746,7 @@ namespace engine
 			y += area.h - total_height;
 		//逐行绘制
 		bool appended = false;
-		for (const std::string& line : lines)
+		for (const std::string& line : entry->lines)
 		{
 			if (!line.empty())
 				appended = text_append(font_handle, line, area.x, y, 0.0f, color) || appended;

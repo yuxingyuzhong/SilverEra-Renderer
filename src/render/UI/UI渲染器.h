@@ -45,6 +45,10 @@ namespace engine
 		uint32_t text_cache_hits = 0;
 		//本帧文本几何缓存未命中次数
 		uint32_t text_cache_misses = 0;
+		//本帧文本块布局缓存命中次数（第九百零三轮）
+		uint32_t block_cache_hits = 0;
+		//本帧文本块布局缓存未命中次数
+		uint32_t block_cache_misses = 0;
 	};
 
 	/*
@@ -132,6 +136,28 @@ namespace engine
 			//最近使用序号（淘汰最久未使用者）
 			uint64_t stamp = 0;
 		};
+		//文本块布局缓存条目（第九百零三轮）
+		struct Block_Cache_Entry
+		{
+			//字体句柄（键）
+			uint64_t font_handle = 0;
+			//原始文本（键）
+			std::string text{};
+			//区域宽度（键）
+			float area_width = 0.0f;
+			//行高参数（键；0 与显式值语义不同）
+			float line_height = 0.0f;
+			//是否自动换行（键）
+			bool wrap = false;
+			//是否尾部省略（键）
+			bool ellipsis = false;
+			//垂直对齐（键）
+			Ui_Align valign = Ui_Align::Center;
+			//分行 / 折行 / 省略后的行列表（值）
+			std::vector<std::string> lines{};
+			//最近使用序号（淘汰最久未使用者）
+			uint64_t stamp = 0;
+		};
 
 		//确保帧槽缓冲容量足够（不足时重建）
 		bool slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count);
@@ -168,6 +194,12 @@ namespace engine
 		//写入文本几何缓存条目并返回其指针（超出容量时淘汰最久未使用者）
 		Text_Cache_Entry* text_cache_insert(uint64_t font_handle, const std::string& text,
 			float center_area_width, Mesh_Data&& mesh, uint32_t width);
+		//查找文本块布局缓存条目（未命中返回空；第九百零三轮）
+		Block_Cache_Entry* block_cache_find(uint64_t font_handle, const std::string& text, float area_width,
+			float line_height, bool wrap, bool ellipsis, Ui_Align valign);
+		//写入文本块布局缓存条目并返回其指针（超出容量时淘汰最久未使用者）
+		Block_Cache_Entry* block_cache_insert(uint64_t font_handle, const std::string& text, float area_width,
+			float line_height, bool wrap, bool ellipsis, Ui_Align valign, std::vector<std::string>&& lines);
 
 	private:
 		//逻辑设备
@@ -198,6 +230,12 @@ namespace engine
 		static constexpr std::size_t text_cache_capacity = 64;
 		//最近一次缓存使用序号（淘汰依据）
 		uint64_t text_cache_stamp = 0;
+		//文本块布局缓存（第九百零三轮）
+		std::vector<Block_Cache_Entry> block_cache{};
+		//文本块布局缓存容量上限
+		static constexpr std::size_t block_cache_capacity = 32;
+		//最近一次块缓存使用序号
+		uint64_t block_cache_stamp = 0;
 		//本帧使用的字形图集纹理句柄（0 = 无文字）
 		uint64_t text_atlas = 0;
 		//各槽位的继承裁剪（下标 = 句柄 - 1；逐帧复用，第八百八十八轮）
