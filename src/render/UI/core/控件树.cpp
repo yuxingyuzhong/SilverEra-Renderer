@@ -337,6 +337,8 @@ namespace engine
 		node->rect = rect;
 		//显式矩形优先：取消锚点布局
 		node->layout.active = false;
+		//矩形变化需重算布局
+		layout_dirty = true;
 		return true;
 	}
 
@@ -357,6 +359,8 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->layout = layout;
+		//布局设置变化需重算
+		layout_dirty = true;
 		//启用时立即按当前父矩形求一次，便于调用方当场读取
 		if (layout.active)
 		{
@@ -386,6 +390,8 @@ namespace engine
 		node->flow = flow;
 		node->flow_gap = gap > 0.0f ? gap : 0.0f;
 		node->flow_padding = padding > 0.0f ? padding : 0.0f;
+		//排列设置变化需重算
+		layout_dirty = true;
 		return true;
 	}
 
@@ -399,6 +405,33 @@ namespace engine
 		gap_out = node->flow_gap;
 		padding_out = node->flow_padding;
 		return true;
+	}
+
+	//布局重算次数
+	uint64_t Ui_Context::layout_apply_count(void) const
+	{
+		return layout_apply_count_value;
+	}
+
+	//设置排列交叉轴对齐
+	bool Ui_Context::flow_align_set(Ui_Handle handle, Ui_Align align)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->flow_align = align;
+		//对齐变化需重算布局
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取排列交叉轴对齐
+	Ui_Align Ui_Context::flow_align_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Align::Start;
+		return node->flow_align;
 	}
 
 	//设置背景色
@@ -493,6 +526,8 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->visible = visible;
+		//可见性影响排列占位，需重算布局
+		layout_dirty = true;
 		//隐藏时若持有焦点则清除
 		if (!visible && focused == handle)
 			focus_set(0);

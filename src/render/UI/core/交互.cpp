@@ -195,13 +195,32 @@ namespace engine
 		//根节点铺满窗口客户区
 		Ui_Node* root = node_find(1);
 		if (root != nullptr)
-			root->rect = Ui_Rect{ 0.0f, 0.0f,
+		{
+			const Ui_Rect root_rect{ 0.0f, 0.0f,
 				static_cast<float>(input.window_width), static_cast<float>(input.window_height) };
-
-		//根尺寸更新后重算锚点布局（父先于子）
-		layout_apply();
-		//布局结果之上再排列容器直接子节点
-		flow_apply();
+			//根尺寸变化标记布局待重算
+			if (root_rect.w != layout_root_width || root_rect.h != layout_root_height)
+			{
+				layout_root_width = root_rect.w;
+				layout_root_height = root_rect.h;
+				layout_dirty = true;
+			}
+			root->rect = root_rect;
+		}
+		//节点集合变化（创建 / 销毁）标记布局待重算
+		if (nodes.size() != layout_node_count)
+		{
+			layout_node_count = nodes.size();
+			layout_dirty = true;
+		}
+		//仅脏时重算：先锚点布局（父先于子），再排列容器直接子节点
+		if (layout_dirty)
+		{
+			layout_apply();
+			flow_apply();
+			layout_dirty = false;
+			layout_apply_count_value += 1;
+		}
 
 		//清除上一帧的单击标记
 		for (Ui_Node& node : nodes)

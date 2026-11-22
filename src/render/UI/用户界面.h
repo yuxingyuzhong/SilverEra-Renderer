@@ -129,6 +129,19 @@ namespace engine
 		Vertical
 	};
 
+	//UI 交叉轴对齐（排列容器的子节点在非排列方向上的对齐方式）
+	enum class Ui_Align : uint8_t
+	{
+		//起始边
+		Start,
+		//居中
+		Center,
+		//结束边
+		End,
+		//拉伸到内容区尺寸
+		Stretch
+	};
+
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
 	struct Ui_Node
 	{
@@ -148,6 +161,8 @@ namespace engine
 		float flow_gap = 0.0f;
 		//排列内边距（像素；四边相同，负值按 0）
 		float flow_padding = 0.0f;
+		//排列交叉轴对齐
+		Ui_Align flow_align = Ui_Align::Start;
 		//背景色（面板 / 按钮 / 文本框）
 		Ui_Color color{};
 		//文本色（按钮标签 / 文本框内容）
@@ -255,6 +270,11 @@ namespace engine
 		bool flow_set(Ui_Handle handle, Ui_Flow flow, float gap = 0.0f, float padding = 0.0f);
 		//取排列设置
 		bool flow_get(Ui_Handle handle, Ui_Flow& flow_out, float& gap_out, float& padding_out) const;
+		//设置 / 读取排列交叉轴对齐（未知句柄设置返回假；读取返回 Start）
+		bool flow_align_set(Ui_Handle handle, Ui_Align align);
+		Ui_Align flow_align_get(Ui_Handle handle) const;
+		//布局重算次数（观测用；根尺寸 / 节点集合 / 布局设置变化时递增）
+		uint64_t layout_apply_count(void) const;
 		//设置背景色
 		bool color_set(Ui_Handle handle, const Ui_Color& color);
 		//设置按钮标签
@@ -378,6 +398,15 @@ namespace engine
 		std::unordered_map<std::string, Ui_Handle> command_bindings{};
 		//键盘交互总闸（默认开启，未接入系统时仍可独立使用）
 		bool keyboard_gate = true;
+		//布局脏标记（根尺寸 / 节点集合 / 布局设置变化时置位）
+		bool layout_dirty = true;
+		//布局重算次数（观测）
+		uint64_t layout_apply_count_value = 0;
+		//上次布局时的节点集合大小
+		std::size_t layout_node_count = 0;
+		//上次布局时的根尺寸
+		float layout_root_width = -1.0f;
+		float layout_root_height = -1.0f;
 
 		//按句柄查找控件 —— 非常量重载
 		Ui_Node* node_find(Ui_Handle handle);

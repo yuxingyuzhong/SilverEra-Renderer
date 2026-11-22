@@ -105,6 +105,17 @@ namespace engine
 			//内边距与间距（负值按 0）
 			const float padding = container.flow_padding > 0.0f ? container.flow_padding : 0.0f;
 			const float gap = container.flow_gap > 0.0f ? container.flow_gap : 0.0f;
+			//内容区尺寸（交叉轴对齐与拉伸用）
+			const float content_width = container.rect.w - padding * 2.0f > 0.0f
+				? container.rect.w - padding * 2.0f : 0.0f;
+			const float content_height = container.rect.h - padding * 2.0f > 0.0f
+				? container.rect.h - padding * 2.0f : 0.0f;
+			//交叉轴对齐系数（Stretch 单独处理）
+			float align_factor = 0.0f;
+			if (container.flow_align == Ui_Align::Center)
+				align_factor = 0.5f;
+			else if (container.flow_align == Ui_Align::End)
+				align_factor = 1.0f;
 			//内容区起点
 			float cursor = container.flow == Ui_Flow::Horizontal
 				? container.rect.x + padding : container.rect.y + padding;
@@ -118,12 +129,20 @@ namespace engine
 				{
 					child.rect.x = cursor;
 					child.rect.y = container.rect.y + padding;
+					if (container.flow_align == Ui_Align::Stretch)
+						child.rect.h = content_height;
+					else
+						child.rect.y += (content_height - child.rect.h) * align_factor;
 					cursor += child.rect.w + gap;
 				}
 				else
 				{
 					child.rect.y = cursor;
 					child.rect.x = container.rect.x + padding;
+					if (container.flow_align == Ui_Align::Stretch)
+						child.rect.w = content_width;
+					else
+						child.rect.x += (content_width - child.rect.w) * align_factor;
 					cursor += child.rect.h + gap;
 				}
 			}
