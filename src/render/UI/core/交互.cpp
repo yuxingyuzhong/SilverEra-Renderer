@@ -273,6 +273,35 @@ namespace engine
 		for (Ui_Node& node : nodes)
 			node.hovered = node.alive && node.handle == hovered && node_focusable(node);
 
+		//滚轮：滚动指针下最近的滚动容器（第八百九十一轮）
+		bool wheel_scrolled = false;
+		if (input.pointer.wheel_y != 0.0f)
+		{
+			//自指针命中控件向上寻找开启裁剪的容器
+			Ui_Handle cursor_handle = hovered;
+			while (cursor_handle != 0)
+			{
+				Ui_Node* cursor_node = node_find(cursor_handle);
+				if (cursor_node == nullptr)
+					break;
+				//命中滚动容器：向上滚动为负、向下为正
+				if (cursor_node->clip_children)
+				{
+					const float step = 24.0f;
+					float next_scroll = cursor_node->scroll_y - input.pointer.wheel_y * step;
+					if (next_scroll < 0.0f)
+						next_scroll = 0.0f;
+					if (next_scroll != cursor_node->scroll_y)
+					{
+						cursor_node->scroll_y = next_scroll;
+						wheel_scrolled = true;
+					}
+					break;
+				}
+				cursor_handle = cursor_node->parent;
+			}
+		}
+
 		//鼠标左键按下沿：确定按下目标与焦点
 		if (input.pointer.button_pressed[0])
 		{
@@ -385,7 +414,7 @@ namespace engine
 				text_edit(*focus_node, input);
 		}
 		//滚动条取值同步到目标容器（拖动后当帧生效）
-		if (scroll_bar_sync())
+		if (scroll_bar_sync() || wheel_scrolled)
 			scroll_apply();
 		//派发本帧域内事件（遍历结束后统一送达订阅者）
 		bus_get().frame_flush();
