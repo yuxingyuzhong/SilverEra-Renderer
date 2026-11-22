@@ -259,6 +259,12 @@ namespace engine
 		uint64_t texture = 0;
 		//文本框内容（UTF-8）
 		std::string text{};
+		//是否自动换行（仅标签；第八百九十四轮）
+		bool text_wrap = false;
+		//多行行高（像素；0 = 字体高度）
+		float line_height = 0.0f;
+		//多行文本垂直对齐（单行默认居中，保持既有观感）
+		Ui_Align text_valign = Ui_Align::Center;
 		//文本框光标（字节偏移）
 		std::size_t caret = 0;
 		//是否可见
@@ -414,6 +420,14 @@ namespace engine
 		bool label_set(Ui_Handle handle, const std::string& label);
 		//设置文本框内容（光标移到末尾）
 		bool text_set(Ui_Handle handle, const std::string& text);
+		/*
+		设置 / 读取多行文本布局（第八百九十四轮）
+		wrap：超出矩形宽度时按字符自动换行；line_height <= 0 取字体高度；
+		valign：多行整体垂直对齐（默认居中，保持单行观感）。
+		未知句柄设置返回假，读取返回默认值。
+		*/
+		bool text_layout_set(Ui_Handle handle, bool wrap, float line_height, Ui_Align valign);
+		void text_layout_get(Ui_Handle handle, bool& wrap_out, float& line_height_out, Ui_Align& valign_out) const;
 		//取文本框内容
 		bool text_get(Ui_Handle handle, std::string& text_out) const;
 		//复选框选中状态读取 / 设置

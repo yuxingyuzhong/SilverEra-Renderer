@@ -102,6 +102,13 @@ namespace engine
 		//追加文本（返回是否登记了绘制；字体未设置 / 无字形时返回假）
 		bool text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 			float center_area_width, const Ui_Color& color);
+		/*
+		追加多行文本块（第八百九十四轮）
+		按 \n 分行，wrap 时再按区域宽度逐字符换行；line_height <= 0 取字体高度；
+		valign 控制多行整体垂直对齐（Start / Center / End）。
+		*/
+		bool text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
+			float line_height, bool wrap, Ui_Align valign, const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
 

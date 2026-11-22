@@ -443,6 +443,94 @@ namespace engine
 		return true;
 	}
 
+	//追加多行文本块
+	bool Ui_Renderer::text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
+		float line_height, bool wrap, Ui_Align valign, const Ui_Color& color)
+	{
+		//字体未设置或字体模块缺失
+		if (font_handle == 0 || font == nullptr)
+			return false;
+		Font_Record* record = font->font_get_mutable(font_handle);
+		if (record == nullptr)
+			return false;
+		//确保全部字形已烘焙（供换行度量使用）
+		font->glyphs_ensure(*record, text);
+
+		//行高（0 取字体高度）
+		const float height = line_height > 0.0f ? line_height : static_cast<float>(record->pixel_height);
+		//按换行符分行
+		std::vector<std::string> lines{};
+		std::string current{};
+		for (char ch : text)
+		{
+			if (ch == '\n')
+			{
+				lines.push_back(current);
+				current.clear();
+			}
+			else
+				current.push_back(ch);
+		}
+		lines.push_back(current);
+
+		//自动换行：按 UTF-8 码点贪心累积，超出区域宽度即另起一行
+		if (wrap && area.w > 0.0f)
+		{
+			std::vector<std::string> wrapped{};
+			for (const std::string& line : lines)
+			{
+				std::string cursor{};
+				for (std::size_t index = 0; index < line.size();)
+				{
+					//按首字节推断 UTF-8 码点长度
+					const unsigned char lead = static_cast<unsigned char>(line[index]);
+					std::size_t length = 1;
+					if ((lead & 0xE0) == 0xC0)
+						length = 2;
+					else if ((lead & 0xF0) == 0xE0)
+						length = 3;
+					else if ((lead & 0xF8) == 0xF0)
+						length = 4;
+					//截断时回退到剩余长度
+					if (index + length > line.size())
+						length = line.size() - index;
+					const std::string candidate = cursor + line.substr(index, length);
+					uint32_t measured_width = 0;
+					uint32_t measured_height = 0;
+					Font_Context::text_measure(*record, candidate, measured_width, measured_height);
+					//当前行非空且加入后超宽：本行收束并另起一行
+					if (!cursor.empty() && static_cast<float>(measured_width) > area.w)
+					{
+						wrapped.push_back(cursor);
+						cursor = line.substr(index, length);
+					}
+					else
+						cursor = candidate;
+					index += length;
+				}
+				wrapped.push_back(cursor);
+			}
+			lines.swap(wrapped);
+		}
+
+		//整体高度与起始纵坐标
+		const float total_height = height * static_cast<float>(lines.size());
+		float y = area.y;
+		if (valign == Ui_Align::Center)
+			y += (area.h - total_height) * 0.5f;
+		else if (valign == Ui_Align::End)
+			y += area.h - total_height;
+		//逐行绘制
+		bool appended = false;
+		for (const std::string& line : lines)
+		{
+			if (!line.empty())
+				appended = text_append(font_handle, line, area.x, y, 0.0f, color) || appended;
+			y += height;
+		}
+		return appended;
+	}
+
 	//把控件树绘制到给定命令缓冲
 	void Ui_Renderer::draw(const Ui_Context& ui, VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t slot)
 	{
@@ -534,10 +622,10 @@ namespace engine
 					with_opacity(panel_color, node->opacity));
 				break;
 			}
-			//纯文本标签：居左、垂直居中
+			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
-				text_append(font_handle, node->text, node->rect.x,
-					node->rect.y + (node->rect.h - text_height) * 0.5f, 0.0f,
+				text_append_block(font_handle, node->text, node->rect, node->line_height,
+					node->text_wrap, node->text_valign,
 					with_opacity(node->text_color, node->opacity));
 				break;
 			//图片：纹理铺满矩形（不参与交互）

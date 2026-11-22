@@ -664,6 +664,36 @@ namespace engine
 		return true;
 	}
 
+	//设置多行文本布局
+	bool Ui_Context::text_layout_set(Ui_Handle handle, bool wrap, float line_height, Ui_Align valign)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_wrap = wrap;
+		//负行高按字体高度
+		node->line_height = line_height > 0.0f ? line_height : 0.0f;
+		node->text_valign = valign;
+		return true;
+	}
+
+	//读取多行文本布局
+	void Ui_Context::text_layout_get(Ui_Handle handle, bool& wrap_out, float& line_height_out,
+		Ui_Align& valign_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+		{
+			wrap_out = false;
+			line_height_out = 0.0f;
+			valign_out = Ui_Align::Center;
+			return;
+		}
+		wrap_out = node->text_wrap;
+		line_height_out = node->line_height;
+		valign_out = node->text_valign;
+	}
+
 	//复选框选中状态读取
 	bool Ui_Context::checked_get(Ui_Handle handle) const
 	{
