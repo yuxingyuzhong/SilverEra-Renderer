@@ -306,6 +306,8 @@ namespace engine
 		float value = 0.0f;
 		//进度条 / 滑动条是否纵向（假 = 横向；第九百二十三轮）
 		bool vertical = false;
+		//滑动条交互步进（>0 时按该档距量化；0 = 连续；第九百二十四轮）
+		float value_step = 0.0f;
 		//点击回调
 		void (*on_click)(Ui_Handle handle, void* user) = nullptr;
 		//复选框切换回调
@@ -401,6 +403,13 @@ namespace engine
 		*/
 		bool progress_vertical_set(Ui_Handle handle, bool vertical);
 		bool progress_vertical_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取滑动条步进（第九百二十四轮）
+		step > 0 时，指针交互结果按 step 的整数倍量化并夹紧 0..1；step <= 0 表示连续。
+		程序侧 value_set 不受步进约束。未知句柄设置返回假、读取返回 0。
+		*/
+		bool slider_step_set(Ui_Handle handle, float step);
+		float slider_step_get(Ui_Handle handle) const;
 		//销毁控件（含全部后代）
 		bool destroy(Ui_Handle handle);
 

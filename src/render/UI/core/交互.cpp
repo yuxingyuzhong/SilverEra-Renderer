@@ -140,6 +140,12 @@ namespace engine
 			ratio = 0.0f;
 		else if (ratio > 1.0f)
 			ratio = 1.0f;
+		//按步进量化（0 = 连续）
+		if (node.value_step > 0.0f)
+		{
+			const float stepped = std::floor(ratio / node.value_step + 0.5f) * node.value_step;
+			ratio = stepped < 0.0f ? 0.0f : (stepped > 1.0f ? 1.0f : stepped);
+		}
 		//值未变化则空操作
 		if (ratio == node.value)
 			return false;

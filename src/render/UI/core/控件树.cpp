@@ -431,6 +431,26 @@ namespace engine
 		return node->vertical;
 	}
 
+	//设置滑动条步进
+	bool Ui_Context::slider_step_set(Ui_Handle handle, float step)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//负值与非数按 0（连续）
+		node->value_step = step > 0.0f ? step : 0.0f;
+		return true;
+	}
+
+	//读取滑动条步进
+	float Ui_Context::slider_step_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->value_step;
+	}
+
 	//销毁控件（含全部后代）
 	bool Ui_Context::destroy(Ui_Handle handle)	{
 		//根节点禁止销毁
