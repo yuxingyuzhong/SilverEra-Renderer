@@ -413,6 +413,25 @@ namespace engine
 		return node->radio_group;
 	}
 
+	//创建开关
+	Ui_Handle Ui_Context::switch_create(Ui_Handle parent, const Ui_Rect& rect, bool checked,
+		void (*on_toggle)(Ui_Handle, bool, void*), void* user)
+	{
+		//创建开关节点
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Switch);
+		//写入状态与回调（未选中轨道用中灰）
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->checked = checked;
+			node->on_toggle = on_toggle;
+			node->user = user;
+			node->color = Ui_Color{ 0.28f, 0.28f, 0.32f, 1.0f };
+			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
 	//创建滑动条
 	Ui_Handle Ui_Context::slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 		void (*on_value)(Ui_Handle, float, void*), void* user)

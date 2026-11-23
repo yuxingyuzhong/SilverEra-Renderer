@@ -35,7 +35,9 @@ namespace engine
 		//进度条（背景 + 按值填充前景 + 可选居中标签；第九百一十五轮）
 		Progress,
 		//单选按钮（圆形环 + 选中圆点 + 右侧标签；第九百二十六轮）
-		Radio
+		Radio,
+		//开关（圆角轨道 + 左右滑块；第九百二十七轮）
+		Switch
 	};
 
 	//UI 像素矩形（左上原点、Y 向下）
@@ -401,6 +403,13 @@ namespace engine
 		//设置 / 读取单选按钮组键（0 = 同父为组；未知句柄设置返回假、读取返回 0）
 		bool radio_group_set(Ui_Handle handle, Ui_Handle group);
 		Ui_Handle radio_group_get(Ui_Handle handle) const;
+		/*
+		创建开关（第九百二十七轮）
+		圆角轨道 + 左右滑块；选中时滑块靠右、轨道取主题强调色。
+		复用 `checked` 与 `on_toggle`，交互语义同复选框（点击 / 回车 / 语义命令切换）。
+		*/
+		Ui_Handle switch_create(Ui_Handle parent, const Ui_Rect& rect, bool checked,
+			void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);
 		//创建滑动条（值域 0..1）
 		Ui_Handle slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 			void (*on_value)(Ui_Handle, float, void*) = nullptr, void* user = nullptr);

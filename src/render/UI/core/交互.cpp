@@ -77,7 +77,7 @@ namespace engine
 	{
 		return node.type == Ui_Node_Type::Button || node.type == Ui_Node_Type::Text_Box
 			|| node.type == Ui_Node_Type::Checkbox || node.type == Ui_Node_Type::Slider
-			|| node.type == Ui_Node_Type::Radio;
+			|| node.type == Ui_Node_Type::Radio || node.type == Ui_Node_Type::Switch;
 	}
 
 	//Tab 焦点导航
@@ -417,8 +417,8 @@ namespace engine
 					if (node->on_click != nullptr)
 						node->on_click(node->handle, node->user);
 				}
-				//复选框：切换选中并通知
-				else if (node->type == Ui_Node_Type::Checkbox)
+				//复选框 / 开关：切换选中并通知
+				else if (node->type == Ui_Node_Type::Checkbox || node->type == Ui_Node_Type::Switch)
 				{
 					node->checked = !node->checked;
 					node->clicked = true;
@@ -460,7 +460,8 @@ namespace engine
 				if (focus_node->on_click != nullptr)
 					focus_node->on_click(focus_node->handle, focus_node->user);
 			}
-			else if (activate && focus_node->type == Ui_Node_Type::Checkbox)
+			else if (activate && (focus_node->type == Ui_Node_Type::Checkbox
+				|| focus_node->type == Ui_Node_Type::Switch))
 			{
 				focus_node->checked = !focus_node->checked;
 				focus_node->clicked = true;
@@ -548,8 +549,8 @@ namespace engine
 				node->on_click(node->handle, node->user);
 			return true;
 		}
-		//复选框：切换选中
-		if (node->type == Ui_Node_Type::Checkbox)
+		//复选框 / 开关：切换选中
+		if (node->type == Ui_Node_Type::Checkbox || node->type == Ui_Node_Type::Switch)
 		{
 			node->checked = !node->checked;
 			node->clicked = true;

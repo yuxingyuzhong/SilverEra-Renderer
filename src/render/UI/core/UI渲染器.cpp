@@ -1191,6 +1191,37 @@ namespace engine
 					system_focus_ring(node->rect);
 				break;
 			}
+			//开关：圆角轨道 + 左右滑块
+			case Ui_Node_Type::Switch:
+			{
+				//轨道高取控件高度上限 20 像素，宽度铺满矩形
+				const float track_h = std::min(node->rect.h, 20.0f);
+				Ui_Rect track_rect{ node->rect.x, node->rect.y + (node->rect.h - track_h) * 0.5f,
+					node->rect.w, track_h };
+				//未选中轨道用节点颜色，选中取强调色
+				const Ui_Color track_color = node->checked ? ui.theme_get().accent
+					: (node->role == Ui_Role::Custom ? node->color
+						: ui_theme_color(ui.theme_get(), node->role,
+							node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled));
+				rounded_quad_append(track_rect, track_h * 0.5f,
+					with_opacity(track_color, node->opacity));
+				//滑块直径取轨道高减 4，选中靠右、未选中靠左
+				const float knob_size = std::max(track_h - 4.0f, 2.0f);
+				const float knob_x = node->checked
+					? track_rect.x + track_rect.w - knob_size - 2.0f
+					: track_rect.x + 2.0f;
+				Ui_Rect knob_rect{ knob_x, track_rect.y + (track_h - knob_size) * 0.5f,
+					knob_size, knob_size };
+				rounded_quad_append(knob_rect, knob_size * 0.5f,
+					with_opacity(Ui_Color{ 0.95f, 0.95f, 0.98f, 1.0f }, node->opacity));
+				//焦点环
+				if (node->focused)
+					focus_ring(node->rect);
+				//系统焦点环
+				if (node->system_focused)
+					system_focus_ring(node->rect);
+				break;
+			}
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{
