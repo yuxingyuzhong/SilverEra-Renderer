@@ -808,8 +808,18 @@ namespace engine
 						//当前行非空且加入后超宽：本行收束并另起一行
 						if (!cursor.empty() && static_cast<float>(measured_width) > area.w)
 						{
-							wrapped.push_back(cursor);
-							cursor = line.substr(index, length);
+							//词边界：游标内最近空格（有则优先在此断行，空格不留在行尾）
+							const std::size_t space = cursor.rfind(' ');
+							if (space != std::string::npos && space > 0)
+							{
+								wrapped.push_back(cursor.substr(0, space));
+								cursor = cursor.substr(space + 1) + line.substr(index, length);
+							}
+							else
+							{
+								wrapped.push_back(cursor);
+								cursor = line.substr(index, length);
+							}
 						}
 						else
 							cursor = candidate;
