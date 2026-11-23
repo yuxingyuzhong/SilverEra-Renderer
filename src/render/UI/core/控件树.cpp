@@ -450,6 +450,61 @@ namespace engine
 		return true;
 	}
 
+	//注册剪贴板读写回调
+	void Ui_Context::clipboard_handlers_set(std::string (*get_text)(void* user),
+		void (*set_text)(const std::string& text, void* user), void* user)
+	{
+		clipboard_get = get_text;
+		clipboard_set = set_text;
+		clipboard_user = user;
+	}
+
+	//复制：选区优先，否则复制全文（光标不动；第九百三十五轮）
+	bool Ui_Context::text_box_copy(Ui_Handle handle)
+	{
+		const Ui_Node* node = node_find(handle);
+		//未注册写入回调
+		if (node == nullptr || clipboard_set == nullptr)
+			return false;
+		//有选区取选区，否则取全文
+		const bool has_selection = node->select_end > node->select_begin;
+		const std::string copied = has_selection
+			? node->text.substr(node->select_begin, node->select_end - node->select_begin)
+			: node->text;
+		//空文本不写剪贴板
+		if (copied.empty())
+			return false;
+		clipboard_set(copied, clipboard_user);
+		return true;
+	}
+
+	//粘贴：替换选区，否则插入光标处（第九百三十五轮）
+	bool Ui_Context::text_box_paste(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		//未注册读取回调
+		if (node == nullptr || clipboard_get == nullptr)
+			return false;
+		const std::string incoming = clipboard_get(clipboard_user);
+		//空剪贴板不改动
+		if (incoming.empty())
+			return false;
+		//光标越界先夹到串尾
+		if (node->caret > node->text.size())
+			node->caret = node->text.size();
+		//有选区按选区替换，否则在光标处插入
+		const bool has_selection = node->select_end > node->select_begin
+			&& node->select_end <= node->text.size();
+		const std::size_t begin = has_selection ? node->select_begin : node->caret;
+		const std::size_t end = has_selection ? node->select_end : node->caret;
+		node->text.replace(begin, end - begin, incoming);
+		//光标落到插入末尾并清空选区
+		node->caret = begin + incoming.size();
+		node->select_begin = 0;
+		node->select_end = 0;
+		return true;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)

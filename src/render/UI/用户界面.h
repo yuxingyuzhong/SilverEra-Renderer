@@ -402,6 +402,17 @@ namespace engine
 		bool select_set(Ui_Handle handle, std::size_t anchor, std::size_t caret);
 		void select_get(Ui_Handle handle, std::size_t& begin_out, std::size_t& end_out) const;
 		bool select_clear(Ui_Handle handle);
+		/*
+		剪贴板交互（第九百三十五轮）
+		clipboard_handlers_set 注册读写回调（传空即清除）；text_box_copy 有选区时复制选区、
+		否则复制全文，光标不动；text_box_paste 用剪贴板文本替换选区（无选区则插入光标处），
+		光标落到插入末尾并清空选区。
+		未注册对应回调、未知句柄、空文本一律返回假且不改动控件。
+		*/
+		void clipboard_handlers_set(std::string (*get_text)(void* user),
+			void (*set_text)(const std::string& text, void* user), void* user);
+		bool text_box_copy(Ui_Handle handle);
+		bool text_box_paste(Ui_Handle handle);
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });
@@ -681,6 +692,12 @@ namespace engine
 		Ui_Handle focused = 0;
 		//滑动条拖拽中的控件
 		Ui_Handle slider_drag = 0;
+		//剪贴板读取回调（第九百三十五轮；空 = 不支持复制）
+		std::string (*clipboard_get)(void* user) = nullptr;
+		//剪贴板写入回调（空 = 不支持复制）
+		void (*clipboard_set)(const std::string& text, void* user) = nullptr;
+		//剪贴板回调用户数据
+		void* clipboard_user = nullptr;
 		//UI 字体句柄
 		uint64_t font = 0;
 		//UI 主对象名（系统输入对象）
