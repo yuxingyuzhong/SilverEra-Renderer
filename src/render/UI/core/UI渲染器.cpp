@@ -1176,6 +1176,27 @@ namespace engine
 					system_focus_ring(node->rect);
 				break;
 			}
+			//进度条：背景 + 按值填充前景 + 可选居中标签
+			case Ui_Node_Type::Progress:
+			{
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(node->color, node->opacity));
+				//前景宽度按取值比例（0..1 夹紧）
+				const float ratio = node->value < 0.0f ? 0.0f : (node->value > 1.0f ? 1.0f : node->value);
+				if (ratio > 0.0f)
+				{
+					const Ui_Rect fill{ node->rect.x, node->rect.y, node->rect.w * ratio, node->rect.h };
+					rounded_quad_append(fill, node->corner_radius,
+						with_opacity(ui.theme_get().accent, node->opacity));
+				}
+				//居中标签
+				if (!node->label.empty())
+					text_append(node_font, node->label, node->rect.x,
+						node->rect.y + (node->rect.h - node_text_height) * 0.5f, node->rect.w,
+						with_opacity(node->text_color, node->opacity));
+				break;
+			}
 			default:
 				break;
 			}

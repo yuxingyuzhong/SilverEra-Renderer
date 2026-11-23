@@ -31,7 +31,9 @@ namespace engine
 		//复选框（方框 + 勾选 + 右侧标签）
 		Checkbox,
 		//滑动条（轨道 + 滑块，值域 0..1）
-		Slider
+		Slider,
+		//进度条（背景 + 按值填充前景 + 可选居中标签；第九百一十五轮）
+		Progress
 	};
 
 	//UI 像素矩形（左上原点、Y 向下）
@@ -380,6 +382,13 @@ namespace engine
 		//创建滑动条（值域 0..1）
 		Ui_Handle slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 			void (*on_value)(Ui_Handle, float, void*) = nullptr, void* user = nullptr);
+		/*
+		创建进度条（第九百一十五轮）
+		背景取节点颜色，前景取主题强调色并按 value（0..1 夹紧）填充宽度；
+		label 非空时按矩形水平居中绘制。进度条不参与交互。
+		*/
+		Ui_Handle progress_create(Ui_Handle parent, const Ui_Rect& rect, float value,
+			const std::string& label = "");
 		//销毁控件（含全部后代）
 		bool destroy(Ui_Handle handle);
 

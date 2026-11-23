@@ -393,9 +393,26 @@ namespace engine
 		return handle;
 	}
 
-	//销毁控件（含全部后代）
-	bool Ui_Context::destroy(Ui_Handle handle)
+	//创建进度条
+	Ui_Handle Ui_Context::progress_create(Ui_Handle parent, const Ui_Rect& rect, float value,
+		const std::string& label)
 	{
+		//创建进度条节点
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Progress);
+		//写入初值（钳到 0..1）、标签与默认色
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+			node->label = label;
+			node->color = Ui_Color{ 0.16f, 0.16f, 0.20f, 1.0f };
+			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
+	//销毁控件（含全部后代）
+	bool Ui_Context::destroy(Ui_Handle handle)	{
 		//根节点禁止销毁
 		if (handle == 1)
 			return false;
