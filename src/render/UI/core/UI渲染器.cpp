@@ -193,6 +193,7 @@ namespace engine
 			hash_bytes(hash, &node->system_focused, sizeof(node->system_focused));
 			hash_bytes(hash, &node->checked, sizeof(node->checked));
 			hash_bytes(hash, &node->value, sizeof(node->value));
+			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
 			hash_string(hash, node->label);
@@ -1211,11 +1212,14 @@ namespace engine
 				background_append(node->rect, node->corner_radius, node->border_width,
 					with_opacity(node->border_color, node->opacity),
 					with_opacity(background_color, node->opacity));
-				//前景宽度按取值比例（0..1 夹紧）
+				//前景按取值比例（0..1 夹紧）填充；纵向自底向上
 				const float ratio = node->value < 0.0f ? 0.0f : (node->value > 1.0f ? 1.0f : node->value);
 				if (ratio > 0.0f)
 				{
-					const Ui_Rect fill{ node->rect.x, node->rect.y, node->rect.w * ratio, node->rect.h };
+					const Ui_Rect fill = node->vertical
+						? Ui_Rect{ node->rect.x, node->rect.y + node->rect.h * (1.0f - ratio),
+							node->rect.w, node->rect.h * ratio }
+						: Ui_Rect{ node->rect.x, node->rect.y, node->rect.w * ratio, node->rect.h };
 					rounded_quad_append(fill, node->corner_radius,
 						with_opacity(ui.theme_get().accent, node->opacity));
 				}

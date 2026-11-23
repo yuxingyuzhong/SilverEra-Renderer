@@ -412,6 +412,25 @@ namespace engine
 		return handle;
 	}
 
+	//设置进度条方向
+	bool Ui_Context::progress_vertical_set(Ui_Handle handle, bool vertical)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->vertical = vertical;
+		return true;
+	}
+
+	//读取进度条方向
+	bool Ui_Context::progress_vertical_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->vertical;
+	}
+
 	//销毁控件（含全部后代）
 	bool Ui_Context::destroy(Ui_Handle handle)	{
 		//根节点禁止销毁

@@ -304,6 +304,8 @@ namespace engine
 		bool checked = false;
 		//滑动条值（0..1）
 		float value = 0.0f;
+		//进度条 / 滑动条是否纵向（假 = 横向；第九百二十三轮）
+		bool vertical = false;
 		//点击回调
 		void (*on_click)(Ui_Handle handle, void* user) = nullptr;
 		//复选框切换回调
@@ -393,6 +395,12 @@ namespace engine
 		*/
 		Ui_Handle progress_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 			const std::string& label = "");
+		/*
+		设置 / 读取进度条方向（第九百二十三轮）
+		纵向时前景自底向上按 value 填充；未知句柄设置返回假、读取返回假。
+		*/
+		bool progress_vertical_set(Ui_Handle handle, bool vertical);
+		bool progress_vertical_get(Ui_Handle handle) const;
 		//销毁控件（含全部后代）
 		bool destroy(Ui_Handle handle);
 
