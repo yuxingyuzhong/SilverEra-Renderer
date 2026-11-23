@@ -355,6 +355,60 @@ namespace engine
 		return true;
 	}
 
+	//光标按码点移动
+	bool Ui_Context::caret_move(Ui_Handle handle, int delta)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//光标越界先夹到串尾
+		if (node->caret > node->text.size())
+			node->caret = node->text.size();
+		const std::size_t origin = node->caret;
+		//向后移动
+		if (delta > 0)
+		{
+			for (int step = 0; step < delta && node->caret < node->text.size(); ++step)
+				node->caret = utf8_next_end(node->text, node->caret);
+		}
+		//向前移动
+		else if (delta < 0)
+		{
+			for (int step = 0; step < -delta && node->caret > 0; ++step)
+				node->caret = utf8_prev_start(node->text, node->caret);
+		}
+		return node->caret != origin;
+	}
+
+	//光标移到串首
+	bool Ui_Context::caret_home(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//已在串首
+		if (node->caret == 0)
+			return false;
+		node->caret = 0;
+		return true;
+	}
+
+	//光标移到串尾
+	bool Ui_Context::caret_end(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//越界先夹到串尾
+		if (node->caret > node->text.size())
+			node->caret = node->text.size();
+		//已在串尾
+		if (node->caret == node->text.size())
+			return false;
+		node->caret = node->text.size();
+		return true;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)

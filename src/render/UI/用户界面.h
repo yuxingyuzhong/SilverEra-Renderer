@@ -382,6 +382,14 @@ namespace engine
 		*/
 		bool text_box_backspace(Ui_Handle handle);
 		bool text_box_delete(Ui_Handle handle);
+		/*
+		光标移动（第九百三十二轮）
+		caret_move 按 UTF-8 码点移动 delta 步（正数后移、负数前移），越界夹到串首 / 串尾；
+		caret_home / caret_end 移到串首 / 串尾。三者返回光标是否发生移动（未知句柄返回假）。
+		*/
+		bool caret_move(Ui_Handle handle, int delta);
+		bool caret_home(Ui_Handle handle);
+		bool caret_end(Ui_Handle handle);
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });
