@@ -1103,6 +1103,56 @@ namespace engine
 		return &nodes[index];
 	}
 
+	//按系统输入对象名查找首个存活控件
+	Ui_Handle Ui_Context::node_find_by_input_name(const std::string& name) const
+	{
+		//空名不参与匹配
+		if (name.empty())
+			return 0;
+		//按创建顺序取首个匹配
+		for (const Ui_Node& node : nodes)
+		{
+			if (node.alive && node.input_name == name)
+				return node.handle;
+		}
+		return 0;
+	}
+
+	//直接子节点数量
+	std::size_t Ui_Context::child_count(Ui_Handle handle) const
+	{
+		//父节点无效返回 0
+		if (node_find(handle) == nullptr)
+			return 0;
+		std::size_t count = 0;
+		//只计存活且父句柄匹配的节点
+		for (const Ui_Node& node : nodes)
+		{
+			if (node.alive && node.parent == handle)
+				++count;
+		}
+		return count;
+	}
+
+	//按创建顺序取直接子节点
+	Ui_Handle Ui_Context::child_at(Ui_Handle handle, std::size_t index) const
+	{
+		//父节点无效返回 0
+		if (node_find(handle) == nullptr)
+			return 0;
+		std::size_t current = 0;
+		//按创建顺序推进到第 index 个存活子节点
+		for (const Ui_Node& node : nodes)
+		{
+			if (!node.alive || node.parent != handle)
+				continue;
+			if (current == index)
+				return node.handle;
+			++current;
+		}
+		return 0;
+	}
+
 	//控件绑定系统输入对象名
 	bool Ui_Context::input_name_set(Ui_Handle handle, const std::string& name)
 	{

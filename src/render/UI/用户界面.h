@@ -619,6 +619,12 @@ namespace engine
 		std::size_t node_count(void) const;
 		//按槽位取控件节点（越界返回空）
 		const Ui_Node* node_at(std::size_t index) const;
+		//按系统输入对象名查找首个存活控件（0 = 无；第九百二十九轮）
+		Ui_Handle node_find_by_input_name(const std::string& name) const;
+		//直接子节点数量（只计存活节点）
+		std::size_t child_count(Ui_Handle handle) const;
+		//按创建顺序取直接子节点（越界或父节点无效返回 0）
+		Ui_Handle child_at(Ui_Handle handle, std::size_t index) const;
 
 		/*
 		帧交互：消费输入快照
