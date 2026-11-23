@@ -84,6 +84,11 @@ namespace engine
 		void draw(const Ui_Context& ui, VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t slot);
 		//最近一帧绘制统计（第八百九十九轮）
 		const Ui_Render_Stats& stats_get(void) const;
+		/*
+		设置文本几何 / 文本块布局缓存容量（第九百一十二轮）
+		参数钳制到 [1, 1024]，并清空既有缓存条目；默认 64 / 32。
+		*/
+		void cache_limits_set(uint32_t text_capacity, uint32_t block_capacity);
 	private:
 		//单帧槽缓冲
 		struct Slot_Buffers
@@ -236,13 +241,13 @@ namespace engine
 		//文本几何缓存（第九百零二轮）
 		std::vector<Text_Cache_Entry> text_cache{};
 		//文本几何缓存容量上限
-		static constexpr std::size_t text_cache_capacity = 64;
+		std::size_t text_cache_limit = 64;
 		//最近一次缓存使用序号（淘汰依据）
 		uint64_t text_cache_stamp = 0;
 		//文本块布局缓存（第九百零三轮）
 		std::vector<Block_Cache_Entry> block_cache{};
 		//文本块布局缓存容量上限
-		static constexpr std::size_t block_cache_capacity = 32;
+		std::size_t block_cache_limit = 32;
 		//最近一次块缓存使用序号
 		uint64_t block_cache_stamp = 0;
 		//圆角轮廓采样缓冲（复用；第九百零四轮）

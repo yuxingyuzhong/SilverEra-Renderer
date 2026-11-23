@@ -46,6 +46,15 @@ namespace engine
 		return (*state_ptr).ui_render.stats_get();
 	}
 
+	//UI 文本几何 / 文本块布局缓存容量设置
+	void Render_Ui::ui_text_cache_limits_set(uint32_t text_capacity, uint32_t block_capacity)
+	{
+		//若状态未分配
+		if (state_ptr == nullptr)
+			return;
+		(*state_ptr).ui_render.cache_limits_set(text_capacity, block_capacity);
+	}
+
 	//帧输入聚合器
 	Input_Aggregator* Render_Ui::input_aggregator(void)
 	{

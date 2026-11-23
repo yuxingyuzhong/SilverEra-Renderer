@@ -139,6 +139,17 @@ namespace engine
 		return stats;
 	}
 
+	//设置文本几何 / 文本块布局缓存容量
+	void Ui_Renderer::cache_limits_set(uint32_t text_capacity, uint32_t block_capacity)
+	{
+		//钳制到 [1, 1024]
+		text_cache_limit = std::clamp<std::size_t>(text_capacity, 1, 1024);
+		block_cache_limit = std::clamp<std::size_t>(block_capacity, 1, 1024);
+		//清空既有条目，避免超限存量
+		text_cache.clear();
+		block_cache.clear();
+	}
+
 	//计算控件树绘制相关字段的指纹
 	uint64_t Ui_Renderer::fingerprint_build(const Ui_Context& ui) const
 	{
@@ -583,7 +594,7 @@ namespace engine
 		float center_area_width, Mesh_Data&& mesh, uint32_t width)
 	{
 		//容量已满则淘汰最久未使用条目
-		if (text_cache.size() >= text_cache_capacity)
+		if (text_cache.size() >= text_cache_limit)
 		{
 			std::size_t oldest = 0;
 			for (std::size_t index = 1; index < text_cache.size(); ++index)
@@ -629,7 +640,7 @@ namespace engine
 		std::vector<std::string>&& lines)
 	{
 		//容量已满则淘汰最久未使用条目
-		if (block_cache.size() >= block_cache_capacity)
+		if (block_cache.size() >= block_cache_limit)
 		{
 			std::size_t oldest = 0;
 			for (std::size_t index = 1; index < block_cache.size(); ++index)

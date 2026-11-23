@@ -33,6 +33,8 @@ namespace engine
 		Ui_Context* ui_context(void);
 		//最近一帧 UI 绘制统计（第八百九十九轮；未初始化时返回全零）
 		const Ui_Render_Stats& ui_render_stats(void) const;
+		//UI 文本几何 / 文本块布局缓存容量设置（钳到 [1,1024]，清空既有缓存；第九百一十二轮）
+		void ui_text_cache_limits_set(uint32_t text_capacity, uint32_t block_capacity);
 		//帧输入聚合器（渲染层自持原始输入；未初始化时返回空）
 		Input_Aggregator* input_aggregator(void);
 		//系统输入 / UI 事件终端（供应用层绑定中转站）
