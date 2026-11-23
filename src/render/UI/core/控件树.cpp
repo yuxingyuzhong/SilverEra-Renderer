@@ -322,6 +322,19 @@ namespace engine
 		bottom_out = node != nullptr ? node->slice_bottom : 0.0f;
 	}
 
+	//按纹理像素边界设置图片九宫格切分
+	bool Ui_Context::image_slice_pixels_set(Ui_Handle handle, uint32_t texture_width, uint32_t texture_height,
+		float left, float top, float right, float bottom)
+	{
+		//纹理尺寸非正无法换算
+		if (texture_width == 0 || texture_height == 0)
+			return false;
+		//换算为归一化切分（负边距由 image_slice_set 钳制为 0）
+		const float width = static_cast<float>(texture_width);
+		const float height = static_cast<float>(texture_height);
+		return image_slice_set(handle, left / width, top / height, right / width, bottom / height);
+	}
+
 	//创建复选框
 	Ui_Handle Ui_Context::checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 		bool checked, void (*on_toggle)(Ui_Handle, bool, void*), void* user)

@@ -360,6 +360,13 @@ namespace engine
 		bool image_slice_set(Ui_Handle handle, float left, float top, float right, float bottom);
 		void image_slice_get(Ui_Handle handle, float& left_out, float& top_out,
 			float& right_out, float& bottom_out) const;
+		/*
+		按纹理像素边界设置九宫格切分（第九百零七轮）
+		texture_width / texture_height 为纹理像素尺寸（非正返回假），left..bottom 为像素边距；
+		换算为归一化切分后复用 image_slice_set 的钳制口径。
+		*/
+		bool image_slice_pixels_set(Ui_Handle handle, uint32_t texture_width, uint32_t texture_height,
+			float left, float top, float right, float bottom);
 		//创建复选框（rect 左侧为方框，右侧为标签）
 		Ui_Handle checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 			bool checked = false, void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);
