@@ -405,6 +405,7 @@ namespace engine
 		{
 			node->value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 			node->label = label;
+			node->role = Ui_Role::Progress;
 			node->color = Ui_Color{ 0.16f, 0.16f, 0.20f, 1.0f };
 			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		}

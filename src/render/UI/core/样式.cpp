@@ -32,6 +32,9 @@ namespace engine
 		case Ui_Role::Slider:
 			//选中 / 滑块使用强调色
 			return theme.accent;
+		case Ui_Role::Progress:
+			//进度条背景与面板同色板（前景仍为强调色）
+			return theme.panel;
 		default:
 			return theme.panel;
 		}

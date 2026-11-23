@@ -1204,9 +1204,13 @@ namespace engine
 			//进度条：背景 + 按值填充前景 + 可选居中标签
 			case Ui_Node_Type::Progress:
 			{
+				//背景按角色取主题色（Custom 用节点颜色）
+				const Ui_Color background_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
 				background_append(node->rect, node->corner_radius, node->border_width,
 					with_opacity(node->border_color, node->opacity),
-					with_opacity(node->color, node->opacity));
+					with_opacity(background_color, node->opacity));
 				//前景宽度按取值比例（0..1 夹紧）
 				const float ratio = node->value < 0.0f ? 0.0f : (node->value > 1.0f ? 1.0f : node->value);
 				if (ratio > 0.0f)

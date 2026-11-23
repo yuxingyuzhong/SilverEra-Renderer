@@ -162,7 +162,9 @@ namespace engine
 		//复选框
 		Checkbox,
 		//滑动条
-		Slider
+		Slider,
+		//进度条（第九百二十二轮）
+		Progress
 	};
 
 	//UI 视觉状态（主题按状态给出颜色）
