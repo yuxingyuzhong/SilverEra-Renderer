@@ -445,9 +445,34 @@ namespace engine
 		//零面积或无效纹理不产生几何
 		if (texture == 0 || rect.w <= 0.0f || rect.h <= 0.0f)
 			return;
-		//顶点基址与索引基址
-		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
+		//登记前记录索引基址
 		const uint32_t index_base = static_cast<uint32_t>(cpu_indices.size());
+		//只追加几何
+		quad_textured_uv_emit(texture, rect, u0, v0, u1, v1);
+		//索引未增长说明子块退化被跳过
+		if (cpu_indices.size() == index_base)
+			return;
+
+		//登记纹理绘制记录
+		Draw_Record record{};
+		record.first_index = index_base;
+		record.index_count = static_cast<uint32_t>(cpu_indices.size()) - index_base;
+		record.color = color;
+		record.texture = texture;
+		record.text = false;
+		record.clip = current_clip;
+		draws.push_back(record);
+	}
+
+	//只追加纹理矩形几何、不登记绘制记录
+	void Ui_Renderer::quad_textured_uv_emit(uint64_t texture, const Ui_Rect& rect,
+		float u0, float v0, float u1, float v1)
+	{
+		//零面积或无效纹理不产生几何
+		if (texture == 0 || rect.w <= 0.0f || rect.h <= 0.0f)
+			return;
+		//顶点基址
+		const uint32_t base = static_cast<uint32_t>(cpu_vertices.size());
 
 		//矩形边界
 		const float x0 = rect.x;
@@ -477,16 +502,6 @@ namespace engine
 		cpu_indices.push_back(base + 0);
 		cpu_indices.push_back(base + 2);
 		cpu_indices.push_back(base + 3);
-
-		//登记纹理绘制记录
-		Draw_Record record{};
-		record.first_index = index_base;
-		record.index_count = 6;
-		record.color = color;
-		record.texture = texture;
-		record.text = false;
-		record.clip = current_clip;
-		draws.push_back(record);
 	}
 
 	//追加图片九宫格
@@ -499,6 +514,9 @@ namespace engine
 			quad_textured_append(texture, rect, color);
 			return;
 		}
+		//无效纹理或零面积不绘制
+		if (texture == 0 || rect.w <= 0.0f || rect.h <= 0.0f)
+			return;
 		//切分之和不超过 1（控件侧已钳制，这里再兜底）
 		if (left + right > 1.0f)
 			right = 1.0f - left;
@@ -516,7 +534,8 @@ namespace engine
 		const float u[4] = { 0.0f, left, 1.0f - right, 1.0f };
 		const float v[4] = { 0.0f, top, 1.0f - bottom, 1.0f };
 
-		//九块子矩形（零宽 / 零高的块由几何追加函数自动跳过）
+		//九块子矩形共用一条绘制记录（同纹理 / 同色 / 同裁剪，几何连续）
+		const uint32_t index_base = static_cast<uint32_t>(cpu_indices.size());
 		for (int row_index = 0; row_index < 3; ++row_index)
 		{
 			for (int column_index = 0; column_index < 3; ++column_index)
@@ -524,10 +543,23 @@ namespace engine
 				const Ui_Rect cell{ column[column_index], row[row_index],
 					column[column_index + 1] - column[column_index],
 					row[row_index + 1] - row[row_index] };
-				quad_textured_append_uv(texture, cell,
-					u[column_index], v[row_index], u[column_index + 1], v[row_index + 1], color);
+				quad_textured_uv_emit(texture, cell,
+					u[column_index], v[row_index], u[column_index + 1], v[row_index + 1]);
 			}
 		}
+		//全部子块退化则不登记
+		if (cpu_indices.size() == index_base)
+			return;
+
+		//登记单条纹理绘制记录
+		Draw_Record record{};
+		record.first_index = index_base;
+		record.index_count = static_cast<uint32_t>(cpu_indices.size()) - index_base;
+		record.color = color;
+		record.texture = texture;
+		record.text = false;
+		record.clip = current_clip;
+		draws.push_back(record);
 	}
 
 	//查找文本几何缓存条目

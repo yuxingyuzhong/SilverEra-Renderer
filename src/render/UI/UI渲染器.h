@@ -168,7 +168,10 @@ namespace engine
 		//追加一个指定 UV 范围的纹理矩形（第九百零六轮）
 		void quad_textured_append_uv(uint64_t texture, const Ui_Rect& rect,
 			float u0, float v0, float u1, float v1, const Ui_Color& color);
-		//追加图片九宫格（9 个带子 UV 的纹理矩形；切分全 0 时退化为整图）
+		//只追加纹理矩形几何、不登记绘制记录（第九百零九轮）
+		void quad_textured_uv_emit(uint64_t texture, const Ui_Rect& rect,
+			float u0, float v0, float u1, float v1);
+		//追加图片九宫格（9 个子矩形合并为一条绘制记录；切分全 0 时退化为整图）
 		void image_slice_append(uint64_t texture, const Ui_Rect& rect,
 			float left, float top, float right, float bottom, const Ui_Color& color);
 		/*
