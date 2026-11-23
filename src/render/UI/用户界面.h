@@ -284,8 +284,11 @@ namespace engine
 		bool text_ellipsis = false;
 		//控件专用字体句柄（0 = 使用 UI 全局字体；第八百九十六轮）
 		uint64_t text_font = 0;
-		//文本框光标（字节偏移）
+		//光标位置（字节偏移；第九百三十轮起由 caret_set 维护边界）
 		std::size_t caret = 0;
+		//选中区间起点 / 终点（字节偏移，begin <= end；第九百三十三轮）
+		std::size_t select_begin = 0;
+		std::size_t select_end = 0;
 		//是否可见
 		bool visible = true;
 		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
@@ -390,6 +393,15 @@ namespace engine
 		bool caret_move(Ui_Handle handle, int delta);
 		bool caret_home(Ui_Handle handle);
 		bool caret_end(Ui_Handle handle);
+		/*
+		选中区间（第九百三十三轮）
+		select_set 以 anchor / caret 两个字节偏移表示选区：两者各自按 UTF-8 边界回退并夹紧，
+		再归一化为 begin <= end 存回 `select_begin / select_end`；
+		select_get 返回归一化区间（未知句柄返回 0, 0）；select_clear 清空选区。
+		*/
+		bool select_set(Ui_Handle handle, std::size_t anchor, std::size_t caret);
+		void select_get(Ui_Handle handle, std::size_t& begin_out, std::size_t& end_out) const;
+		bool select_clear(Ui_Handle handle);
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });

@@ -409,6 +409,47 @@ namespace engine
 		return true;
 	}
 
+	//设置选中区间
+	bool Ui_Context::select_set(Ui_Handle handle, std::size_t anchor, std::size_t caret)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//两端各自回退到字符边界
+		const std::size_t first = caret_boundary_floor(node->text, anchor);
+		const std::size_t second = caret_boundary_floor(node->text, caret);
+		//归一化为 begin <= end
+		node->select_begin = std::min(first, second);
+		node->select_end = std::max(first, second);
+		return true;
+	}
+
+	//读取选中区间
+	void Ui_Context::select_get(Ui_Handle handle, std::size_t& begin_out, std::size_t& end_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		//未知句柄返回空区间
+		if (node == nullptr)
+		{
+			begin_out = 0;
+			end_out = 0;
+			return;
+		}
+		begin_out = node->select_begin;
+		end_out = node->select_end;
+	}
+
+	//清空选中区间
+	bool Ui_Context::select_clear(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->select_begin = 0;
+		node->select_end = 0;
+		return true;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)
