@@ -196,6 +196,8 @@ namespace engine
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
+			hash_bytes(hash, &node->select_begin, sizeof(node->select_begin));
+			hash_bytes(hash, &node->select_end, sizeof(node->select_end));
 			hash_string(hash, node->label);
 			hash_string(hash, node->text);
 		}
@@ -1079,6 +1081,28 @@ namespace engine
 				const float padding = 6.0f;
 				const float text_x = node->rect.x + padding;
 				const float text_y = node->rect.y + (node->rect.h - node_text_height) * 0.5f;
+				//选中高亮（绘制在文本之下；第九百三十四轮）
+				if (node_record != nullptr && node->select_end > node->select_begin
+					&& node->select_end <= node->text.size())
+				{
+					uint32_t begin_width = 0;
+					uint32_t end_width = 0;
+					uint32_t measure_height = 0;
+					//度量选区两端前缀宽度
+					Font_Context::text_measure(*node_record,
+						node->text.substr(0, node->select_begin), begin_width, measure_height);
+					Font_Context::text_measure(*node_record,
+						node->text.substr(0, node->select_end), end_width, measure_height);
+					//宽度为正才绘制
+					if (end_width > begin_width)
+					{
+						Ui_Color highlight = ui.theme_get().accent;
+						highlight.a = 0.45f;
+						Ui_Rect highlight_rect{ text_x + static_cast<float>(begin_width), node->rect.y + 3.0f,
+							static_cast<float>(end_width - begin_width), node->rect.h - 6.0f };
+						quad_append(highlight_rect, with_opacity(highlight, node->opacity));
+					}
+				}
 				text_append(node_font, node->text, text_x, text_y, 0.0f,
 					with_opacity(node->text_color, node->opacity));
 				//焦点态绘制光标
