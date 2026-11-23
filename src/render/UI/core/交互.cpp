@@ -76,7 +76,8 @@ namespace engine
 	bool Ui_Context::node_focusable(const Ui_Node& node)
 	{
 		return node.type == Ui_Node_Type::Button || node.type == Ui_Node_Type::Text_Box
-			|| node.type == Ui_Node_Type::Checkbox || node.type == Ui_Node_Type::Slider;
+			|| node.type == Ui_Node_Type::Checkbox || node.type == Ui_Node_Type::Slider
+			|| node.type == Ui_Node_Type::Radio;
 	}
 
 	//Tab 焦点导航
@@ -162,6 +163,55 @@ namespace engine
 		bus_get().publish(ui_event::value, config);
 		if (node.on_value != nullptr)
 			node.on_value(node.handle, node.value, node.user);
+		return true;
+	}
+
+	//单选按钮选中（同组互斥）
+	bool Ui_Context::radio_select(Ui_Node& node)
+	{
+		//已选中则不再变化（单选不支持点击取消）
+		if (node.checked)
+			return false;
+		//组键：显式组优先，否则同父为组
+		const Ui_Handle group = node.radio_group != 0 ? node.radio_group : node.parent;
+		//先收集同组待取消项，避免回调期间遍历被修改
+		std::vector<Ui_Handle> victims{};
+		for (const Ui_Node& other : nodes)
+		{
+			//跳过已销毁 / 自身 / 非单选 / 未选中项
+			if (!other.alive || other.handle == node.handle || other.type != Ui_Node_Type::Radio || !other.checked)
+				continue;
+			const Ui_Handle other_group = other.radio_group != 0 ? other.radio_group : other.parent;
+			//跨组不受影响
+			if (other_group != group)
+				continue;
+			victims.push_back(other.handle);
+		}
+
+		//选中自身并通知
+		node.checked = true;
+		node.clicked = true;
+		nlohmann::json config = nlohmann::json::object();
+		config[ui_event::field_handle] = node.handle;
+		config[ui_event::field_checked] = true;
+		bus_get().publish(ui_event::toggle, config);
+		if (node.on_toggle != nullptr)
+			node.on_toggle(node.handle, true, node.user);
+
+		//逐个取消同组其余项（回调可能已销毁控件，逐项重新查找）
+		for (Ui_Handle handle : victims)
+		{
+			Ui_Node* other = node_find(handle);
+			if (other == nullptr || !other->checked)
+				continue;
+			other->checked = false;
+			nlohmann::json other_config = nlohmann::json::object();
+			other_config[ui_event::field_handle] = other->handle;
+			other_config[ui_event::field_checked] = false;
+			bus_get().publish(ui_event::toggle, other_config);
+			if (other->on_toggle != nullptr)
+				other->on_toggle(other->handle, false, other->user);
+		}
 		return true;
 	}
 
@@ -380,6 +430,9 @@ namespace engine
 					if (node->on_toggle != nullptr)
 						node->on_toggle(node->handle, node->checked, node->user);
 				}
+				//单选按钮：选中并取消同组
+				else if (node->type == Ui_Node_Type::Radio)
+					radio_select(*node);
 			}
 			pressed = 0;
 			slider_drag = 0;
@@ -419,6 +472,9 @@ namespace engine
 				if (focus_node->on_toggle != nullptr)
 					focus_node->on_toggle(focus_node->handle, focus_node->checked, focus_node->user);
 			}
+			//单选按钮：键盘激活同鼠标
+			else if (activate && focus_node->type == Ui_Node_Type::Radio)
+				radio_select(*focus_node);
 			//焦点文本框消费文本与编辑键
 			else if (focus_node->type == Ui_Node_Type::Text_Box)
 				text_edit(*focus_node, input);
@@ -507,6 +563,9 @@ namespace engine
 				node->on_toggle(node->handle, node->checked, node->user);
 			return true;
 		}
+		//单选按钮：选中并取消同组
+		if (node->type == Ui_Node_Type::Radio)
+			return radio_select(*node);
 		return false;
 	}
 

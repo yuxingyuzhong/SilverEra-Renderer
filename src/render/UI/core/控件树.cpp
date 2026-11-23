@@ -374,6 +374,45 @@ namespace engine
 		return handle;
 	}
 
+	//创建单选按钮
+	Ui_Handle Ui_Context::radio_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
+		bool checked, void (*on_toggle)(Ui_Handle, bool, void*), void* user)
+	{
+		//创建单选按钮节点
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Radio);
+		//写入标签、状态与回调（未选中环用中灰，选中环与圆点用强调色）
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->label = label;
+			node->checked = checked;
+			node->on_toggle = on_toggle;
+			node->user = user;
+			node->color = Ui_Color{ 0.55f, 0.55f, 0.55f, 1.0f };
+			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
+	//设置单选按钮组键
+	bool Ui_Context::radio_group_set(Ui_Handle handle, Ui_Handle group)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->radio_group = group;
+		return true;
+	}
+
+	//读取单选按钮组键
+	Ui_Handle Ui_Context::radio_group_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->radio_group;
+	}
+
 	//创建滑动条
 	Ui_Handle Ui_Context::slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 		void (*on_value)(Ui_Handle, float, void*), void* user)

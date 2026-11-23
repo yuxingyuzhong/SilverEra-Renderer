@@ -1152,6 +1152,45 @@ namespace engine
 					system_focus_ring(node->rect);
 				break;
 			}
+			//单选按钮：圆形空心环 + 选中圆点 + 右侧标签
+			case Ui_Node_Type::Radio:
+			{
+				//圆形直径取控件高度上限 20 像素，垂直居中
+				const float box_size = std::min(node->rect.h, 20.0f);
+				Ui_Rect box_rect{ node->rect.x, node->rect.y + (node->rect.h - box_size) * 0.5f,
+					box_size, box_size };
+				//选中环取强调色，未选中环取节点颜色（默认中灰）
+				const Ui_Color ring_color = node->checked
+					? ui.theme_get().accent
+					: (node->role == Ui_Role::Custom ? node->color
+						: ui_theme_color(ui.theme_get(), node->role,
+							node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled));
+				//深色内底 + 1.5 像素环
+				background_append(box_rect, box_size * 0.5f, 1.5f,
+					with_opacity(ring_color, node->opacity),
+					with_opacity(Ui_Color{ 0.02f, 0.02f, 0.05f, 0.95f }, node->opacity));
+				//选中：中心实心圆点
+				if (node->checked)
+				{
+					const float dot_size = box_size * 0.5f;
+					Ui_Rect dot_rect{ box_rect.x + (box_size - dot_size) * 0.5f,
+						box_rect.y + (box_size - dot_size) * 0.5f, dot_size, dot_size };
+					rounded_quad_append(dot_rect, dot_size * 0.5f,
+						with_opacity(ui.theme_get().accent, node->opacity));
+				}
+				//右侧标签
+				if (!node->label.empty())
+					text_append(node_font, node->label, box_rect.x + box_rect.w + 6.0f,
+						node->rect.y + (node->rect.h - node_text_height) * 0.5f, 0.0f,
+						with_opacity(node->text_color, node->opacity));
+				//焦点环
+				if (node->focused)
+					focus_ring(node->rect);
+				//系统焦点环
+				if (node->system_focused)
+					system_focus_ring(node->rect);
+				break;
+			}
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{

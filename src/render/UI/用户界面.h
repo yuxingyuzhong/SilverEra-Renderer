@@ -33,7 +33,9 @@ namespace engine
 		//滑动条（轨道 + 滑块，值域 0..1）
 		Slider,
 		//进度条（背景 + 按值填充前景 + 可选居中标签；第九百一十五轮）
-		Progress
+		Progress,
+		//单选按钮（圆形环 + 选中圆点 + 右侧标签；第九百二十六轮）
+		Radio
 	};
 
 	//UI 像素矩形（左上原点、Y 向下）
@@ -302,6 +304,8 @@ namespace engine
 		bool clicked = false;
 		//复选框选中状态
 		bool checked = false;
+		//单选按钮组键（0 = 与同父单选互斥；第九百二十六轮）
+		Ui_Handle radio_group = 0;
 		//滑动条值（0..1）
 		float value = 0.0f;
 		//进度条 / 滑动条是否纵向（假 = 横向；第九百二十三轮）
@@ -387,6 +391,16 @@ namespace engine
 		//创建复选框（rect 左侧为方框，右侧为标签）
 		Ui_Handle checkbox_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 			bool checked = false, void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);
+		/*
+		创建单选按钮（第九百二十六轮）
+		圆形空心环 + 选中中心圆点，label 绘制在右侧；点击选中后同组其余项自动取消。
+		组键取 `radio_group`（0 = 同父为组）；再次点击已选中项不取消。
+		*/
+		Ui_Handle radio_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
+			bool checked = false, void (*on_toggle)(Ui_Handle, bool, void*) = nullptr, void* user = nullptr);
+		//设置 / 读取单选按钮组键（0 = 同父为组；未知句柄设置返回假、读取返回 0）
+		bool radio_group_set(Ui_Handle handle, Ui_Handle group);
+		Ui_Handle radio_group_get(Ui_Handle handle) const;
 		//创建滑动条（值域 0..1）
 		Ui_Handle slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
 			void (*on_value)(Ui_Handle, float, void*) = nullptr, void* user = nullptr);
@@ -670,6 +684,8 @@ namespace engine
 		void focus_navigate(bool forward);
 		//滑动条按指针横坐标更新取值（返回是否发生变化）
 		bool slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y);
+		//单选按钮选中（同组其余项取消；返回是否发生变化）
+		bool radio_select(Ui_Node& node);
 		//滚动条取值同步到目标容器（返回是否有偏移变化）
 		bool scroll_bar_sync(void);
 		//文本框文本编辑（消费本帧文本与编辑键）
