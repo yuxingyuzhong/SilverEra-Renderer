@@ -375,6 +375,13 @@ namespace engine
 		//设置 / 读取光标（按 UTF-8 字符边界回退并夹紧；未知句柄设置返回假、读取返回 0）
 		bool caret_set(Ui_Handle handle, std::size_t caret);
 		std::size_t caret_get(Ui_Handle handle) const;
+		/*
+		退格 / 删除编辑（第九百三十一轮）
+		backspace 删除光标前一字符并把光标前移；delete 删除光标后一字符、光标不动。
+		均按 UTF-8 字符边界处理；返回是否发生编辑（无可删内容 / 未知句柄返回假）。
+		*/
+		bool text_box_backspace(Ui_Handle handle);
+		bool text_box_delete(Ui_Handle handle);
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });

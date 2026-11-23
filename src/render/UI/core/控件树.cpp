@@ -295,6 +295,66 @@ namespace engine
 		return node->caret;
 	}
 
+	//UTF-8 前一码点起点
+	static std::size_t utf8_prev_start(const std::string& text, std::size_t pos)
+	{
+		//已在串首
+		if (pos == 0)
+			return 0;
+		return caret_boundary_floor(text, pos - 1);
+	}
+
+	//UTF-8 后一码点终点
+	static std::size_t utf8_next_end(const std::string& text, std::size_t pos)
+	{
+		//已在串尾
+		if (pos >= text.size())
+			return text.size();
+		std::size_t index = pos + 1;
+		//向后跳过续字节
+		while (index < text.size()
+			&& (static_cast<unsigned char>(text[index]) & 0xC0) == 0x80)
+			++index;
+		return index;
+	}
+
+	//退格：删除光标前一字符
+	bool Ui_Context::text_box_backspace(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//光标越界先夹到串尾
+		if (node->caret > node->text.size())
+			node->caret = node->text.size();
+		//已在串首
+		if (node->caret == 0)
+			return false;
+		//删除前一字符并前移光标
+		const std::size_t start = utf8_prev_start(node->text, node->caret);
+		node->text.erase(start, node->caret - start);
+		node->caret = start;
+		return true;
+	}
+
+	//删除：删除光标后一字符
+	bool Ui_Context::text_box_delete(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//光标越界先夹到串尾
+		if (node->caret > node->text.size())
+			node->caret = node->text.size();
+		//已在串尾
+		if (node->caret >= node->text.size())
+			return false;
+		//删除后一字符（光标不动）
+		const std::size_t end = utf8_next_end(node->text, node->caret);
+		node->text.erase(node->caret, end - node->caret);
+		return true;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)
