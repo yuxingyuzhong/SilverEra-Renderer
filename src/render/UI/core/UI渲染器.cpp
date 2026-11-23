@@ -1191,8 +1191,14 @@ namespace engine
 		stats.draws = static_cast<uint32_t>(draws.size());
 		for (const Draw_Record& record : draws)
 		{
+			//文字记录同时计入纹理分类
 			if (record.text)
 				++stats.text_draws;
+			//按是否使用纹理分类
+			if (record.text || record.texture != 0)
+				++stats.texture_draws;
+			else
+				++stats.solid_draws;
 		}
 
 		//无任何绘制内容

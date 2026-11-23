@@ -33,6 +33,10 @@ namespace engine
 		uint32_t indices = 0;
 		//绘制记录数
 		uint32_t draws = 0;
+		//纯色绘制记录数（第九百一十三轮）
+		uint32_t solid_draws = 0;
+		//纹理绘制记录数（图片 / 文字 / 纹理面板）
+		uint32_t texture_draws = 0;
 		//文字绘制记录数
 		uint32_t text_draws = 0;
 		//纹理描述符重写次数
