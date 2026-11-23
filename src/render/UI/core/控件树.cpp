@@ -451,6 +451,18 @@ namespace engine
 		return node->value_step;
 	}
 
+	//设置滑动条方向（共用 vertical 字段）
+	bool Ui_Context::slider_vertical_set(Ui_Handle handle, bool vertical)
+	{
+		return progress_vertical_set(handle, vertical);
+	}
+
+	//读取滑动条方向
+	bool Ui_Context::slider_vertical_get(Ui_Handle handle) const
+	{
+		return progress_vertical_get(handle);
+	}
+
 	//销毁控件（含全部后代）
 	bool Ui_Context::destroy(Ui_Handle handle)	{
 		//根节点禁止销毁

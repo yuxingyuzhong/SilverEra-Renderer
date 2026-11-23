@@ -126,8 +126,9 @@ namespace engine
 	//滑动条按指针坐标更新取值
 	bool Ui_Context::slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y)
 	{
-		//纵向滚动条按纵坐标取值，其余按横坐标
-		const bool vertical = node.scroll_target != 0 && node.scroll_vertical;
+		//纵向判定：滚动条看绑定声明，普通滑动条看节点方向
+		const bool scroll_linked = node.scroll_target != 0;
+		const bool vertical = scroll_linked ? node.scroll_vertical : node.vertical;
 		const float pointer = vertical ? pointer_y : pointer_x;
 		const float origin = vertical ? node.rect.y : node.rect.x;
 		const float length = vertical ? node.rect.h : node.rect.w;
@@ -135,6 +136,9 @@ namespace engine
 		float ratio = 0.0f;
 		if (length > 0.0f)
 			ratio = (pointer - origin) / length;
+		//普通纵向滑动条自下而上取值（滚动条保持自上而下）
+		if (vertical && !scroll_linked)
+			ratio = 1.0f - ratio;
 		//钳到 0..1
 		if (!(ratio >= 0.0f))
 			ratio = 0.0f;

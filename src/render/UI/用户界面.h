@@ -410,6 +410,12 @@ namespace engine
 		*/
 		bool slider_step_set(Ui_Handle handle, float step);
 		float slider_step_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取滑动条方向（第九百二十五轮）
+		与进度条共用 `Ui_Node.vertical` 字段；纵向滑动条自下而上取值，滚动条绑定路径不受影响。
+		*/
+		bool slider_vertical_set(Ui_Handle handle, bool vertical);
+		bool slider_vertical_get(Ui_Handle handle) const;
 		//销毁控件（含全部后代）
 		bool destroy(Ui_Handle handle);
 

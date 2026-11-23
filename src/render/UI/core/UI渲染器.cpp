@@ -1155,8 +1155,11 @@ namespace engine
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{
-				//纵向滚动条（绑定目标且声明纵向）
-				const bool vertical = node->scroll_target != 0 && node->scroll_vertical;
+				//纵向判定：滚动条看绑定声明，普通滑动条看节点方向
+				const bool scroll_linked = node->scroll_target != 0;
+				const bool vertical = scroll_linked ? node->scroll_vertical : node->vertical;
+				//普通纵向滑动条自下而上（滚动条保持自上而下）
+				const bool reversed = vertical && !scroll_linked;
 				//轨道（纵向高 4 像素宽 / 横向宽 4 像素高；样式角色启用时取主题色）
 				const Ui_Rect track_rect = vertical
 					? Ui_Rect{ node->rect.x + node->rect.w * 0.5f - 2.0f, node->rect.y, 4.0f, node->rect.h }
@@ -1170,8 +1173,14 @@ namespace engine
 				{
 					const float fill_height = node->rect.h * node->value;
 					if (fill_height > 0.0f)
-						quad_append(Ui_Rect{ track_rect.x, node->rect.y, 4.0f, fill_height },
+					{
+						//自下而上时填充贴底
+						const float fill_y = reversed
+							? node->rect.y + node->rect.h - fill_height
+							: node->rect.y;
+						quad_append(Ui_Rect{ track_rect.x, fill_y, 4.0f, fill_height },
 							with_opacity(focus_color, node->opacity));
+					}
 				}
 				else
 				{
@@ -1183,7 +1192,8 @@ namespace engine
 				//滑块（横向 10 × 18，纵向 18 × 10，居中于当前值）
 				const Ui_Rect knob_rect = vertical
 					? Ui_Rect{ node->rect.x + node->rect.w * 0.5f - 9.0f,
-						node->rect.y + node->rect.h * node->value - 5.0f, 18.0f, 10.0f }
+						node->rect.y + node->rect.h * (reversed ? 1.0f - node->value : node->value) - 5.0f,
+						18.0f, 10.0f }
 					: Ui_Rect{ node->rect.x + node->rect.w * node->value - 5.0f,
 						node->rect.y + node->rect.h * 0.5f - 9.0f, 10.0f, 18.0f };
 				Ui_Color knob_color{ 0.85f, 0.88f, 0.95f, 1.0f };
