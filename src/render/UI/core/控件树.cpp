@@ -368,6 +368,8 @@ namespace engine
 			node->checked = checked;
 			node->on_toggle = on_toggle;
 			node->user = user;
+			//默认引用复选框角色（主题切换时跟随色板；显式 Custom 仍可覆盖）
+			node->role = Ui_Role::Checkbox;
 			node->color = Ui_Color{ 0.02f, 0.02f, 0.05f, 0.95f };
 			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		}
@@ -445,6 +447,8 @@ namespace engine
 			node->value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
 			node->on_value = on_value;
 			node->user = user;
+			//默认引用滑动条角色（轨道跟随主题底色；显式 Custom 仍可覆盖）
+			node->role = Ui_Role::Slider;
 			node->color = Ui_Color{ 0.08f, 0.08f, 0.12f, 1.0f };
 			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		}

@@ -30,8 +30,8 @@ namespace engine
 			return theme.text;
 		case Ui_Role::Checkbox:
 		case Ui_Role::Slider:
-			//选中 / 滑块使用强调色
-			return theme.accent;
+			//控件底面与文本框同色板（选中 / 滑块前景仍为强调色）
+			return theme.text_box;
 		case Ui_Role::Progress:
 			//进度条背景与面板同色板（前景仍为强调色）
 			return theme.panel;
