@@ -183,6 +183,7 @@ namespace engine
 			hash_bytes(hash, &node->text_wrap, sizeof(node->text_wrap));
 			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
 			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
+			hash_bytes(hash, &node->text_halign, sizeof(node->text_halign));
 			hash_bytes(hash, &node->text_ellipsis, sizeof(node->text_ellipsis));
 			hash_bytes(hash, &node->visible, sizeof(node->visible));
 			hash_bytes(hash, &node->enabled, sizeof(node->enabled));
@@ -743,7 +744,8 @@ namespace engine
 
 	//追加多行文本块
 	bool Ui_Renderer::text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-		float line_height, bool wrap, bool ellipsis, Ui_Align valign, const Ui_Color& color)
+		float line_height, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
+		const Ui_Color& color)
 	{
 		//字体未设置或字体模块缺失
 		if (font_handle == 0 || font == nullptr)
@@ -878,7 +880,20 @@ namespace engine
 		for (const std::string& line : entry->lines)
 		{
 			if (!line.empty())
-				appended = text_append(font_handle, line, area.x, y, 0.0f, color) || appended;
+			{
+				//水平对齐偏移（Stretch 按 Start）
+				float line_x = area.x;
+				if (halign == Ui_Align::Center || halign == Ui_Align::End)
+				{
+					uint32_t line_width = 0;
+					uint32_t line_measure_height = 0;
+					Font_Context::text_measure(*record, line, line_width, line_measure_height);
+					line_x += halign == Ui_Align::Center
+						? (area.w - static_cast<float>(line_width)) * 0.5f
+						: area.w - static_cast<float>(line_width);
+				}
+				appended = text_append(font_handle, line, line_x, y, 0.0f, color) || appended;
+			}
 			y += height;
 		}
 		return appended;
@@ -998,7 +1013,7 @@ namespace engine
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
 				text_append_block(node_font, node->text, node->rect, node->line_height,
-					node->text_wrap, node->text_ellipsis, node->text_valign,
+					node->text_wrap, node->text_ellipsis, node->text_valign, node->text_halign,
 					with_opacity(node->text_color, node->opacity));
 				break;
 			//图片：纹理铺满矩形（不参与交互）

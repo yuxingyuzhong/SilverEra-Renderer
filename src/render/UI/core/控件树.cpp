@@ -792,6 +792,25 @@ namespace engine
 		return node->text_ellipsis;
 	}
 
+	//设置多行文本水平对齐
+	bool Ui_Context::text_halign_set(Ui_Handle handle, Ui_Align align)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_halign = align;
+		return true;
+	}
+
+	//读取多行文本水平对齐
+	Ui_Align Ui_Context::text_halign_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Align::Start;
+		return node->text_halign;
+	}
+
 	//设置控件专用字体
 	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
 	{

@@ -272,6 +272,8 @@ namespace engine
 		float line_height = 0.0f;
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
+		//多行文本水平对齐（第九百二十一轮；Stretch 按 Start 处理）
+		Ui_Align text_halign = Ui_Align::Start;
 		//单行超宽时尾部省略（第八百九十五轮；仅非自动换行时生效）
 		bool text_ellipsis = false;
 		//控件专用字体句柄（0 = 使用 UI 全局字体；第八百九十六轮）
@@ -472,6 +474,13 @@ namespace engine
 		//设置 / 读取单行省略（未知句柄设置返回假，读取返回假）
 		bool text_ellipsis_set(Ui_Handle handle, bool ellipsis);
 		bool text_ellipsis_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取多行文本水平对齐（第九百二十一轮）
+		Start / Center / End 按矩形宽度对齐每行；Stretch 按 Start 处理。
+		未知句柄设置返回假，读取返回 Start。
+		*/
+		bool text_halign_set(Ui_Handle handle, Ui_Align align);
+		Ui_Align text_halign_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取控件专用字体（第八百九十六轮）
 		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。
