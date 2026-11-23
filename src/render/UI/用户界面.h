@@ -366,6 +366,15 @@ namespace engine
 			void (*on_click)(Ui_Handle, void*) = nullptr, void* user = nullptr, const Ui_Color& color = Ui_Color{ 0.20f, 0.20f, 0.50f, 1.0f });
 		//创建单行文本框
 		Ui_Handle text_box_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text);
+		/*
+		设置 / 读取文本框内容（第九百三十轮）
+		设置后光标移到新文本末尾（天然落在 UTF-8 字符边界）；未知句柄设置返回假、读取返回空串。
+		*/
+		bool text_box_text_set(Ui_Handle handle, const std::string& text);
+		std::string text_box_text_get(Ui_Handle handle) const;
+		//设置 / 读取光标（按 UTF-8 字符边界回退并夹紧；未知句柄设置返回假、读取返回 0）
+		bool caret_set(Ui_Handle handle, std::size_t caret);
+		std::size_t caret_get(Ui_Handle handle) const;
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });

@@ -242,6 +242,59 @@ namespace engine
 		return handle;
 	}
 
+	//光标位置回退到 UTF-8 字符边界
+	static std::size_t caret_boundary_floor(const std::string& text, std::size_t pos)
+	{
+		//越界先夹到串尾
+		if (pos > text.size())
+			pos = text.size();
+		//向前跳过续字节（串尾本身是合法边界）
+		while (pos > 0 && pos < text.size()
+			&& (static_cast<unsigned char>(text[pos]) & 0xC0) == 0x80)
+			--pos;
+		return pos;
+	}
+
+	//设置文本框内容
+	bool Ui_Context::text_box_text_set(Ui_Handle handle, const std::string& text)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text = text;
+		//光标移到新文本末尾（串尾必为字符边界）
+		node->caret = node->text.size();
+		return true;
+	}
+
+	//读取文本框内容
+	std::string Ui_Context::text_box_text_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return std::string{};
+		return node->text;
+	}
+
+	//设置光标位置
+	bool Ui_Context::caret_set(Ui_Handle handle, std::size_t caret)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->caret = caret_boundary_floor(node->text, caret);
+		return true;
+	}
+
+	//读取光标位置
+	std::size_t Ui_Context::caret_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->caret;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)
