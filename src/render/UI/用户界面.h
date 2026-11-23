@@ -338,6 +338,13 @@ namespace engine
 
 		//创建面板（parent 无效时挂到根节点）
 		Ui_Handle panel_create(Ui_Handle parent, const Ui_Rect& rect, const Ui_Color& color);
+		/*
+		设置 / 读取面板背景纹理（第九百一十轮）
+		texture 为 0 时走纯色 / 圆角 / 描边背景；非 0 时以节点颜色着色并支持九宫格切分。
+		未知句柄设置返回假，读取返回 0。
+		*/
+		bool panel_texture_set(Ui_Handle handle, uint64_t texture);
+		uint64_t panel_texture_get(Ui_Handle handle) const;
 		//创建按钮
 		Ui_Handle button_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& label,
 			void (*on_click)(Ui_Handle, void*) = nullptr, void* user = nullptr, const Ui_Color& color = Ui_Color{ 0.20f, 0.20f, 0.50f, 1.0f });

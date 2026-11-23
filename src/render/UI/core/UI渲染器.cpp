@@ -961,6 +961,13 @@ namespace engine
 				const Ui_Color panel_color = node->role == Ui_Role::Custom ? node->color
 					: ui_theme_color(ui.theme_get(), node->role,
 						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				//纹理面板：复用九宫格纹理路径（颜色作着色）
+				if (node->texture != 0)
+				{
+					image_slice_append(node->texture, node->rect, node->slice_left, node->slice_top,
+						node->slice_right, node->slice_bottom, with_opacity(panel_color, node->opacity));
+					break;
+				}
 				//圆角与描边由背景辅助处理（半径 0 时退回直角路径）
 				background_append(node->rect, node->corner_radius, node->border_width,
 					with_opacity(node->border_color, node->opacity),

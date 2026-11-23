@@ -258,6 +258,25 @@ namespace engine
 		return handle;
 	}
 
+	//设置面板背景纹理
+	bool Ui_Context::panel_texture_set(Ui_Handle handle, uint64_t texture)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->texture = texture;
+		return true;
+	}
+
+	//读取面板背景纹理
+	uint64_t Ui_Context::panel_texture_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->texture;
+	}
+
 	//创建图片
 	Ui_Handle Ui_Context::image_create(Ui_Handle parent, const Ui_Rect& rect, uint64_t texture)
 	{
