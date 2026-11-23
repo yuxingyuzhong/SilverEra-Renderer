@@ -436,6 +436,9 @@ namespace engine
 			//视口尺寸取基准矩形（滚动偏移只改 rect）
 			const float viewport = bar.scroll_vertical ? target->rect_base.h : target->rect_base.w;
 			const float maximum = bar.scroll_content > viewport ? bar.scroll_content - viewport : 0.0f;
+			//内容不足一屏：滚动条取值归零（禁用拖动位移）
+			if (maximum <= 0.0f)
+				bar.value = 0.0f;
 			const float offset = bar.value * maximum;
 			//写回目标滚动偏移
 			if (bar.scroll_vertical)
