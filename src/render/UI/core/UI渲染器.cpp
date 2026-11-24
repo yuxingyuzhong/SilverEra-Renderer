@@ -286,6 +286,8 @@ namespace engine
 			hash_bytes(hash, &node->value, sizeof(node->value));
 			hash_bytes(hash, &node->display_value, sizeof(node->display_value));
 			hash_bytes(hash, &node->anim_speed, sizeof(node->anim_speed));
+			hash_bytes(hash, &node->padding, sizeof(node->padding));
+			hash_bytes(hash, &node->margin, sizeof(node->margin));
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
@@ -1283,10 +1285,22 @@ namespace engine
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
 			{
+				//内容区按内边距内缩（第九百四十七轮）
+				Ui_Rect content_rect = node->rect;
+				const float inset = node->padding > 0.0f ? node->padding : 0.0f;
+				if (inset > 0.0f)
+				{
+					content_rect.x += inset;
+					content_rect.y += inset;
+					content_rect.w = content_rect.w - inset * 2.0f > 0.0f
+						? content_rect.w - inset * 2.0f : 0.0f;
+					content_rect.h = content_rect.h - inset * 2.0f > 0.0f
+						? content_rect.h - inset * 2.0f : 0.0f;
+				}
 				//文本阴影：先画偏移副本（第九百四十轮）
 				if (node->text_shadow.color.a > 0.0f)
 				{
-					Ui_Rect shadow_rect = node->rect;
+					Ui_Rect shadow_rect = content_rect;
 					shadow_rect.x += node->text_shadow.offset_x;
 					shadow_rect.y += node->text_shadow.offset_y;
 					text_append_block(node_font, node->text, shadow_rect, node->line_height,
@@ -1295,7 +1309,7 @@ namespace engine
 						with_opacity(node->text_shadow.color, node->opacity));
 				}
 				//正文
-				text_append_block(node_font, node->text, node->rect, node->line_height,
+				text_append_block(node_font, node->text, content_rect, node->line_height,
 					node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
 					node->text_valign, node->text_halign, node->text_spans, node->opacity,
 					with_opacity(node->text_color, node->opacity));

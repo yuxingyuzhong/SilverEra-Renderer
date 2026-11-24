@@ -925,6 +925,44 @@ namespace engine
 		return true;
 	}
 
+	//设置内容内边距（负值按 0）
+	bool Ui_Context::padding_set(Ui_Handle handle, float padding)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->padding = padding > 0.0f ? padding : 0.0f;
+		return true;
+	}
+
+	//读取内容内边距
+	float Ui_Context::padding_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->padding;
+	}
+
+	//设置流式外边距（负值按 0）
+	bool Ui_Context::margin_set(Ui_Handle handle, float margin)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->margin = margin > 0.0f ? margin : 0.0f;
+		return true;
+	}
+
+	//读取流式外边距
+	float Ui_Context::margin_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->margin;
+	}
+
 	//布局重算次数
 	uint64_t Ui_Context::layout_apply_count(void) const
 	{

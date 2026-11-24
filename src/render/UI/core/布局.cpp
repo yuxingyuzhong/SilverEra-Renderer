@@ -127,25 +127,26 @@ namespace engine
 				if (child.handle == 0 || !child.alive || child.parent != container.handle || !child.visible)
 					continue;
 				//横向：固定纵坐标并依次右移；纵向：固定横坐标并依次下移
+				const float margin = child.margin > 0.0f ? child.margin : 0.0f;
 				if (container.flow == Ui_Flow::Horizontal)
 				{
-					child.rect.x = cursor;
+					child.rect.x = cursor + margin;
 					child.rect.y = container.rect.y + padding;
 					if (container.flow_align == Ui_Align::Stretch)
 						child.rect.h = content_height;
 					else
 						child.rect.y += (content_height - child.rect.h) * align_factor;
-					cursor += child.rect.w + gap;
+					cursor = child.rect.x + child.rect.w + margin + gap;
 				}
 				else
 				{
-					child.rect.y = cursor;
+					child.rect.y = cursor + margin;
 					child.rect.x = container.rect.x + padding;
 					if (container.flow_align == Ui_Align::Stretch)
 						child.rect.w = content_width;
 					else
 						child.rect.x += (content_width - child.rect.w) * align_factor;
-					cursor += child.rect.h + gap;
+					cursor = child.rect.y + child.rect.h + margin + gap;
 				}
 				//排列结果即滚动偏移前的基准矩形
 				child.rect_base = child.rect;

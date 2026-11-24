@@ -275,6 +275,10 @@ namespace engine
 		float flow_gap = 0.0f;
 		//排列内边距（像素；四边相同，负值按 0）
 		float flow_padding = 0.0f;
+		//内容内边距（像素；标签文本区四边内缩；第九百四十七轮）
+		float padding = 0.0f;
+		//流式排列外边距（像素；子项前后各留该间距；第九百四十七轮）
+		float margin = 0.0f;
 		//排列交叉轴对齐
 		Ui_Align flow_align = Ui_Align::Start;
 		//样式角色（Custom = 直接使用下面的 color）
@@ -560,6 +564,15 @@ namespace engine
 		bool flow_set(Ui_Handle handle, Ui_Flow flow, float gap = 0.0f, float padding = 0.0f);
 		//取排列设置
 		bool flow_get(Ui_Handle handle, Ui_Flow& flow_out, float& gap_out, float& padding_out) const;
+		/*
+		设置 / 读取内容内边距与外边距（第九百四十七轮）
+		padding 使标签文本区四边内缩；margin 在流式排列中使子项前后各留该间距。
+		负值按 0 处理；未知句柄设置返回假、读取返回 0。
+		*/
+		bool padding_set(Ui_Handle handle, float padding);
+		float padding_get(Ui_Handle handle) const;
+		bool margin_set(Ui_Handle handle, float margin);
+		float margin_get(Ui_Handle handle) const;
 		//设置 / 读取排列交叉轴对齐（未知句柄设置返回假；读取返回 Start）
 		bool flow_align_set(Ui_Handle handle, Ui_Align align);
 		Ui_Align flow_align_get(Ui_Handle handle) const;
