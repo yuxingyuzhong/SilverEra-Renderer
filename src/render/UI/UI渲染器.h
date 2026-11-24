@@ -156,6 +156,8 @@ namespace engine
 			float area_width = 0.0f;
 			//行高参数（键；0 与显式值语义不同）
 			float line_height = 0.0f;
+			//字间距（键；第九百三十八轮）
+			float letter_spacing = 0.0f;
 			//是否自动换行（键）
 			bool wrap = false;
 			//是否尾部省略（键）
@@ -196,12 +198,18 @@ namespace engine
 		bool text_append(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
 			float center_area_width, const Ui_Color& color);
 		/*
+		追加按字间距逐码点绘制的单行文本（第九百三十八轮）
+		letter_spacing 为 0 时退化为 text_append；否则逐码点绘制并追加间距（末字符不追加）。
+		*/
+		bool text_append_spaced(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
+			float letter_spacing, const Ui_Color& color);
+		/*
 		追加多行文本块（第八百九十四轮）
 		按 \n 分行，wrap 时再按区域宽度逐字符换行；line_height <= 0 取字体高度；
-		valign 控制多行整体垂直对齐（Start / Center / End）。
+		valign 控制多行整体垂直对齐（Start / Center / End）；letter_spacing 计入行宽。
 		*/
 		bool text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-			float line_height, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
+			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
 			const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
@@ -215,10 +223,11 @@ namespace engine
 			float center_area_width, Mesh_Data&& mesh, uint32_t width);
 		//查找文本块布局缓存条目（未命中返回空；第九百零三轮）
 		Block_Cache_Entry* block_cache_find(uint64_t font_handle, const std::string& text, float area_width,
-			float line_height, bool wrap, bool ellipsis, Ui_Align valign);
+			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign);
 		//写入文本块布局缓存条目并返回其指针（超出容量时淘汰最久未使用者）
 		Block_Cache_Entry* block_cache_insert(uint64_t font_handle, const std::string& text, float area_width,
-			float line_height, bool wrap, bool ellipsis, Ui_Align valign, std::vector<std::string>&& lines);
+			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign,
+			std::vector<std::string>&& lines);
 
 	private:
 		//逻辑设备

@@ -276,6 +276,8 @@ namespace engine
 		bool text_wrap = false;
 		//多行行高（像素；0 = 字体高度）
 		float line_height = 0.0f;
+		//字间距（像素；逐码点推进后追加；第九百三十八轮）
+		float letter_spacing = 0.0f;
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
 		//多行文本水平对齐（第九百二十一轮；Stretch 按 Start 处理）
@@ -585,6 +587,14 @@ namespace engine
 		*/
 		bool text_halign_set(Ui_Handle handle, Ui_Align align);
 		Ui_Align text_halign_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取字间距（第九百三十八轮）
+		逐码点推进时在字形宽度后追加该像素间距（末字符不追加；负值允许收紧）。
+		度量与绘制共用同一推进口径，换行 / 省略 / 对齐随之生效。
+		未知句柄设置返回假，读取返回 0。
+		*/
+		bool letter_spacing_set(Ui_Handle handle, float spacing);
+		float letter_spacing_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取控件专用字体（第八百九十六轮）
 		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。

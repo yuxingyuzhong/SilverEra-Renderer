@@ -48,6 +48,71 @@ namespace engine
 			hash_bytes(hash, &size, sizeof(size));
 			hash_bytes(hash, text.data(), size);
 		}
+
+		//按字间距度量单行宽度（基线行宽 + 字符间隔数 × 间距）
+		float text_width_spaced(Font_Record& record, const std::string& text, float spacing)
+		{
+			uint32_t width = 0;
+			uint32_t height = 0;
+			Font_Context::text_measure(record, text, width, height);
+			//无间距时沿用整体度量
+			if (spacing == 0.0f)
+				return static_cast<float>(width);
+			//统计码点数（间隔数 = 码点数 - 1）
+			std::size_t count = 0;
+			for (std::size_t index = 0; index < text.size();)
+			{
+				//按首字节推断 UTF-8 码点长度
+				const unsigned char lead = static_cast<unsigned char>(text[index]);
+				std::size_t length = 1;
+				if ((lead & 0xE0) == 0xC0)
+					length = 2;
+				else if ((lead & 0xF0) == 0xE0)
+					length = 3;
+				else if ((lead & 0xF8) == 0xF0)
+					length = 4;
+				//截断时回退到剩余长度
+				if (index + length > text.size())
+					length = text.size() - index;
+				index += length;
+				++count;
+			}
+			//单字符无间隔
+			if (count <= 1)
+				return static_cast<float>(width);
+			return static_cast<float>(width) + spacing * static_cast<float>(count - 1);
+		}
+
+		//解码单个 UTF-8 码点并返回其字节长度（非法首字节按 1 字节跳过）
+		std::size_t utf8_decode_one(const std::string& text, std::size_t index, uint32_t& codepoint)
+		{
+			const unsigned char lead = static_cast<unsigned char>(text[index]);
+			std::size_t length = 1;
+			uint32_t value = lead;
+			if ((lead & 0xE0) == 0xC0)
+			{
+				length = 2;
+				value = static_cast<uint32_t>(lead & 0x1F);
+			}
+			else if ((lead & 0xF0) == 0xE0)
+			{
+				length = 3;
+				value = static_cast<uint32_t>(lead & 0x0F);
+			}
+			else if ((lead & 0xF8) == 0xF0)
+			{
+				length = 4;
+				value = static_cast<uint32_t>(lead & 0x07);
+			}
+			//截断时回退到剩余长度
+			if (index + length > text.size())
+				length = text.size() - index;
+			//拼接续字节
+			for (std::size_t offset = 1; offset < length; ++offset)
+				value = (value << 6) | (static_cast<unsigned char>(text[index + offset]) & 0x3F);
+			codepoint = value;
+			return length;
+		}
 	}
 
 	//析构（归还每帧槽缓冲）
@@ -182,6 +247,7 @@ namespace engine
 			hash_bytes(hash, &node->text_font, sizeof(node->text_font));
 			hash_bytes(hash, &node->text_wrap, sizeof(node->text_wrap));
 			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
+			hash_bytes(hash, &node->letter_spacing, sizeof(node->letter_spacing));
 			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
 			hash_bytes(hash, &node->text_halign, sizeof(node->text_halign));
 			hash_bytes(hash, &node->text_ellipsis, sizeof(node->text_ellipsis));
@@ -623,14 +689,14 @@ namespace engine
 
 	//查找文本块布局缓存条目
 	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_find(uint64_t font_handle, const std::string& text,
-		float area_width, float line_height, bool wrap, bool ellipsis, Ui_Align valign)
+		float area_width, float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign)
 	{
 		for (Block_Cache_Entry& entry : block_cache)
 		{
-			//键：字体 + 文本 + 区域宽度 + 行高 + 换行 + 省略 + 对齐
+			//键：字体 + 文本 + 区域宽度 + 行高 + 字间距 + 换行 + 省略 + 对齐
 			if (entry.font_handle != font_handle || entry.area_width != area_width
-				|| entry.line_height != line_height || entry.wrap != wrap
-				|| entry.ellipsis != ellipsis || entry.valign != valign)
+				|| entry.line_height != line_height || entry.letter_spacing != letter_spacing
+				|| entry.wrap != wrap || entry.ellipsis != ellipsis || entry.valign != valign)
 				continue;
 			//文本一致即命中
 			if (entry.text == text)
@@ -641,7 +707,7 @@ namespace engine
 
 	//写入文本块布局缓存条目
 	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_insert(uint64_t font_handle, const std::string& text,
-		float area_width, float line_height, bool wrap, bool ellipsis, Ui_Align valign,
+		float area_width, float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign,
 		std::vector<std::string>&& lines)
 	{
 		//容量已满则淘汰最久未使用条目
@@ -661,6 +727,7 @@ namespace engine
 		entry.text = text;
 		entry.area_width = area_width;
 		entry.line_height = line_height;
+		entry.letter_spacing = letter_spacing;
 		entry.wrap = wrap;
 		entry.ellipsis = ellipsis;
 		entry.valign = valign;
@@ -746,9 +813,46 @@ namespace engine
 		return true;
 	}
 
+	//追加按字间距逐码点绘制的单行文本
+	bool Ui_Renderer::text_append_spaced(uint64_t font_handle, const std::string& text, float pixel_x, float pixel_y,
+		float letter_spacing, const Ui_Color& color)
+	{
+		//无间距时沿用整体绘制（保留整串几何缓存）
+		if (letter_spacing == 0.0f)
+			return text_append(font_handle, text, pixel_x, pixel_y, 0.0f, color);
+		//字体模块缺失
+		if (font == nullptr)
+			return false;
+		//取可写字体记录用于字形度量
+		Font_Record* record = font->font_get_mutable(font_handle);
+		if (record == nullptr)
+			return false;
+
+		//逐码点绘制并推进笔位（末字符不追加间距）
+		bool appended = false;
+		float pen_x = pixel_x;
+		for (std::size_t index = 0; index < text.size();)
+		{
+			//解码当前码点
+			uint32_t codepoint = 0;
+			const std::size_t length = utf8_decode_one(text, index, codepoint);
+			//绘制当前码点（空白字符无墨迹，text_append 返回假但不影响推进）
+			appended = text_append(font_handle, text.substr(index, length), pen_x, pixel_y, 0.0f, color)
+				|| appended;
+			//按字形推进量前进（未烘焙字形按 0 处理）
+			const Font_Glyph* glyph = Font_Context::glyph_seek(*record, codepoint);
+			pen_x += glyph != nullptr ? glyph->advance : 0.0f;
+			index += length;
+			//非末字符追加间距
+			if (index < text.size())
+				pen_x += letter_spacing;
+		}
+		return appended;
+	}
+
 	//追加多行文本块
 	bool Ui_Renderer::text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-		float line_height, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
+		float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
 		const Ui_Color& color)
 	{
 		//字体未设置或字体模块缺失
@@ -761,7 +865,8 @@ namespace engine
 		font->glyphs_ensure(*record, text);
 
 		//查询文本块布局缓存
-		Block_Cache_Entry* entry = block_cache_find(font_handle, text, area.w, line_height, wrap, ellipsis, valign);
+		Block_Cache_Entry* entry = block_cache_find(font_handle, text, area.w, line_height, letter_spacing,
+			wrap, ellipsis, valign);
 		if (entry != nullptr)
 		{
 			//刷新使用序号并计命中
@@ -808,11 +913,10 @@ namespace engine
 						if (index + length > line.size())
 							length = line.size() - index;
 						const std::string candidate = cursor + line.substr(index, length);
-						uint32_t measured_width = 0;
-						uint32_t measured_height = 0;
-						Font_Context::text_measure(*record, candidate, measured_width, measured_height);
+						//按字间距度量候选行宽
+						const float measured_width = text_width_spaced(*record, candidate, letter_spacing);
 						//当前行非空且加入后超宽：本行收束并另起一行
-						if (!cursor.empty() && static_cast<float>(measured_width) > area.w)
+						if (!cursor.empty() && measured_width > area.w)
 						{
 							//词边界：游标内最近空格（有则优先在此断行，空格不留在行尾）
 							const std::size_t space = cursor.rfind(' ');
@@ -843,11 +947,10 @@ namespace engine
 				font->glyphs_ensure(*record, ellipsis_text);
 				for (std::string& line : lines)
 				{
-					uint32_t measured_width = 0;
-					uint32_t measured_height = 0;
-					Font_Context::text_measure(*record, line, measured_width, measured_height);
+					//按字间距度量当前行宽
+					const float line_width = text_width_spaced(*record, line, letter_spacing);
 					//未超宽不处理
-					if (static_cast<float>(measured_width) <= area.w)
+					if (line_width <= area.w)
 						continue;
 					std::string base = line;
 					//逐码点从尾部回退，直到省略号可以放下
@@ -857,8 +960,8 @@ namespace engine
 						while (cut > 0 && (static_cast<unsigned char>(base[cut]) & 0xC0) == 0x80)
 							--cut;
 						base.erase(cut);
-						Font_Context::text_measure(*record, base + ellipsis_text, measured_width, measured_height);
-						if (static_cast<float>(measured_width) <= area.w)
+						//按字间距判断省略号是否可放下
+						if (text_width_spaced(*record, base + ellipsis_text, letter_spacing) <= area.w)
 							break;
 					}
 					line = base + ellipsis_text;
@@ -866,7 +969,7 @@ namespace engine
 			}
 
 			//写入布局缓存
-			entry = block_cache_insert(font_handle, text, area.w, line_height, wrap, ellipsis, valign,
+			entry = block_cache_insert(font_handle, text, area.w, line_height, letter_spacing, wrap, ellipsis, valign,
 				std::move(lines));
 		}
 
@@ -889,14 +992,14 @@ namespace engine
 				float line_x = area.x;
 				if (halign == Ui_Align::Center || halign == Ui_Align::End)
 				{
-					uint32_t line_width = 0;
-					uint32_t line_measure_height = 0;
-					Font_Context::text_measure(*record, line, line_width, line_measure_height);
+					//按字间距度量行宽
+					const float line_width = text_width_spaced(*record, line, letter_spacing);
 					line_x += halign == Ui_Align::Center
-						? (area.w - static_cast<float>(line_width)) * 0.5f
-						: area.w - static_cast<float>(line_width);
+						? (area.w - line_width) * 0.5f
+						: area.w - line_width;
 				}
-				appended = text_append(font_handle, line, line_x, y, 0.0f, color) || appended;
+				//按字间距逐码点绘制
+				appended = text_append_spaced(font_handle, line, line_x, y, letter_spacing, color) || appended;
 			}
 			y += height;
 		}
@@ -1017,7 +1120,8 @@ namespace engine
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
 				text_append_block(node_font, node->text, node->rect, node->line_height,
-					node->text_wrap, node->text_ellipsis, node->text_valign, node->text_halign,
+					node->letter_spacing, node->text_wrap, node->text_ellipsis,
+					node->text_valign, node->text_halign,
 					with_opacity(node->text_color, node->opacity));
 				break;
 			//图片：纹理铺满矩形（不参与交互）

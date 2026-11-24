@@ -1208,6 +1208,25 @@ namespace engine
 		return node->text_halign;
 	}
 
+	//设置字间距
+	bool Ui_Context::letter_spacing_set(Ui_Handle handle, float spacing)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->letter_spacing = spacing;
+		return true;
+	}
+
+	//读取字间距
+	float Ui_Context::letter_spacing_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->letter_spacing;
+	}
+
 	//设置控件专用字体
 	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
 	{
