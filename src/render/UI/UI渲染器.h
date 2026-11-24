@@ -209,11 +209,12 @@ namespace engine
 		追加多行文本块（第八百九十四轮）
 		按 \n 分行，wrap 时再按区域宽度逐字符换行；line_height <= 0 取字体高度；
 		valign 控制多行整体垂直对齐（Start / Center / End）；letter_spacing 计入行宽，
-		text_indent 仅首行右移并扣减首行可用宽度。
+		text_indent 仅首行右移并扣减首行可用宽度；spans 按字节区间覆盖颜色（后者优先）。
 		*/
 		bool text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
 			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
-			Ui_Align valign, Ui_Align halign, const Ui_Color& color);
+			Ui_Align valign, Ui_Align halign, const std::vector<Ui_Text_Span>& spans, float opacity,
+			const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
 		//计算控件树绘制相关字段的指纹（稳定帧缓存判定，第九百轮）

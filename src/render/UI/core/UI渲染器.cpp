@@ -113,6 +113,17 @@ namespace engine
 			codepoint = value;
 			return length;
 		}
+
+		//把字节下标后移到 UTF-8 字符头（越界返回串尾）
+		std::size_t utf8_align_forward(const std::string& text, std::size_t index)
+		{
+			if (index >= text.size())
+				return text.size();
+			//落在续字节则继续后移
+			while (index < text.size() && (static_cast<unsigned char>(text[index]) & 0xC0) == 0x80)
+				++index;
+			return index;
+		}
 	}
 
 	//析构（归还每帧槽缓冲）
@@ -252,6 +263,15 @@ namespace engine
 			hash_bytes(hash, &node->text_shadow.offset_x, sizeof(node->text_shadow.offset_x));
 			hash_bytes(hash, &node->text_shadow.offset_y, sizeof(node->text_shadow.offset_y));
 			hash_bytes(hash, &node->text_shadow.color, sizeof(node->text_shadow.color));
+			//行内着色区间（数量 + 边界 + 颜色）
+			const std::size_t span_count = node->text_spans.size();
+			hash_bytes(hash, &span_count, sizeof(span_count));
+			for (const Ui_Text_Span& span : node->text_spans)
+			{
+				hash_bytes(hash, &span.begin, sizeof(span.begin));
+				hash_bytes(hash, &span.end, sizeof(span.end));
+				hash_bytes(hash, &span.color, sizeof(span.color));
+			}
 			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
 			hash_bytes(hash, &node->text_halign, sizeof(node->text_halign));
 			hash_bytes(hash, &node->text_ellipsis, sizeof(node->text_ellipsis));
@@ -860,7 +880,8 @@ namespace engine
 	//追加多行文本块
 	bool Ui_Renderer::text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
 		float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
-		Ui_Align valign, Ui_Align halign, const Ui_Color& color)
+		Ui_Align valign, Ui_Align halign, const std::vector<Ui_Text_Span>& spans, float opacity,
+		const Ui_Color& color)
 	{
 		//字体未设置或字体模块缺失
 		if (font_handle == 0 || font == nullptr)
@@ -1000,10 +1021,20 @@ namespace engine
 		bool appended = false;
 		//是否首行（仅首行应用缩进）
 		bool first_line = true;
+		//当前行在原文中的搜索起点（换算行内区间用）
+		std::size_t line_search = 0;
 		for (const std::string& line : entry->lines)
 		{
 			if (!line.empty())
 			{
+				//定位当前行在原文中的字节偏移
+				std::size_t line_base = line_search;
+				const std::size_t found = text.find(line, line_search);
+				if (found != std::string::npos)
+				{
+					line_base = found;
+					line_search = found + line.size();
+				}
 				//水平对齐偏移（Stretch 按 Start）
 				float line_x = area.x;
 				if (halign == Ui_Align::Center || halign == Ui_Align::End)
@@ -1017,8 +1048,55 @@ namespace engine
 				//首行整体右移缩进
 				if (first_line)
 					line_x += text_indent;
-				//按字间距逐码点绘制
-				appended = text_append_spaced(font_handle, line, line_x, y, letter_spacing, color) || appended;
+				//无行内区间：整行绘制
+				if (spans.empty())
+				{
+					appended = text_append_spaced(font_handle, line, line_x, y, letter_spacing, color)
+						|| appended;
+				}
+				else
+				{
+					//收集切分点（行首、行尾与各区间边界）
+					std::vector<std::size_t> cuts{};
+					cuts.push_back(0);
+					cuts.push_back(line.size());
+					for (const Ui_Text_Span& span : spans)
+					{
+						//不相交的区间跳过
+						if (span.end <= line_base || span.begin >= line_base + line.size())
+							continue;
+						//换算为行内偏移并夹到行范围、对齐字符边界
+						std::size_t local_begin = span.begin > line_base ? span.begin - line_base : 0;
+						std::size_t local_end = span.end > line_base ? span.end - line_base : 0;
+						if (local_end > line.size())
+							local_end = line.size();
+						cuts.push_back(utf8_align_forward(line, local_begin));
+						cuts.push_back(utf8_align_forward(line, local_end));
+					}
+					//排序去重后逐段绘制
+					std::sort(cuts.begin(), cuts.end());
+					cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+					for (std::size_t index = 0; index + 1 < cuts.size(); ++index)
+					{
+						const std::size_t seg_begin = cuts[index];
+						const std::size_t seg_end = cuts[index + 1];
+						//空段跳过
+						if (seg_end <= seg_begin)
+							continue;
+						//区间按加入顺序覆盖（后者优先）
+						Ui_Color segment_color = color;
+						for (const Ui_Text_Span& span : spans)
+						{
+							if (span.begin <= line_base + seg_begin && span.end >= line_base + seg_end)
+								segment_color = with_opacity(span.color, opacity);
+						}
+						const std::string segment = line.substr(seg_begin, seg_end - seg_begin);
+						appended = text_append_spaced(font_handle, segment, line_x, y, letter_spacing,
+							segment_color) || appended;
+						//按字间距推进笔位
+						line_x += text_width_spaced(*record, segment, letter_spacing);
+					}
+				}
 			}
 			first_line = false;
 			y += height;
@@ -1148,13 +1226,13 @@ namespace engine
 					shadow_rect.y += node->text_shadow.offset_y;
 					text_append_block(node_font, node->text, shadow_rect, node->line_height,
 						node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
-						node->text_valign, node->text_halign,
+						node->text_valign, node->text_halign, std::vector<Ui_Text_Span>{}, node->opacity,
 						with_opacity(node->text_shadow.color, node->opacity));
 				}
 				//正文
 				text_append_block(node_font, node->text, node->rect, node->line_height,
 					node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
-					node->text_valign, node->text_halign,
+					node->text_valign, node->text_halign, node->text_spans, node->opacity,
 					with_opacity(node->text_color, node->opacity));
 				break;
 			}

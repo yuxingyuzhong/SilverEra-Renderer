@@ -229,6 +229,20 @@ namespace engine
 		Ui_Color color{ 0.0f, 0.0f, 0.0f, 0.0f };
 	};
 
+	/*
+	行内着色区间（第九百四十一轮）
+	begin / end 为节点文本的字节区间 [begin, end)；可重叠，后添加者优先。
+	*/
+	struct Ui_Text_Span
+	{
+		//起点（字节偏移）
+		std::size_t begin = 0;
+		//终点（字节偏移，不含）
+		std::size_t end = 0;
+		//区间颜色
+		Ui_Color color{ 1.0f, 1.0f, 1.0f, 1.0f };
+	};
+
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
 	struct Ui_Node
 	{
@@ -296,6 +310,8 @@ namespace engine
 		float text_indent = 0.0f;
 		//文本阴影（alpha 为 0 关闭；第九百四十轮）
 		Ui_Text_Shadow text_shadow{};
+		//行内着色区间（按加入顺序覆盖；第九百四十一轮）
+		std::vector<Ui_Text_Span> text_spans{};
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
 		//多行文本水平对齐（第九百二十一轮；Stretch 按 Start 处理）
@@ -628,6 +644,16 @@ namespace engine
 		*/
 		bool text_shadow_set(Ui_Handle handle, const Ui_Text_Shadow& shadow);
 		Ui_Text_Shadow text_shadow_get(Ui_Handle handle) const;
+		/*
+		行内着色区间（第九百四十一轮）
+		begin / end 为节点文本字节区间，自动对齐到字符边界并夹到文本范围内；
+		后添加的区间覆盖先添加者；begin >= end 或未知句柄返回假。
+		*/
+		bool text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color);
+		//清空全部行内区间（未知句柄返回假）
+		bool text_span_clear(Ui_Handle handle);
+		//取行内区间数量（未知句柄返回 0）
+		std::size_t text_span_count(Ui_Handle handle) const;
 		/*
 		设置 / 读取控件专用字体（第八百九十六轮）
 		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。

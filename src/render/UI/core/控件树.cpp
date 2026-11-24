@@ -1265,6 +1265,46 @@ namespace engine
 		return node->text_shadow;
 	}
 
+	//添加行内着色区间
+	bool Ui_Context::text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		//夹到文本范围内
+		std::size_t from = begin > node->text.size() ? node->text.size() : begin;
+		std::size_t to = end > node->text.size() ? node->text.size() : end;
+		//对齐到字符边界（落在续字节则后移到字符头）
+		while (from < node->text.size() && (static_cast<unsigned char>(node->text[from]) & 0xC0) == 0x80)
+			++from;
+		while (to < node->text.size() && (static_cast<unsigned char>(node->text[to]) & 0xC0) == 0x80)
+			++to;
+		//空区间不登记
+		if (from >= to)
+			return false;
+		node->text_spans.push_back(Ui_Text_Span{ from, to, color });
+		return true;
+	}
+
+	//清空行内着色区间
+	bool Ui_Context::text_span_clear(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_spans.clear();
+		return true;
+	}
+
+	//取行内着色区间数量
+	std::size_t Ui_Context::text_span_count(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->text_spans.size();
+	}
+
 	//设置控件专用字体
 	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
 	{
