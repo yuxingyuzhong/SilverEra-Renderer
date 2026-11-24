@@ -358,6 +358,10 @@ namespace engine
 				hash_string(hash, item);
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
+			//网格布局参数（影响子项矩形；第九百八十七轮）
+			hash_bytes(hash, &node->grid_columns, sizeof(node->grid_columns));
+			hash_bytes(hash, &node->grid_gap, sizeof(node->grid_gap));
+			hash_bytes(hash, &node->fit_children, sizeof(node->fit_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
 			hash_bytes(hash, &node->select_begin, sizeof(node->select_begin));
 			hash_bytes(hash, &node->select_end, sizeof(node->select_end));

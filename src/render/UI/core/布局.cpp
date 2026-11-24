@@ -306,6 +306,82 @@ namespace engine
 		}
 	}
 
+	//按网格列数排列直接子节点（位于流式排列之后；第九百八十七轮）
+	void Ui_Context::grid_apply(void)
+	{
+		for (Ui_Node& host : nodes)
+		{
+			//跳过空槽、已销毁与未启用网格的节点
+			if (host.handle == 0 || !host.alive || host.grid_columns == 0)
+				continue;
+			//收集直接子节点（按创建顺序）
+			std::vector<Ui_Node*> children{};
+			for (Ui_Node& child : nodes)
+			{
+				if (child.handle == 0 || !child.alive || child.parent != host.handle)
+					continue;
+				children.push_back(&child);
+			}
+			//无子项不排列
+			if (children.empty())
+				continue;
+			//行列数与单元格尺寸
+			const std::size_t columns = host.grid_columns;
+			const std::size_t rows = (children.size() + columns - 1) / columns;
+			const float gap = host.grid_gap;
+			const float cell_w = (host.rect.w - gap * static_cast<float>(columns - 1))
+				/ static_cast<float>(columns);
+			const float cell_h = (host.rect.h - gap * static_cast<float>(rows - 1))
+				/ static_cast<float>(rows);
+			//空间不足不排列
+			if (cell_w <= 0.0f || cell_h <= 0.0f)
+				continue;
+			//逐子项写入单元格矩形（基准矩形同步，供滚动偏移恢复）
+			for (std::size_t index = 0; index < children.size(); ++index)
+			{
+				const std::size_t column = index % columns;
+				const std::size_t row = index / columns;
+				children[index]->rect = Ui_Rect{
+					host.rect.x + (cell_w + gap) * static_cast<float>(column),
+					host.rect.y + (cell_h + gap) * static_cast<float>(row),
+					cell_w, cell_h };
+				children[index]->rect_base = children[index]->rect;
+			}
+		}
+	}
+
+	//按子项包围盒撑开自身尺寸（子先于父；第九百八十八轮）
+	void Ui_Context::fit_apply(void)
+	{
+		//逆创建顺序：子节点先于父节点处理
+		for (std::size_t index = nodes.size(); index > 0; --index)
+		{
+			Ui_Node& host = nodes[index - 1];
+			//跳过空槽、已销毁与未启用自适应的节点
+			if (host.handle == 0 || !host.alive || !host.fit_children)
+				continue;
+			//子项包围盒右下角（以自身左上为原点）
+			float right = host.rect.x;
+			float bottom = host.rect.y;
+			bool has_child = false;
+			for (const Ui_Node& child : nodes)
+			{
+				if (child.handle == 0 || !child.alive || child.parent != host.handle)
+					continue;
+				right = std::max(right, child.rect.x + child.rect.w);
+				bottom = std::max(bottom, child.rect.y + child.rect.h);
+				has_child = true;
+			}
+			//无子项不撑开
+			if (!has_child)
+				continue;
+			//尺寸只增不减，并计入内容内边距
+			host.rect.w = std::max(host.rect.w, right - host.rect.x + host.padding);
+			host.rect.h = std::max(host.rect.h, bottom - host.rect.y + host.padding);
+			host.rect_base = host.rect;
+		}
+	}
+
 	//按祖先滚动偏移平移各节点矩形（逐帧执行，幂等）
 	void Ui_Context::scroll_apply(void)
 	{

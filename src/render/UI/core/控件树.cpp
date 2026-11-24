@@ -1241,6 +1241,51 @@ namespace engine
 		return layout_apply_count_value;
 	}
 
+	//设置网格布局（第九百八十七轮）
+	bool Ui_Context::grid_set(Ui_Handle handle, uint32_t columns, float gap)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->grid_columns = columns;
+		node->grid_gap = gap > 0.0f ? gap : 0.0f;
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取网格布局
+	bool Ui_Context::grid_get(Ui_Handle handle, uint32_t& columns_out, float& gap_out) const
+	{
+		const Ui_Node* node = node_find(handle);
+		columns_out = 0;
+		gap_out = 0.0f;
+		if (node == nullptr)
+			return false;
+		columns_out = node->grid_columns;
+		gap_out = node->grid_gap;
+		return true;
+	}
+
+	//设置内容自适应尺寸（第九百八十八轮）
+	bool Ui_Context::fit_children_set(Ui_Handle handle, bool enable)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->fit_children = enable;
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取内容自适应尺寸
+	bool Ui_Context::fit_children_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->fit_children;
+	}
+
 	//标记布局待重算
 	void Ui_Context::layout_dirty_mark(void)
 	{

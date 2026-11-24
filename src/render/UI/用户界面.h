@@ -319,6 +319,12 @@ namespace engine
 		Ui_Justify flow_justify = Ui_Justify::Start;
 		//排列交叉轴对齐
 		Ui_Align flow_align = Ui_Align::Start;
+		//网格列数（0 = 不启用；第九百八十七轮）
+		uint32_t grid_columns = 0;
+		//网格间距（像素；第九百八十七轮）
+		float grid_gap = 0.0f;
+		//是否按子项包围盒撑开自身尺寸（第九百八十八轮）
+		bool fit_children = false;
 		//样式角色（Custom = 直接使用下面的 color）
 		Ui_Role role = Ui_Role::Custom;
 		//不透明度（0..1；第八百八十五轮）
@@ -637,6 +643,20 @@ namespace engine
 		bool flow_set(Ui_Handle handle, Ui_Flow flow, float gap = 0.0f, float padding = 0.0f);
 		//取排列设置
 		bool flow_get(Ui_Handle handle, Ui_Flow& flow_out, float& gap_out, float& padding_out) const;
+		/*
+		网格布局（第九百八十七轮）
+		按列数把直接子节点排成网格：行数按子项数向上取整，单元格在容器内均分，
+		子项矩形被设置为单元格（间距取自 grid_gap）；columns = 0 关闭。未知句柄设置返回假。
+		*/
+		bool grid_set(Ui_Handle handle, uint32_t columns, float gap);
+		bool grid_get(Ui_Handle handle, uint32_t& columns_out, float& gap_out) const;
+		/*
+		内容自适应尺寸（第九百八十八轮）
+		开启后按直接子项包围盒撑开自身宽高（不小于原尺寸），在排列之后按子先于父顺序执行；
+		关闭恢复由布局 / 矩形决定。未知句柄设置返回假、读取返回假。
+		*/
+		bool fit_children_set(Ui_Handle handle, bool enable);
+		bool fit_children_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取内容内边距与外边距（第九百四十七轮）
 		padding 使标签文本区四边内缩；margin 在流式排列中使子项前后各留该间距。
@@ -1027,6 +1047,10 @@ namespace engine
 		void layout_apply(void);
 		//按创建顺序排列各容器的直接子节点（位于布局重算之后）
 		void flow_apply(void);
+		//按网格列数排列直接子节点（位于流式排列之后；第九百八十七轮）
+		void grid_apply(void);
+		//按子项包围盒撑开自身尺寸（子先于父；第九百八十八轮）
+		void fit_apply(void);
 		//按祖先滚动偏移平移各节点矩形（位于布局 / 排列之后，逐帧执行）
 		void scroll_apply(void);
 		//焦点设置（0 = 清除焦点）

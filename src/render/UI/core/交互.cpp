@@ -382,6 +382,8 @@ namespace engine
 			}
 			layout_apply();
 			flow_apply();
+			grid_apply();
+			fit_apply();
 			layout_dirty = false;
 			layout_apply_count_value += 1;
 		}
