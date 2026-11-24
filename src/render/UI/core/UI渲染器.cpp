@@ -715,15 +715,33 @@ namespace engine
 	//查找文本块布局缓存条目
 	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_find(uint64_t font_handle, const std::string& text,
 		float area_width, float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
-		Ui_Align valign)
+		Ui_Align valign, const std::vector<Ui_Text_Span>& spans)
 	{
 		for (Block_Cache_Entry& entry : block_cache)
 		{
-			//键：字体 + 文本 + 区域宽度 + 行高 + 字间距 + 换行 + 省略 + 对齐
+			//键：字体 + 文本 + 区域宽度 + 行高 + 字间距 + 缩进 + 换行 + 省略 + 对齐 + 区间
 			if (entry.font_handle != font_handle || entry.area_width != area_width
 				|| entry.line_height != line_height || entry.letter_spacing != letter_spacing
 				|| entry.text_indent != text_indent
 				|| entry.wrap != wrap || entry.ellipsis != ellipsis || entry.valign != valign)
+				continue;
+			//区间数量与逐项字段须一致
+			if (entry.spans.size() != spans.size())
+				continue;
+			bool span_equal = true;
+			for (std::size_t index = 0; index < spans.size(); ++index)
+			{
+				const Ui_Text_Span& left = entry.spans[index];
+				const Ui_Text_Span& right = spans[index];
+				if (left.begin != right.begin || left.end != right.end || left.font != right.font
+					|| left.color.r != right.color.r || left.color.g != right.color.g
+					|| left.color.b != right.color.b || left.color.a != right.color.a)
+				{
+					span_equal = false;
+					break;
+				}
+			}
+			if (!span_equal)
 				continue;
 			//文本一致即命中
 			if (entry.text == text)
@@ -735,7 +753,7 @@ namespace engine
 	//写入文本块布局缓存条目
 	Ui_Renderer::Block_Cache_Entry* Ui_Renderer::block_cache_insert(uint64_t font_handle, const std::string& text,
 		float area_width, float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
-		Ui_Align valign, std::vector<std::string>&& lines)
+		Ui_Align valign, const std::vector<Ui_Text_Span>& spans, std::vector<std::string>&& lines)
 	{
 		//容量已满则淘汰最久未使用条目
 		if (block_cache.size() >= block_cache_limit)
@@ -756,6 +774,7 @@ namespace engine
 		entry.line_height = line_height;
 		entry.letter_spacing = letter_spacing;
 		entry.text_indent = text_indent;
+		entry.spans = spans;
 		entry.wrap = wrap;
 		entry.ellipsis = ellipsis;
 		entry.valign = valign;
@@ -895,7 +914,7 @@ namespace engine
 
 		//查询文本块布局缓存
 		Block_Cache_Entry* entry = block_cache_find(font_handle, text, area.w, line_height, letter_spacing,
-			text_indent, wrap, ellipsis, valign);
+			text_indent, wrap, ellipsis, valign, spans);
 		if (entry != nullptr)
 		{
 			//刷新使用序号并计命中
@@ -1006,7 +1025,7 @@ namespace engine
 
 			//写入布局缓存
 			entry = block_cache_insert(font_handle, text, area.w, line_height, letter_spacing, text_indent,
-				wrap, ellipsis, valign, std::move(lines));
+				wrap, ellipsis, valign, spans, std::move(lines));
 		}
 
 		//行高（0 取字体高度）

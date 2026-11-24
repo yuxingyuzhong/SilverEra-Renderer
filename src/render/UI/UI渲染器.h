@@ -160,6 +160,8 @@ namespace engine
 			float letter_spacing = 0.0f;
 			//首行缩进（键；第九百三十九轮）
 			float text_indent = 0.0f;
+			//行内区间（键；第九百四十三轮）
+			std::vector<Ui_Text_Span> spans{};
 			//是否自动换行（键）
 			bool wrap = false;
 			//是否尾部省略（键）
@@ -227,11 +229,12 @@ namespace engine
 			float center_area_width, Mesh_Data&& mesh, uint32_t width);
 		//查找文本块布局缓存条目（未命中返回空；第九百零三轮）
 		Block_Cache_Entry* block_cache_find(uint64_t font_handle, const std::string& text, float area_width,
-			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis, Ui_Align valign);
+			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis, Ui_Align valign,
+			const std::vector<Ui_Text_Span>& spans);
 		//写入文本块布局缓存条目并返回其指针（超出容量时淘汰最久未使用者）
 		Block_Cache_Entry* block_cache_insert(uint64_t font_handle, const std::string& text, float area_width,
 			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis, Ui_Align valign,
-			std::vector<std::string>&& lines);
+			const std::vector<Ui_Text_Span>& spans, std::vector<std::string>&& lines);
 
 	private:
 		//逻辑设备
