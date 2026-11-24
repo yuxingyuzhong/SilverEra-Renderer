@@ -932,6 +932,8 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->padding = padding > 0.0f ? padding : 0.0f;
+		//内边距变化需重算
+		layout_dirty = true;
 		return true;
 	}
 
@@ -951,6 +953,8 @@ namespace engine
 		if (node == nullptr)
 			return false;
 		node->margin = margin > 0.0f ? margin : 0.0f;
+		//外边距变化需重算
+		layout_dirty = true;
 		return true;
 	}
 
@@ -963,10 +967,111 @@ namespace engine
 		return node->margin;
 	}
 
+	//设置流式弹性权重（负值按 0）
+	bool Ui_Context::stretch_set(Ui_Handle handle, float stretch)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->stretch = stretch > 0.0f ? stretch : 0.0f;
+		//弹性权重变化需重算
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取流式弹性权重
+	float Ui_Context::stretch_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->stretch;
+	}
+
+	//设置流式换行
+	bool Ui_Context::flow_wrap_set(Ui_Handle handle, bool wrap)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->flow_wrap = wrap;
+		//换行设置变化需重算
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取流式换行
+	bool Ui_Context::flow_wrap_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->flow_wrap;
+	}
+
+	//设置换行行内主轴分布
+	bool Ui_Context::flow_justify_set(Ui_Handle handle, Ui_Justify justify)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->flow_justify = justify;
+		//分布设置变化需重算
+		layout_dirty = true;
+		return true;
+	}
+
+	//读取换行行内主轴分布
+	Ui_Justify Ui_Context::flow_justify_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Justify::Start;
+		return node->flow_justify;
+	}
+
 	//布局重算次数
 	uint64_t Ui_Context::layout_apply_count(void) const
 	{
 		return layout_apply_count_value;
+	}
+
+	//标记布局待重算
+	void Ui_Context::layout_dirty_mark(void)
+	{
+		layout_dirty = true;
+	}
+
+	//按树序输出子树布局快照
+	bool Ui_Context::layout_snapshot(Ui_Handle handle, std::vector<Ui_Layout_Item>& items_out) const
+	{
+		items_out.clear();
+		//起点头不存在
+		if (node_find(handle) == nullptr)
+			return false;
+		//深度优先遍历（子项倒序压栈以保持创建顺序）
+		std::vector<Ui_Handle> stack{ handle };
+		while (!stack.empty())
+		{
+			const Ui_Handle current = stack.back();
+			stack.pop_back();
+			const Ui_Node* node = node_find(current);
+			//槽位已失效则跳过
+			if (node == nullptr)
+				continue;
+			items_out.push_back(Ui_Layout_Item{ node->handle, node->parent, node->type, node->rect });
+			//收集本节点可见子项
+			std::vector<Ui_Handle> children{};
+			for (const Ui_Node& child : nodes)
+			{
+				if (child.handle != 0 && child.alive && child.parent == current)
+					children.push_back(child.handle);
+			}
+			//倒序压栈
+			for (auto it = children.rbegin(); it != children.rend(); ++it)
+				stack.push_back(*it);
+		}
+		return true;
 	}
 
 	//设置排列交叉轴对齐

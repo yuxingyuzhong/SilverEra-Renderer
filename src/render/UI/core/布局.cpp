@@ -118,6 +118,158 @@ namespace engine
 				align_factor = 0.5f;
 			else if (container.flow_align == Ui_Align::End)
 				align_factor = 1.0f;
+			//换行流式排列（第九百四十九 / 九百五十轮）
+			if (container.flow_wrap)
+			{
+				//主轴可用长度
+				const float content_main = container.flow == Ui_Flow::Horizontal ? content_width : content_height;
+				//主轴游标、累计交叉轴偏移与当前行子项
+				float cursor = 0.0f;
+				float cross_offset = 0.0f;
+				std::vector<Ui_Node*> row{};
+				//放置当前行（先量行交叉尺寸，再按 flow_align 对齐 / 拉伸）
+				const auto place_row = [&](void)
+				{
+					//行内最大交叉占用（含两端外边距）
+					float line_cross = 0.0f;
+					for (const Ui_Node* child : row)
+					{
+						const float margin = child->margin > 0.0f ? child->margin : 0.0f;
+						const float child_cross = (container.flow == Ui_Flow::Horizontal
+							? child->rect.h : child->rect.w) + margin * 2.0f;
+						if (child_cross > line_cross)
+							line_cross = child_cross;
+					}
+					//行内主轴总占用
+					float row_main = 0.0f;
+					std::size_t row_count = 0;
+					for (const Ui_Node* child : row)
+					{
+						const float margin = child->margin > 0.0f ? child->margin : 0.0f;
+						row_main += (container.flow == Ui_Flow::Horizontal ? child->rect.w : child->rect.h)
+							+ margin * 2.0f;
+						++row_count;
+					}
+					//行内间距计入占用
+					if (row_count > 1)
+						row_main += gap * static_cast<float>(row_count - 1);
+					//主轴剩余与分布偏移 / 额外间隔（第九百五十一轮）
+					const float leftover = content_main - row_main > 0.0f ? content_main - row_main : 0.0f;
+					float justify_offset = 0.0f;
+					float extra_gap = 0.0f;
+					if (container.flow_justify == Ui_Justify::Center)
+						justify_offset = leftover * 0.5f;
+					else if (container.flow_justify == Ui_Justify::End)
+						justify_offset = leftover;
+					else if (container.flow_justify == Ui_Justify::Space_Between && row.size() > 1)
+						extra_gap = leftover / static_cast<float>(row.size() - 1);
+					//逐项放置
+					float cursor_main = justify_offset;
+					for (Ui_Node* child : row)
+					{
+						const float margin = child->margin > 0.0f ? child->margin : 0.0f;
+						const float child_main = (container.flow == Ui_Flow::Horizontal
+							? child->rect.w : child->rect.h) + margin * 2.0f;
+						const float child_cross = (container.flow == Ui_Flow::Horizontal
+							? child->rect.h : child->rect.w) + margin * 2.0f;
+						//交叉轴起点（对齐 / 拉伸）
+						float cross_pos = cross_offset + margin;
+						if (container.flow_align == Ui_Align::Stretch)
+						{
+							const float target = line_cross - margin * 2.0f > 0.0f
+								? line_cross - margin * 2.0f : 0.0f;
+							if (container.flow == Ui_Flow::Horizontal)
+								child->rect.h = target;
+							else
+								child->rect.w = target;
+						}
+						else
+							cross_pos += (line_cross - child_cross) * align_factor;
+						//按方向落位
+						if (container.flow == Ui_Flow::Horizontal)
+						{
+							child->rect.x = container.rect.x + padding + cursor_main + margin;
+							child->rect.y = container.rect.y + padding + cross_pos;
+						}
+						else
+						{
+							child->rect.y = container.rect.y + padding + cursor_main + margin;
+							child->rect.x = container.rect.x + padding + cross_pos;
+						}
+						//排列结果即滚动偏移前的基准矩形
+						child->rect_base = child->rect;
+						cursor_main += child_main + gap + extra_gap;
+					}
+					//行交叉尺寸与行间距计入累计偏移（第九百五十二轮）
+					cross_offset += line_cross + gap;
+					row.clear();
+				};
+				for (Ui_Node& child : nodes)
+				{
+					//非本容器可见子项跳过
+					if (child.handle == 0 || !child.alive || child.parent != container.handle || !child.visible)
+						continue;
+					const float margin = child.margin > 0.0f ? child.margin : 0.0f;
+					//主轴占用（含两端外边距）
+					const float child_main = (container.flow == Ui_Flow::Horizontal ? child.rect.w : child.rect.h)
+						+ margin * 2.0f;
+					//当前行非空且放不下：先放置当前行再另起一行（列）
+					if (!row.empty() && cursor + child_main > content_main)
+					{
+						place_row();
+						cursor = 0.0f;
+					}
+					row.push_back(&child);
+					cursor += child_main + gap;
+				}
+				//收束最后一行
+				if (!row.empty())
+					place_row();
+				continue;
+			}
+			//主轴剩余空间按弹性权重分配（第九百四十八轮）
+			{
+				//主轴可用长度
+				const float content_main = container.flow == Ui_Flow::Horizontal ? content_width : content_height;
+				//基准占用与权重和
+				float total_main = 0.0f;
+				float weight_sum = 0.0f;
+				std::size_t child_count = 0;
+				for (const Ui_Node& child : nodes)
+				{
+					//非本容器可见子项跳过
+					if (child.handle == 0 || !child.alive || child.parent != container.handle || !child.visible)
+						continue;
+					const float margin = child.margin > 0.0f ? child.margin : 0.0f;
+					total_main += (container.flow == Ui_Flow::Horizontal ? child.rect.w : child.rect.h)
+						+ margin * 2.0f;
+					//累计弹性权重
+					if (child.stretch > 0.0f)
+						weight_sum += child.stretch;
+					++child_count;
+				}
+				//间距计入基准占用
+				if (child_count > 1)
+					total_main += gap * static_cast<float>(child_count - 1);
+				//剩余主轴长度
+				const float leftover = content_main - total_main;
+				//有剩余且有弹性项时按权重追加主轴尺寸
+				if (leftover > 0.0f && weight_sum > 0.0f)
+				{
+					for (Ui_Node& child : nodes)
+					{
+						//非本容器可见子项或未开启弹性
+						if (child.handle == 0 || !child.alive || child.parent != container.handle
+							|| !child.visible || child.stretch <= 0.0f)
+							continue;
+						const float extra = leftover * child.stretch / weight_sum;
+						if (container.flow == Ui_Flow::Horizontal)
+							child.rect.w += extra;
+						else
+							child.rect.h += extra;
+					}
+				}
+			}
 			//内容区起点
 			float cursor = container.flow == Ui_Flow::Horizontal
 				? container.rect.x + padding : container.rect.y + padding;

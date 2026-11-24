@@ -288,6 +288,9 @@ namespace engine
 			hash_bytes(hash, &node->anim_speed, sizeof(node->anim_speed));
 			hash_bytes(hash, &node->padding, sizeof(node->padding));
 			hash_bytes(hash, &node->margin, sizeof(node->margin));
+			hash_bytes(hash, &node->stretch, sizeof(node->stretch));
+			hash_bytes(hash, &node->flow_wrap, sizeof(node->flow_wrap));
+			hash_bytes(hash, &node->flow_justify, sizeof(node->flow_justify));
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));

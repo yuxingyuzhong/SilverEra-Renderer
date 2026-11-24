@@ -137,6 +137,19 @@ namespace engine
 		Vertical
 	};
 
+	//UI 主轴分布（换行流式排列的行内分布；第九百五十一轮）
+	enum class Ui_Justify : uint8_t
+	{
+		//起始边（剩余留尾）
+		Start,
+		//居中
+		Center,
+		//末端（剩余留首）
+		End,
+		//两端对齐（行内均匀分布，子项少于两个时按 Start）
+		Space_Between
+	};
+
 	//UI 交叉轴对齐（排列容器的子节点在非排列方向上的对齐方式）
 	enum class Ui_Align : uint8_t
 	{
@@ -245,9 +258,24 @@ namespace engine
 		uint64_t font = 0;
 	};
 
-	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
-	struct Ui_Node
+	/*
+	布局快照条目（第九百五十四轮）
+	按树序输出子树节点的句柄 / 父句柄 / 类型 / 当前矩形。
+	*/
+	struct Ui_Layout_Item
 	{
+		//节点句柄
+		Ui_Handle handle = 0;
+		//父句柄（0 = 根）
+		Ui_Handle parent = 0;
+		//控件类型
+		Ui_Node_Type type = Ui_Node_Type::Root;
+		//当前矩形
+		Ui_Rect rect{};
+	};
+
+	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
+	struct Ui_Node	{
 		//句柄（0 = 无效 / 已销毁）
 		Ui_Handle handle = 0;
 		//父句柄（0 = 根节点）
@@ -279,6 +307,12 @@ namespace engine
 		float padding = 0.0f;
 		//流式排列外边距（像素；子项前后各留该间距；第九百四十七轮）
 		float margin = 0.0f;
+		//流式主轴弹性权重（>0 参与剩余空间按权重分配；第九百四十八轮）
+		float stretch = 0.0f;
+		//流式换行（主轴排满后另起一行 / 列；第九百四十九轮）
+		bool flow_wrap = false;
+		//换行行内主轴分布（第九百五十一轮）
+		Ui_Justify flow_justify = Ui_Justify::Start;
 		//排列交叉轴对齐
 		Ui_Align flow_align = Ui_Align::Start;
 		//样式角色（Custom = 直接使用下面的 color）
@@ -573,6 +607,28 @@ namespace engine
 		float padding_get(Ui_Handle handle) const;
 		bool margin_set(Ui_Handle handle, float margin);
 		float margin_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取流式主轴弹性权重（第九百四十八轮）
+		stretch > 0 的子项按权重分配父容器主轴剩余空间；<= 0 不参与。
+		未知句柄设置返回假、读取返回 0。
+		*/
+		bool stretch_set(Ui_Handle handle, float stretch);
+		float stretch_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取流式换行（第九百四十九轮）
+		开启后主轴放不下下一个子项时另起一行（横向）/ 一列（纵向），
+		行高（列宽）取该行（列）最高（宽）子项；换行模式不参与弹性权重分配。
+		未知句柄设置返回假、读取返回假。
+		*/
+		bool flow_wrap_set(Ui_Handle handle, bool wrap);
+		bool flow_wrap_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取换行行内主轴分布（第九百五十一轮）
+		Start / Center / End / Space_Between；弹性权重优先于分布（有弹性分配时不追加分布偏移）。
+		未知句柄设置返回假、读取返回 Start。
+		*/
+		bool flow_justify_set(Ui_Handle handle, Ui_Justify justify);
+		Ui_Justify flow_justify_get(Ui_Handle handle) const;
 		//设置 / 读取排列交叉轴对齐（未知句柄设置返回假；读取返回 Start）
 		bool flow_align_set(Ui_Handle handle, Ui_Align align);
 		Ui_Align flow_align_get(Ui_Handle handle) const;
@@ -593,6 +649,17 @@ namespace engine
 		bool scroll_bar_bind(Ui_Handle bar, Ui_Handle target, float content_extent, bool vertical = true);
 		//布局重算次数（观测用；根尺寸 / 节点集合 / 布局设置变化时递增）
 		uint64_t layout_apply_count(void) const;
+		/*
+		标记布局待重算（第九百五十三轮）
+		下一次 frame_begin 会重算布局；布局属性（矩形 / 排列 / 内外边距 / 弹性 / 换行 / 分布）修改时自动置脏。
+		*/
+		void layout_dirty_mark(void);
+		/*
+		布局快照（第九百五十四轮）
+		按树序（父先于子、同层按创建顺序）输出指定节点及其全部后代的布局条目。
+		未知句柄返回假并清空输出。
+		*/
+		bool layout_snapshot(Ui_Handle handle, std::vector<Ui_Layout_Item>& items_out) const;
 		//设置 / 读取主题色板（第八百八十三轮）
 		void theme_set(const Ui_Theme& theme);
 		const Ui_Theme& theme_get(void) const;
