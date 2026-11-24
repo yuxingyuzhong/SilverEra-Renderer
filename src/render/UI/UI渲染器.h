@@ -178,6 +178,11 @@ namespace engine
 		bool slot_ensure(Slot_Buffers& slot, uint32_t vertex_count, uint32_t index_count);
 		//追加一个矩形（像素坐标）并登记纯色绘制
 		void quad_append(const Ui_Rect& rect, const Ui_Color& color);
+		/*
+		登记纯色绘制记录（第九百六十九轮）
+		相邻记录同色且索引连续时合并为一条（裁剪取并集，各矩形几何仍在自身范围内），减少相邻纯色绘制次数。
+		*/
+		void solid_draw_append(const Ui_Color& color, uint32_t first_index, uint32_t index_count);
 		//追加一个纹理矩形（UV 铺满 0..1）并登记纹理绘制（第八百九十三轮）
 		void quad_textured_append(uint64_t texture, const Ui_Rect& rect, const Ui_Color& color);
 		//追加一个指定 UV 范围的纹理矩形（第九百零六轮）
@@ -285,6 +290,10 @@ namespace engine
 		uint64_t text_atlas = 0;
 		//各槽位的继承裁剪（下标 = 句柄 - 1；逐帧复用，第八百八十八轮）
 		std::vector<Ui_Rect> inherited_clips{};
+		//各槽位的继承圆角裁剪矩形（第九百七十二轮）
+		std::vector<Ui_Rect> inherited_round_rects{};
+		//各槽位的继承圆角半径（第九百七十二轮）
+		std::vector<float> inherited_round_radii{};
 		//当前控件的裁剪矩形（追加几何时写入绘制记录）
 		Ui_Rect current_clip{};
 		//最近一帧绘制统计

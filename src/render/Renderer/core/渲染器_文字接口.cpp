@@ -129,6 +129,23 @@ namespace engine
 		return (*state_ptr).font.font_skipped_codepoints_get(font);
 	}
 
+	//取字形图集尺寸（诊断）
+	bool Render_Ui::font_atlas_size(uint64_t font, uint32_t& width_out, uint32_t& height_out) const
+	{
+		//默认零尺寸
+		width_out = 0;
+		height_out = 0;
+		//未初始化则视为无效
+		if (owner == nullptr || !owner->device().valid())
+			return false;
+		const Font_Record* record = (*state_ptr).font.font_get(font);
+		if (record == nullptr)
+			return false;
+		width_out = record->atlas_width;
+		height_out = record->atlas_height;
+		return true;
+	}
+
 	//文字网格缓存命中次数
 	uint64_t Render_Ui::text_cache_hits(void) const
 	{

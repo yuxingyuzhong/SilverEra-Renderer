@@ -303,6 +303,14 @@ namespace engine
 			node.caret += input.text.committed.size();
 		}
 
+		//多行文本框：回车在光标处插入换行（第九百六十六轮）
+		if (node.multiline
+			&& (input.key_pressed_check(SDL_SCANCODE_RETURN) || input.key_pressed_check(SDL_SCANCODE_KP_ENTER)))
+		{
+			node.text.insert(node.caret, "\n");
+			node.caret += 1;
+		}
+
 		//退格：删除光标前一码点
 		if (input.key_pressed_check(SDL_SCANCODE_BACKSPACE) && node.caret > 0)
 		{
@@ -331,12 +339,17 @@ namespace engine
 	//帧交互：消费输入快照
 	void Ui_Context::frame_begin(const Input_Frame& input)
 	{
+		//DPI 缩放：仅开启自动缩放时采用输入帧比例（默认 1，保持既有像素口径；第九百七十一轮）
+		ui_scale = (ui_scale_auto && input.dpi_scale > 0.0f) ? input.dpi_scale : 1.0f;
+		const float pointer_x = input.pointer.x / ui_scale;
+		const float pointer_y = input.pointer.y / ui_scale;
 		//根节点铺满窗口客户区
 		Ui_Node* root = node_find(1);
 		if (root != nullptr)
 		{
 			const Ui_Rect root_rect{ 0.0f, 0.0f,
-				static_cast<float>(input.window_width), static_cast<float>(input.window_height) };
+				static_cast<float>(input.window_width) / ui_scale,
+				static_cast<float>(input.window_height) / ui_scale };
 			//根尺寸变化标记布局待重算
 			if (root_rect.w != layout_root_width || root_rect.h != layout_root_height)
 			{
@@ -439,7 +452,7 @@ namespace engine
 
 		//刷新悬停目标（窗口失焦时不命中）
 		const Ui_Handle previous_hovered = hovered;
-		hovered = input.window_focused ? hit_test(input.pointer.x, input.pointer.y) : 0;
+		hovered = input.window_focused ? hit_test(pointer_x, pointer_y) : 0;
 		//悬停目标变化：发布域内事件（只走域内总线，不翻译为 Input/MouseFocus）
 		if (hovered != previous_hovered)
 		{
@@ -484,6 +497,44 @@ namespace engine
 			}
 		}
 
+		//下拉选择框：展开 / 收起与选项点选（第九百六十五轮）
+		if (input.pointer.button_pressed[0])
+		{
+			for (Ui_Node& node : nodes)
+			{
+				//非本帧可交互下拉跳过
+				if (node.handle == 0 || !node.alive || node.type != Ui_Node_Type::Combo
+					|| !node.visible || !node.enabled)
+					continue;
+				const float px = pointer_x;
+				const float py = pointer_y;
+				//点在控件内：切换展开
+				if (px >= node.rect.x && px <= node.rect.x + node.rect.w
+					&& py >= node.rect.y && py <= node.rect.y + node.rect.h)
+				{
+					node.combo_open = !node.combo_open;
+					node.clicked = true;
+					break;
+				}
+				//展开时点在选项区：更新下标并收起
+				if (node.combo_open)
+				{
+					const float list_y = node.rect.y + node.rect.h;
+					const float list_h = node.rect.h * static_cast<float>(node.combo_items.size());
+					if (px >= node.rect.x && px <= node.rect.x + node.rect.w
+						&& py >= list_y && py < list_y + list_h)
+					{
+						const std::size_t index = static_cast<std::size_t>((py - list_y) / node.rect.h);
+						if (index < node.combo_items.size())
+							node.combo_index = index;
+						node.combo_open = false;
+						node.clicked = true;
+						break;
+					}
+				}
+			}
+		}
+
 		//鼠标左键按下沿：确定按下目标与焦点
 		if (input.pointer.button_pressed[0])
 		{
@@ -506,7 +557,7 @@ namespace engine
 				if (node->type == Ui_Node_Type::Slider)
 				{
 					slider_drag = node->handle;
-					slider_value_apply(*node, input.pointer.x, input.pointer.y);
+					slider_value_apply(*node, pointer_x, pointer_y);
 				}
 			}
 			//点击空白或面板：清除焦点
@@ -519,7 +570,7 @@ namespace engine
 		{
 			Ui_Node* node = node_find(slider_drag);
 			if (node != nullptr && node->visible && node->enabled)
-				slider_value_apply(*node, input.pointer.x, input.pointer.y);
+				slider_value_apply(*node, pointer_x, pointer_y);
 		}
 
 		//鼠标左键抬起沿：同一目标上抬起即判定单击

@@ -37,7 +37,9 @@ namespace engine
 		//单选按钮（圆形环 + 选中圆点 + 右侧标签；第九百二十六轮）
 		Radio,
 		//开关（圆角轨道 + 左右滑块；第九百二十七轮）
-		Switch
+		Switch,
+		//下拉选择框（第九百六十五轮）
+		Combo
 	};
 
 	//UI 像素矩形（左上原点、Y 向下）
@@ -369,6 +371,8 @@ namespace engine
 		std::size_t select_end = 0;
 		//输入法组合文本（UTF-8；空 = 非组合态；第九百三十六轮）
 		std::string preedit{};
+		//是否多行文本框（真 = 回车插入换行；第九百六十六轮）
+		bool multiline = false;
 		//是否选中（列表项等可选控件；第九百六十二轮）
 		bool selected = false;
 		//是否多选模式（第九百六十二轮）
@@ -377,6 +381,12 @@ namespace engine
 		std::string tooltip{};
 		//悬停累计时长（秒；工具提示延时用；第九百六十三轮）
 		float hover_time = 0.0f;
+		//下拉选项（第九百六十五轮）
+		std::vector<std::string> combo_items{};
+		//当前选项下标（第九百六十五轮）
+		std::size_t combo_index = 0;
+		//是否展开（第九百六十五轮）
+		bool combo_open = false;
 		//是否可见
 		bool visible = true;
 		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
@@ -461,6 +471,13 @@ namespace engine
 			void (*on_click)(Ui_Handle, void*) = nullptr, void* user = nullptr, const Ui_Color& color = Ui_Color{ 0.20f, 0.20f, 0.50f, 1.0f });
 		//创建单行文本框
 		Ui_Handle text_box_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text);
+		/*
+		多行文本框开关（第九百六十六轮）
+		开启后回车在光标处插入换行，退格在行首删除换行实现跨行合并，Delete 同理；
+		关闭时保持单行编辑。未知句柄设置返回假、读取返回假。
+		*/
+		bool multiline_set(Ui_Handle handle, bool multiline);
+		bool multiline_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取文本框内容（第九百三十轮）
 		设置后光标移到新文本末尾（天然落在 UTF-8 字符边界）；未知句柄设置返回假、读取返回空串。
@@ -636,6 +653,18 @@ namespace engine
 		//工具提示是否达到显示条件（悬停且累计 >= 0.5 秒；第九百六十三轮）
 		bool tooltip_visible(Ui_Handle handle) const;
 		/*
+		下拉选择框（第九百六十五轮）
+		combo_create 创建并登记选项（空选项列表创建失败）；
+		index 越界夹到 [0, size-1]；展开态在控件下方逐行绘制选项，点击选项更新下标并收起。
+		未知句柄设置返回假、读取返回 0 / 假。
+		*/
+		Ui_Handle combo_create(Ui_Handle parent, const Ui_Rect& rect, const std::vector<std::string>& items,
+			std::size_t index = 0);
+		bool combo_index_set(Ui_Handle handle, std::size_t index);
+		std::size_t combo_index_get(Ui_Handle handle) const;
+		bool combo_open_set(Ui_Handle handle, bool open);
+		bool combo_open_get(Ui_Handle handle) const;
+		/*
 		设置 / 读取流式主轴弹性权重（第九百四十八轮）
 		stretch > 0 的子项按权重分配父容器主轴剩余空间；<= 0 不参与。
 		未知句柄设置返回假、读取返回 0。
@@ -688,6 +717,20 @@ namespace engine
 		未知句柄返回假并清空输出。
 		*/
 		bool layout_snapshot(Ui_Handle handle, std::vector<Ui_Layout_Item>& items_out) const;
+		/*
+		UI 缩放比例（第九百七十一轮）
+		frame_begin 按输入帧 dpi_scale 更新（<=0 按 1）；根矩形与指针按该比例归一到逻辑像素，
+		绘制时几何再按该比例放大到物理像素。未开启自动缩放时恒为 1（保持既有像素口径）。
+		*/
+		float ui_scale_get(void) const;
+		/*
+		DPI 自动缩放开关（第九百七十一轮）
+		默认关闭：控件矩形与指针均为物理像素，与既有用例口径一致；
+		开启后 frame_begin 采用输入帧 dpi_scale，按逻辑像素布局并放大绘制。
+		未知 / 未初始化不影响；返回设置是否生效。
+		*/
+		bool ui_scale_auto_set(bool enable);
+		bool ui_scale_auto_get(void) const;
 		//设置 / 读取主题色板（第八百八十三轮）
 		void theme_set(const Ui_Theme& theme);
 		const Ui_Theme& theme_get(void) const;
@@ -935,6 +978,10 @@ namespace engine
 		//上次布局时的根尺寸
 		float layout_root_width = -1.0f;
 		float layout_root_height = -1.0f;
+		//UI 缩放比例（逻辑像素 → 物理像素；第九百七十一轮）
+		float ui_scale = 1.0f;
+		//是否采用输入帧 dpi_scale 自动缩放（默认关闭；第九百七十一轮）
+		bool ui_scale_auto = false;
 		//主题色板
 		Ui_Theme theme{};
 

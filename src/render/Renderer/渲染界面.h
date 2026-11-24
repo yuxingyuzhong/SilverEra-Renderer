@@ -71,6 +71,11 @@ namespace engine
 			const Text_Layout& layout);
 		//取该字体累计被跳过的码点数（诊断；句柄无效返回 0）
 		uint64_t font_skipped_codepoints(uint64_t font) const;
+		/*
+		取字形图集尺寸（诊断；第九百七十轮）
+		句柄无效返回假并把两出参置 0；成功写出当前宽度 / 高度（像素）。
+		*/
+		bool font_atlas_size(uint64_t font, uint32_t& width_out, uint32_t& height_out) const;
 		//文字网格缓存命中次数（自 init 起累计）
 		uint64_t text_cache_hits(void) const;
 		//文字网格缓存未命中次数（自 init 起累计）

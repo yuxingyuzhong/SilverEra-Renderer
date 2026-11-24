@@ -17,6 +17,16 @@ namespace engine
 			return result;
 		}
 
+		//求两个矩形的并集（包裹区域；第九百六十九轮合批用）
+		Ui_Rect rect_union(const Ui_Rect& left, const Ui_Rect& right)
+		{
+			const float x0 = std::min(left.x, right.x);
+			const float y0 = std::min(left.y, right.y);
+			const float x1 = std::max(left.x + left.w, right.x + right.w);
+			const float y1 = std::max(left.y + left.h, right.y + right.h);
+			return Ui_Rect{ x0, y0, x1 - x0, y1 - y0 };
+		}
+
 		//求两个矩形的交集（无重叠时返回零矩形）
 		Ui_Rect rect_intersect(const Ui_Rect& left, const Ui_Rect& right)
 		{
@@ -28,6 +38,44 @@ namespace engine
 			if (x1 <= x0 || y1 <= y0)
 				return Ui_Rect{};
 			return Ui_Rect{ x0, y0, x1 - x0, y1 - y0 };
+		}
+
+		/*
+		矩形是否完全落在圆角矩形的四角切除区（第九百七十二轮）
+		圆角容器裁剪子项时以矩形近似：与任何角圆盘都不相交且位于该角方块内，
+		即判定为可整体跳过；部分相交仍保留（矩形裁剪无法表达弧形边界）。
+		*/
+		bool rect_in_rounded_corner(const Ui_Rect& rect, const Ui_Rect& round_rect, float radius)
+		{
+			//半径非正不构成圆角
+			if (radius <= 0.0f)
+				return false;
+			const float x0 = round_rect.x;
+			const float y0 = round_rect.y;
+			const float x1 = round_rect.x + round_rect.w;
+			const float y1 = round_rect.y + round_rect.h;
+			//四角方块与圆心（左上 / 右上 / 左下 / 右下）
+			const float corners[4][6] = {
+				{ x0, y0, x0 + radius, y0 + radius, x0 + radius, y0 + radius },
+				{ x1 - radius, y0, x1, y0 + radius, x1 - radius, y0 + radius },
+				{ x0, y1 - radius, x0 + radius, y1, x0 + radius, y1 - radius },
+				{ x1 - radius, y1 - radius, x1, y1, x1 - radius, y1 - radius } };
+			for (int corner = 0; corner < 4; ++corner)
+			{
+				//矩形须完全位于该角方块内
+				if (rect.x < corners[corner][0] || rect.y < corners[corner][1]
+					|| rect.x + rect.w > corners[corner][2] || rect.y + rect.h > corners[corner][3])
+					continue;
+				//圆心到矩形最近点的距离
+				const float nearest_x = std::min(std::max(corners[corner][4], rect.x), rect.x + rect.w);
+				const float nearest_y = std::min(std::max(corners[corner][5], rect.y), rect.y + rect.h);
+				const float delta_x = corners[corner][4] - nearest_x;
+				const float delta_y = corners[corner][5] - nearest_y;
+				//与圆盘不相交：整体落在切除区
+				if (delta_x * delta_x + delta_y * delta_y > radius * radius)
+					return true;
+			}
+			return false;
 		}
 
 		//把一段字节混入 FNV-1a 指纹
@@ -258,6 +306,8 @@ namespace engine
 			hash_bytes(hash, &node->slice_bottom, sizeof(node->slice_bottom));
 			hash_bytes(hash, &node->text_font, sizeof(node->text_font));
 			hash_bytes(hash, &node->text_wrap, sizeof(node->text_wrap));
+			//多行文本框影响文本起始纵坐标（第九百六十六轮）
+			hash_bytes(hash, &node->multiline, sizeof(node->multiline));
 			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
 			hash_bytes(hash, &node->letter_spacing, sizeof(node->letter_spacing));
 			hash_bytes(hash, &node->text_indent, sizeof(node->text_indent));
@@ -298,6 +348,13 @@ namespace engine
 			//提示可见性（到达延时后变化一次，避免逐帧重建）
 			const bool tooltip_ready = node->hovered && node->hover_time >= 0.5f;
 			hash_bytes(hash, &tooltip_ready, sizeof(tooltip_ready));
+			//下拉状态与选项（第九百六十五轮）
+			hash_bytes(hash, &node->combo_index, sizeof(node->combo_index));
+			hash_bytes(hash, &node->combo_open, sizeof(node->combo_open));
+			const std::size_t combo_count = node->combo_items.size();
+			hash_bytes(hash, &combo_count, sizeof(combo_count));
+			for (const std::string& item : node->combo_items)
+				hash_string(hash, item);
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
@@ -411,10 +468,30 @@ namespace engine
 		cpu_indices.push_back(base + 2);
 		cpu_indices.push_back(base + 3);
 
-		//登记绘制记录
+		//登记绘制记录（相邻同色合批；第九百六十九轮）
+		solid_draw_append(color, index_base, 6);
+	}
+
+	//登记纯色绘制记录（相邻同色同裁剪合并）
+	void Ui_Renderer::solid_draw_append(const Ui_Color& color, uint32_t first_index, uint32_t index_count)
+	{
+		//上一条为同色且索引连续的纯色记录：合并（裁剪取并集，几何仍在各自矩形内）
+		if (!draws.empty())
+		{
+			Draw_Record& last = draws.back();
+			if (!last.text && last.texture == 0
+				&& last.first_index + last.index_count == first_index
+				&& last.color.r == color.r && last.color.g == color.g
+				&& last.color.b == color.b && last.color.a == color.a)
+			{
+				last.index_count += index_count;
+				last.clip = rect_union(last.clip, current_clip);
+				return;
+			}
+		}
 		Draw_Record record{};
-		record.first_index = index_base;
-		record.index_count = 6;
+		record.first_index = first_index;
+		record.index_count = index_count;
 		record.color = color;
 		record.text = false;
 		record.clip = current_clip;
@@ -520,14 +597,8 @@ namespace engine
 			cpu_indices.push_back(next);
 		}
 
-		//登记绘制记录
-		Draw_Record record{};
-		record.first_index = index_base;
-		record.index_count = point_count * 3;
-		record.color = color;
-		record.text = false;
-		record.clip = current_clip;
-		draws.push_back(record);
+		//登记绘制记录（相邻同色合批；第九百六十九轮）
+		solid_draw_append(color, index_base, point_count * 3);
 	}
 
 	//追加带描边的背景（先描边后填充）
@@ -1104,12 +1175,54 @@ namespace engine
 			{
 				//当前行在原文中的字节偏移
 				const std::size_t line_base = line_bases[line_index];
-				//水平对齐偏移（Stretch 按 Start）
+				//水平对齐偏移（Stretch 按 Start；混排字号按区间字体求和；第九百六十七轮）
 				float line_x = area.x;
 				if (halign == Ui_Align::Center || halign == Ui_Align::End)
 				{
-					//按字间距度量行宽
-					const float line_width = text_width_spaced(*record, line, letter_spacing);
+					float line_width = 0.0f;
+					//无区间：按控件字体整体度量
+					if (spans.empty())
+						line_width = text_width_spaced(*record, line, letter_spacing);
+					else
+					{
+						//收集切分点
+						std::vector<std::size_t> cuts{};
+						cuts.push_back(0);
+						cuts.push_back(line.size());
+						for (const Ui_Text_Span& span : spans)
+						{
+							if (span.end <= line_base || span.begin >= line_base + line.size())
+								continue;
+							std::size_t local_begin = span.begin > line_base ? span.begin - line_base : 0;
+							std::size_t local_end = span.end > line_base ? span.end - line_base : 0;
+							if (local_end > line.size())
+								local_end = line.size();
+							cuts.push_back(utf8_align_forward(line, local_begin));
+							cuts.push_back(utf8_align_forward(line, local_end));
+						}
+						std::sort(cuts.begin(), cuts.end());
+						cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
+						//逐段按该段字体度量
+						for (std::size_t index = 0; index + 1 < cuts.size(); ++index)
+						{
+							const std::size_t seg_begin = cuts[index];
+							const std::size_t seg_end = cuts[index + 1];
+							if (seg_end <= seg_begin)
+								continue;
+							uint64_t segment_font = font_handle;
+							for (const Ui_Text_Span& span : spans)
+							{
+								if (span.begin <= line_base + seg_begin && span.end >= line_base + seg_end
+									&& span.font != 0)
+									segment_font = span.font;
+							}
+							Font_Record* segment_record = font->font_get_mutable(segment_font);
+							const std::string segment = line.substr(seg_begin, seg_end - seg_begin);
+							line_width += segment_record != nullptr
+								? text_width_spaced(*segment_record, segment, letter_spacing)
+								: text_width_spaced(*record, segment, letter_spacing);
+						}
+					}
 					line_x += halign == Ui_Align::Center
 						? (area.w - line_width) * 0.5f
 						: area.w - line_width;
@@ -1227,6 +1340,13 @@ namespace engine
 		if (extent.width == 0 || extent.height == 0)
 			return;
 
+		//UI 缩放：几何以逻辑像素生成，绘制时按比例放大到物理像素（第九百七十一轮）
+		const float ui_scale = ui.ui_scale_get() > 0.0f ? ui.ui_scale_get() : 1.0f;
+		//逻辑尺寸（布局与裁剪均以逻辑像素工作）
+		const VkExtent2D logical_extent{
+			static_cast<uint32_t>(std::ceil(static_cast<float>(extent.width) / ui_scale)),
+			static_cast<uint32_t>(std::ceil(static_cast<float>(extent.height) / ui_scale)) };
+
 		//复位本帧统计
 		stats = Ui_Render_Stats{};
 
@@ -1271,9 +1391,13 @@ namespace engine
 		//按创建顺序遍历控件（父先于子；逆序命中测试已在交互侧完成）
 		const std::size_t count = ui.node_count();
 		//窗口裁剪矩形
-		const Ui_Rect window_clip{ 0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height) };
+		const Ui_Rect window_clip{ 0.0f, 0.0f,
+			static_cast<float>(logical_extent.width), static_cast<float>(logical_extent.height) };
 		//各槽位的继承裁剪（下标 = 句柄 - 1；父先于子，故一次正序即可传播）
 		inherited_clips.assign(count, window_clip);
+		//各槽位继承的圆角裁剪（矩形 + 半径；第九百七十二轮）
+		inherited_round_rects.assign(count, window_clip);
+		inherited_round_radii.assign(count, 0.0f);
 		for (std::size_t index = 0; index < count; ++index)
 		{
 			const Ui_Node* node = ui.node_at(index);
@@ -1285,18 +1409,42 @@ namespace engine
 			const Ui_Rect own_clip = rect_intersect(node->rect, window_clip);
 			//父继承裁剪（根节点或无父节点时按窗口）
 			Ui_Rect inherit_clip = window_clip;
+			//父级圆角裁剪（默认无）
+			Ui_Rect round_rect = window_clip;
+			float round_radius = 0.0f;
 			if (node->parent != 0 && node->parent <= count)
-				inherit_clip = inherited_clips[static_cast<std::size_t>(node->parent - 1)];
+			{
+				const std::size_t parent_index = static_cast<std::size_t>(node->parent - 1);
+				inherit_clip = inherited_clips[parent_index];
+				round_rect = inherited_round_rects[parent_index];
+				round_radius = inherited_round_radii[parent_index];
+			}
 			//有效裁剪 = 自身矩形 ∩ 继承裁剪
 			const Ui_Rect clip = rect_intersect(own_clip, inherit_clip);
 			//裁剪开关开启时，子节点继续承受本节点有效裁剪；否则仅向下传递已有继承
 			inherited_clips[index] = node->clip_children ? clip : inherit_clip;
+			//圆角裁剪：开启裁剪且带圆角的容器把自身圆角传递给子节点
+			const bool round_clip = node->clip_children && node->corner_radius > 0.0f;
+			if (round_clip)
+			{
+				inherited_round_rects[index] = node->rect;
+				inherited_round_radii[index] = std::min(node->corner_radius,
+					std::min(node->rect.w, node->rect.h) * 0.5f);
+			}
+			else
+			{
+				inherited_round_rects[index] = round_rect;
+				inherited_round_radii[index] = round_radius;
+			}
 
 			//跳过不可见节点与根节点（其裁剪仍已向下传递）
 			if (!node->visible || node->type == Ui_Node_Type::Root)
 				continue;
 			//裁剪区域为空则不绘制（含文字溢出被完全裁掉的情形）
 			if (clip.w <= 0.0f || clip.h <= 0.0f)
+				continue;
+			//整体落在父级圆角切除区：跳过绘制
+			if (rect_in_rounded_corner(clip, round_rect, round_radius))
 				continue;
 			//本控件后续几何按此裁剪
 			current_clip = clip;
@@ -1350,15 +1498,19 @@ namespace engine
 					highlight.a = 0.25f;
 					quad_append(content_rect, with_opacity(highlight, node->opacity));
 				}
-				//文本阴影：先画偏移副本（第九百四十轮）
+				//文本阴影：先画偏移副本（第九百四十轮；第九百六十八轮彩色阴影继承区间色）
 				if (node->text_shadow.color.a > 0.0f)
 				{
 					Ui_Rect shadow_rect = content_rect;
 					shadow_rect.x += node->text_shadow.offset_x;
 					shadow_rect.y += node->text_shadow.offset_y;
+					//区间阴影继承各自文字色，透明度取阴影声明值
+					std::vector<Ui_Text_Span> shadow_spans = node->text_spans;
+					for (Ui_Text_Span& span : shadow_spans)
+						span.color.a = node->text_shadow.color.a;
 					text_append_block(node_font, node->text, shadow_rect, node->line_height,
 						node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
-						node->text_valign, node->text_halign, std::vector<Ui_Text_Span>{}, node->opacity,
+						node->text_valign, node->text_halign, shadow_spans, node->opacity,
 						with_opacity(node->text_shadow.color, node->opacity));
 				}
 				//正文
@@ -1367,7 +1519,7 @@ namespace engine
 					node->text_valign, node->text_halign, node->text_spans, node->opacity,
 					with_opacity(node->text_color, node->opacity));
 				//工具提示（第九百六十三轮）
-				tooltip_append(*node, node_font, extent);
+				tooltip_append(*node, node_font, logical_extent);
 				break;
 			}
 			//图片：纹理铺满矩形（不参与交互）
@@ -1427,7 +1579,7 @@ namespace engine
 						node->rect.y + (node->rect.h - node_text_height) * 0.5f, label_width,
 						with_opacity(node->text_color, node->opacity));
 				//工具提示（第九百六十三轮）
-				tooltip_append(*node, node_font, extent);
+				tooltip_append(*node, node_font, logical_extent);
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);
@@ -1447,44 +1599,96 @@ namespace engine
 					with_opacity(box_color, node->opacity));
 				const float padding = 6.0f;
 				const float text_x = node->rect.x + padding;
-				const float text_y = node->rect.y + (node->rect.h - node_text_height) * 0.5f;
-				//选中高亮（绘制在文本之下；第九百三十四轮）
-				if (node_record != nullptr && node->select_end > node->select_begin
-					&& node->select_end <= node->text.size())
+				const float text_y = node->multiline ? node->rect.y + padding
+					: node->rect.y + (node->rect.h - node_text_height) * 0.5f;
+				//行推进步长（多行按行高逐行绘制）
+				const float line_step = node->line_height > 0.0f ? node->line_height
+					: static_cast<float>(node_text_height);
+				//按换行拆分文本行（记录每行起始字节偏移；第九百六十六轮）
+				std::vector<std::pair<std::size_t, std::string>> text_lines{};
+				std::size_t line_begin = 0;
+				for (;;)
 				{
-					uint32_t begin_width = 0;
-					uint32_t end_width = 0;
-					uint32_t measure_height = 0;
-					//度量选区两端前缀宽度
-					Font_Context::text_measure(*node_record,
-						node->text.substr(0, node->select_begin), begin_width, measure_height);
-					Font_Context::text_measure(*node_record,
-						node->text.substr(0, node->select_end), end_width, measure_height);
-					//宽度为正才绘制
-					if (end_width > begin_width)
+					const std::size_t newline = node->text.find('\n', line_begin);
+					//末行
+					if (newline == std::string::npos)
 					{
-						Ui_Color highlight = ui.theme_get().accent;
-						highlight.a = 0.45f;
-						Ui_Rect highlight_rect{ text_x + static_cast<float>(begin_width), node->rect.y + 3.0f,
-							static_cast<float>(end_width - begin_width), node->rect.h - 6.0f };
-						quad_append(highlight_rect, with_opacity(highlight, node->opacity));
+						text_lines.emplace_back(line_begin, node->text.substr(line_begin));
+						break;
 					}
+					text_lines.emplace_back(line_begin, node->text.substr(line_begin, newline - line_begin));
+					line_begin = newline + 1;
 				}
-				text_append(node_font, node->text, text_x, text_y, 0.0f,
-					with_opacity(node->text_color, node->opacity));
-				//度量光标之前的文本宽度（空串按 0；组合文本与光标共用）
+				//逐行绘制选中高亮与文本
+				for (std::size_t line_index = 0; line_index < text_lines.size(); ++line_index)
+				{
+					const std::size_t line_start = text_lines[line_index].first;
+					const std::string& line_text = text_lines[line_index].second;
+					const float line_y = text_y + static_cast<float>(line_index) * line_step;
+					//选中高亮：取选区与本行的交集（绘制在文本之下）
+					if (node_record != nullptr && node->select_end > node->select_begin)
+					{
+						const std::size_t overlap_begin = node->select_begin > line_start
+							? node->select_begin : line_start;
+						const std::size_t line_end = line_start + line_text.size();
+						const std::size_t overlap_end = node->select_end < line_end
+							? node->select_end : line_end;
+						//交集非空才绘制
+						if (overlap_end > overlap_begin && overlap_end <= node->text.size())
+						{
+							uint32_t begin_width = 0;
+							uint32_t end_width = 0;
+							uint32_t measure_height = 0;
+							//度量交集两端在本行内的前缀宽度
+							Font_Context::text_measure(*node_record,
+								line_text.substr(0, overlap_begin - line_start), begin_width, measure_height);
+							Font_Context::text_measure(*node_record,
+								line_text.substr(0, overlap_end - line_start), end_width, measure_height);
+							//宽度为正才绘制
+							if (end_width > begin_width)
+							{
+								Ui_Color highlight = ui.theme_get().accent;
+								highlight.a = 0.45f;
+								Ui_Rect highlight_rect{ text_x + static_cast<float>(begin_width),
+									text_lines.size() == 1 && !node->multiline ? node->rect.y + 3.0f : line_y + 1.0f,
+									static_cast<float>(end_width - begin_width),
+									text_lines.size() == 1 && !node->multiline ? node->rect.h - 6.0f : line_step - 2.0f };
+								quad_append(highlight_rect, with_opacity(highlight, node->opacity));
+							}
+						}
+					}
+					//绘制本行文本
+					text_append(node_font, line_text, text_x, line_y, 0.0f,
+						with_opacity(node->text_color, node->opacity));
+				}
+				//光标位置夹到串尾（第九百六十六轮按换行数定位所在行）
+				const std::size_t caret = node->caret <= node->text.size() ? node->caret : node->text.size();
+				std::size_t caret_line = 0;
+				for (std::size_t index = 0; index < caret; ++index)
+				{
+					//统计光标之前的换行数
+					if (node->text[index] == '\n')
+						caret_line += 1;
+				}
+				//定位光标行起点
+				std::size_t caret_line_start = 0;
+				for (std::size_t index = 0; index < caret_line && caret_line_start < node->text.size(); ++index)
+					caret_line_start = node->text.find('\n', caret_line_start) + 1;
+				//光标行纵坐标
+				const float caret_y = text_y + static_cast<float>(caret_line) * line_step;
+				//度量光标之前（本行内）的文本宽度
 				uint32_t caret_width = 0;
 				uint32_t caret_height = 0;
-				if (node_record != nullptr && node->caret > 0 && node->caret <= node->text.size())
-					Font_Context::text_measure(*node_record, node->text.substr(0, node->caret),
-						caret_width, caret_height);
+				if (node_record != nullptr && caret > caret_line_start)
+					Font_Context::text_measure(*node_record,
+						node->text.substr(caret_line_start, caret - caret_line_start), caret_width, caret_height);
 				//输入法组合文本绘制在光标处（第九百三十六轮）
 				float preedit_width = 0.0f;
 				if (!node->preedit.empty())
 				{
 					Ui_Color preedit_color = ui.theme_get().accent;
 					text_append(node_font, node->preedit, text_x + static_cast<float>(caret_width),
-						text_y, 0.0f, with_opacity(preedit_color, node->opacity));
+						caret_y, 0.0f, with_opacity(preedit_color, node->opacity));
 					uint32_t measured_width = 0;
 					uint32_t measured_height = 0;
 					//度量组合文本宽度，供光标右移
@@ -1500,9 +1704,9 @@ namespace engine
 				{
 					Ui_Rect caret_rect{};
 					caret_rect.x = text_x + static_cast<float>(caret_width) + preedit_width;
-					caret_rect.y = node->rect.y + 4.0f;
+					caret_rect.y = (!node->multiline && text_lines.size() == 1) ? node->rect.y + 4.0f : caret_y + 1.0f;
 					caret_rect.w = 2.0f;
-					caret_rect.h = node->rect.h - 8.0f;
+					caret_rect.h = (!node->multiline && text_lines.size() == 1) ? node->rect.h - 8.0f : line_step - 2.0f;
 					Ui_Color caret_color{ 1.0f, 1.0f, 1.0f, 1.0f };
 					quad_append(caret_rect, with_opacity(caret_color, node->opacity));
 					focus_ring(node->rect);
@@ -1719,6 +1923,53 @@ namespace engine
 						with_opacity(node->text_color, node->opacity));
 				break;
 			}
+			//下拉选择框：背景 + 当前项 + 箭头 + 展开列表（第九百六十五轮）
+			case Ui_Node_Type::Combo:
+			{
+				const Ui_Color box_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(box_color, node->opacity));
+				//当前项文本
+				if (node->combo_index < node->combo_items.size())
+					text_append(node_font, node->combo_items[node->combo_index],
+						node->rect.x + 6.0f, node->rect.y + (node->rect.h - node_text_height) * 0.5f,
+						node->rect.w - 20.0f, with_opacity(node->text_color, node->opacity));
+				//右侧箭头（小方块）
+				quad_append(Ui_Rect{ node->rect.x + node->rect.w - 14.0f,
+					node->rect.y + node->rect.h * 0.5f - 2.0f, 8.0f, 4.0f },
+					with_opacity(node->text_color, node->opacity));
+				//展开列表
+				if (node->combo_open)
+				{
+					for (std::size_t index = 0; index < node->combo_items.size(); ++index)
+					{
+						const Ui_Rect row_rect{ node->rect.x,
+							node->rect.y + node->rect.h * static_cast<float>(index + 1),
+							node->rect.w, node->rect.h };
+						quad_append(row_rect,
+							with_opacity(Ui_Color{ 0.12f, 0.12f, 0.16f, 0.98f }, node->opacity));
+						//选中行高亮
+						if (index == node->combo_index)
+						{
+							Ui_Color highlight = ui.theme_get().accent;
+							highlight.a = 0.35f;
+							quad_append(row_rect, with_opacity(highlight, node->opacity));
+						}
+						text_append(node_font, node->combo_items[index],
+							row_rect.x + 6.0f, row_rect.y + (row_rect.h - node_text_height) * 0.5f,
+							row_rect.w - 12.0f, with_opacity(node->text_color, node->opacity));
+					}
+				}
+				//焦点环
+				if (node->focused)
+					focus_ring(node->rect);
+				if (node->system_focused)
+					system_focus_ring(node->rect);
+				break;
+			}
 			default:
 				break;
 			}
@@ -1789,8 +2040,8 @@ namespace engine
 		Push_Constant push{};
 		const float width = static_cast<float>(extent.width);
 		const float height = static_cast<float>(extent.height);
-		push.transform[0] = 2.0f / width;
-		push.transform[5] = 2.0f / height;
+		push.transform[0] = 2.0f * ui_scale / width;
+		push.transform[5] = 2.0f * ui_scale / height;
 		push.transform[10] = 1.0f;
 		push.transform[12] = -1.0f;
 		push.transform[13] = -1.0f;
@@ -1801,12 +2052,12 @@ namespace engine
 		//逐条绘制
 		for (const Draw_Record& record : draws)
 		{
-			//按控件裁剪矩形设置 scissor（向外取整，保证文字边缘不被误裁）
+			//按控件裁剪矩形设置 scissor（逻辑像素换算到物理像素，向外取整）
 			VkRect2D scissor{};
-			scissor.offset = { static_cast<int32_t>(std::floor(record.clip.x)),
-				static_cast<int32_t>(std::floor(record.clip.y)) };
-			scissor.extent = { static_cast<uint32_t>(std::ceil(record.clip.w)),
-				static_cast<uint32_t>(std::ceil(record.clip.h)) };
+			scissor.offset = { static_cast<int32_t>(std::floor(record.clip.x * ui_scale)),
+				static_cast<int32_t>(std::floor(record.clip.y * ui_scale)) };
+			scissor.extent = { static_cast<uint32_t>(std::ceil(record.clip.w * ui_scale)),
+				static_cast<uint32_t>(std::ceil(record.clip.h * ui_scale)) };
 			//零面积裁剪跳过该绘制
 			if (scissor.extent.width == 0 || scissor.extent.height == 0)
 				continue;

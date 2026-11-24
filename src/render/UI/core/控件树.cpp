@@ -276,6 +276,25 @@ namespace engine
 		return node->text;
 	}
 
+	//设置多行文本框开关
+	bool Ui_Context::multiline_set(Ui_Handle handle, bool multiline)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->multiline = multiline;
+		return true;
+	}
+
+	//读取多行文本框开关
+	bool Ui_Context::multiline_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->multiline;
+	}
+
 	//设置光标位置
 	bool Ui_Context::caret_set(Ui_Handle handle, std::size_t caret)
 	{
@@ -717,9 +736,67 @@ namespace engine
 		return handle;
 	}
 
+	//创建下拉选择框
+	Ui_Handle Ui_Context::combo_create(Ui_Handle parent, const Ui_Rect& rect,
+		const std::vector<std::string>& items, std::size_t index)
+	{
+		//空选项不创建
+		if (items.empty())
+			return 0;
+		//创建节点并写入选项
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Combo);
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->combo_items = items;
+			node->combo_index = index < items.size() ? index : items.size() - 1;
+			node->color = Ui_Color{ 0.16f, 0.16f, 0.20f, 1.0f };
+			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
+	//设置下拉当前项
+	bool Ui_Context::combo_index_set(Ui_Handle handle, std::size_t index)
+	{
+		Ui_Node* node = node_find(handle);
+		//无选项不改
+		if (node == nullptr || node->combo_items.empty())
+			return false;
+		node->combo_index = index < node->combo_items.size() ? index : node->combo_items.size() - 1;
+		return true;
+	}
+
+	//读取下拉当前项
+	std::size_t Ui_Context::combo_index_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->combo_index;
+	}
+
+	//设置下拉展开状态
+	bool Ui_Context::combo_open_set(Ui_Handle handle, bool open)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->combo_open = open;
+		return true;
+	}
+
+	//读取下拉展开状态
+	bool Ui_Context::combo_open_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->combo_open;
+	}
+
 	//创建滑动条
-	Ui_Handle Ui_Context::slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,
-		void (*on_value)(Ui_Handle, float, void*), void* user)
+	Ui_Handle Ui_Context::slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,		void (*on_value)(Ui_Handle, float, void*), void* user)
 	{
 		//创建滑动条节点
 		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::Slider);
@@ -1106,6 +1183,28 @@ namespace engine
 	void Ui_Context::layout_dirty_mark(void)
 	{
 		layout_dirty = true;
+	}
+
+	//UI 缩放比例
+	float Ui_Context::ui_scale_get(void) const
+	{
+		return ui_scale;
+	}
+
+	//设置 DPI 自动缩放开关
+	bool Ui_Context::ui_scale_auto_set(bool enable)
+	{
+		ui_scale_auto = enable;
+		//关闭时立即回到 1，避免残留上一次比例
+		if (!ui_scale_auto)
+			ui_scale = 1.0f;
+		return true;
+	}
+
+	//读取 DPI 自动缩放开关
+	bool Ui_Context::ui_scale_auto_get(void) const
+	{
+		return ui_scale_auto;
 	}
 
 	//按树序输出子树布局快照
