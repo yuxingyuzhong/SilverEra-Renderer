@@ -1266,7 +1266,8 @@ namespace engine
 	}
 
 	//添加行内着色区间
-	bool Ui_Context::text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color)
+	bool Ui_Context::text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color,
+		uint64_t font)
 	{
 		Ui_Node* node = node_find(handle);
 		if (node == nullptr)
@@ -1282,7 +1283,7 @@ namespace engine
 		//空区间不登记
 		if (from >= to)
 			return false;
-		node->text_spans.push_back(Ui_Text_Span{ from, to, color });
+		node->text_spans.push_back(Ui_Text_Span{ from, to, color, font });
 		return true;
 	}
 

@@ -241,6 +241,8 @@ namespace engine
 		std::size_t end = 0;
 		//区间颜色
 		Ui_Color color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		//区间字体（0 = 使用控件字体；第九百四十二轮）
+		uint64_t font = 0;
 	};
 
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
@@ -648,8 +650,10 @@ namespace engine
 		行内着色区间（第九百四十一轮）
 		begin / end 为节点文本字节区间，自动对齐到字符边界并夹到文本范围内；
 		后添加的区间覆盖先添加者；begin >= end 或未知句柄返回假。
+		font 为 0 时使用控件字体，非 0 时该区间用指定字体绘制且行高取该行最大字体。
 		*/
-		bool text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color);
+		bool text_span_add(Ui_Handle handle, std::size_t begin, std::size_t end, const Ui_Color& color,
+			uint64_t font = 0);
 		//清空全部行内区间（未知句柄返回假）
 		bool text_span_clear(Ui_Handle handle);
 		//取行内区间数量（未知句柄返回 0）

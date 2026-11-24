@@ -271,6 +271,7 @@ namespace engine
 				hash_bytes(hash, &span.begin, sizeof(span.begin));
 				hash_bytes(hash, &span.end, sizeof(span.end));
 				hash_bytes(hash, &span.color, sizeof(span.color));
+				hash_bytes(hash, &span.font, sizeof(span.font));
 			}
 			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
 			hash_bytes(hash, &node->text_halign, sizeof(node->text_halign));
@@ -1009,9 +1010,51 @@ namespace engine
 		}
 
 		//行高（0 取字体高度）
-		const float height = line_height > 0.0f ? line_height : static_cast<float>(record->pixel_height);
+		const float base_height = line_height > 0.0f ? line_height : static_cast<float>(record->pixel_height);
+		//各行在原文中的字节偏移（换算行内区间用）
+		std::vector<std::size_t> line_bases(entry->lines.size(), 0);
+		std::size_t line_search = 0;
+		for (std::size_t index = 0; index < entry->lines.size(); ++index)
+		{
+			const std::string& line = entry->lines[index];
+			line_bases[index] = line_search;
+			if (line.empty())
+				continue;
+			//按顺序在原串中定位本行
+			const std::size_t found = text.find(line, line_search);
+			if (found != std::string::npos)
+			{
+				line_bases[index] = found;
+				line_search = found + line.size();
+			}
+			else
+				line_search += line.size();
+		}
+		//逐行行高：显式行高优先，否则取该行涉及字体的最大像素高度
+		std::vector<float> line_heights(entry->lines.size(), base_height);
+		if (line_height <= 0.0f && !spans.empty())
+		{
+			for (std::size_t index = 0; index < entry->lines.size(); ++index)
+			{
+				const std::size_t line_begin = line_bases[index];
+				const std::size_t line_end = line_begin + entry->lines[index].size();
+				for (const Ui_Text_Span& span : spans)
+				{
+					//不相交或未指定字体跳过
+					if (span.font == 0 || span.end <= line_begin || span.begin >= line_end)
+						continue;
+					//取区间字体像素高度
+					const Font_Record* span_record = font->font_get(span.font);
+					if (span_record != nullptr
+						&& static_cast<float>(span_record->pixel_height) > line_heights[index])
+						line_heights[index] = static_cast<float>(span_record->pixel_height);
+				}
+			}
+		}
 		//整体高度与起始纵坐标
-		const float total_height = height * static_cast<float>(entry->lines.size());
+		float total_height = 0.0f;
+		for (float line_height_px : line_heights)
+			total_height += line_height_px;
 		float y = area.y;
 		if (valign == Ui_Align::Center)
 			y += (area.h - total_height) * 0.5f;
@@ -1021,20 +1064,13 @@ namespace engine
 		bool appended = false;
 		//是否首行（仅首行应用缩进）
 		bool first_line = true;
-		//当前行在原文中的搜索起点（换算行内区间用）
-		std::size_t line_search = 0;
-		for (const std::string& line : entry->lines)
+		for (std::size_t line_index = 0; line_index < entry->lines.size(); ++line_index)
 		{
+			const std::string& line = entry->lines[line_index];
 			if (!line.empty())
 			{
-				//定位当前行在原文中的字节偏移
-				std::size_t line_base = line_search;
-				const std::size_t found = text.find(line, line_search);
-				if (found != std::string::npos)
-				{
-					line_base = found;
-					line_search = found + line.size();
-				}
+				//当前行在原文中的字节偏移
+				const std::size_t line_base = line_bases[line_index];
 				//水平对齐偏移（Stretch 按 Start）
 				float line_x = area.x;
 				if (halign == Ui_Align::Center || halign == Ui_Align::End)
@@ -1085,21 +1121,29 @@ namespace engine
 							continue;
 						//区间按加入顺序覆盖（后者优先）
 						Ui_Color segment_color = color;
+						uint64_t segment_font = font_handle;
 						for (const Ui_Text_Span& span : spans)
 						{
 							if (span.begin <= line_base + seg_begin && span.end >= line_base + seg_end)
+							{
 								segment_color = with_opacity(span.color, opacity);
+								//区间字体非 0 时接管本段
+								if (span.font != 0)
+									segment_font = span.font;
+							}
 						}
 						const std::string segment = line.substr(seg_begin, seg_end - seg_begin);
-						appended = text_append_spaced(font_handle, segment, line_x, y, letter_spacing,
+						appended = text_append_spaced(segment_font, segment, line_x, y, letter_spacing,
 							segment_color) || appended;
-						//按字间距推进笔位
-						line_x += text_width_spaced(*record, segment, letter_spacing);
+						//按该段字体的字间距推进笔位
+						Font_Record* segment_record = font->font_get_mutable(segment_font);
+						if (segment_record != nullptr)
+							line_x += text_width_spaced(*segment_record, segment, letter_spacing);
 					}
 				}
 			}
 			first_line = false;
-			y += height;
+			y += line_heights[line_index];
 		}
 		return appended;
 	}
