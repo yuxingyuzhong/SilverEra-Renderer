@@ -1246,6 +1246,25 @@ namespace engine
 		return node->text_indent;
 	}
 
+	//设置文本阴影
+	bool Ui_Context::text_shadow_set(Ui_Handle handle, const Ui_Text_Shadow& shadow)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_shadow = shadow;
+		return true;
+	}
+
+	//读取文本阴影
+	Ui_Text_Shadow Ui_Context::text_shadow_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return Ui_Text_Shadow{};
+		return node->text_shadow;
+	}
+
 	//设置控件专用字体
 	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
 	{

@@ -249,6 +249,9 @@ namespace engine
 			hash_bytes(hash, &node->line_height, sizeof(node->line_height));
 			hash_bytes(hash, &node->letter_spacing, sizeof(node->letter_spacing));
 			hash_bytes(hash, &node->text_indent, sizeof(node->text_indent));
+			hash_bytes(hash, &node->text_shadow.offset_x, sizeof(node->text_shadow.offset_x));
+			hash_bytes(hash, &node->text_shadow.offset_y, sizeof(node->text_shadow.offset_y));
+			hash_bytes(hash, &node->text_shadow.color, sizeof(node->text_shadow.color));
 			hash_bytes(hash, &node->text_valign, sizeof(node->text_valign));
 			hash_bytes(hash, &node->text_halign, sizeof(node->text_halign));
 			hash_bytes(hash, &node->text_ellipsis, sizeof(node->text_ellipsis));
@@ -1136,11 +1139,25 @@ namespace engine
 			}
 			//纯文本标签：多行、自动换行与垂直对齐（单行默认居中，保持既有观感）
 			case Ui_Node_Type::Label:
+			{
+				//文本阴影：先画偏移副本（第九百四十轮）
+				if (node->text_shadow.color.a > 0.0f)
+				{
+					Ui_Rect shadow_rect = node->rect;
+					shadow_rect.x += node->text_shadow.offset_x;
+					shadow_rect.y += node->text_shadow.offset_y;
+					text_append_block(node_font, node->text, shadow_rect, node->line_height,
+						node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
+						node->text_valign, node->text_halign,
+						with_opacity(node->text_shadow.color, node->opacity));
+				}
+				//正文
 				text_append_block(node_font, node->text, node->rect, node->line_height,
 					node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
 					node->text_valign, node->text_halign,
 					with_opacity(node->text_color, node->opacity));
 				break;
+			}
 			//图片：纹理铺满矩形（不参与交互）
 			case Ui_Node_Type::Image:
 				//九宫格切分全 0 时退化为整图拉伸

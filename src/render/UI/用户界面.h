@@ -215,6 +215,20 @@ namespace engine
 	//按角色与视觉状态取主题色（Custom 返回白色；未知组合回退到常态色）
 	Ui_Color ui_theme_color(const Ui_Theme& theme, Ui_Role role, Ui_Visual_State state);
 
+	/*
+	文本阴影（第九百四十轮）
+	alpha 为 0 表示关闭；开启时先按偏移绘制一份阴影副本，再绘制正文。
+	*/
+	struct Ui_Text_Shadow
+	{
+		//水平偏移（像素）
+		float offset_x = 0.0f;
+		//垂直偏移（像素）
+		float offset_y = 0.0f;
+		//阴影颜色（alpha 为 0 表示不绘制）
+		Ui_Color color{ 0.0f, 0.0f, 0.0f, 0.0f };
+	};
+
 	//UI 控件节点（公开只读视图；可变状态由 Ui_Context 维护）
 	struct Ui_Node
 	{
@@ -280,6 +294,8 @@ namespace engine
 		float letter_spacing = 0.0f;
 		//首行缩进（像素；仅首行起始右移、首行可用宽度扣减；第九百三十九轮）
 		float text_indent = 0.0f;
+		//文本阴影（alpha 为 0 关闭；第九百四十轮）
+		Ui_Text_Shadow text_shadow{};
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
 		//多行文本水平对齐（第九百二十一轮；Stretch 按 Start 处理）
@@ -605,6 +621,13 @@ namespace engine
 		*/
 		bool text_indent_set(Ui_Handle handle, float indent);
 		float text_indent_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取文本阴影（第九百四十轮）
+		color.a <= 0 表示关闭；开启时先按偏移绘制阴影副本再绘制正文。
+		未知句柄设置返回假，读取返回默认值（偏移 0、alpha 0）。
+		*/
+		bool text_shadow_set(Ui_Handle handle, const Ui_Text_Shadow& shadow);
+		Ui_Text_Shadow text_shadow_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取控件专用字体（第八百九十六轮）
 		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。
