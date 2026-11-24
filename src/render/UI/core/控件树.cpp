@@ -505,6 +505,26 @@ namespace engine
 		return true;
 	}
 
+	//设置输入法组合文本
+	bool Ui_Context::text_box_preedit_set(Ui_Handle handle, const std::string& preedit)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->preedit = preedit;
+		return true;
+	}
+
+	//读取输入法组合文本
+	std::string Ui_Context::text_box_preedit_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		//未知句柄返回空串
+		if (node == nullptr)
+			return std::string();
+		return node->preedit;
+	}
+
 	//创建纯文本标签
 	Ui_Handle Ui_Context::label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 		const Ui_Color& text_color)

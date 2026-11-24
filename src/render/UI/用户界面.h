@@ -289,6 +289,8 @@ namespace engine
 		//选中区间起点 / 终点（字节偏移，begin <= end；第九百三十三轮）
 		std::size_t select_begin = 0;
 		std::size_t select_end = 0;
+		//输入法组合文本（UTF-8；空 = 非组合态；第九百三十六轮）
+		std::string preedit{};
 		//是否可见
 		bool visible = true;
 		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
@@ -413,6 +415,13 @@ namespace engine
 			void (*set_text)(const std::string& text, void* user), void* user);
 		bool text_box_copy(Ui_Handle handle);
 		bool text_box_paste(Ui_Handle handle);
+		/*
+		输入法组合文本（第九百三十六轮）
+		preedit 为组合期间未上屏的文本（UTF-8），绘制在光标处且不计入正文与选区；
+		设置非空即进入组合态，置空即退出。提交由调用方把 preedit 并入正文后清空。
+		*/
+		bool text_box_preedit_set(Ui_Handle handle, const std::string& preedit);
+		std::string text_box_preedit_get(Ui_Handle handle) const;
 		//创建纯文本标签（不参与交互）
 		Ui_Handle label_create(Ui_Handle parent, const Ui_Rect& rect, const std::string& text,
 			const Ui_Color& text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });

@@ -200,6 +200,7 @@ namespace engine
 			hash_bytes(hash, &node->select_end, sizeof(node->select_end));
 			hash_string(hash, node->label);
 			hash_string(hash, node->text);
+			hash_string(hash, node->preedit);
 		}
 		return hash;
 	}
@@ -1105,17 +1106,34 @@ namespace engine
 				}
 				text_append(node_font, node->text, text_x, text_y, 0.0f,
 					with_opacity(node->text_color, node->opacity));
+				//度量光标之前的文本宽度（空串按 0；组合文本与光标共用）
+				uint32_t caret_width = 0;
+				uint32_t caret_height = 0;
+				if (node_record != nullptr && node->caret > 0 && node->caret <= node->text.size())
+					Font_Context::text_measure(*node_record, node->text.substr(0, node->caret),
+						caret_width, caret_height);
+				//输入法组合文本绘制在光标处（第九百三十六轮）
+				float preedit_width = 0.0f;
+				if (!node->preedit.empty())
+				{
+					Ui_Color preedit_color = ui.theme_get().accent;
+					text_append(node_font, node->preedit, text_x + static_cast<float>(caret_width),
+						text_y, 0.0f, with_opacity(preedit_color, node->opacity));
+					uint32_t measured_width = 0;
+					uint32_t measured_height = 0;
+					//度量组合文本宽度，供光标右移
+					if (node_record != nullptr)
+					{
+						Font_Context::text_measure(*node_record, node->preedit,
+							measured_width, measured_height);
+						preedit_width = static_cast<float>(measured_width);
+					}
+				}
 				//焦点态绘制光标
 				if (node->focused)
 				{
-					uint32_t caret_width = 0;
-					uint32_t caret_height = 0;
-					//度量光标之前的文本宽度（空串按 0）
-					if (node_record != nullptr && node->caret > 0 && node->caret <= node->text.size())
-						Font_Context::text_measure(*node_record, node->text.substr(0, node->caret),
-							caret_width, caret_height);
 					Ui_Rect caret_rect{};
-					caret_rect.x = text_x + static_cast<float>(caret_width);
+					caret_rect.x = text_x + static_cast<float>(caret_width) + preedit_width;
 					caret_rect.y = node->rect.y + 4.0f;
 					caret_rect.w = 2.0f;
 					caret_rect.h = node->rect.h - 8.0f;
