@@ -278,6 +278,8 @@ namespace engine
 		float line_height = 0.0f;
 		//字间距（像素；逐码点推进后追加；第九百三十八轮）
 		float letter_spacing = 0.0f;
+		//首行缩进（像素；仅首行起始右移、首行可用宽度扣减；第九百三十九轮）
+		float text_indent = 0.0f;
 		//多行文本垂直对齐（单行默认居中，保持既有观感）
 		Ui_Align text_valign = Ui_Align::Center;
 		//多行文本水平对齐（第九百二十一轮；Stretch 按 Start 处理）
@@ -595,6 +597,14 @@ namespace engine
 		*/
 		bool letter_spacing_set(Ui_Handle handle, float spacing);
 		float letter_spacing_get(Ui_Handle handle) const;
+		/*
+		设置 / 读取首行缩进（第九百三十九轮）
+		仅文本块首行起始右移该像素值，且首行可用宽度相应扣减（换行与省略按扣减后宽度判定）；
+		对水平对齐同样生效（对齐后整体再右移）。负值允许外突。
+		未知句柄设置返回假，读取返回 0。
+		*/
+		bool text_indent_set(Ui_Handle handle, float indent);
+		float text_indent_get(Ui_Handle handle) const;
 		/*
 		设置 / 读取控件专用字体（第八百九十六轮）
 		0 表示回退到 UI 全局字体；未知句柄设置返回假，读取返回 0。

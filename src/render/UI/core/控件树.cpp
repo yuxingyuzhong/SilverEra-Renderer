@@ -1227,6 +1227,25 @@ namespace engine
 		return node->letter_spacing;
 	}
 
+	//设置首行缩进
+	bool Ui_Context::text_indent_set(Ui_Handle handle, float indent)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->text_indent = indent;
+		return true;
+	}
+
+	//读取首行缩进
+	float Ui_Context::text_indent_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->text_indent;
+	}
+
 	//设置控件专用字体
 	bool Ui_Context::text_font_set(Ui_Handle handle, uint64_t font)
 	{

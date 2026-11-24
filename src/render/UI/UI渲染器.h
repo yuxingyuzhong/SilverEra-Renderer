@@ -158,6 +158,8 @@ namespace engine
 			float line_height = 0.0f;
 			//字间距（键；第九百三十八轮）
 			float letter_spacing = 0.0f;
+			//首行缩进（键；第九百三十九轮）
+			float text_indent = 0.0f;
 			//是否自动换行（键）
 			bool wrap = false;
 			//是否尾部省略（键）
@@ -206,11 +208,12 @@ namespace engine
 		/*
 		追加多行文本块（第八百九十四轮）
 		按 \n 分行，wrap 时再按区域宽度逐字符换行；line_height <= 0 取字体高度；
-		valign 控制多行整体垂直对齐（Start / Center / End）；letter_spacing 计入行宽。
+		valign 控制多行整体垂直对齐（Start / Center / End）；letter_spacing 计入行宽，
+		text_indent 仅首行右移并扣减首行可用宽度。
 		*/
 		bool text_append_block(uint64_t font_handle, const std::string& text, const Ui_Rect& area,
-			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign, Ui_Align halign,
-			const Ui_Color& color);
+			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
+			Ui_Align valign, Ui_Align halign, const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
 		//计算控件树绘制相关字段的指纹（稳定帧缓存判定，第九百轮）
@@ -223,10 +226,10 @@ namespace engine
 			float center_area_width, Mesh_Data&& mesh, uint32_t width);
 		//查找文本块布局缓存条目（未命中返回空；第九百零三轮）
 		Block_Cache_Entry* block_cache_find(uint64_t font_handle, const std::string& text, float area_width,
-			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign);
+			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis, Ui_Align valign);
 		//写入文本块布局缓存条目并返回其指针（超出容量时淘汰最久未使用者）
 		Block_Cache_Entry* block_cache_insert(uint64_t font_handle, const std::string& text, float area_width,
-			float line_height, float letter_spacing, bool wrap, bool ellipsis, Ui_Align valign,
+			float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis, Ui_Align valign,
 			std::vector<std::string>&& lines);
 
 	private:
