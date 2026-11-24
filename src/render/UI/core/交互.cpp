@@ -124,9 +124,83 @@ namespace engine
 		focus_set(focusables[target]);
 	}
 
-	//滑动条按指针坐标更新取值
-	bool Ui_Context::slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y)
+	//方向键焦点导航
+	void Ui_Context::focus_navigate_dir(int dx, int dy)
 	{
+		//可聚焦控件集合（按创建顺序）
+		std::vector<Ui_Handle> focusables{};
+		for (const Ui_Node& node : nodes)
+		{
+			//跳过不可聚焦 / 不可见 / 不可用
+			if (!node.alive || !node.visible || !node.enabled || !node_focusable(node))
+				continue;
+			focusables.push_back(node.handle);
+		}
+		//无可聚焦控件则清除焦点
+		if (focusables.empty())
+		{
+			focus_set(0);
+			return;
+		}
+		//无焦点时取首个
+		const Ui_Node* current = focused != 0 ? node_find(focused) : nullptr;
+		if (current == nullptr)
+		{
+			slider_drag = 0;
+			focus_set(focusables.front());
+			return;
+		}
+		//当前节点中心
+		const float center_x = current->rect.x + current->rect.w * 0.5f;
+		const float center_y = current->rect.y + current->rect.h * 0.5f;
+		//最近邻评分（主轴距离 + 交叉轴距离一半）
+		Ui_Handle best = 0;
+		float best_score = 0.0f;
+		for (Ui_Handle handle : focusables)
+		{
+			//跳过自身
+			if (handle == focused)
+				continue;
+			const Ui_Node* node = node_find(handle);
+			if (node == nullptr)
+				continue;
+			const float node_x = node->rect.x + node->rect.w * 0.5f;
+			const float node_y = node->rect.y + node->rect.h * 0.5f;
+			const float delta_x = node_x - center_x;
+			const float delta_y = node_y - center_y;
+			//方向过滤
+			if (dx > 0 && delta_x <= 0.0f)
+				continue;
+			if (dx < 0 && delta_x >= 0.0f)
+				continue;
+			if (dy > 0 && delta_y <= 0.0f)
+				continue;
+			if (dy < 0 && delta_y >= 0.0f)
+				continue;
+			//主轴距离优先，交叉轴距离折半
+			const float main_distance = dx != 0
+				? (delta_x < 0.0f ? -delta_x : delta_x)
+				: (delta_y < 0.0f ? -delta_y : delta_y);
+			const float cross_distance = dx != 0
+				? (delta_y < 0.0f ? -delta_y : delta_y)
+				: (delta_x < 0.0f ? -delta_x : delta_x);
+			const float score = main_distance + cross_distance * 0.5f;
+			if (best == 0 || score < best_score)
+			{
+				best = handle;
+				best_score = score;
+			}
+		}
+		//无同方向候选则保持焦点
+		if (best != 0)
+		{
+			slider_drag = 0;
+			focus_set(best);
+		}
+	}
+
+	//滑动条按指针坐标更新取值
+	bool Ui_Context::slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y)	{
 		//纵向判定：滚动条看绑定声明，普通滑动条看节点方向
 		const bool scroll_linked = node.scroll_target != 0;
 		const bool vertical = scroll_linked ? node.scroll_vertical : node.vertical;
@@ -340,6 +414,29 @@ namespace engine
 		if (keyboard_gate && input.key_pressed_check(SDL_SCANCODE_TAB))
 			focus_navigate(!input.modifiers.shift);
 
+		//方向键焦点导航（文本框编辑时不拦截；第九百六十轮）
+		if (keyboard_gate)
+		{
+			const Ui_Node* focus_node = focused != 0 ? node_find(focused) : nullptr;
+			const bool text_editing = focus_node != nullptr && focus_node->type == Ui_Node_Type::Text_Box;
+			if (!text_editing)
+			{
+				int move_x = 0;
+				int move_y = 0;
+				if (input.key_pressed_check(SDL_SCANCODE_LEFT))
+					move_x = -1;
+				else if (input.key_pressed_check(SDL_SCANCODE_RIGHT))
+					move_x = 1;
+				else if (input.key_pressed_check(SDL_SCANCODE_UP))
+					move_y = -1;
+				else if (input.key_pressed_check(SDL_SCANCODE_DOWN))
+					move_y = 1;
+				//有方向则导航
+				if (move_x != 0 || move_y != 0)
+					focus_navigate_dir(move_x, move_y);
+			}
+		}
+
 		//刷新悬停目标（窗口失焦时不命中）
 		const Ui_Handle previous_hovered = hovered;
 		hovered = input.window_focused ? hit_test(input.pointer.x, input.pointer.y) : 0;
@@ -352,7 +449,11 @@ namespace engine
 			bus_get().publish(ui_event::hover, config);
 		}
 		for (Ui_Node& node : nodes)
+		{
 			node.hovered = node.alive && node.handle == hovered && node_focusable(node);
+			//悬停计时：移出归零（第九百六十三轮）
+			node.hover_time = node.hovered ? node.hover_time + static_cast<float>(input.dt) : 0.0f;
+		}
 
 		//滚轮：滚动指针下最近的滚动容器（第八百九十一轮）
 		bool wheel_scrolled = false;

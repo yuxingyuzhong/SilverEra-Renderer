@@ -251,6 +251,7 @@ namespace engine
 			hash_bytes(hash, &node->border_width, sizeof(node->border_width));
 			hash_bytes(hash, &node->role, sizeof(node->role));
 			hash_bytes(hash, &node->texture, sizeof(node->texture));
+			hash_bytes(hash, &node->icon_texture, sizeof(node->icon_texture));
 			hash_bytes(hash, &node->slice_left, sizeof(node->slice_left));
 			hash_bytes(hash, &node->slice_top, sizeof(node->slice_top));
 			hash_bytes(hash, &node->slice_right, sizeof(node->slice_right));
@@ -291,6 +292,12 @@ namespace engine
 			hash_bytes(hash, &node->stretch, sizeof(node->stretch));
 			hash_bytes(hash, &node->flow_wrap, sizeof(node->flow_wrap));
 			hash_bytes(hash, &node->flow_justify, sizeof(node->flow_justify));
+			hash_bytes(hash, &node->selected, sizeof(node->selected));
+			hash_bytes(hash, &node->select_multi, sizeof(node->select_multi));
+			hash_string(hash, node->tooltip);
+			//提示可见性（到达延时后变化一次，避免逐帧重建）
+			const bool tooltip_ready = node->hovered && node->hover_time >= 0.5f;
+			hash_bytes(hash, &tooltip_ready, sizeof(tooltip_ready));
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
@@ -1174,6 +1181,42 @@ namespace engine
 		return appended;
 	}
 
+	//绘制工具提示（悬停累计 >= 0.5 秒）
+	void Ui_Renderer::tooltip_append(const Ui_Node& node, uint64_t font_handle, VkExtent2D extent)
+	{
+		//未达延时、无文本或字体缺失
+		if (!node.hovered || node.hover_time < 0.5f || node.tooltip.empty() || font == nullptr)
+			return;
+		Font_Record* record = font->font_get_mutable(font_handle);
+		if (record == nullptr)
+			return;
+		//惰性补烘提示文本字形
+		font->glyphs_ensure(*record, node.tooltip);
+		uint32_t text_width = 0;
+		uint32_t text_height = 0;
+		Font_Context::text_measure(*record, node.tooltip, text_width, text_height);
+		//提示框尺寸（内边距 4）
+		const float box_width = static_cast<float>(text_width) + 8.0f;
+		const float box_height = static_cast<float>(text_height > 0 ? text_height : record->pixel_height) + 8.0f;
+		//默认在控件下方，越界上翻
+		float box_x = node.rect.x;
+		float box_y = node.rect.y + node.rect.h + 4.0f;
+		if (box_y + box_height > static_cast<float>(extent.height))
+			box_y = node.rect.y - box_height - 4.0f;
+		if (box_x + box_width > static_cast<float>(extent.width))
+			box_x = static_cast<float>(extent.width) - box_width;
+		if (box_x < 0.0f)
+			box_x = 0.0f;
+		if (box_y < 0.0f)
+			box_y = 0.0f;
+		//提示背景
+		quad_append(Ui_Rect{ box_x, box_y, box_width, box_height },
+			Ui_Color{ 0.10f, 0.10f, 0.14f, 0.95f });
+		//提示文本
+		text_append(font_handle, node.tooltip, box_x + 4.0f, box_y + 4.0f, 0.0f,
+			Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f });
+	}
+
 	//把控件树绘制到给定命令缓冲
 	void Ui_Renderer::draw(const Ui_Context& ui, VkCommandBuffer command_buffer, VkExtent2D extent, uint32_t slot)
 	{
@@ -1300,6 +1343,13 @@ namespace engine
 					content_rect.h = content_rect.h - inset * 2.0f > 0.0f
 						? content_rect.h - inset * 2.0f : 0.0f;
 				}
+				//选中高亮（第九百六十二轮）
+				if (node->selected)
+				{
+					Ui_Color highlight = ui.theme_get().accent;
+					highlight.a = 0.25f;
+					quad_append(content_rect, with_opacity(highlight, node->opacity));
+				}
 				//文本阴影：先画偏移副本（第九百四十轮）
 				if (node->text_shadow.color.a > 0.0f)
 				{
@@ -1316,6 +1366,8 @@ namespace engine
 					node->letter_spacing, node->text_indent, node->text_wrap, node->text_ellipsis,
 					node->text_valign, node->text_halign, node->text_spans, node->opacity,
 					with_opacity(node->text_color, node->opacity));
+				//工具提示（第九百六十三轮）
+				tooltip_append(*node, node_font, extent);
 				break;
 			}
 			//图片：纹理铺满矩形（不参与交互）
@@ -1355,11 +1407,27 @@ namespace engine
 				background_append(node->rect, node->corner_radius, node->border_width,
 					with_opacity(node->border_color, node->opacity),
 					with_opacity(color, node->opacity));
+				//图标（第九百五十八轮）
+				float label_x = node->rect.x;
+				float label_width = node->rect.w;
+				if (node->icon_texture != 0)
+				{
+					const float icon_size = node->rect.h - 8.0f > 0.0f ? node->rect.h - 8.0f : 0.0f;
+					const Ui_Rect icon_rect{ node->rect.x + 4.0f, node->rect.y + 4.0f, icon_size, icon_size };
+					quad_textured_append(node->icon_texture, icon_rect,
+						with_opacity(Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f }, node->opacity));
+					label_x = icon_rect.x + icon_rect.w + 4.0f;
+					label_width = node->rect.x + node->rect.w - label_x;
+					if (label_width < 0.0f)
+						label_width = 0.0f;
+				}
 				//标签垂直居中
 				if (!node->label.empty())
-					text_append(node_font, node->label, node->rect.x,
-						node->rect.y + (node->rect.h - node_text_height) * 0.5f, node->rect.w,
+					text_append(node_font, node->label, label_x,
+						node->rect.y + (node->rect.h - node_text_height) * 0.5f, label_width,
 						with_opacity(node->text_color, node->opacity));
+				//工具提示（第九百六十三轮）
+				tooltip_append(*node, node_font, extent);
 				//焦点环
 				if (node->focused)
 					focus_ring(node->rect);

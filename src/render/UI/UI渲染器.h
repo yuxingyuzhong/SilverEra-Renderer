@@ -219,6 +219,8 @@ namespace engine
 			const Ui_Color& color);
 		//结束一笔文本绘制（记录当前字形图集句柄）
 		void text_atlas_mark(uint64_t font_handle);
+		//绘制工具提示（悬停累计 >= 0.5 秒；第九百六十三轮）
+		void tooltip_append(const Ui_Node& node, uint64_t font_handle, VkExtent2D extent);
 		//计算控件树绘制相关字段的指纹（稳定帧缓存判定，第九百轮）
 		uint64_t fingerprint_build(const Ui_Context& ui) const;
 		//查找文本几何缓存条目（未命中返回空；第九百零二轮）

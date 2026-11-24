@@ -333,6 +333,8 @@ namespace engine
 		std::string label{};
 		//图片纹理句柄（0 = 不绘制；第八百九十三轮）
 		uint64_t texture = 0;
+		//按钮图标纹理句柄（0 = 无图标；第九百五十八轮）
+		uint64_t icon_texture = 0;
 		//图片九宫格切分（归一化 0..1；全 0 = 整图拉伸；第九百零六轮）
 		float slice_left = 0.0f;
 		float slice_top = 0.0f;
@@ -367,6 +369,14 @@ namespace engine
 		std::size_t select_end = 0;
 		//输入法组合文本（UTF-8；空 = 非组合态；第九百三十六轮）
 		std::string preedit{};
+		//是否选中（列表项等可选控件；第九百六十二轮）
+		bool selected = false;
+		//是否多选模式（第九百六十二轮）
+		bool select_multi = false;
+		//工具提示文本（空 = 无提示；第九百六十三轮）
+		std::string tooltip{};
+		//悬停累计时长（秒；工具提示延时用；第九百六十三轮）
+		float hover_time = 0.0f;
 		//是否可见
 		bool visible = true;
 		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
@@ -608,6 +618,24 @@ namespace engine
 		bool margin_set(Ui_Handle handle, float margin);
 		float margin_get(Ui_Handle handle) const;
 		/*
+		选中模型（第九百六十二轮）
+		selected 为选中态；select_multi 为多选模式（仅作状态标记，互斥 / 累加由调用方按模式维护）。
+		未知句柄设置返回假、读取返回假。
+		*/
+		bool selected_set(Ui_Handle handle, bool selected);
+		bool selected_get(Ui_Handle handle) const;
+		bool select_mode_set(Ui_Handle handle, bool multi);
+		bool select_mode_get(Ui_Handle handle) const;
+		/*
+		工具提示（第九百六十三轮）
+		悬停累计满 0.5 秒后，在控件下方（越界时上方）绘制提示框与文本。
+		未知句柄设置返回假、读取返回空串。
+		*/
+		bool tooltip_set(Ui_Handle handle, const std::string& text);
+		std::string tooltip_get(Ui_Handle handle) const;
+		//工具提示是否达到显示条件（悬停且累计 >= 0.5 秒；第九百六十三轮）
+		bool tooltip_visible(Ui_Handle handle) const;
+		/*
 		设置 / 读取流式主轴弹性权重（第九百四十八轮）
 		stretch > 0 的子项按权重分配父容器主轴剩余空间；<= 0 不参与。
 		未知句柄设置返回假、读取返回 0。
@@ -687,6 +715,13 @@ namespace engine
 		bool color_set(Ui_Handle handle, const Ui_Color& color);
 		//设置按钮标签
 		bool label_set(Ui_Handle handle, const std::string& label);
+		/*
+		设置 / 读取按钮图标纹理（第九百五十八轮）
+		0 = 无图标；非 0 时按按钮高度内缩绘制在左侧，文字区右移让位。
+		未知句柄设置返回假、读取返回 0。
+		*/
+		bool button_icon_set(Ui_Handle handle, uint64_t texture);
+		uint64_t button_icon_get(Ui_Handle handle) const;
 		//设置文本框内容（光标移到末尾）
 		bool text_set(Ui_Handle handle, const std::string& text);
 		/*
@@ -923,6 +958,8 @@ namespace engine
 		static bool node_focusable(const Ui_Node& node);
 		//Tab 焦点导航（forward 为真向前，否则向后）
 		void focus_navigate(bool forward);
+		//方向键焦点导航（按几何相邻；dx / dy 取 -1 / 0 / 1；第九百六十轮）
+		void focus_navigate_dir(int dx, int dy);
 		//滑动条按指针横坐标更新取值（返回是否发生变化）
 		bool slider_value_apply(Ui_Node& node, float pointer_x, float pointer_y);
 		//单选按钮选中（同组其余项取消；返回是否发生变化）

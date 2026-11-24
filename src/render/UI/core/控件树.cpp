@@ -967,6 +967,72 @@ namespace engine
 		return node->margin;
 	}
 
+	//设置选中态
+	bool Ui_Context::selected_set(Ui_Handle handle, bool selected)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->selected = selected;
+		return true;
+	}
+
+	//读取选中态
+	bool Ui_Context::selected_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->selected;
+	}
+
+	//设置多选模式
+	bool Ui_Context::select_mode_set(Ui_Handle handle, bool multi)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->select_multi = multi;
+		return true;
+	}
+
+	//读取多选模式
+	bool Ui_Context::select_mode_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		return node->select_multi;
+	}
+
+	//设置工具提示文本
+	bool Ui_Context::tooltip_set(Ui_Handle handle, const std::string& text)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->tooltip = text;
+		return true;
+	}
+
+	//读取工具提示文本
+	std::string Ui_Context::tooltip_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return std::string{};
+		return node->tooltip;
+	}
+
+	//工具提示是否达到显示条件
+	bool Ui_Context::tooltip_visible(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr || node->tooltip.empty())
+			return false;
+		return node->hovered && node->hover_time >= 0.5f;
+	}
+
 	//设置流式弹性权重（负值按 0）
 	bool Ui_Context::stretch_set(Ui_Handle handle, float stretch)
 	{
@@ -1449,6 +1515,25 @@ namespace engine
 		if (node == nullptr)
 			return 0;
 		return node->text_spans.size();
+	}
+
+	//设置按钮图标纹理
+	bool Ui_Context::button_icon_set(Ui_Handle handle, uint64_t texture)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->icon_texture = texture;
+		return true;
+	}
+
+	//读取按钮图标纹理
+	uint64_t Ui_Context::button_icon_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0;
+		return node->icon_texture;
 	}
 
 	//设置控件专用字体
