@@ -146,6 +146,23 @@ namespace engine
 		return true;
 	}
 
+	//取图集扩容与退役统计（诊断）
+	bool Render_Ui::font_atlas_stats(uint64_t font, uint32_t& grow_out, uint32_t& retired_out) const
+	{
+		//默认零统计
+		grow_out = 0;
+		retired_out = 0;
+		//未初始化则视为无效
+		if (owner == nullptr || !owner->device().valid())
+			return false;
+		const Font_Record* record = (*state_ptr).font.font_get(font);
+		if (record == nullptr)
+			return false;
+		grow_out = record->atlas_grow_count;
+		retired_out = static_cast<uint32_t>(record->retired_atlas_textures.size());
+		return true;
+	}
+
 	//文字网格缓存命中次数
 	uint64_t Render_Ui::text_cache_hits(void) const
 	{

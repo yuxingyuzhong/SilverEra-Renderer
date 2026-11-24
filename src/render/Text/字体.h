@@ -88,6 +88,8 @@ namespace engine
 		计数只增不减，跨多次绘制累加，字体销毁时随记录复位。
 		*/
 		uint64_t skipped_codepoints = 0;
+		//图集扩容次数（诊断；第九百七十八轮）
+		uint32_t atlas_grow_count = 0;
 		//记录是否有效
 		bool valid = false;
 	};

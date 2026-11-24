@@ -39,7 +39,9 @@ namespace engine
 		//开关（圆角轨道 + 左右滑块；第九百二十七轮）
 		Switch,
 		//下拉选择框（第九百六十五轮）
-		Combo
+		Combo,
+		//列表控件（固定展开的行列表，点选更新当前项；第九百八十一轮）
+		List_Box
 	};
 
 	//UI 像素矩形（左上原点、Y 向下）
@@ -387,6 +389,16 @@ namespace engine
 		std::size_t combo_index = 0;
 		//是否展开（第九百六十五轮）
 		bool combo_open = false;
+		//展开列表滚动行（第九百八十轮；最多 8 行可视）
+		std::size_t combo_scroll = 0;
+		//按住累计时长（秒；第九百八十二轮）
+		float press_hold = 0.0f;
+		//是否触发过长按（消费后清除；第九百八十二轮）
+		bool long_pressed = false;
+		//是否触发过双击（消费后清除；第九百八十二轮）
+		bool double_clicked = false;
+		//上次点击时间（秒；< 0 表示无记录；第九百八十二轮）
+		float last_click_time = -1.0f;
 		//是否可见
 		bool visible = true;
 		//是否裁剪直接子节点（假 = 子节点可溢出父矩形；第八百八十八轮）
@@ -664,6 +676,22 @@ namespace engine
 		std::size_t combo_index_get(Ui_Handle handle) const;
 		bool combo_open_set(Ui_Handle handle, bool open);
 		bool combo_open_get(Ui_Handle handle) const;
+		/*
+		列表控件（第九百八十一轮）
+		在矩形内按等分行高绘制全部选项，点选行更新当前项（复用 combo_items / combo_index）；
+		空选项列表创建失败；未知句柄设置返回假、读取返回 0。
+		*/
+		Ui_Handle list_box_create(Ui_Handle parent, const Ui_Rect& rect, const std::vector<std::string>& items,
+			std::size_t index = 0);
+		bool list_box_index_set(Ui_Handle handle, std::size_t index);
+		std::size_t list_box_index_get(Ui_Handle handle) const;
+		/*
+		长按 / 双击语义（第九百八十二轮）
+		按住累计达到 0.6 秒置长按标记；两次点击间隔不超过 0.35 秒置双击标记。
+		标记各消费一次即清除；未知句柄返回假。
+		*/
+		bool long_pressed_consume(Ui_Handle handle);
+		bool double_clicked_consume(Ui_Handle handle);
 		/*
 		设置 / 读取流式主轴弹性权重（第九百四十八轮）
 		stretch > 0 的子项按权重分配父容器主轴剩余空间；<= 0 不参与。
@@ -982,6 +1010,8 @@ namespace engine
 		float ui_scale = 1.0f;
 		//是否采用输入帧 dpi_scale 自动缩放（默认关闭；第九百七十一轮）
 		bool ui_scale_auto = false;
+		//交互累计时间（秒；长按 / 双击判定；第九百八十二轮）
+		double interaction_time = 0.0;
 		//主题色板
 		Ui_Theme theme{};
 

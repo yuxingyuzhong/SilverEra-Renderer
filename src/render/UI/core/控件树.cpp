@@ -795,6 +795,68 @@ namespace engine
 		return node->combo_open;
 	}
 
+	//创建列表控件（第九百八十一轮）
+	Ui_Handle Ui_Context::list_box_create(Ui_Handle parent, const Ui_Rect& rect,
+		const std::vector<std::string>& items, std::size_t index)
+	{
+		//空选项不创建
+		if (items.empty())
+			return 0;
+		const Ui_Handle handle = node_create_impl(nodes, parent, rect, Ui_Node_Type::List_Box);
+		Ui_Node* node = node_find(handle);
+		if (node != nullptr)
+		{
+			node->combo_items = items;
+			node->combo_index = index < items.size() ? index : items.size() - 1;
+			node->color = Ui_Color{ 0.12f, 0.12f, 0.16f, 0.98f };
+			node->text_color = Ui_Color{ 1.0f, 1.0f, 1.0f, 1.0f };
+		}
+		return handle;
+	}
+
+	//设置列表当前项
+	bool Ui_Context::list_box_index_set(Ui_Handle handle, std::size_t index)
+	{
+		Ui_Node* node = node_find(handle);
+		//非列表控件或无选项不改
+		if (node == nullptr || node->type != Ui_Node_Type::List_Box || node->combo_items.empty())
+			return false;
+		node->combo_index = index < node->combo_items.size() ? index : node->combo_items.size() - 1;
+		return true;
+	}
+
+	//读取列表当前项
+	std::size_t Ui_Context::list_box_index_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		//非列表控件返回 0
+		if (node == nullptr || node->type != Ui_Node_Type::List_Box)
+			return 0;
+		return node->combo_index;
+	}
+
+	//消费长按标记（第九百八十二轮）
+	bool Ui_Context::long_pressed_consume(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		//未触发过长按
+		if (node == nullptr || !node->long_pressed)
+			return false;
+		node->long_pressed = false;
+		return true;
+	}
+
+	//消费双击标记（第九百八十二轮）
+	bool Ui_Context::double_clicked_consume(Ui_Handle handle)
+	{
+		Ui_Node* node = node_find(handle);
+		//未触发过双击
+		if (node == nullptr || !node->double_clicked)
+			return false;
+		node->double_clicked = false;
+		return true;
+	}
+
 	//创建滑动条
 	Ui_Handle Ui_Context::slider_create(Ui_Handle parent, const Ui_Rect& rect, float value,		void (*on_value)(Ui_Handle, float, void*), void* user)
 	{

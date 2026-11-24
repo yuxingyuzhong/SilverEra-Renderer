@@ -351,6 +351,7 @@ namespace engine
 			//下拉状态与选项（第九百六十五轮）
 			hash_bytes(hash, &node->combo_index, sizeof(node->combo_index));
 			hash_bytes(hash, &node->combo_open, sizeof(node->combo_open));
+			hash_bytes(hash, &node->combo_scroll, sizeof(node->combo_scroll));
 			const std::size_t combo_count = node->combo_items.size();
 			hash_bytes(hash, &combo_count, sizeof(combo_count));
 			for (const std::string& item : node->combo_items)
@@ -489,6 +490,7 @@ namespace engine
 			{
 				last.index_count += index_count;
 				last.clip = rect_union(last.clip, current_clip);
+				stats.batch_merges += 1;
 				return;
 			}
 		}
@@ -521,6 +523,7 @@ namespace engine
 			{
 				last.index_count += index_count;
 				last.clip = rect_union(last.clip, current_clip);
+				stats.batch_merges += 1;
 				return;
 			}
 		}
@@ -828,10 +831,12 @@ namespace engine
 		float area_width, float line_height, float letter_spacing, float text_indent, bool wrap, bool ellipsis,
 		Ui_Align valign, const std::vector<Ui_Text_Span>& spans)
 	{
+		//区域宽度量化到 0.5 像素（亚像素抖动不失效；第九百八十三轮）
+		const float width_key = std::round(area_width * 2.0f) * 0.5f;
 		for (Block_Cache_Entry& entry : block_cache)
 		{
 			//键：字体 + 文本 + 区域宽度 + 行高 + 字间距 + 缩进 + 换行 + 省略 + 对齐 + 区间
-			if (entry.font_handle != font_handle || entry.area_width != area_width
+			if (entry.font_handle != font_handle || entry.area_width != width_key
 				|| entry.line_height != line_height || entry.letter_spacing != letter_spacing
 				|| entry.text_indent != text_indent
 				|| entry.wrap != wrap || entry.ellipsis != ellipsis || entry.valign != valign)
@@ -881,7 +886,8 @@ namespace engine
 		Block_Cache_Entry entry{};
 		entry.font_handle = font_handle;
 		entry.text = text;
-		entry.area_width = area_width;
+		//区域宽度按 0.5 像素量化存储，与查找口径一致（第九百八十三轮）
+		entry.area_width = std::round(area_width * 2.0f) * 0.5f;
 		entry.line_height = line_height;
 		entry.letter_spacing = letter_spacing;
 		entry.text_indent = text_indent;
@@ -1857,6 +1863,45 @@ namespace engine
 					system_focus_ring(node->rect);
 				break;
 			}
+			//列表控件：背景 + 等分行 + 当前项高亮 + 行文本
+			case Ui_Node_Type::List_Box:
+			{
+				const Ui_Color box_color = node->role == Ui_Role::Custom ? node->color
+					: ui_theme_color(ui.theme_get(), node->role,
+						node->enabled ? Ui_Visual_State::Normal : Ui_Visual_State::Disabled);
+				background_append(node->rect, node->corner_radius, node->border_width,
+					with_opacity(node->border_color, node->opacity),
+					with_opacity(box_color, node->opacity));
+				const std::size_t count = node->combo_items.size();
+				//空列表只有背景
+				if (count > 0)
+				{
+					const float row_height = node->rect.h / static_cast<float>(count);
+					for (std::size_t index = 0; index < count; ++index)
+					{
+						const Ui_Rect row_rect{ node->rect.x,
+							node->rect.y + row_height * static_cast<float>(index),
+							node->rect.w, row_height };
+						//当前项高亮
+						if (index == node->combo_index)
+						{
+							Ui_Color highlight = ui.theme_get().accent;
+							highlight.a = 0.35f;
+							quad_append(row_rect, with_opacity(highlight, node->opacity));
+						}
+						text_append(node_font, node->combo_items[index],
+							row_rect.x + 6.0f,
+							row_rect.y + (row_rect.h - node_text_height) * 0.5f,
+							row_rect.w - 12.0f, with_opacity(node->text_color, node->opacity));
+					}
+				}
+				//焦点环
+				if (node->focused)
+					focus_ring(node->rect);
+				if (node->system_focused)
+					system_focus_ring(node->rect);
+				break;
+			}
 			//滑动条：轨道 + 进度填充 + 滑块
 			case Ui_Node_Type::Slider:
 			{
@@ -1964,13 +2009,20 @@ namespace engine
 				quad_append(Ui_Rect{ node->rect.x + node->rect.w - 14.0f,
 					node->rect.y + node->rect.h * 0.5f - 2.0f, 8.0f, 4.0f },
 					with_opacity(node->text_color, node->opacity));
-				//展开列表
+				//展开列表（最多 8 行可视，按滚动行偏移；第九百八十轮）
 				if (node->combo_open)
 				{
-					for (std::size_t index = 0; index < node->combo_items.size(); ++index)
+					constexpr std::size_t VISIBLE_ROWS = 8;
+					const std::size_t visible = node->combo_items.size() < VISIBLE_ROWS
+						? node->combo_items.size() : VISIBLE_ROWS;
+					for (std::size_t row = 0; row < visible; ++row)
 					{
+						const std::size_t index = node->combo_scroll + row;
+						//越界行不绘制
+						if (index >= node->combo_items.size())
+							break;
 						const Ui_Rect row_rect{ node->rect.x,
-							node->rect.y + node->rect.h * static_cast<float>(index + 1),
+							node->rect.y + node->rect.h * static_cast<float>(row + 1),
 							node->rect.w, node->rect.h };
 						quad_append(row_rect,
 							with_opacity(Ui_Color{ 0.12f, 0.12f, 0.16f, 0.98f }, node->opacity));

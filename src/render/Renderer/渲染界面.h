@@ -76,6 +76,11 @@ namespace engine
 		句柄无效返回假并把两出参置 0；成功写出当前宽度 / 高度（像素）。
 		*/
 		bool font_atlas_size(uint64_t font, uint32_t& width_out, uint32_t& height_out) const;
+		/*
+		取图集扩容与退役统计（诊断；第九百七十八轮）
+		grow_out = 扩容成功次数，retired_out = 当前退役纹理数；句柄无效返回假并把两出参置 0。
+		*/
+		bool font_atlas_stats(uint64_t font, uint32_t& grow_out, uint32_t& retired_out) const;
 		//文字网格缓存命中次数（自 init 起累计）
 		uint64_t text_cache_hits(void) const;
 		//文字网格缓存未命中次数（自 init 起累计）

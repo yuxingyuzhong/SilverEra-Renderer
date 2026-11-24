@@ -113,6 +113,13 @@ namespace engine
 		//新高度（翻倍并对齐到 4 的倍数）
 		uint32_t new_height = record.atlas_height * 2;
 		new_height = (new_height + 3) / 4 * 4;
+		//扩容上限（第九百七十八轮）：超过上限不再扩容，调用方按空间不足跳过字形
+		constexpr uint32_t ATLAS_MAX_HEIGHT = 8192;
+		if (new_height > ATLAS_MAX_HEIGHT)
+		{
+			logger.warn("字体:: 字形图集已达高度上限 {}（请求 {}）", ATLAS_MAX_HEIGHT, new_height);
+			return false;
+		}
 		//新像素缓冲（RGB 恒白、A 为覆盖率；新增区域全透明）
 		vector<uint8_t> pixels(static_cast<size_t>(record.atlas_width) * new_height * 4, 0);
 		for (size_t index = 0; index < pixels.size(); index += 4)
@@ -135,12 +142,21 @@ namespace engine
 			logger.error("字体:: 字形图集扩容时纹理重建失败（{}×{}）", record.atlas_width, new_height);
 			return false;
 		}
-		//旧纹理退役（延迟到字体销毁时统一归还，避免在途帧采样已销毁纹理）
+		//旧纹理退役（延迟归还，避免在途帧采样已销毁纹理）
 		if (record.atlas_texture != 0)
+		{
 			record.retired_atlas_textures.push_back(record.atlas_texture);
+			//退役列表超限时销毁最旧项（第九百七十八轮）
+			while (record.retired_atlas_textures.size() > 8)
+			{
+				texture.texture_destroy(record.retired_atlas_textures.front());
+				record.retired_atlas_textures.erase(record.retired_atlas_textures.begin());
+			}
+		}
 		record.atlas_texture = new_texture;
 		record.atlas_pixels.swap(pixels);
 		record.atlas_height = new_height;
+		record.atlas_grow_count += 1;
 
 		//按新高度重算全部字形 uv（u 不变，v 按新高度缩放）
 		for (auto& entry : record.glyphs)
@@ -593,6 +609,12 @@ namespace engine
 			return false;
 		}
 		record.retired_atlas_textures.push_back(record.atlas_texture);
+		//退役列表超限时销毁最旧项（第九百七十八轮）
+		while (record.retired_atlas_textures.size() > 8)
+		{
+			texture->texture_destroy(record.retired_atlas_textures.front());
+			record.retired_atlas_textures.erase(record.retired_atlas_textures.begin());
+		}
 		record.atlas_texture = rebuilt_texture;
 		logger.info("字体:: 字形图集已补烘（现存 {} 个字形，图集 {}×{}）",
 			static_cast<uint32_t>(record.glyphs.size()), record.atlas_width, record.atlas_height);

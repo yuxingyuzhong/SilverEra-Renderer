@@ -77,7 +77,8 @@ namespace engine
 	{
 		return node.type == Ui_Node_Type::Button || node.type == Ui_Node_Type::Text_Box
 			|| node.type == Ui_Node_Type::Checkbox || node.type == Ui_Node_Type::Slider
-			|| node.type == Ui_Node_Type::Radio || node.type == Ui_Node_Type::Switch;
+			|| node.type == Ui_Node_Type::Radio || node.type == Ui_Node_Type::Switch
+			|| node.type == Ui_Node_Type::Combo;
 	}
 
 	//Tab 焦点导航
@@ -341,6 +342,8 @@ namespace engine
 	{
 		//DPI 缩放：仅开启自动缩放时采用输入帧比例（默认 1，保持既有像素口径；第九百七十一轮）
 		ui_scale = (ui_scale_auto && input.dpi_scale > 0.0f) ? input.dpi_scale : 1.0f;
+		//交互累计时间（长按 / 双击判定；第九百八十二轮）
+		interaction_time += input.dt;
 		const float pointer_x = input.pointer.x / ui_scale;
 		const float pointer_y = input.pointer.y / ui_scale;
 		//根节点铺满窗口客户区
@@ -432,7 +435,10 @@ namespace engine
 		{
 			const Ui_Node* focus_node = focused != 0 ? node_find(focused) : nullptr;
 			const bool text_editing = focus_node != nullptr && focus_node->type == Ui_Node_Type::Text_Box;
-			if (!text_editing)
+			//展开的下拉框消费上下键（第九百七十九轮）
+			const bool combo_navigating = focus_node != nullptr && focus_node->type == Ui_Node_Type::Combo
+				&& focus_node->combo_open;
+			if (!text_editing && !combo_navigating)
 			{
 				int move_x = 0;
 				int move_y = 0;
@@ -497,7 +503,32 @@ namespace engine
 			}
 		}
 
-		//下拉选择框：展开 / 收起与选项点选（第九百六十五轮）
+		//列表控件：点选行更新当前项（第九百八十一轮）
+		if (input.pointer.button_pressed[0])
+		{
+			for (Ui_Node& node : nodes)
+			{
+				//仅处理可用列表
+				if (node.handle == 0 || !node.alive || node.type != Ui_Node_Type::List_Box
+					|| !node.visible || !node.enabled || node.combo_items.empty())
+					continue;
+				//点在行内：按等分行高取下标
+				if (node.rect.contains(pointer_x, pointer_y))
+				{
+					const float row_height = node.rect.h / static_cast<float>(node.combo_items.size());
+					std::size_t row = 0;
+					if (row_height > 0.0f)
+						row = static_cast<std::size_t>((pointer_y - node.rect.y) / row_height);
+					if (row >= node.combo_items.size())
+						row = node.combo_items.size() - 1;
+					node.combo_index = row;
+					node.clicked = true;
+					break;
+				}
+			}
+		}
+
+		//下拉选择框：展开 / 收起与选项点选（第九百六十五轮；第九百八十轮展开区滚动）
 		if (input.pointer.button_pressed[0])
 		{
 			for (Ui_Node& node : nodes)
@@ -519,12 +550,16 @@ namespace engine
 				//展开时点在选项区：更新下标并收起
 				if (node.combo_open)
 				{
+					constexpr std::size_t VISIBLE_ROWS = 8;
 					const float list_y = node.rect.y + node.rect.h;
-					const float list_h = node.rect.h * static_cast<float>(node.combo_items.size());
+					const std::size_t visible = node.combo_items.size() < VISIBLE_ROWS
+						? node.combo_items.size() : VISIBLE_ROWS;
+					const float list_h = node.rect.h * static_cast<float>(visible);
 					if (px >= node.rect.x && px <= node.rect.x + node.rect.w
 						&& py >= list_y && py < list_y + list_h)
 					{
-						const std::size_t index = static_cast<std::size_t>((py - list_y) / node.rect.h);
+						const std::size_t row = static_cast<std::size_t>((py - list_y) / node.rect.h);
+						const std::size_t index = node.combo_scroll + row;
 						if (index < node.combo_items.size())
 							node.combo_index = index;
 						node.combo_open = false;
@@ -532,6 +567,38 @@ namespace engine
 						break;
 					}
 				}
+			}
+		}
+
+		//下拉选择框：展开区滚轮滚动（第九百八十轮）
+		if (input.pointer.wheel_y != 0.0f)
+		{
+			for (Ui_Node& node : nodes)
+			{
+				//仅处理展开且可用的下拉
+				if (node.handle == 0 || !node.alive || node.type != Ui_Node_Type::Combo
+					|| !node.visible || !node.enabled || !node.combo_open)
+					continue;
+				constexpr std::size_t VISIBLE_ROWS = 8;
+				const float list_y = node.rect.y + node.rect.h;
+				const std::size_t visible = node.combo_items.size() < VISIBLE_ROWS
+					? node.combo_items.size() : VISIBLE_ROWS;
+				const float list_h = node.rect.h * static_cast<float>(visible);
+				//指针须落在展开区内
+				if (!(pointer_x >= node.rect.x && pointer_x <= node.rect.x + node.rect.w
+					&& pointer_y >= list_y && pointer_y < list_y + list_h))
+					continue;
+				const std::size_t maximum = node.combo_items.size() > visible
+					? node.combo_items.size() - visible : 0;
+				//滚轮向下为正：wheel_y < 0 时下移
+				long long next = static_cast<long long>(node.combo_scroll);
+				next += input.pointer.wheel_y < 0.0f ? 1 : -1;
+				if (next < 0)
+					next = 0;
+				if (static_cast<std::size_t>(next) > maximum)
+					next = static_cast<long long>(maximum);
+				node.combo_scroll = static_cast<std::size_t>(next);
+				break;
 			}
 		}
 
@@ -551,6 +618,9 @@ namespace engine
 			if (node != nullptr && node_focusable(*node))
 			{
 				pressed = node->handle;
+				//按下即重置长按累计（第九百八十二轮）
+				node->press_hold = 0.0f;
+				node->long_pressed = false;
 				//点击可聚焦控件即获焦（文本框同时进入文本模式）
 				focus_set(node->handle);
 				//滑动条按下即开始拖拽并更新取值
@@ -579,6 +649,15 @@ namespace engine
 			Ui_Node* node = node_find(pressed);
 			if (node != nullptr && pressed == hovered)
 			{
+				//双击判定：与上次点击间隔不超过 0.35 秒（第九百八十二轮）
+				const float now = static_cast<float>(interaction_time);
+				if (node->last_click_time >= 0.0f && now - node->last_click_time <= 0.35f)
+				{
+					node->double_clicked = true;
+					node->last_click_time = -1.0f;
+				}
+				else
+					node->last_click_time = now;
 				//按钮：触发点击回调
 				if (node->type == Ui_Node_Type::Button)
 				{
@@ -615,6 +694,18 @@ namespace engine
 		for (Ui_Node& node : nodes)
 			node.pressed = node.alive && node.handle == pressed && input.pointer.button_down[0];
 
+		//长按累计：按住达到 0.6 秒置标记（第九百八十二轮）
+		if (pressed != 0)
+		{
+			Ui_Node* hold_node = node_find(pressed);
+			if (hold_node != nullptr)
+			{
+				hold_node->press_hold += static_cast<float>(input.dt);
+				if (hold_node->press_hold >= 0.6f)
+					hold_node->long_pressed = true;
+			}
+		}
+
 		//焦点控件消费键盘：Enter / 空格激活按钮与复选框（键盘总闸关闭时不响应）
 		Ui_Node* focus_node = keyboard_gate ? node_find(focused) : nullptr;
 		if (focus_node != nullptr)
@@ -649,6 +740,47 @@ namespace engine
 			//单选按钮：键盘激活同鼠标
 			else if (activate && focus_node->type == Ui_Node_Type::Radio)
 				radio_select(*focus_node);
+			//下拉框键盘操作（第九百七十九轮）
+			else if (focus_node->type == Ui_Node_Type::Combo)
+			{
+				//展开态：上下键移动、回车确认、Esc 收起
+				if (focus_node->combo_open)
+				{
+					//本帧是否发生选项移动
+					bool combo_moved = false;
+					if (input.key_pressed_check(SDL_SCANCODE_UP) && focus_node->combo_index > 0)
+					{
+						focus_node->combo_index -= 1;
+						combo_moved = true;
+					}
+					if (input.key_pressed_check(SDL_SCANCODE_DOWN)
+						&& focus_node->combo_index + 1 < focus_node->combo_items.size())
+					{
+						focus_node->combo_index += 1;
+						combo_moved = true;
+					}
+					if (input.key_pressed_check(SDL_SCANCODE_RETURN)
+						|| input.key_pressed_check(SDL_SCANCODE_KP_ENTER))
+					{
+						focus_node->combo_open = false;
+						focus_node->clicked = true;
+					}
+					else if (input.key_pressed_check(SDL_SCANCODE_ESCAPE))
+						focus_node->combo_open = false;
+					//仅在键盘移动时保持当前项可见（避免覆盖滚轮滚动；第九百八十轮）
+					constexpr std::size_t VISIBLE_ROWS = 8;
+					if (combo_moved)
+					{
+						if (focus_node->combo_index < focus_node->combo_scroll)
+							focus_node->combo_scroll = focus_node->combo_index;
+						else if (focus_node->combo_index >= focus_node->combo_scroll + VISIBLE_ROWS)
+							focus_node->combo_scroll = focus_node->combo_index - (VISIBLE_ROWS - 1);
+					}
+				}
+				//收起态：回车 / 空格展开
+				else if (activate)
+					focus_node->combo_open = true;
+			}
 			//焦点文本框消费文本与编辑键
 			else if (focus_node->type == Ui_Node_Type::Text_Box)
 				text_edit(*focus_node, input);

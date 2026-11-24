@@ -53,6 +53,8 @@ namespace engine
 		uint32_t block_cache_hits = 0;
 		//本帧文本块布局缓存未命中次数
 		uint32_t block_cache_misses = 0;
+		//本帧绘制记录合批次数（第九百八十五轮）
+		uint32_t batch_merges = 0;
 	};
 
 	/*
