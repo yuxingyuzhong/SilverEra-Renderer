@@ -353,6 +353,10 @@ namespace engine
 		Ui_Handle radio_group = 0;
 		//滑动条值（0..1）
 		float value = 0.0f;
+		//显示数值（供绘制；动画开启时向 value 逐帧趋近；第九百四十五轮）
+		float display_value = 0.0f;
+		//数值插值速率（每秒；<= 0 关闭；第九百四十五轮）
+		float anim_speed = 0.0f;
 		//进度条 / 滑动条是否纵向（假 = 横向；第九百二十三轮）
 		bool vertical = false;
 		//滑动条交互步进（>0 时按该档距量化；0 = 连续；第九百二十四轮）
@@ -672,6 +676,13 @@ namespace engine
 		//滑动条值读取 / 设置（0..1 钳制）
 		bool value_get(Ui_Handle handle, float& value_out) const;
 		bool value_set(Ui_Handle handle, float value);
+		/*
+		数值插值（第九百四十五轮）
+		anim_speed 为每秒趋近速率（<= 0 关闭）；开启后每帧按帧时间把显示值向目标值趋近，
+		读取接口 value_get 仍返回目标值。未知句柄设置返回假，读取返回 0。
+		*/
+		bool anim_speed_set(Ui_Handle handle, float speed);
+		float anim_speed_get(Ui_Handle handle) const;
 		//设置可见
 		bool visible_set(Ui_Handle handle, bool visible);
 		/*

@@ -284,6 +284,8 @@ namespace engine
 			hash_bytes(hash, &node->system_focused, sizeof(node->system_focused));
 			hash_bytes(hash, &node->checked, sizeof(node->checked));
 			hash_bytes(hash, &node->value, sizeof(node->value));
+			hash_bytes(hash, &node->display_value, sizeof(node->display_value));
+			hash_bytes(hash, &node->anim_speed, sizeof(node->anim_speed));
 			hash_bytes(hash, &node->vertical, sizeof(node->vertical));
 			hash_bytes(hash, &node->clip_children, sizeof(node->clip_children));
 			hash_bytes(hash, &node->caret, sizeof(node->caret));
@@ -1562,7 +1564,7 @@ namespace engine
 				//已选进度
 				if (vertical)
 				{
-					const float fill_height = node->rect.h * node->value;
+					const float fill_height = node->rect.h * node->display_value;
 					if (fill_height > 0.0f)
 					{
 						//自下而上时填充贴底
@@ -1575,7 +1577,7 @@ namespace engine
 				}
 				else
 				{
-					const float fill_width = node->rect.w * node->value;
+					const float fill_width = node->rect.w * node->display_value;
 					if (fill_width > 0.0f)
 						quad_append(Ui_Rect{ node->rect.x, track_rect.y, fill_width, 4.0f },
 							with_opacity(focus_color, node->opacity));
@@ -1583,9 +1585,9 @@ namespace engine
 				//滑块（横向 10 × 18，纵向 18 × 10，居中于当前值）
 				const Ui_Rect knob_rect = vertical
 					? Ui_Rect{ node->rect.x + node->rect.w * 0.5f - 9.0f,
-						node->rect.y + node->rect.h * (reversed ? 1.0f - node->value : node->value) - 5.0f,
+						node->rect.y + node->rect.h * (reversed ? 1.0f - node->display_value : node->display_value) - 5.0f,
 						18.0f, 10.0f }
-					: Ui_Rect{ node->rect.x + node->rect.w * node->value - 5.0f,
+					: Ui_Rect{ node->rect.x + node->rect.w * node->display_value - 5.0f,
 						node->rect.y + node->rect.h * 0.5f - 9.0f, 10.0f, 18.0f };
 				Ui_Color knob_color{ 0.85f, 0.88f, 0.95f, 1.0f };
 				if (node->pressed || node->hovered)
@@ -1614,7 +1616,8 @@ namespace engine
 					with_opacity(node->border_color, node->opacity),
 					with_opacity(background_color, node->opacity));
 				//前景按取值比例（0..1 夹紧）填充；纵向自底向上
-				const float ratio = node->value < 0.0f ? 0.0f : (node->value > 1.0f ? 1.0f : node->value);
+				const float ratio = node->display_value < 0.0f ? 0.0f
+					: (node->display_value > 1.0f ? 1.0f : node->display_value);
 				if (ratio > 0.0f)
 				{
 					const Ui_Rect fill = node->vertical

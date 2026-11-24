@@ -298,6 +298,27 @@ namespace engine
 		//按滚动偏移平移矩形（逐帧执行，保证命中与绘制一致）
 		scroll_apply();
 
+		//数值插值：按帧时间把显示值向目标值趋近（第九百四十五轮）
+		if (input.dt > 0.0)
+		{
+			for (Ui_Node& node : nodes)
+			{
+				//已销毁槽位或未开启插值
+				if (node.handle == 0 || !node.alive || node.anim_speed <= 0.0f)
+					continue;
+				//本帧最大步进
+				const float step = node.anim_speed * static_cast<float>(input.dt);
+				//目标与显示值之差
+				const float diff = node.value - node.display_value;
+				const float magnitude = diff >= 0.0f ? diff : -diff;
+				//一步内可达则直接到位
+				if (magnitude <= step)
+					node.display_value = node.value;
+				else
+					node.display_value += diff >= 0.0f ? step : -step;
+			}
+		}
+
 		//清除上一帧的单击标记
 		for (Ui_Node& node : nodes)
 			node.clicked = false;

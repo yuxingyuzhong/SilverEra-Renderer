@@ -728,6 +728,7 @@ namespace engine
 		if (node != nullptr)
 		{
 			node->value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+			node->display_value = node->value;
 			node->on_value = on_value;
 			node->user = user;
 			//默认引用滑动条角色（轨道跟随主题底色；显式 Custom 仍可覆盖）
@@ -749,6 +750,7 @@ namespace engine
 		if (node != nullptr)
 		{
 			node->value = value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+			node->display_value = node->value;
 			node->label = label;
 			node->role = Ui_Role::Progress;
 			node->color = Ui_Color{ 0.16f, 0.16f, 0.20f, 1.0f };
@@ -1366,7 +1368,29 @@ namespace engine
 		else if (value > 1.0f)
 			value = 1.0f;
 		node->value = value;
+		//无动画时显示值立即同步
+		if (node->anim_speed <= 0.0f)
+			node->display_value = value;
 		return true;
+	}
+
+	//设置数值插值速率
+	bool Ui_Context::anim_speed_set(Ui_Handle handle, float speed)
+	{
+		Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return false;
+		node->anim_speed = speed;
+		return true;
+	}
+
+	//读取数值插值速率
+	float Ui_Context::anim_speed_get(Ui_Handle handle) const
+	{
+		const Ui_Node* node = node_find(handle);
+		if (node == nullptr)
+			return 0.0f;
+		return node->anim_speed;
 	}
 
 	//设置可见
