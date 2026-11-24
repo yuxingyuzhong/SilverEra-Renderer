@@ -128,6 +128,10 @@ namespace engine
 			bool text = false;
 			//该条绘制的裁剪矩形（窗口像素；阶段录制时转为 scissor）
 			Ui_Rect clip{};
+			//圆角裁剪矩形（逻辑像素；半径 <= 0 表示不启用；第九百七十四–九百七十五轮）
+			Ui_Rect clip_round{};
+			//圆角裁剪半径（逻辑像素；0 = 不启用）
+			float clip_round_radius = 0.0f;
 		};
 		//文本几何缓存条目（第九百零二轮）
 		struct Text_Cache_Entry
@@ -183,6 +187,12 @@ namespace engine
 		相邻记录同色且索引连续时合并为一条（裁剪取并集，各矩形几何仍在自身范围内），减少相邻纯色绘制次数。
 		*/
 		void solid_draw_append(const Ui_Color& color, uint32_t first_index, uint32_t index_count);
+		/*
+		登记纹理绘制记录（第九百七十六轮）
+		相邻记录同纹理、同类别（文字 / 图片）、同色、同圆角且索引连续时合并为一条（裁剪取并集）。
+		*/
+		void texture_draw_append(uint64_t texture, bool text, const Ui_Color& color,
+			uint32_t first_index, uint32_t index_count);
 		//追加一个纹理矩形（UV 铺满 0..1）并登记纹理绘制（第八百九十三轮）
 		void quad_textured_append(uint64_t texture, const Ui_Rect& rect, const Ui_Color& color);
 		//追加一个指定 UV 范围的纹理矩形（第九百零六轮）
@@ -296,6 +306,9 @@ namespace engine
 		std::vector<float> inherited_round_radii{};
 		//当前控件的裁剪矩形（追加几何时写入绘制记录）
 		Ui_Rect current_clip{};
+		//当前控件的圆角裁剪矩形与半径（第九百七十五轮）
+		Ui_Rect current_round_rect{};
+		float current_round_radius = 0.0f;
 		//最近一帧绘制统计
 		Ui_Render_Stats stats{};
 		//最近一次几何重建对应的指纹

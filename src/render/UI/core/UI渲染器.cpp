@@ -482,7 +482,10 @@ namespace engine
 			if (!last.text && last.texture == 0
 				&& last.first_index + last.index_count == first_index
 				&& last.color.r == color.r && last.color.g == color.g
-				&& last.color.b == color.b && last.color.a == color.a)
+				&& last.color.b == color.b && last.color.a == color.a
+				&& last.clip_round_radius == current_round_radius
+				&& last.clip_round.x == current_round_rect.x && last.clip_round.y == current_round_rect.y
+				&& last.clip_round.w == current_round_rect.w && last.clip_round.h == current_round_rect.h)
 			{
 				last.index_count += index_count;
 				last.clip = rect_union(last.clip, current_clip);
@@ -495,6 +498,41 @@ namespace engine
 		record.color = color;
 		record.text = false;
 		record.clip = current_clip;
+		record.clip_round = current_round_rect;
+		record.clip_round_radius = current_round_radius;
+		draws.push_back(record);
+	}
+
+	//登记纹理绘制记录（相邻同纹理同色合并；第九百七十六轮）
+	void Ui_Renderer::texture_draw_append(uint64_t texture, bool text, const Ui_Color& color,
+		uint32_t first_index, uint32_t index_count)
+	{
+		//上一条为同纹理同类别同色且索引连续：合并（裁剪取并集）
+		if (!draws.empty())
+		{
+			Draw_Record& last = draws.back();
+			if (last.texture == texture && last.text == text
+				&& last.first_index + last.index_count == first_index
+				&& last.color.r == color.r && last.color.g == color.g
+				&& last.color.b == color.b && last.color.a == color.a
+				&& last.clip_round_radius == current_round_radius
+				&& last.clip_round.x == current_round_rect.x && last.clip_round.y == current_round_rect.y
+				&& last.clip_round.w == current_round_rect.w && last.clip_round.h == current_round_rect.h)
+			{
+				last.index_count += index_count;
+				last.clip = rect_union(last.clip, current_clip);
+				return;
+			}
+		}
+		Draw_Record record{};
+		record.first_index = first_index;
+		record.index_count = index_count;
+		record.color = color;
+		record.texture = texture;
+		record.text = text;
+		record.clip = current_clip;
+		record.clip_round = current_round_rect;
+		record.clip_round_radius = current_round_radius;
 		draws.push_back(record);
 	}
 
@@ -645,15 +683,9 @@ namespace engine
 		if (cpu_indices.size() == index_base)
 			return;
 
-		//登记纹理绘制记录
-		Draw_Record record{};
-		record.first_index = index_base;
-		record.index_count = static_cast<uint32_t>(cpu_indices.size()) - index_base;
-		record.color = color;
-		record.texture = texture;
-		record.text = false;
-		record.clip = current_clip;
-		draws.push_back(record);
+		//登记纹理绘制记录（相邻同纹理同色合并；第九百七十六轮）
+		texture_draw_append(texture, false, color, index_base,
+			static_cast<uint32_t>(cpu_indices.size()) - index_base);
 	}
 
 	//只追加纹理矩形几何、不登记绘制记录
@@ -743,15 +775,9 @@ namespace engine
 		if (cpu_indices.size() == index_base)
 			return;
 
-		//登记单条纹理绘制记录
-		Draw_Record record{};
-		record.first_index = index_base;
-		record.index_count = static_cast<uint32_t>(cpu_indices.size()) - index_base;
-		record.color = color;
-		record.texture = texture;
-		record.text = false;
-		record.clip = current_clip;
-		draws.push_back(record);
+		//登记单条纹理绘制记录（九宫格九块合批；第九百零九 / 九百七十六轮）
+		texture_draw_append(texture, false, color, index_base,
+			static_cast<uint32_t>(cpu_indices.size()) - index_base);
 	}
 
 	//查找文本几何缓存条目
@@ -930,15 +956,9 @@ namespace engine
 		for (uint32_t index : entry->mesh.indices)
 			cpu_indices.push_back(base + index);
 
-		//登记文字绘制记录
-		Draw_Record draw_record{};
-		draw_record.first_index = index_base;
-		draw_record.index_count = static_cast<uint32_t>(entry->mesh.indices.size());
-		draw_record.color = color;
-		draw_record.texture = record->atlas_texture;
-		draw_record.text = true;
-		draw_record.clip = current_clip;
-		draws.push_back(draw_record);
+		//登记文字绘制记录（同图集同色相邻合并；第九百七十六轮）
+		texture_draw_append(record->atlas_texture, true, color, index_base,
+			static_cast<uint32_t>(entry->mesh.indices.size()));
 
 		//登记本帧使用的字形图集
 		text_atlas = record->atlas_texture;
@@ -1448,6 +1468,9 @@ namespace engine
 				continue;
 			//本控件后续几何按此裁剪
 			current_clip = clip;
+			//继承父级圆角裁剪（第九百七十五轮：着色器按圆角丢弃片元）
+			current_round_rect = round_rect;
+			current_round_radius = round_radius;
 
 			//控件专用字体（0 回退全局字体）与字体高度
 			const uint64_t node_font = node->text_font != 0 ? node->text_font : font_handle;
@@ -2026,11 +2049,15 @@ namespace engine
 		vkCmdBindVertexBuffers(command_buffer, 0, 1, &buffers.vertex_buffer, &vertex_offset);
 		vkCmdBindIndexBuffer(command_buffer, buffers.index_buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		//推送常量（像素坐标 → NDC 矩阵 + 颜色）
+		//推送常量（像素坐标 → NDC 矩阵 + 颜色 + 圆角裁剪）
 		struct Push_Constant
 		{
 			float transform[16];
 			float color[4];
+			//圆角裁剪矩形（逻辑像素：x / y / w / h）
+			float clip_rect[4];
+			//圆角参数（x = 半径，y = 启用标记，z = UI 缩放，w = 保留）
+			float clip_round[4];
 		};
 		/*
 		像素坐标 → NDC 的仿射矩阵（列主序）
@@ -2113,11 +2140,19 @@ namespace engine
 				}
 			}
 
-			//写入颜色并绘制
+			//写入颜色与圆角裁剪并绘制（第九百七十五轮）
 			push.color[0] = record.color.r;
 			push.color[1] = record.color.g;
 			push.color[2] = record.color.b;
 			push.color[3] = record.color.a;
+			push.clip_rect[0] = record.clip_round.x;
+			push.clip_rect[1] = record.clip_round.y;
+			push.clip_rect[2] = record.clip_round.w;
+			push.clip_rect[3] = record.clip_round.h;
+			push.clip_round[0] = record.clip_round_radius;
+			push.clip_round[1] = record.clip_round_radius > 0.0f ? 1.0f : 0.0f;
+			push.clip_round[2] = ui_scale;
+			push.clip_round[3] = 0.0f;
 			vkCmdPushConstants(command_buffer, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 				0, sizeof(Push_Constant), &push);
 			vkCmdDrawIndexed(command_buffer, record.index_count, 1, record.first_index, 0, 0);
